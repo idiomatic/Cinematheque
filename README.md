@@ -4,7 +4,7 @@ Cinematheque is a video library for your household. It catalogs the movies and T
 
 Every device keeps its own copy of the catalog: the titles, their episodes and versions, where each file is, and what you've watched, but not the videos themselves. So each device can browse while offline, and catches up with the others when they meet, on your home network or wherever else they can reach each other. The videos stay where they are, on servers you already run, such as a NAS's web server, Caddy, nginx, or Apache, and play from there over plain HTTP.
 
-> **Status:** early. Today Cinematheque is a command-line peer for macOS and Linux that builds and shares a library, and a first macOS player that browses it and plays from your repositories. Players for other Apple devices, Linux, and Windows, managing the library from the Mac app, outside metadata (posters, plots, ratings), and the transcoder are planned; see [DEVELOPMENT.md](DEVELOPMENT.md).
+> **Status:** early. Today Cinematheque is a command-line peer for macOS and Linux that builds and shares a library, and a first macOS player that browses it and plays from your repositories. Players for other Apple devices, Linux, and Windows, outside metadata beyond what video files carry, and the transcoder are planned; see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Ideas
 
@@ -113,7 +113,9 @@ Aliases are shared with every peer, so you only do it once; `alias list` shows t
 
 ## Watching on a Mac
 
-The Mac app shows the library on this Mac and plays any copy straight from its repository, resuming where you left off on any of your devices. Open [apple/Cinematheque.xcodeproj](apple/Cinematheque.xcodeproj) in Xcode and run it, or build it from the command line:
+The Mac app browses the library by cover art: movies, and each series by season. Select one for its details, and play it straight from its repository, resuming where you left off on any of your devices; a season plays on from its next unwatched episode. Covers and descriptions come from your repositories: a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them, or else the cover and details your MP4 files carry (as HandBrake, iTunes, and tagging tools write them). Star titles for your watchlist, which, like what you've watched, is yours alone.
+
+On first run, the app creates a library, or joins one; its Settings manage repositories, members, and syncing, so a household needs no command line. Open [apple/Cinematheque.xcodeproj](apple/Cinematheque.xcodeproj) in Xcode and run it, or build it from the command line:
 
 ```sh
 cd apple
@@ -122,7 +124,7 @@ open "$(xcodebuild -scheme Cinematheque -configuration Release \
   -showBuildSettings | sed -n 's/^ *BUILT_PRODUCTS_DIR = //p')/Cinematheque.app"
 ```
 
-It opens the library in the peer's home, so create and fill one with the command-line peer first.
+It uses the same home as the command-line peer, so either can manage the library. Serving, so others can sync from this Mac, and the background agent still take the command-line peer.
 
 From the command line, `playhead list` shows what you're partway through or have watched, `playhead set` records it, and `playhead remove` forgets it.
 

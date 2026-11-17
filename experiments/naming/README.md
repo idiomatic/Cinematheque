@@ -1,5 +1,7 @@
 # Naming experiment
 
+> This experiment grew into the core's [naming](../../core/src/naming.zig) and its [tests](../../core/src/naming_tests.zig). Its code was removed after commit `92243e1`; `git checkout 92243e1 -- experiments/naming` restores it, to rerun the measurements below.
+
 Tests what is now **Naming** in [AGENTS.md](../../AGENTS.md), toward **Correlation** in [DEVELOPMENT.md](../../DEVELOPMENT.md): a Zig-native parser that turns a repository path into what a search for its title needs, following the Plex, Jellyfin, and Kodi naming guides and common scene names (see [docs/specifications](../../docs/specifications/README.md)).
 
 ## Running
@@ -13,7 +15,7 @@ curl -s http://127.0.0.1:8090/INDEX > /tmp/cinematheque-INDEX   # from the repos
 
 ## Design
 
-[src/parse.zig](src/parse.zig) uses hand-written scanners, not regular expressions:
+`src/parse.zig` uses hand-written scanners, not regular expressions:
 
 * **Tags:** `{tmdb-…}`, `{imdb-…}`, `{tvdb-…}`, `{edition-…}`, and Jellyfin's `[imdbid-…]`, `[tmdbid-…]`, `[tvdbid-…]`, in file or folder names.
 * **Episodes:** `S01E02`, `S01E02E03`, `S01E02-E03`, `1x02`, a bare `E02` inside a season folder, and air dates (`2026.11.16`); seasons also come from `Season 01` and `Specials` folders, and the series from the folder above.
@@ -21,7 +23,7 @@ curl -s http://127.0.0.1:8090/INDEX > /tmp/cinematheque-INDEX   # from the repos
 * **Extras:** Jellyfin's folders (`Trailers`, `Featurettes`, and others) and suffixes (`-trailer`, `-deleted`, and others).
 * **Scene names:** dots and underscores become spaces except in acronyms ("S.W.A.T"), and the title ends at the first scene token (`1080p`, `BluRay`, `x264`, `WEB-DL`, and others).
 
-[src/tests.zig](src/tests.zig) holds 39 fixtures drawn from the naming guides and scene names.
+`src/tests.zig` holds 39 fixtures drawn from the naming guides and scene names.
 
 ## Results
 

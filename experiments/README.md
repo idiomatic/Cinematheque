@@ -1,6 +1,6 @@
 # Experiments
 
-The prototypes the [core](../core/README.md) grew from, and their measurements, kept for reference. Each has its own README with its method and results; figures below are from an Apple M2 unless noted.
+The prototypes the [core](../core/README.md) grew from, and their measurements, kept for reference. Each has its own README with its method and results; figures below are from an Apple M2 unless noted. Of their code, only [browse](browse/README.md) and [transcoder](transcoder/README.md), whose work isn't built yet, remain; the others' READMEs say where theirs went.
 
 | Experiment | What it measured | Headline |
 |---|---|---|

@@ -150,12 +150,14 @@ pub fn title(peer: *Peer, c: Command) !void {
         try out.print("{s}", .{d.name});
         if (d.year) |y| try out.print(" ({d})", .{y});
         try out.print("  {s}\n", .{d.key});
+        for (d.fields.keys(), d.fields.values()) |k, v| try out.print("  {s}: {s}\n", .{ k, v });
         if (d.alias_of) |to| try out.print("  an alias of {s}\n", .{to});
         for (d.aliases.items) |from| try out.print("  {s} is an alias of it\n", .{from});
         for (d.items.items) |item| {
             try out.print("  {s}", .{item.key});
             try printPlayhead(out, item.playhead);
             try out.print("\n", .{});
+            for (item.fields.keys(), item.fields.values()) |k, v| try out.print("    {s}: {s}\n", .{ k, v });
             for (item.renditions.items) |rendition| {
                 try out.print("    {s}\n", .{rendition.label});
                 for (rendition.holdings.items) |h| {
@@ -280,6 +282,8 @@ fn crawlRepositories(peer: *Peer, workers: usize, only: ?[]const u8) !void {
             i.titles_added, i.holdings_added, i.holdings_changed, i.holdings_removed, i.duplicates, s.total_ms,
         });
         if (i.duplicate_example) |e| try peer.out.print("  e.g., {s}\n", .{e});
+        const a = s.art;
+        try peer.out.print("  {d} covers found, {d} files described ({d} unchanged, {d} failed)\n", .{ a.covers, a.described, a.unchanged, a.failed });
         try peer.out.flush();
     }
 }

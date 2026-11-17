@@ -1,5 +1,7 @@
 # Repository experiment
 
+> This experiment grew into the core's [crawl](../../core/src/crawl.zig), [serve](../../core/src/serve.zig), and [url](../../core/src/url.zig), and the peer's test repository generator, [gen.zig](../../peer/test/gen.zig). Its code was removed after commit `92243e1`; `git checkout 92243e1 -- experiments/repository` restores it, to rerun the measurements below.
+
 Tests how peers learn a repository's contents, per what are now **Listings**, **Crawls**, and **Serving** in [AGENTS.md](../../AGENTS.md): a repository server on Zig's `std.http.Server`, and a crawler on `std.http.Client`, run against it and against static servers holding the same 100,000 files.
 
 ## Running
@@ -16,15 +18,15 @@ zig build --release=fast
 ./zig-out/bin/repo changes http://127.0.0.1:8090/ snap0.tsv snap1.tsv truth.tsv
 ```
 
-[apache.conf](apache.conf) serves the same tree with Apache's `mod_autoindex`: `httpd -f "$PWD/apache.conf" -C "Define ROOT /tmp/cinematheque-media" -k start`.
+`apache.conf` serves the same tree with Apache's `mod_autoindex`: `httpd -f "$PWD/apache.conf" -C "Define ROOT /tmp/cinematheque-media" -k start`.
 
 ## Design
 
-* [src/gen.zig](src/gen.zig): 4,000 movies (`Movies/Title (Year)/Title (Year).mkv`) and 500 series of 8 seasons of 24 episodes (`TV/Series (Year)/Season 01/Series - S01E01 - Episode 1.mkv`), with some names needing escaping or running past 50 bytes; 100,000 files in 8,502 directories.
-* [src/server.zig](src/server.zig): files with single byte ranges, `If-Range`, and `mtime-size` ETags; listings as JSON in Caddy's form (on `Accept: application/json`) or HTML; and an `INDEX` of `path<TAB>size<TAB>mtime` lines with an ETag, answering a matching `If-None-Match` with 304.
-* [src/gen.zig](src/gen.zig) `mutate`: renames 500 episodes in place, moves 100 movie folders into `Movies/Collection`, deletes 100 episodes, and adds 100 files, logging the truth.
-* [src/changes.zig](src/changes.zig): diffs two crawls, matching vanished files to new ones by size and modification time (which a rename keeps), breaking ties by the longest shared name suffix.
-* [src/crawl.zig](src/crawl.zig): can save a crawl as a snapshot and, given one, reuse the listing of any directory whose modification time (from its parent's listing) is unchanged and that held only files. breadth-first, a level at a time, split among concurrent workers sharing the client's keep-alive connections; reads JSON, HTML (links' targets only, skipping sort, download, and parent links, and undoing entities like Apache's `&amp;`), or `INDEX`; retries requests whose pooled connection the server closed; then probes one file with `Range: bytes=0-0`.
+* [src/gen.zig](../../peer/test/gen.zig): 4,000 movies (`Movies/Title (Year)/Title (Year).mkv`) and 500 series of 8 seasons of 24 episodes (`TV/Series (Year)/Season 01/Series - S01E01 - Episode 1.mkv`), with some names needing escaping or running past 50 bytes; 100,000 files in 8,502 directories.
+* `src/server.zig`: files with single byte ranges, `If-Range`, and `mtime-size` ETags; listings as JSON in Caddy's form (on `Accept: application/json`) or HTML; and an `INDEX` of `path<TAB>size<TAB>mtime` lines with an ETag, answering a matching `If-None-Match` with 304.
+* [src/gen.zig](../../peer/test/gen.zig) `mutate`: renames 500 episodes in place, moves 100 movie folders into `Movies/Collection`, deletes 100 episodes, and adds 100 files, logging the truth.
+* `src/changes.zig`: diffs two crawls, matching vanished files to new ones by size and modification time (which a rename keeps), breaking ties by the longest shared name suffix.
+* `src/crawl.zig`: can save a crawl as a snapshot and, given one, reuse the listing of any directory whose modification time (from its parent's listing) is unchanged and that held only files. breadth-first, a level at a time, split among concurrent workers sharing the client's keep-alive connections; reads JSON, HTML (links' targets only, skipping sort, download, and parent links, and undoing entities like Apache's `&amp;`), or `INDEX`; retries requests whose pooled connection the server closed; then probes one file with `Range: bytes=0-0`.
 
 ## Results
 

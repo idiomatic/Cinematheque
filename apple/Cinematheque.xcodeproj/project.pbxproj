@@ -26,7 +26,6 @@
 			exceptions = (
 				00C1E0000000000000000005 /* Exceptions for "Cinematheque" folder in "Cinematheque" target */,
 			);
-			name = Cinematheque;
 			path = Cinematheque;
 			sourceTree = "<group>";
 		};
@@ -141,7 +140,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/zsh;
-			shellScript = "# Builds the core's static library for each architecture being built, and\n# combines them, since Zig builds one target at a time.\nset -eu\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nout=\"$DERIVED_FILE_DIR/core\"\nlibs=()\ncd \"$SRCROOT/../core\"\nfor arch in ${=ARCHS}; do\n    case $arch in\n        arm64) zig_arch=aarch64 ;;\n        *) zig_arch=$arch ;;\n    esac\n    zig build --release=fast -Dtarget=$zig_arch-macos.15.0 --prefix \"$out/$arch\"\n    libs+=(\"$out/$arch/lib/libcinematheque.a\")\ndone\nmkdir -p \"$out/lib\"\nlipo -create $libs -output \"$out/lib/libcinematheque.a\"\n";
+			shellScript = "# Builds the core's static library for each architecture being built, and\n# combines them, since Zig builds one target at a time. Each is linked into\n# one object exporting only the C interface (cq_*), so the compiler runtime\n# Zig bundles stays private and can't clash with Xcode's.\nset -eu\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nout=\"$DERIVED_FILE_DIR/core\"\nlibs=()\ncd \"$SRCROOT/../core\"\nfor arch in ${=ARCHS}; do\n    case $arch in\n        arm64) zig_arch=aarch64 ;;\n        *) zig_arch=$arch ;;\n    esac\n    zig build --release=fast -Dtarget=$zig_arch-macos.15.0 --prefix \"$out/$arch\"\n    xcrun ld -r -arch $arch -platform_version macos 15.0 15.0 -exported_symbol '_cq_*' -all_load \"$out/$arch/lib/libcinematheque.a\" -o \"$out/$arch/core.o\"\n    rm -f \"$out/$arch/libcore.a\"\n    xcrun libtool -static -o \"$out/$arch/libcore.a\" \"$out/$arch/core.o\"\n    libs+=(\"$out/$arch/libcore.a\")\ndone\nmkdir -p \"$out/lib\"\nlipo -create $libs -output \"$out/lib/libcinematheque.a\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

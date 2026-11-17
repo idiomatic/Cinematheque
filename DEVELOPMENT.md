@@ -4,13 +4,14 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 
 ## Next
 
-* **macOS:** managing the library from the app, so a household needs no command line: creating or joining a library, repositories and crawling, members, syncing, and the background agent. Then an app icon, lists, and signing for distribution.
+* **macOS:** serving from the app and its background agent (both need the command-line peer today), an app icon, lists beyond the watchlist, and signing for distribution.
 * **Linux:** running the peer itself there (its experiments ran in a VM).
+* **Experiments:** merge the READMEs of experiments whose code is gone (crdt, naming, discovery, repository) into [experiments/README.md](experiments/README.md), keeping their methods and results.
 * **Known issues:**
   * Dotted titles lose their dots ("11.22.63" lists as "11 22 63").
   * Files named only by number (e.g., camera files) list as titles instead of going to review.
   * A series' specials without codes in TV folders (e.g., "Babylon 5 The Gathering") parse as movies; a repository could say it holds series.
-  * AppKit logs a reentrant operation in the player's title list once at launch.
+  * macOS's Local Network privacy can block the peer from reaching the LAN (`HostUnreachable`, as Python's `No route to host`) when it's started by a program without that permission, while Apple's own tools, such as `curl`, get through; check the launch agents, and how the peer asks.
   * Edition labels come from keys, so "Director's Cut" shows as "Directors Cut".
 
 ## Libraries
@@ -59,6 +60,13 @@ Open:
 
 * **Platforms:** iOS, iPadOS, and tvOS; Linux and Windows; a web player for low-capacity hosts (e.g., a Raspberry Pi); later Wayland.
 * **Browsing:** by intersections of facets (e.g., new releases, thrillers or mysteries, starring A-listers, English audio), along the title hierarchy, since set-top remotes make typing slow and a library runs to thousands of titles. Full peers query facets in SQLite; thin players hold a bitmap per small facet's value, and posting lists for people.
+* **Cover art, still to come** (what's built is in [AGENTS.md](AGENTS.md)):
+  * **Placeholders:** a ThumbHash (about 25 bytes) per cover in the catalog, so a tile shows a blurred likeness at once rather than a color; decoding images in the core, given in-project code over dependencies, is the question.
+  * **Thumbnails from peers:** desktop peers make thumbnails (about 300×450, 20 KB) and serve them by hash (`/art/<hash>/<size>`), so players with no peer near scale originals only as a fallback; and prefetching two screens ahead.
+  * **Scale:** measure the grid with 6,000 covers, falling back to AppKit's and UIKit's collection views if SwiftUI's lazy grids drop frames.
+  * **Describing in parallel:** a first crawl describes a movie or season at a time, about 50 ms each on the LAN (8 range requests): 5 minutes at the scale in [AGENTS.md](AGENTS.md); the crawl's workers would cut that to well under a minute.
+  * **Thumbnail caches** (open): their size per platform (all of them on a Mac, about 120 MB; a budget on iPhone and iPad; purgeable storage on tvOS), and how Linux and Windows decode and scale images.
+  * **Other sources:** the outside-metadata provider's art, and covers in Matroska files.
 * **Who's watching:** set-top players are often shared, laptops and handhelds seldom; a shared player holds each of its users' private data, and hides it while several users are watching.
 * **Watching together:** on one screen, offer titles every viewer will accept; apart, offer what the others would avoid.
 * **Downloads:** for poor connections (e.g., a flight), where the platform permits, including podcast-like prefetching of a series' next N episodes in a chosen rendition; downloads play offline and, on desktop peers, are served to peers nearby.

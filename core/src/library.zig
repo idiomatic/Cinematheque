@@ -25,6 +25,7 @@ const std = @import("std");
 const Io = std.Io;
 const Replica = @import("replica.zig").Replica;
 const crawl = @import("crawl.zig");
+const art = @import("art.zig");
 const naming = @import("naming.zig");
 const url = @import("url.zig");
 const Blake3 = std.crypto.hash.Blake3;
@@ -217,6 +218,7 @@ fn snapshotKey(arena: std.mem.Allocator, id: [16]u8) ![]u8 {
 pub const CrawlStats = struct {
     crawl: crawl.Result,
     ingest: IngestStats,
+    art: art.Stats,
     crawl_ms: i64,
     total_ms: i64,
 };
@@ -237,12 +239,14 @@ pub fn crawlRepository(replica: *Replica, io: Io, arena: std.mem.Allocator, clie
     });
     const crawled = Io.Timestamp.now(io, .awake);
     const stats = try ingest(replica, arena, wall_ms, repo, entries.items);
+    const described = try art.describe(replica, arena, client, wall_ms, repo, entries.items);
     var saved: Io.Writer.Allocating = .init(arena);
     try crawl.Snapshot.save(entries.items, &saved.writer);
     try replica.setLocal(key, saved.written());
     return .{
         .crawl = result,
         .ingest = stats,
+        .art = described,
         .crawl_ms = start.durationTo(crawled).toMilliseconds(),
         .total_ms = start.durationTo(Io.Timestamp.now(io, .awake)).toMilliseconds(),
     };
@@ -401,6 +405,15 @@ fn skipped(rel: []const u8, skip: []const u8) bool {
     return false;
 }
 
+/// A field's value, if set and not empty.
+pub fn fieldValue(replica: *Replica, arena: std.mem.Allocator, key: []const u8, field: []const u8) !?[]u8 {
+    const s = try replica.db.prepare("SELECT value FROM winners WHERE key = ?1 AND field = ?2 AND length(value) > 0");
+    defer s.finalize();
+    try s.bindText(1, key);
+    try s.bindText(2, field);
+    return if (try s.step()) try arena.dupe(u8, s.blob(0)) else null;
+}
+
 fn exists(replica: *Replica, key: []const u8, field: []const u8) !bool {
     const s = try replica.db.prepare("SELECT 1 FROM winners WHERE key = ?1 AND field = ?2");
     defer s.finalize();
@@ -497,6 +510,8 @@ pub const Item = struct {
     renditions: std.ArrayList(Rendition) = .empty,
     /// This user's.
     playhead: Playhead = .{},
+    /// Metadata: an episode's `title`, `description`, and `duration`.
+    fields: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
 };
 
 pub const Playhead = struct {
@@ -591,6 +606,9 @@ pub const Detail = struct {
     /// Titles that are aliases of this one.
     aliases: std.ArrayList([]const u8) = .empty,
     items: std.ArrayList(Item) = .empty,
+    /// Metadata and covers (see art.zig): `description`, `genre`,
+    /// `released`, `network`, `art`, `art:s01`, and so on.
+    fields: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
 };
 
 /// Everything the library holds about one title.
@@ -606,6 +624,7 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
             else try d.aliases.append(arena, try arena.dupe(u8, s.blob(0)));
         }
     }
+    var item_fields: std.StringHashMapUnmanaged(std.StringArrayHashMapUnmanaged([]const u8)) = .empty;
     const lower = try std.fmt.allocPrint(arena, "{s}/", .{key});
     const upper = try std.fmt.allocPrint(arena, "{s}0", .{key});
     const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key = ?1 OR (key >= ?2 AND key < ?3) ORDER BY key, field");
@@ -619,11 +638,19 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
         const field = s.blob(1);
         const value = s.blob(2);
         if (k.len == key.len) {
-            if (std.mem.eql(u8, field, "name")) d.name = try arena.dupe(u8, value);
-            if (std.mem.eql(u8, field, "year")) d.year = std.fmt.parseInt(u16, value, 10) catch null;
+            if (std.mem.eql(u8, field, "name")) d.name = try arena.dupe(u8, value) //
+            else if (std.mem.eql(u8, field, "year")) d.year = std.fmt.parseInt(u16, value, 10) catch null //
+            else if (value.len > 0) try d.fields.put(arena, try arena.dupe(u8, field), try arena.dupe(u8, value));
             continue;
         }
-        const r = std.mem.indexOf(u8, k, "/r/") orelse continue;
+        const r = std.mem.indexOf(u8, k, "/r/") orelse {
+            if (value.len > 0) {
+                const gop = try item_fields.getOrPut(arena, try arena.dupe(u8, k[key.len + 1 ..]));
+                if (!gop.found_existing) gop.value_ptr.* = .empty;
+                try gop.value_ptr.put(arena, try arena.dupe(u8, field), try arena.dupe(u8, value));
+            }
+            continue;
+        };
         if (!std.mem.startsWith(u8, field, "held:") or value.len == 0) continue;
         const item_key = k[key.len + 1 .. r];
         if (d.items.items.len == 0 or !std.mem.eql(u8, d.items.items[d.items.items.len - 1].key, item_key))
@@ -644,9 +671,10 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
     }
     if (!found) return null;
     const heads = try titlePlayheads(replica, arena, key);
-    for (d.items.items) |*item| if (heads.get(item.key)) |h| {
-        item.playhead = h;
-    };
+    for (d.items.items) |*item| {
+        if (heads.get(item.key)) |h| item.playhead = h;
+        if (item_fields.get(item.key)) |f| item.fields = f;
+    }
     return d;
 }
 

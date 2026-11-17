@@ -6,9 +6,9 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 
 ## Components
 
-* [core](core/README.md): the Zig library, and a static library with a C interface ([cinematheque.h](core/include/cinematheque.h), a Swift module by its [module map](core/include/module.modulemap)) whose results are JSON.
+* [core](core/README.md): the Zig library, and a static library with a C interface ([cinematheque.h](core/include/cinematheque.h), a Swift module by its [module map](core/include/module.modulemap)) whose results are JSON. Its functions belong to one thread but for long ones (crawling, syncing, describing), each on a connection of its own; only one connection writes as the device at a time, and the main one catches up (`Replica.refresh`) before acting.
 * [peer](peer/README.md): the command-line desktop peer, `cinematheque`, for macOS and Linux.
-* [apple](apple/README.md): the Apple players, in SwiftUI; so far a macOS player (macOS 15 or later), bundled as `Cinematheque.app` (`com.rbrian.cinematheque`) by its Xcode project, whose build phase builds the core for each architecture.
+* [apple](apple/README.md): the Apple players, in SwiftUI; so far a macOS player (macOS 15 or later), bundled as `Cinematheque.app` (`com.rbrian.cinematheque`) by its Xcode project, whose build phase builds the core for each architecture and links it into one object exporting only the C interface, so the compiler runtime Zig bundles can't clash with Xcode's.
 * [experiments](experiments/README.md): the prototypes the components grew from, kept for reference.
 
 ## Peers
@@ -44,6 +44,9 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 * **Renditions:** a file's rendition is its repository's, if named; else its name's technical tokens, canonically (resolution, source, codec, dynamic range, e.g., `2160p remux hevc hdr`); else unknown (`-`). Two files of one rendition in one repository are numbered (`~2`) as duplicates.
 * **Review:** among titles some repository holds, close matches (a year off by one, missing, or with transposed digits; the same year, the same digits, and a spelling within two edits; or only diacritics differ) and duplicates. An alias (`aliases`) records that one title key is another's; it replicates, and an empty one undoes it.
 * **Playheads:** per user and item (version, episode, or part), above renditions: position and duration in milliseconds, and watched, set on reaching the last 5% or by hand. Removing a playhead empties all three.
+* **Covers and metadata:** after each crawl, one file per movie and per season describes it, unless that file is unchanged since: a sidecar image by Plex, Jellyfin, and Kodi convention (`poster.jpg`, `folder.jpg`, `<movie>-poster.jpg`, `season01-poster.jpg`, a season folder's `poster.jpg`) for its cover, else an MP4's, read by range requests that walk atom headers to `moov` and read `udta` whole (about 8 requests). The cover is recorded as a byte range of the file (`art`, or `art:s01`... for seasons, on the title's key), so players fetch it with one range request; images don't replicate. MP4 metadata fills a title's `description`, `genre`, `released`, and `network`, and an item's `title` (an episode's), `description`, and `duration`; other episodes are described on demand.
+* **Tiles:** for browsing, a movie or a season (a season without a cover takes its series'), with this user's progress: watched if every item is, else a movie's position or the share of a season watched.
+* **Watchlist:** per user, private like playheads (`p/<user>/watchlist`, a field per title key).
 * **Facets:** titles held by some repository, counted by kind, decade, and rendition.
 
 ## Repositories
@@ -63,9 +66,12 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 
 ## macOS player
 
-* Titles by kind, searchable, with the kind picker and search in the sidebar; a title's episodes or versions, with the user's progress or watched mark (changeable by a context menu), its renditions by their repositories' names, and each copy's location and size.
-* A window per copy playing, in AppKit's `AVPlayerView`, streaming from the repository, starting at the playhead unless watched, and saving it every 10 seconds.
-* The bundle's `Info.plist` allows plain HTTP on the local network. Debug builds take launch options for driving them unattended (`CINEMATHEQUE_SELECT`, `CINEMATHEQUE_PLAY`, and `CINEMATHEQUE_ITEM`).
+* **Setup:** with no library, creating one, joining one by its founder's key (showing this user's key to be added), or linking this device by the user's secret first.
+* **Browsing:** shelves (Movies, Series, Watchlist; no All), searchable; a grid of covers in fixed cells, movies 2:3 and each series' seasons square under its name, each with a watched mark or progress bar; a cover shows a color with its title until loaded. Covers are fetched by range request, scaled with ImageIO off the main thread, and cached in memory and in the app's caches.
+* **Inspector:** for the selected tile, a larger cover, Play or Resume (a movie, or a season's next unwatched episode, with the rest of the season queued), a rendition picker, the watchlist and watched marks, metadata, and a season's episodes, each playable, described on demand.
+* **Playing:** a window per queue, in AppKit's `AVPlayerView`, streaming from the repository, starting at the playhead unless watched, saving it every 10 seconds, marking an item watched at its end, and going on to the next.
+* **Managing,** in Settings: repositories (adding, editing, removing, crawling), members (adding and removing; this user's key), and this device (its keys, the user's secret, syncing with peers found or by address). Long operations run off the main thread; the toolbar's Refresh crawls, then syncs.
+* The bundle's `Info.plist` allows plain HTTP on the local network. Debug builds take launch options for driving them unattended (`CINEMATHEQUE_SELECT`, a tile, e.g. `t/s/firefly/-#1`; `CINEMATHEQUE_PLAY`; and `CINEMATHEQUE_ITEM`).
 
 ## Implementation
 

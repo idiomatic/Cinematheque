@@ -2,10 +2,11 @@
 import Foundation
 
 /// Debug builds' launch options, for driving the app unattended (e.g., in a
-/// VM, with `open --env`): a title to select, and a copy to play.
+/// VM, with `open --env`): a tile to select, and a copy to play.
 @MainActor
 enum Launch {
-    /// A title to select first, from `CINEMATHEQUE_SELECT`.
+    /// A tile to select first, from `CINEMATHEQUE_SELECT`: a title key, with
+    /// `#` and a season for a series' (e.g., `t/s/firefly/-#1`).
     static var selection: String? { ProcessInfo.processInfo.environment["CINEMATHEQUE_SELECT"] }
 
     /// The item that URL is a copy of, from `CINEMATHEQUE_ITEM`.

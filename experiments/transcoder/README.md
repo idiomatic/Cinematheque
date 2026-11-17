@@ -6,13 +6,14 @@ Tests the transcoder's **Remux first** rule in [DEVELOPMENT.md](../../DEVELOPMEN
 
 ```sh
 ./make-samples.sh /tmp/cinematheque-samples              # five 60-second test videos
-../repository/zig-out/bin/repo serve /tmp/cinematheque-samples 8094
+cinematheque --home /tmp/cinematheque-repo library create  # the peer serves media
+cinematheque --home /tmp/cinematheque-repo serve --port 8094 --media /tmp/cinematheque-samples &
 zig build test && zig build --release=fast
 ./zig-out/bin/transcode /tmp/cinematheque-out /tmp/cinematheque-cache "http://127.0.0.1:8094/H.264%20DTS.mkv" ...
 swift playable.swift /tmp/cinematheque-out/*.mp4         # ask AVFoundation
 ```
 
-Needs `ffmpeg`, `ffprobe`, and `HandBrakeCLI` on the path.
+Needs `ffmpeg`, `ffprobe`, and `HandBrakeCLI` on the path, and the [peer](../../peer/README.md) to serve the samples.
 
 ## Design
 

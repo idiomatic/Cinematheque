@@ -16,6 +16,7 @@ zig build --release=fast
 * [commands.zig](src/commands.zig): the state nouns (`user`, `library`, `member`, `repo`, `title`, `alias`, `playhead`, `agent`), and `crawl` and `refresh`.
 * [network.zig](src/network.zig): `serve`, `sync`, and `peer`: serving on 8008 or a free port, discovery, and peers added by URL.
 * [agent.zig](src/agent.zig): the macOS launch agents.
+* [test.sh](test.sh) and [test/gen.zig](test/gen.zig): the end-to-end test, on a generated repository of sparse files (`zig build gen` builds the generator), which a peer serves as media.
 
 ## A session
 

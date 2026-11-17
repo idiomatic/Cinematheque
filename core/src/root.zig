@@ -9,6 +9,8 @@ pub const library = @import("library.zig");
 pub const serve = @import("serve.zig");
 pub const discover = @import("discover.zig");
 pub const url = @import("url.zig");
+pub const mp4 = @import("mp4.zig");
+pub const art = @import("art.zig");
 pub const store = @import("store.zig");
 
 test {
@@ -21,6 +23,8 @@ test {
     _ = serve;
     _ = discover;
     _ = url;
+    _ = mp4;
+    _ = art;
     _ = store;
     _ = @import("merkle.zig");
     _ = @import("hlc.zig");

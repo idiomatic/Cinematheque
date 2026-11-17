@@ -23,4 +23,12 @@ pub fn build(b: *std.Build) void {
     const run = b.addRunArtifact(exe);
     run.addPassthruArgs();
     b.step("run", "Run the peer").dependOn(&run.step);
+
+    // A test repository's generator, for test.sh.
+    const gen = b.addExecutable(.{ .name = "gen", .root_module = b.createModule(.{
+        .root_source_file = b.path("test/gen.zig"),
+        .target = target,
+        .optimize = optimize,
+    }) });
+    b.step("gen", "Build the test repository's generator").dependOn(&b.addInstallArtifact(gen, .{}).step);
 }

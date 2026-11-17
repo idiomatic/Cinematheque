@@ -1,22 +1,19 @@
 #!/bin/zsh
-# Peer test: peer A founds a library, crawls a generated repository, and
-# serves it; peer B joins, is invited, syncs, and must match A exactly; a
+# Peer test: peer A founds a library, serves a generated repository as
+# media, and crawls it; peer B joins, is invited, syncs, and must match A exactly; a
 # change on A reaches B through discovery; a peer that isn't a member is
 # refused; and B's playhead reaches B's other device, B2, only directly.
 set -eu
 here=${0:A:h}
 work=${1:-/tmp/cinematheque-peer-test}
 peer=$here/zig-out/bin/cinematheque
-repo=$here/../experiments/repository/zig-out/bin/repo
+gen=$here/zig-out/bin/gen
 
-(cd $here && zig build --release=fast)
-(cd $here/../experiments/repository && zig build --release=fast)
+(cd $here && zig build --release=fast && zig build gen --release=fast)
 rm -rf $work
 mkdir -p $work
 
-$repo gen $work/media 10 > /dev/null
-$repo serve $work/media 8190 > $work/repo.log 2>&1 &
-repo_pid=$!
+$gen $work/media 10
 a=(--home $work/a)
 b=(--home $work/b)
 b2=(--home $work/b2)
@@ -24,18 +21,19 @@ c=(--home $work/c)
 peer_pid=
 b_pid=
 cleanup() {
-    kill $repo_pid ${peer_pid:-} ${b_pid:-} 2> /dev/null || true
+    kill ${peer_pid:-} ${b_pid:-} 2> /dev/null || true
 }
 trap cleanup EXIT
-sleep 1
 digest() { $peer "$@" library show | awk '/^digest/ { print $2 }' }
 
 $peer $a library create
-$peer $a repo add http://127.0.0.1:8190/
-$peer $a crawl
-$peer $a serve --port 8191 > $work/a.log 2>&1 &
+$peer $a serve --port 8191 --media $work/media > $work/a.log 2>&1 &
 peer_pid=$!
 sleep 1
+file=$(curl -sf http://127.0.0.1:8191/INDEX | head -1 | cut -f1 | sed 's|^\./||; s| |%20|g')
+[[ $(curl -s -r 0-0 -o /dev/null -w "%{http_code}" "http://127.0.0.1:8191/$file") == 206 ]] || { echo "FAIL: no byte ranges from $file"; exit 1; }
+$peer $a repo add http://127.0.0.1:8191/
+$peer $a crawl
 
 $peer $b library join $($peer $a user show)
 $peer $a member add $($peer $b user show)

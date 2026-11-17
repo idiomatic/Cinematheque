@@ -1,5 +1,7 @@
 # Discovery experiment
 
+> This experiment grew into the core's [discover](../../core/src/discover.zig). Its code was removed after commit `92243e1`; `git checkout 92243e1 -- experiments/discovery` restores it, to rerun the measurements below.
+
 Tests what is now **Discovery** in [AGENTS.md](../../AGENTS.md): advertising and finding repositories on the LAN through the system's own DNS-SD service, from Zig, with no dependencies.
 
 ## Running
@@ -11,7 +13,7 @@ zig build --release=fast
 
 ## Design
 
-[src/main.zig](src/main.zig) declares the half-dozen `dns_sd.h` functions it needs (`DNSServiceRegister`, `DNSServiceBrowse`, `DNSServiceResolve`, and the socket and dispatch calls) and:
+`src/main.zig` declares the half-dozen `dns_sd.h` functions it needs (`DNSServiceRegister`, `DNSServiceBrowse`, `DNSServiceResolve`, and the socket and dispatch calls) and:
 
 1. registers a repository named `perihelion` as `_cinematheque._tcp` on port 8090, with a TXT record of what a peer needs before connecting (`version`, `path`, `index`);
 2. browses `_cinematheque._tcp`, `_http._tcp`, and `_webdav._tcp`, polling the service's socket;

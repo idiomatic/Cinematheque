@@ -519,6 +519,19 @@ pub const Replica = struct {
         return id;
     }
 
+    /// Catches up with what another connection to the same database wrote:
+    /// devices it learned of, this device's sequence numbers, and the
+    /// founder. Only one connection may write as this device at a time.
+    pub fn refresh(replica: *Replica) !void {
+        const s = try replica.db.prepare("SELECT id, key FROM devices WHERE id > ?1 ORDER BY id");
+        defer s.finalize();
+        try s.bindInt(1, @intCast(replica.keys.items.len));
+        while (try s.step()) try replica.intern(s.int(0), s.blob(1)[0..32].*);
+        replica.seq = try replica.seen(replica.own);
+        replica.private_seq = try replica.seen(replica.private_own);
+        replica.founder = (try replica.founderAt(std.math.maxInt(u32))).user;
+    }
+
     /// The peer's own `key`, which doesn't replicate, if set.
     pub fn local(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?[]u8 {
         const s = try replica.db.prepare("SELECT value FROM local WHERE key = ?1");
@@ -1689,4 +1702,23 @@ test "a device whose first write is private is still certified" {
     const stats = try p.sync(0, 1);
     try testing.expectEqual(@as(usize, 0), stats.rejected);
     try testing.expect(try p.replicas[0].certifiedUser(b.device(), &.{}) != null);
+}
+
+test "two connections writing in turn, refreshing first, never reuse a sequence number" {
+    const path = "/tmp/cinematheque-refresh-test.db";
+    std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
+    const founder = (try userKeyPair(@splat(1))).public_key.toBytes();
+    var a = try Replica.open(testing.allocator, path, founder, .from(@splat(1)));
+    defer a.close();
+    var b = try Replica.open(testing.allocator, path, founder, .from(@splat(1)));
+    defer b.close();
+    try a.write(1000, "t/m/a/-", "name", "A");
+    try b.refresh();
+    try b.write(2000, "t/m/b/-", "name", "B");
+    try a.refresh();
+    try a.write(3000, "t/m/c/-", "name", "C");
+    // The device's writes are numbered 1 (its certificate) through 4.
+    try testing.expectEqual(@as(u64, 4), a.seq);
+    try testing.expectEqual(@as(i64, 4), try a.db.scalar("SELECT count(DISTINCT seq) FROM winners WHERE device = 1"));
 }

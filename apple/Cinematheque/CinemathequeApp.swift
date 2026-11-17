@@ -8,12 +8,17 @@ struct CinemathequeApp: App {
         WindowGroup("Cinematheque") {
             LibraryView()
                 .environment(library)
+                .frame(minWidth: 900, minHeight: 560)
         }
         WindowGroup("Player", for: PlayRequest.self) { $request in
             if let request {
                 PlayerView(request: request)
                     .environment(library)
             }
+        }
+        Settings {
+            ManageView()
+                .environment(library)
         }
     }
 }
