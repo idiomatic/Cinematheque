@@ -268,12 +268,15 @@ pub fn refresh(peer: *Peer, c: Command) !void {
     try network.pullAll(peer, null);
 }
 
+/// Crawls every repo, or the one given, then describes what's new: covers
+/// and metadata, with concurrent workers.
 fn crawlRepositories(peer: *Peer, workers: usize, only: ?[]const u8) !void {
     var r = try peer.open();
     defer r.close();
     var client: std.http.Client = .{ .allocator = peer.gpa, .io = peer.io };
     defer client.deinit();
     const repos = if (only) |which| &[_]lib.Repository{try lib.findRepository(&r, peer.arena, which)} else try lib.repositories(&r, peer.arena);
+    var crawled: std.ArrayList(core.art.Crawled) = .empty;
     for (repos) |rp| {
         const s = try lib.crawlRepository(&r, peer.io, peer.arena, &client, peer.now(), rp, workers);
         const i = s.ingest;
@@ -282,8 +285,13 @@ fn crawlRepositories(peer: *Peer, workers: usize, only: ?[]const u8) !void {
             i.titles_added, i.holdings_added, i.holdings_changed, i.holdings_removed, i.duplicates, s.total_ms,
         });
         if (i.duplicate_example) |e| try peer.out.print("  e.g., {s}\n", .{e});
-        const a = s.art;
-        try peer.out.print("  {d} covers found, {d} files described ({d} unchanged, {d} failed)\n", .{ a.covers, a.described, a.unchanged, a.failed });
         try peer.out.flush();
+        try crawled.append(peer.arena, .{ .repo = rp, .entries = s.entries });
     }
+    const start = Io.Timestamp.now(peer.io, .awake);
+    const plan = try core.art.plan(&r, peer.arena, crawled.items);
+    const a = try core.art.run(peer.io, &r, peer.arena, &client, peer.now(), plan.jobs, .{ .workers = workers });
+    try peer.out.print("described {d} movies and seasons ({d} unchanged) in {d} ms: {d} covers found, {d} files read, {d} failed\n", .{
+        plan.jobs.len, plan.unchanged, start.durationTo(Io.Timestamp.now(peer.io, .awake)).toMilliseconds(), a.covers, a.described, a.failed,
+    });
 }

@@ -67,7 +67,7 @@ pub const Stats = struct {
 
 /// What describes one movie or season: the file to read, and where its
 /// cover and metadata go.
-const Target = struct {
+pub const Target = struct {
     title_key: []const u8,
     item_key: []const u8,
     /// `art` or `art:s01`.
@@ -83,94 +83,316 @@ fn isImage(path: []const u8) bool {
     return std.ascii.eqlIgnoreCase(ext, ".jpg") or std.ascii.eqlIgnoreCase(ext, ".jpeg") or std.ascii.eqlIgnoreCase(ext, ".png");
 }
 
-/// Finds covers and metadata for the movies and seasons `repo` holds, from
-/// its crawl's `entries`: those not yet described, or whose file changed.
-pub fn describe(replica: *Replica, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, repo: library.Repository, entries: []const crawl.Entry) !Stats {
-    var stats: Stats = .{};
-    // Images by their path, lowercased, for sidecars; files' stamps.
-    var images: std.StringHashMapUnmanaged(struct { path: []const u8, stamp: []const u8 }) = .empty;
-    var targets: std.StringArrayHashMapUnmanaged(Target) = .empty;
-    // How many titles each directory holds, so a `poster.jpg` is taken as a
-    // movie's only where it's the only one there.
-    var titles_in: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) = .empty;
-    var scratch: [1024]u8 = undefined;
-    for (entries) |entry| {
-        if (entry.is_dir or !std.mem.startsWith(u8, entry.url, repo.url)) continue;
-        const rel = url.decode(try arena.dupe(u8, entry.url[repo.url.len..])) catch continue;
-        const stamp = try std.fmt.allocPrint(arena, "{d}\t{s}", .{ entry.size, entry.mtime });
-        if (isImage(rel)) {
-            try images.put(arena, try std.ascii.allocLowerString(arena, rel), .{ .path = rel, .stamp = stamp });
-            continue;
-        }
-        if (!naming.isVideo(rel) or skippedPath(rel, repo.layout.skip)) continue;
-        const p = naming.parse(rel, &scratch);
-        if (p.kind == .extra or p.title.len == 0) continue;
-        var owned = p;
-        owned.title = try arena.dupe(u8, p.title);
-        if (p.edition) |e| owned.edition = try arena.dupe(u8, e);
-        const k = try library.keys(arena, owned);
-        const is_episode = p.kind == .episode;
-        if (is_episode and p.season == null) continue;
-        const field = if (is_episode) try std.fmt.allocPrint(arena, "art:s{d:0>2}", .{p.season.?}) else "art";
-        const id = try std.fmt.allocPrint(arena, "{s}#{s}", .{ k.title, field });
-        const episode: u32 = if (p.episode) |e| e else 0;
-        const gop = try targets.getOrPut(arena, id);
-        // A movie's first file, or a season's first episode.
-        if (!gop.found_existing or episode < gop.value_ptr.episode or (episode == gop.value_ptr.episode and std.mem.lessThan(u8, rel, gop.value_ptr.path)))
-            gop.value_ptr.* = .{ .title_key = k.title, .item_key = k.item, .field = field, .path = rel, .stamp = stamp, .episode = episode, .is_episode = is_episode };
-        const dir = std.fs.path.dirname(rel) orelse "";
-        const t = try titles_in.getOrPut(arena, dir);
-        if (!t.found_existing) t.value_ptr.* = .empty;
-        try t.value_ptr.put(arena, k.title, {});
-    }
+/// A repository and its crawl's listing.
+pub const Crawled = struct {
+    repo: library.Repository,
+    entries: []const crawl.Entry,
+};
 
-    const Write = struct { key: []const u8, field: []const u8, value: []const u8 };
-    var writes: std.ArrayList(Write) = .empty;
-    for (targets.values()) |t| {
-        const sidecar = findSidecar(arena, &images, &titles_in, t) catch null;
-        const source_path, const source_stamp = if (sidecar) |s| .{ s.path, s.stamp } else .{ t.path, t.stamp };
-        // Unchanged since last described?
-        if (try library.fieldValue(replica, arena, t.title_key, t.field)) |old| if (Cover.parse(old)) |c| {
-            if (std.mem.eql(u8, c.path, source_path) and std.mem.eql(u8, c.stamp, source_stamp)) {
-                stats.unchanged += 1;
+const Source = struct { path: []const u8, stamp: []const u8 };
+
+/// Describing one movie or season: its target, and the source to read.
+pub const Job = struct {
+    target: Target,
+    repo: library.Repository,
+    sidecar: ?Source,
+
+    /// The file the cover comes from.
+    fn source(j: Job) Source {
+        return j.sidecar orelse .{ .path = j.target.path, .stamp = j.target.stamp };
+    }
+};
+
+pub const Plan = struct {
+    jobs: []Job,
+    unchanged: usize,
+};
+
+/// Plans describing the movies and seasons the `crawled` repositories hold:
+/// one source for each, keeping the one already described while its file
+/// is unchanged, else a sidecar image, else an MP4, else any file; jobs for
+/// those to describe, in title order. A title held in several repositories
+/// (e.g., one per rendition) is described from one of them.
+pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawled) !Plan {
+    var candidates: std.StringArrayHashMapUnmanaged(std.ArrayList(Job)) = .empty;
+    for (crawled) |c| {
+        const repo = c.repo;
+        // Images by their path, lowercased, for sidecars.
+        var images: std.StringHashMapUnmanaged(Source) = .empty;
+        var targets: std.StringArrayHashMapUnmanaged(Target) = .empty;
+        // How many titles each directory holds, so a `poster.jpg` is taken
+        // as a movie's only where it's the only one there.
+        var titles_in: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) = .empty;
+        const series = try library.seriesByFolder(arena, repo.url, c.entries);
+        for (c.entries) |entry| {
+            if (entry.is_dir or !std.mem.startsWith(u8, entry.url, repo.url)) continue;
+            const rel = url.decode(try arena.dupe(u8, entry.url[repo.url.len..])) catch continue;
+            const stamp = try std.fmt.allocPrint(arena, "{d}\t{s}", .{ entry.size, entry.mtime });
+            if (isImage(rel)) {
+                try images.put(arena, try std.ascii.allocLowerString(arena, rel), .{ .path = rel, .stamp = stamp });
                 continue;
             }
-        };
-        if (sidecar) |s| {
-            const size = std.fmt.parseInt(u64, s.stamp[0..std.mem.indexOfScalar(u8, s.stamp, '\t').?], 10) catch 0;
-            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = s.path, .offset = 0, .length = size, .stamp = s.stamp }).format(arena) });
-            stats.covers += 1;
+            if (!naming.isVideo(rel) or skippedPath(rel, repo.layout.skip)) continue;
+            const p = try library.parseFile(arena, rel, &series);
+            if (p.kind == .extra or p.title.len == 0) continue;
+            const k = try library.keys(arena, p);
+            const is_episode = p.kind == .episode;
+            if (is_episode and p.season == null) continue;
+            const field = if (is_episode) try std.fmt.allocPrint(arena, "art:s{d:0>2}", .{p.season.?}) else "art";
+            const id = try std.fmt.allocPrint(arena, "{s}#{s}", .{ k.title, field });
+            // A season's first episode; a movie's standard version (its
+            // editions after it); then the first file by name.
+            const episode: u32 = if (p.episode) |e| e else if (p.edition != null) 1 else 0;
+            const gop = try targets.getOrPut(arena, id);
+            if (!gop.found_existing or episode < gop.value_ptr.episode or (episode == gop.value_ptr.episode and std.mem.lessThan(u8, rel, gop.value_ptr.path)))
+                gop.value_ptr.* = .{ .title_key = k.title, .item_key = k.item, .field = field, .path = rel, .stamp = stamp, .episode = episode, .is_episode = is_episode };
+            const dir = std.fs.path.dirname(rel) orelse "";
+            const t = try titles_in.getOrPut(arena, dir);
+            if (!t.found_existing) t.value_ptr.* = .empty;
+            try t.value_ptr.put(arena, k.title, {});
         }
-        const ext = std.fs.path.extension(t.path);
-        if (!(std.ascii.eqlIgnoreCase(ext, ".mp4") or std.ascii.eqlIgnoreCase(ext, ".m4v") or std.ascii.eqlIgnoreCase(ext, ".mov"))) {
-            if (sidecar == null) {
-                // Remember the file was looked at, without a cover.
-                try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = t.path, .offset = 0, .length = 0, .stamp = t.stamp }).format(arena) });
-            }
-            continue;
+        for (targets.keys(), targets.values()) |id, t| {
+            const gop = try candidates.getOrPut(arena, id);
+            if (!gop.found_existing) gop.value_ptr.* = .empty;
+            try gop.value_ptr.append(arena, .{ .target = t, .repo = repo, .sidecar = findSidecar(arena, &images, &titles_in, t) catch null });
         }
-        const info = mp4.read(arena, client, try fileUrl(arena, repo.url, t.path)) catch {
-            stats.failed += 1;
-            continue;
-        };
-        stats.described += 1;
-        if (sidecar == null) {
-            const c = info.cover orelse mp4.Cover{ .offset = 0, .length = 0, .image = .jpeg };
-            if (info.cover != null) stats.covers += 1;
-            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = t.path, .offset = c.offset, .length = c.length, .stamp = t.stamp }).format(arena) });
-        }
-        try appendInfo(arena, &writes, t, info);
     }
-    if (writes.items.len == 0) return stats;
-    try replica.begin();
-    errdefer replica.db.exec("ROLLBACK") catch {};
-    for (writes.items) |w| try replica.write(wall_ms, w.key, w.field, w.value);
-    try replica.commit();
-    return stats;
+    var jobs: std.ArrayList(Job) = .empty;
+    var unchanged: usize = 0;
+    next: for (candidates.values()) |list| {
+        const first = list.items[0];
+        if (try library.fieldValue(replica, arena, first.target.title_key, first.target.field)) |old| if (Cover.parse(old)) |c| {
+            for (list.items) |j| {
+                const src = j.source();
+                if (std.mem.eql(u8, c.repository, &j.repo.id) and std.mem.eql(u8, c.path, src.path) and std.mem.eql(u8, c.stamp, src.stamp)) {
+                    unchanged += 1;
+                    continue :next;
+                }
+            }
+        };
+        var best = first;
+        for (list.items) |j| if (rank(j) > rank(best)) {
+            best = j;
+        };
+        try jobs.append(arena, best);
+    }
+    std.mem.sort(Job, jobs.items, {}, struct {
+        fn less(_: void, a: Job, b: Job) bool {
+            const order = std.mem.order(u8, a.target.title_key, b.target.title_key);
+            return order == .lt or (order == .eq and std.mem.lessThan(u8, a.target.field, b.target.field));
+        }
+    }.less);
+    return .{ .jobs = jobs.items, .unchanged = unchanged };
 }
 
-fn appendInfo(arena: std.mem.Allocator, writes: anytype, t: Target, info: mp4.Info) !void {
-    const W = @typeInfo(@TypeOf(writes.items)).pointer.child;
+fn isMp4(path: []const u8) bool {
+    const ext = std.fs.path.extension(path);
+    return std.ascii.eqlIgnoreCase(ext, ".mp4") or std.ascii.eqlIgnoreCase(ext, ".m4v") or std.ascii.eqlIgnoreCase(ext, ".mov");
+}
+
+fn rank(j: Job) u8 {
+    if (j.sidecar != null) return 2;
+    return if (isMp4(j.target.path)) 1 else 0;
+}
+
+pub const Write = struct { key: []const u8, field: []const u8, value: []const u8 };
+
+/// Describes one job, appending what it found to `writes`.
+fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, writes: *std.ArrayList(Write), stats: *Stats) !void {
+    const t = job.target;
+    const repo = job.repo;
+    if (job.sidecar) |s| {
+        const size = std.fmt.parseInt(u64, s.stamp[0 .. std.mem.indexOfScalar(u8, s.stamp, '\t') orelse 0], 10) catch 0;
+        try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = s.path, .offset = 0, .length = size, .stamp = s.stamp }).format(arena) });
+        stats.covers += 1;
+    }
+    if (!isMp4(t.path)) {
+        // Remember the file was looked at, without a cover.
+        if (job.sidecar == null)
+            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = t.path, .offset = 0, .length = 0, .stamp = t.stamp }).format(arena) });
+        return;
+    }
+    const info = mp4.read(arena, client, try fileUrl(arena, repo.url, t.path)) catch |err| {
+        stats.failed += 1;
+        if (unreachable_(err)) return; // to try again next crawl
+        // A file that can't be read as an MP4 is remembered as without a
+        // cover, so it isn't read again until it changes.
+        if (job.sidecar == null)
+            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = t.path, .offset = 0, .length = 0, .stamp = t.stamp }).format(arena) });
+        return;
+    };
+    stats.described += 1;
+    if (job.sidecar == null) {
+        const c = info.cover orelse mp4.Cover{ .offset = 0, .length = 0, .image = .jpeg };
+        if (info.cover != null) stats.covers += 1;
+        try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = t.path, .offset = c.offset, .length = c.length, .stamp = t.stamp }).format(arena) });
+    }
+    try appendInfo(arena, writes, t, info);
+}
+
+/// Whether an error is the network's, worth trying again later.
+fn unreachable_(err: anyerror) bool {
+    return switch (err) {
+        error.ConnectionRefused, error.ConnectionResetByPeer, error.ConnectionTimedOut, error.NetworkUnreachable, error.HostUnreachable, error.TemporaryNameServerFailure, error.UnknownHostName, error.NameServerFailure, error.EndOfStream, error.ReadFailed, error.WriteFailed => true,
+        else => false,
+    };
+}
+
+/// Titles to describe first, such as those on screen; set from any thread.
+pub const Priority = struct {
+    mutex: Io.Mutex = .init,
+    arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator),
+    keys: []const []const u8 = &.{},
+
+    /// Replaces the titles to put first (by title key).
+    pub fn set(p: *Priority, io: Io, keys: []const []const u8) !void {
+        try p.mutex.lock(io);
+        defer p.mutex.unlock(io);
+        _ = p.arena.reset(.retain_capacity);
+        const copy = try p.arena.allocator().alloc([]const u8, keys.len);
+        for (keys, copy) |k, *c| c.* = try p.arena.allocator().dupe(u8, k);
+        p.keys = copy;
+    }
+
+    pub fn deinit(p: *Priority) void {
+        p.arena.deinit();
+    }
+};
+
+pub const RunOptions = struct {
+    workers: usize = 16,
+    /// Titles to describe first.
+    priority: ?*Priority = null,
+    /// Held while writing, if other connections write as this device too.
+    writer: ?*Io.Mutex = null,
+    /// How many movies and seasons to describe between commits, at most,
+    /// and how long, so what's found shows as it's found.
+    batch: usize = 24,
+    batch_ms: i64 = 750,
+};
+
+/// Describes the planned jobs with concurrent workers, committing as it
+/// goes, and taking prioritized titles first.
+pub fn run(io: Io, replica: *Replica, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, jobs: []const Job, options: RunOptions) !Stats {
+    var runner: Runner = .{
+        .io = io,
+        .replica = replica,
+        .arena = arena,
+        .client = client,
+        .wall_ms = wall_ms,
+        .jobs = jobs,
+        .done = try arena.alloc(bool, jobs.len),
+        .options = options,
+        .last_flush = Io.Timestamp.now(io, .awake),
+    };
+    @memset(runner.done, false);
+    for (jobs, 0..) |j, i| {
+        const gop = try runner.by_title.getOrPut(arena, j.target.title_key);
+        if (!gop.found_existing) gop.value_ptr.* = .empty;
+        try gop.value_ptr.append(arena, i);
+    }
+    var group: Io.Group = .init;
+    for (0..@max(1, @min(options.workers, jobs.len))) |_| try group.concurrent(io, Runner.work, .{&runner});
+    try group.await(io);
+    try runner.mutex.lock(io);
+    defer runner.mutex.unlock(io);
+    try runner.flush();
+    if (runner.err) |err| return err;
+    return runner.stats;
+}
+
+const Runner = struct {
+    io: Io,
+    replica: *Replica,
+    arena: std.mem.Allocator,
+    client: *std.http.Client,
+    wall_ms: u64,
+    jobs: []const Job,
+    done: []bool,
+    options: RunOptions,
+    by_title: std.StringHashMapUnmanaged(std.ArrayList(usize)) = .empty,
+    next: usize = 0,
+    mutex: Io.Mutex = .init,
+    pending: std.ArrayList(Write) = .empty,
+    last_flush: Io.Timestamp,
+    stats: Stats = .{},
+    err: ?anyerror = null,
+    /// Jobs whose findings are pending since the last commit.
+    batched: usize = 0,
+
+    /// The next job: a prioritized title's, else the next in order.
+    fn pick(r: *Runner) Io.Cancelable!?usize {
+        try r.mutex.lock(r.io);
+        defer r.mutex.unlock(r.io);
+        if (r.err != null) return null;
+        if (r.options.priority) |p| {
+            try p.mutex.lock(r.io);
+            defer p.mutex.unlock(r.io);
+            for (p.keys) |k| if (r.by_title.get(k)) |list| for (list.items) |i| if (!r.done[i]) {
+                r.done[i] = true;
+                return i;
+            };
+        }
+        while (r.next < r.jobs.len) : (r.next += 1) if (!r.done[r.next]) {
+            r.done[r.next] = true;
+            return r.next;
+        };
+        return null;
+    }
+
+    fn work(r: *Runner) Io.Cancelable!void {
+        while (try r.pick()) |i| {
+            // Each job reads up to a few hundred kilobytes; keep none of it.
+            var job_arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+            defer job_arena.deinit();
+            var writes: std.ArrayList(Write) = .empty;
+            var stats: Stats = .{};
+            describeJob(job_arena.allocator(), r.client, r.jobs[i], &writes, &stats) catch |err| {
+                stats.failed += 1;
+                std.log.warn("describing {s}: {t}", .{ r.jobs[i].target.title_key, err });
+            };
+            try r.mutex.lock(r.io);
+            defer r.mutex.unlock(r.io);
+            r.add(writes.items, stats) catch |err| {
+                r.err = err;
+            };
+        }
+    }
+
+    /// Takes a job's findings; commits once enough have gathered.
+    fn add(r: *Runner, writes: []const Write, stats: Stats) !void {
+        for (writes) |w| try r.pending.append(r.arena, .{
+            .key = try r.arena.dupe(u8, w.key),
+            .field = try r.arena.dupe(u8, w.field),
+            .value = try r.arena.dupe(u8, w.value),
+        });
+        r.stats.covers += stats.covers;
+        r.stats.described += stats.described;
+        r.stats.failed += stats.failed;
+        r.batched += 1;
+        const elapsed = r.last_flush.durationTo(Io.Timestamp.now(r.io, .awake)).toMilliseconds();
+        if (r.batched >= r.options.batch or elapsed >= r.options.batch_ms) try r.flush();
+    }
+
+    fn flush(r: *Runner) !void {
+        defer {
+            r.batched = 0;
+            r.last_flush = Io.Timestamp.now(r.io, .awake);
+        }
+        if (r.pending.items.len == 0) return;
+        if (r.options.writer) |w| try w.lock(r.io);
+        defer if (r.options.writer) |w| w.unlock(r.io);
+        try r.replica.refresh();
+        try r.replica.begin();
+        errdefer r.replica.db.exec("ROLLBACK") catch {};
+        for (r.pending.items) |w| try r.replica.write(r.wall_ms, w.key, w.field, w.value);
+        try r.replica.commit();
+        r.pending.clearRetainingCapacity();
+    }
+};
+
+fn appendInfo(arena: std.mem.Allocator, writes: *std.ArrayList(Write), t: Target, info: mp4.Info) !void {
+    const W = Write;
     const title_fields = .{ .{ "genre", info.genre }, .{ "network", info.network } };
     inline for (title_fields) |f| if (f[1]) |v| try writes.append(arena, W{ .key = t.title_key, .field = f[0], .value = v });
     if (t.is_episode) {
@@ -191,7 +413,7 @@ fn skippedPath(rel: []const u8, skip: []const u8) bool {
 }
 
 /// A sidecar image for a target, by Plex, Jellyfin, and Kodi convention.
-fn findSidecar(arena: std.mem.Allocator, images: anytype, titles_in: anytype, t: Target) !?struct { path: []const u8, stamp: []const u8 } {
+fn findSidecar(arena: std.mem.Allocator, images: anytype, titles_in: anytype, t: Target) !?Source {
     const dir = std.fs.path.dirname(t.path) orelse "";
     const prefix = if (dir.len > 0) try std.fmt.allocPrint(arena, "{s}/", .{dir}) else "";
     const base = std.fs.path.stem(std.fs.path.basename(t.path));
@@ -243,7 +465,7 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
         else => mp4.Info{},
     };
     const title_end = std.mem.indexOf(u8, item_key, "/e/") orelse std.mem.indexOf(u8, item_key, "/v/") orelse item_key.len;
-    var writes: std.ArrayList(struct { key: []const u8, field: []const u8, value: []const u8 }) = .empty;
+    var writes: std.ArrayList(Write) = .empty;
     try appendInfo(arena, &writes, .{
         .title_key = item_key[0..title_end],
         .item_key = item_key,
@@ -398,4 +620,28 @@ test "covers round-trip, and a season without one takes its series'" {
     try std.testing.expectEqual(@as(usize, 1), (try watchlist(&r, arena)).len);
     try setWatchlisted(&r, arena, 3, "t/s/firefly/-", false);
     try std.testing.expectEqual(@as(usize, 0), (try watchlist(&r, arena)).len);
+}
+
+test "a title in several repositories is described once, from its best source, and kept while unchanged" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const founder = (try @import("replica.zig").userKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, ":memory:", founder, .from(@splat(1)));
+    defer r.close();
+    const a: library.Repository = .{ .id = "aaaaaaaaaaaaaaaa".*, .url = "http://nas/720/", .layout = .{} };
+    const b: library.Repository = .{ .id = "bbbbbbbbbbbbbbbb".*, .url = "http://nas/4k/", .layout = .{} };
+    const crawled = [_]Crawled{
+        .{ .repo = a, .entries = &.{.{ .url = "http://nas/720/Network%20Effect%20(2020).mkv", .parent = "http://nas/720/", .is_dir = false, .size = 1, .mtime = "t" }} },
+        .{ .repo = b, .entries = &.{.{ .url = "http://nas/4k/Network%20Effect%20(2020).m4v", .parent = "http://nas/4k/", .is_dir = false, .size = 2, .mtime = "t" }} },
+    };
+    const first = try plan(&r, arena, &crawled);
+    try std.testing.expectEqual(@as(usize, 1), first.jobs.len);
+    try std.testing.expectEqualStrings(&b.id, &first.jobs[0].repo.id);
+    // Once described from b, it's unchanged, whichever repository's crawl
+    // comes first.
+    try r.write(1, "t/m/network-effect/2020", "art", try (Cover{ .repository = &b.id, .path = "Network Effect (2020).m4v", .offset = 9, .length = 9, .stamp = "2\tt" }).format(arena));
+    const again = try plan(&r, arena, &crawled);
+    try std.testing.expectEqual(@as(usize, 0), again.jobs.len);
+    try std.testing.expectEqual(@as(usize, 1), again.unchanged);
 }

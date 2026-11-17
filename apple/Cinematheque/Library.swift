@@ -25,6 +25,8 @@ struct Tile: Codable, Identifiable, Hashable {
 
     var id: String { season.map { "\(key)#\($0)" } ?? key }
     var isSeries: Bool { kind == "series" }
+    /// "Season 3", or "Specials" for season 0.
+    var seasonName: String? { season.map { $0 == 0 ? "Specials" : "Season \($0)" } }
 }
 
 /// One title in full: its metadata, covers, items, and where each copy is.
@@ -53,10 +55,17 @@ struct TitleDetail: Codable {
         let watched: Bool
         var id: String { key }
 
-        /// The season and episode of `e/s03e17`.
+        /// The season and episode of `e/s03e17`; a special (`e/s00-name`)
+        /// is season 0, episode 0.
         var episode: (season: Int, number: Int)? {
+            if key.hasPrefix("e/s00-") { return (0, 0) }
             let numbers = key.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
             return key.hasPrefix("e/s") && numbers.count >= 2 ? (numbers[0], numbers[1]) : nil
+        }
+
+        /// A version's name: its edition as written, or "Standard".
+        var versionName: String {
+            fields["edition"] ?? (key.hasPrefix("v/-") ? "Standard" : key.dropFirst(2).replacingOccurrences(of: "-", with: " ").capitalized)
         }
     }
 
@@ -204,11 +213,32 @@ final class Library {
         watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
     }
 
+    /// Which titles a crawl should describe first: those on screen.
+    func prioritize(_ titleKeys: Set<String>) {
+        guard let handle, let json = try? JSONEncoder().encode(Array(titleKeys)) else { return }
+        _ = cq_prioritize(handle.pointer, String(decoding: json, as: UTF8.self))
+    }
+
     // Calling the core.
 
     private func long(_ what: String, _ body: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async {
         guard let handle, activity == nil else { return }
         activity = what
+        // Show what the operation commits as it commits it: titles once
+        // crawled, covers as they're found.
+        let watcher = Task { [weak self] in
+            var seen = cq_data_version(handle.pointer)
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, !Task.isCancelled else { return }
+                let now = cq_data_version(handle.pointer)
+                if now != seen {
+                    seen = now
+                    self.reload()
+                }
+            }
+        }
+        defer { watcher.cancel() }
         let failure: String? = await Task.detached {
             guard let text = body(handle.pointer) else { return String(cString: cq_error()) }
             defer { cq_free(text) }

@@ -39,6 +39,9 @@ enum Playback {
     }
 
     static func name(_ item: TitleDetail.Item, in detail: TitleDetail) -> String {
+        if let e = item.episode, e.season == 0, e.number == 0 {
+            return "\(detail.name) · " + (item.fields["title"] ?? "Special")
+        }
         if let e = item.episode {
             return "\(detail.name) · S\(e.season)E\(e.number)" + (item.fields["title"].map { " · \($0)" } ?? "")
         }
@@ -71,6 +74,7 @@ struct InspectorView: View {
                     controls(detail)
                     metadata(detail)
                     if tile.season != nil { episodes(detail) }
+                    if tile.season == nil, detail.items.count > 1 { versions(detail) }
                 }
             }
             .padding(16)
@@ -85,7 +89,7 @@ struct InspectorView: View {
     private var heading: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(tile.name).font(.title2.weight(.semibold))
-            Text([tile.season.map { "Season \($0)" }, tile.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
+            Text([tile.seasonName, tile.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
                 .foregroundStyle(.secondary)
         }
     }
@@ -160,7 +164,7 @@ struct InspectorView: View {
     private func playLabel(_ next: TitleDetail.Item?, _ detail: TitleDetail) -> String {
         guard let next else { return "Play" }
         let verb = !next.watched && next.position > 0 ? "Resume" : "Play"
-        if let e = next.episode { return "\(verb) Episode \(e.number)" }
+        if let e = next.episode { return e.number == 0 ? "\(verb) Special" : "\(verb) Episode \(e.number)" }
         return verb
     }
 
@@ -204,6 +208,32 @@ struct InspectorView: View {
         }
     }
 
+    /// A movie's versions (e.g., a director's cut), each playable.
+    private func versions(_ detail: TitleDetail) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Versions").font(.headline).padding(.bottom, 6)
+            ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
+                HStack {
+                    Button {
+                        if let request = Playback.request(detail, items: [item], from: 0, rendition: rendition) { openWindow(value: request) }
+                    } label: {
+                        Image(systemName: item.watched ? "checkmark.circle.fill" : "play.circle")
+                            .font(.title3)
+                            .foregroundStyle(item.watched ? Color.secondary : Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    Text(item.versionName)
+                    Spacer()
+                    if let runtime = item.fields["duration"].flatMap(Int.init).flatMap(Self.runtime) {
+                        Text(runtime).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                }
+                .padding(.vertical, 6)
+                Divider()
+            }
+        }
+    }
+
     /// Reads the season's episodes' metadata, one at a time, if not yet read.
     private func describeEpisodes() async {
         guard tile.season != nil, let detail = library.detail(tile.key) else { return }
@@ -226,6 +256,13 @@ private struct EpisodeRow: View {
     let play: () -> Void
     @Environment(Library.self) private var library
 
+    /// "3. Title", or a special's title alone.
+    private var episodeName: String {
+        let number = item.episode?.number ?? 0
+        let title = item.fields["title"] ?? (number == 0 ? "Special" : "Episode \(number)")
+        return number == 0 ? title : "\(number). \(title)"
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Button(action: play) {
@@ -237,7 +274,7 @@ private struct EpisodeRow: View {
             .help(item.watched ? "Watched; play again" : "Play")
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text("\(item.episode?.number ?? 0). " + (item.fields["title"] ?? "Episode \(item.episode?.number ?? 0)"))
+                    Text(episodeName)
                         .lineLimit(1)
                     Spacer()
                     if let runtime = item.fields["duration"].flatMap(Int.init).flatMap(InspectorView.runtime) {

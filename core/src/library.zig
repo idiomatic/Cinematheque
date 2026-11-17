@@ -23,9 +23,9 @@
 
 const std = @import("std");
 const Io = std.Io;
+const ascii = std.ascii;
 const Replica = @import("replica.zig").Replica;
 const crawl = @import("crawl.zig");
-const art = @import("art.zig");
 const naming = @import("naming.zig");
 const url = @import("url.zig");
 const Blake3 = std.crypto.hash.Blake3;
@@ -107,6 +107,58 @@ pub const Keys = struct {
     item: []const u8,
 };
 
+/// Each folder's series, from the episodes in it or in its season folders,
+/// so a special without an episode number can be told from a movie.
+pub const SeriesByFolder = std.StringHashMapUnmanaged(struct { title: []const u8, year: ?u16 });
+
+pub fn seriesByFolder(arena: std.mem.Allocator, base: []const u8, entries: []const crawl.Entry) !SeriesByFolder {
+    var out: SeriesByFolder = .empty;
+    var scratch: [1024]u8 = undefined;
+    for (entries) |entry| {
+        if (entry.is_dir) continue;
+        const rel = relativeOrNull(arena, base, entry.url) orelse continue;
+        if (!naming.isVideo(rel)) continue;
+        const p = naming.parse(rel, &scratch);
+        if (p.kind != .episode or p.title.len == 0) continue;
+        var dir = std.fs.path.dirname(rel) orelse continue;
+        if (naming.isSeasonFolder(std.fs.path.basename(dir))) dir = std.fs.path.dirname(dir) orelse continue;
+        const gop = try out.getOrPut(arena, dir);
+        if (!gop.found_existing) gop.value_ptr.* = .{ .title = try arena.dupe(u8, p.title), .year = p.year };
+    }
+    return out;
+}
+
+/// Parses a repository's file, taking as a series' special (season 0) a
+/// "movie" in the series' folder whose title extends the series' (e.g.,
+/// "Babylon 5 The Gathering" beside Babylon 5's episodes), or an episode
+/// without a number in a "Specials" folder. Strings are the arena's.
+pub fn parseFile(arena: std.mem.Allocator, rel: []const u8, series: *const SeriesByFolder) !naming.Parsed {
+    var scratch: [1024]u8 = undefined;
+    var p = naming.parse(rel, &scratch);
+    p.title = try arena.dupe(u8, p.title);
+    if (p.rendition) |r| p.rendition = try arena.dupe(u8, r);
+    if (p.edition) |e| p.edition = try arena.dupe(u8, e);
+    const dir = std.fs.path.dirname(rel) orelse return p;
+    const numberless = p.kind == .episode and p.episode == null and p.date == null and p.season == 0;
+    if (!(p.kind == .movie and p.year == null) and !numberless) return p;
+    var series_dir = dir;
+    if (naming.isSeasonFolder(std.fs.path.basename(dir))) series_dir = std.fs.path.dirname(dir) orelse return p;
+    const s = series.get(series_dir) orelse return p;
+    // The file's own title, less the series'.
+    const own = naming.parse(std.fs.path.basename(rel), &scratch).title;
+    const n_own = try normalize(arena, own);
+    const n_series = try normalize(arena, s.title);
+    if (!std.mem.startsWith(u8, n_own, n_series)) return p;
+    const rest = if (ascii.startsWithIgnoreCase(own, s.title)) std.mem.trim(u8, own[s.title.len..], " -:,.") else std.mem.trim(u8, n_own[n_series.len..], "-");
+    if (rest.len == 0) return p;
+    p.kind = .episode;
+    p.title = s.title;
+    p.year = s.year;
+    p.season = 0;
+    p.special = try arena.dupe(u8, rest);
+    return p;
+}
+
 pub fn keys(arena: std.mem.Allocator, p: naming.Parsed) !Keys {
     const kind: u8 = if (p.kind == .episode) 's' else 'm';
     const year = if (p.year) |y| try std.fmt.allocPrint(arena, "{d}", .{y}) else "-";
@@ -114,7 +166,9 @@ pub fn keys(arena: std.mem.Allocator, p: naming.Parsed) !Keys {
     var item: std.ArrayList(u8) = .empty;
     try item.appendSlice(arena, title);
     if (p.kind == .episode) {
-        if (p.date) |d| {
+        if (p.special) |name| {
+            try item.print(arena, "/e/s00-{s}", .{try normalize(arena, name)});
+        } else if (p.date) |d| {
             try item.print(arena, "/e/{s}", .{d});
         } else {
             try item.print(arena, "/e/s{d:0>2}e{d:0>2}", .{ p.season orelse 0, p.episode orelse 0 });
@@ -218,14 +272,17 @@ fn snapshotKey(arena: std.mem.Allocator, id: [16]u8) ![]u8 {
 pub const CrawlStats = struct {
     crawl: crawl.Result,
     ingest: IngestStats,
-    art: art.Stats,
+    /// What the crawl found, for describing (see `art.plan`).
+    entries: []const crawl.Entry,
     crawl_ms: i64,
     total_ms: i64,
 };
 
 /// Crawls a repository, reusing this peer's last crawl of it where its
 /// directories haven't changed, brings the library's holdings in line with
-/// what it found, and keeps the crawl for next time.
+/// what it found, and keeps the crawl for next time. Describing what it
+/// found is separate (see `art.plan` and `art.run`), so its titles show
+/// before their covers.
 pub fn crawlRepository(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, repo: Repository, workers: usize) !CrawlStats {
     const key = try snapshotKey(arena, repo.id);
     var prev: ?crawl.Snapshot = null;
@@ -239,14 +296,13 @@ pub fn crawlRepository(replica: *Replica, io: Io, arena: std.mem.Allocator, clie
     });
     const crawled = Io.Timestamp.now(io, .awake);
     const stats = try ingest(replica, arena, wall_ms, repo, entries.items);
-    const described = try art.describe(replica, arena, client, wall_ms, repo, entries.items);
     var saved: Io.Writer.Allocating = .init(arena);
     try crawl.Snapshot.save(entries.items, &saved.writer);
     try replica.setLocal(key, saved.written());
     return .{
         .crawl = result,
         .ingest = stats,
-        .art = described,
+        .entries = entries.items,
         .crawl_ms = start.durationTo(crawled).toMilliseconds(),
         .total_ms = start.durationTo(Io.Timestamp.now(io, .awake)).toMilliseconds(),
     };
@@ -299,7 +355,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, repo: R
     var fields: std.StringHashMapUnmanaged(void) = .empty; // title and item fields to ensure
     var titles_seen: std.ArrayList(struct { key: []const u8, name: []const u8, year: ?u16 }) = .empty;
     var items_seen: std.ArrayList(struct { key: []const u8, p: naming.Parsed }) = .empty;
-    var scratch: [1024]u8 = undefined;
+    const series = try seriesByFolder(arena, repo.url, entries);
     for (entries) |entry| {
         if (entry.is_dir) continue;
         stats.files += 1;
@@ -314,20 +370,17 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, repo: R
             continue;
         }
         const value = try std.fmt.allocPrint(arena, "{s}\t{d}\t{s}", .{ rel, entry.size, entry.mtime });
-        const p = naming.parse(path, &scratch);
+        const p = try parseFile(arena, path, &series);
         if (p.kind == .extra) {
             stats.extras += 1;
             continue;
         }
-        if (p.title.len == 0 or (p.kind == .episode and p.episode == null and p.date == null)) {
+        if (p.title.len == 0 or (p.kind == .episode and p.episode == null and p.date == null and p.special == null)) {
             stats.unparsed += 1;
             try wanted.put(arena, try std.fmt.allocPrint(arena, "u/{s}", .{try normalize(arena, rel)}), value);
             continue;
         }
-        var owned = p;
-        owned.title = try arena.dupe(u8, p.title);
-        if (p.rendition) |r| owned.rendition = try arena.dupe(u8, r);
-        if (p.edition) |e| owned.edition = try arena.dupe(u8, e);
+        const owned = p;
         const k = try keys(arena, owned);
         var rendition = try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ k.item, try renditionOf(arena, repo.layout, owned) });
         // Two files of one rendition in one repository are duplicates (or
@@ -364,9 +417,15 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, repo: R
         if (t.year) |y| try replica.write(wall_ms, t.key, "year", try std.fmt.allocPrint(arena, "{d}", .{y}));
     }
     for (items_seen.items) |it| {
-        if (it.p.kind != .episode or try exists(replica, it.key, "episode")) continue;
-        if (it.p.season) |s| try replica.write(wall_ms, it.key, "season", try std.fmt.allocPrint(arena, "{d}", .{s}));
-        if (it.p.episode) |e| try replica.write(wall_ms, it.key, "episode", try std.fmt.allocPrint(arena, "{d}", .{e}));
+        if (it.p.kind == .episode and !try exists(replica, it.key, "season")) {
+            if (it.p.season) |n| try replica.write(wall_ms, it.key, "season", try std.fmt.allocPrint(arena, "{d}", .{n}));
+            if (it.p.episode) |e| try replica.write(wall_ms, it.key, "episode", try std.fmt.allocPrint(arena, "{d}", .{e}));
+            // A special's own name, until its file says otherwise.
+            if (it.p.special) |name| try replica.write(wall_ms, it.key, "title", name);
+        }
+        // An edition's name as written ("Director's Cut"), which its key
+        // ("directors-cut") loses.
+        if (it.p.edition) |e| if (!try exists(replica, it.key, "edition")) try replica.write(wall_ms, it.key, "edition", e);
     }
     var it = wanted.iterator();
     while (it.next()) |e| {
@@ -974,4 +1033,26 @@ test "state: repositories, aliases, playheads, and members can be listed, set, a
     try std.testing.expectEqual(@as(usize, 2), (try r.members(arena)).len);
     try r.removeMember(9000, other);
     try std.testing.expectEqual(@as(usize, 1), (try r.members(arena)).len);
+}
+
+test "a numberless file beside a series' episodes is its special, not a movie" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const base = "http://nas/";
+    const entries = [_]crawl.Entry{
+        .{ .url = "http://nas/Babylon%205/Babylon%205%20101%20Midnight.m4v", .parent = "http://nas/Babylon%205/", .is_dir = false, .size = 1, .mtime = "" },
+        .{ .url = "http://nas/Babylon%205/Babylon%205%20The%20Gathering.m4v", .parent = "http://nas/Babylon%205/", .is_dir = false, .size = 1, .mtime = "" },
+        .{ .url = "http://nas/Firefly/Season%2001/Firefly%20-%20S01E01.mkv", .parent = "http://nas/Firefly/Season%2001/", .is_dir = false, .size = 1, .mtime = "" },
+    };
+    const series = try seriesByFolder(arena, base, &entries);
+    const special = try parseFile(arena, "Babylon 5/Babylon 5 The Gathering.m4v", &series);
+    try std.testing.expectEqual(naming.Kind.episode, special.kind);
+    try std.testing.expectEqualStrings("The Gathering", special.special.?);
+    try std.testing.expectEqualStrings("t/s/babylon-5/-/e/s00-the-gathering", (try keys(arena, special)).item);
+    const specials_folder = try parseFile(arena, "Firefly/Specials/Firefly Here Is How It Was.mkv", &series);
+    try std.testing.expectEqualStrings("Here Is How It Was", specials_folder.special.?);
+    // A movie in its own folder stays one.
+    const movie = try parseFile(arena, "Movies/Alien (1979)/Alien (1979).mkv", &series);
+    try std.testing.expectEqual(naming.Kind.movie, movie.kind);
 }

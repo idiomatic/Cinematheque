@@ -25,6 +25,10 @@ const Case = struct {
 
 const cases = [_]Case{
     // Movies
+    .{ .path = "TV Shows/11.22.63/11.22.63 101 The Rabbit Hole.m4v", .kind = .episode, .title = "11.22.63", .season = 1, .episode = 1 },
+    .{ .path = "Super.8.2011.1080p.BluRay.x264.mkv", .kind = .movie, .title = "Super 8", .year = 2011, .resolution = "1080p", .rendition = "1080p bluray h264" },
+    .{ .path = "Camera/00501.mp4", .kind = .movie, .title = "" },
+    .{ .path = "Camera/99 00511.mp4", .kind = .movie, .title = "" },
     .{ .path = "Movies/Inception (2010)/Inception (2010).mkv", .kind = .movie, .title = "Inception", .year = 2010 },
     .{ .path = "Movies/Inception (2010) {tmdb-27205}/Inception (2010) {tmdb-27205}.mkv", .kind = .movie, .title = "Inception", .year = 2010, .tmdb = "27205" },
     .{ .path = "Movies/Blade Runner (1982) {edition-Final Cut}/Blade Runner (1982) {edition-Final Cut}.mkv", .kind = .movie, .title = "Blade Runner", .year = 1982, .edition = "Final Cut" },

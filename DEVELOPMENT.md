@@ -8,11 +8,7 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 * **Linux:** running the peer itself there (its experiments ran in a VM).
 * **Experiments:** merge the READMEs of experiments whose code is gone (crdt, naming, discovery, repository) into [experiments/README.md](experiments/README.md), keeping their methods and results.
 * **Known issues:**
-  * Dotted titles lose their dots ("11.22.63" lists as "11 22 63").
-  * Files named only by number (e.g., camera files) list as titles instead of going to review.
-  * A series' specials without codes in TV folders (e.g., "Babylon 5 The Gathering") parse as movies; a repository could say it holds series.
   * macOS's Local Network privacy can block the peer from reaching the LAN (`HostUnreachable`, as Python's `No route to host`) when it's started by a program without that permission, while Apple's own tools, such as `curl`, get through; check the launch agents, and how the peer asks.
-  * Edition labels come from keys, so "Director's Cut" shows as "Directors Cut".
 
 ## Libraries
 
@@ -63,8 +59,7 @@ Open:
 * **Cover art, still to come** (what's built is in [AGENTS.md](AGENTS.md)):
   * **Placeholders:** a ThumbHash (about 25 bytes) per cover in the catalog, so a tile shows a blurred likeness at once rather than a color; decoding images in the core, given in-project code over dependencies, is the question.
   * **Thumbnails from peers:** desktop peers make thumbnails (about 300×450, 20 KB) and serve them by hash (`/art/<hash>/<size>`), so players with no peer near scale originals only as a fallback; and prefetching two screens ahead.
-  * **Scale:** measure the grid with 6,000 covers, falling back to AppKit's and UIKit's collection views if SwiftUI's lazy grids drop frames.
-  * **Describing in parallel:** a first crawl describes a movie or season at a time, about 50 ms each on the LAN (8 range requests): 5 minutes at the scale in [AGENTS.md](AGENTS.md); the crawl's workers would cut that to well under a minute.
+  * **Scale:** on a Mac with 4,000 movies, flicking scrolls smoothly, and jumping with the scroll bar loads the covers in view in about half a second; at 6,000 and on iOS and tvOS, fall back to AppKit's and UIKit's collection views if SwiftUI's lazy grids drop frames.
   * **Thumbnail caches** (open): their size per platform (all of them on a Mac, about 120 MB; a budget on iPhone and iPad; purgeable storage on tvOS), and how Linux and Windows decode and scale images.
   * **Other sources:** the outside-metadata provider's art, and covers in Matroska files.
 * **Who's watching:** set-top players are often shared, laptops and handhelds seldom; a shared player holds each of its users' private data, and hides it while several users are watching.

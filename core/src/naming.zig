@@ -31,6 +31,9 @@ pub const Parsed = struct {
     /// "2160p remux hevc hdr"), or null if the name has none.
     rendition: ?[]const u8 = null,
     extra: ?[]const u8 = null,
+    /// A series' special without an episode number (season 0), by its own
+    /// title (e.g., "The Gathering"); see `library.parseFile`.
+    special: ?[]const u8 = null,
 };
 
 const video_extensions = [_][]const u8{ ".mkv", ".mp4", ".m4v", ".avi", ".mov", ".ts", ".m2ts", ".iso", ".wmv", ".webm", ".mpg" };
@@ -183,6 +186,13 @@ pub fn parse(path: []const u8, scratch: []u8) Parsed {
         p.tvdb = p.tvdb orelse folder.tvdb;
         p.edition = p.edition orelse folder.edition;
     }
+    // A name of numbers alone, without a year (e.g., a camera's "00501"),
+    // names no title; it goes to review. "1917 (2019)" has its year.
+    if (p.kind == .movie and p.year == null) {
+        for (p.title) |c| {
+            if (ascii.isAlphabetic(c) or c >= 0x80) break;
+        } else p.title = "";
+    }
     return p;
 }
 
@@ -216,6 +226,11 @@ fn compactEpisode(stem: []const u8, title: []const u8) ?u16 {
 fn isExtraFolder(name: []const u8) bool {
     for (extra_folders) |e| if (ascii.eqlIgnoreCase(name, e)) return true;
     return false;
+}
+
+/// Whether a folder holds a season ("Season 01", "Specials").
+pub fn isSeasonFolder(name: []const u8) bool {
+    return seasonFolder(name) != null;
 }
 
 fn seasonFolder(name: []const u8) ?u16 {
@@ -495,7 +510,8 @@ fn wordEnd(s: []const u8) usize {
 }
 
 /// Turns scene separators into spaces (keeping dots in acronyms like
-/// "S.W.A.T." and hyphens inside words), and trims what's left.
+/// "S.W.A.T.", dots between digits, and hyphens inside words), and trims
+/// what's left.
 fn cleanTitle(raw: []const u8, scratch: []u8, used: *usize) []const u8 {
     // A parenthesis left open, as in "House, MD (from DVD)" cut at "DVD",
     // goes with what followed it.
@@ -509,7 +525,9 @@ fn cleanTitle(raw: []const u8, scratch: []u8, used: *usize) []const u8 {
     const out = scratch[used.*..][0..trimmed.len];
     for (trimmed, 0..) |c, i| {
         const acronym = c == '.' and i >= 1 and ascii.isUpper(trimmed[i - 1]) and (i < 2 or trimmed[i - 2] == '.' or i + 2 < trimmed.len and trimmed[i + 2] == '.');
-        out[i] = if ((c == '.' and !acronym) or c == '_') ' ' else c;
+        // Between digits, a dot is the title's own: "11.22.63", "9.1.1".
+        const numeric = c == '.' and i >= 1 and ascii.isDigit(trimmed[i - 1]) and i + 1 < trimmed.len and ascii.isDigit(trimmed[i + 1]);
+        out[i] = if ((c == '.' and !acronym and !numeric) or c == '_') ' ' else c;
     }
     used.* += trimmed.len;
     return mem.trim(u8, out, " ");

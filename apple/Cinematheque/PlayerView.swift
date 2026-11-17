@@ -41,9 +41,11 @@ private struct Player: NSViewRepresentable {
     final class Coordinator {
         var observer: Any?
         var ended: NSObjectProtocol?
-        /// The item playing, and those after it.
+        var current: NSKeyValueObservation?
+        /// Each queued player item's item key and title.
+        var entries: [ObjectIdentifier: PlayRequest.Entry] = [:]
+        /// The item playing.
         var item = ""
-        var queue: [PlayRequest.Entry] = []
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -52,36 +54,46 @@ private struct Player: NSViewRepresentable {
         let view = AVPlayerView()
         view.controlsStyle = .floating
         view.allowsPictureInPicturePlayback = true
-        let player = AVQueuePlayer(url: request.url)
-        view.player = player
+        // The whole queue up front: the queue player goes on to the next
+        // item at each one's end by itself.
         let coordinator = context.coordinator
+        let all = [PlayRequest.Entry(url: request.url, item: request.item, title: request.title)] + request.queue
+        let items = all.map { entry in
+            let item = AVPlayerItem(url: entry.url)
+            coordinator.entries[ObjectIdentifier(item)] = entry
+            return item
+        }
+        let player = AVQueuePlayer(items: items)
+        view.player = player
         coordinator.item = request.item
-        coordinator.queue = request.queue
         if request.start > 0 {
             player.seek(to: CMTime(seconds: request.start, preferredTimescale: 600))
         }
         player.play()
-        // Save the playhead every 10 seconds of playing.
         let library = library
+        let title = $title
+        // Follow the item playing, for its playhead and the window's title.
+        coordinator.current = player.observe(\.currentItem, options: [.new]) { player, _ in
+            let id = player.currentItem.map(ObjectIdentifier.init)
+            MainActor.assumeIsolated {
+                guard let id, let entry = coordinator.entries[id] else { return }
+                coordinator.item = entry.item
+                title.wrappedValue = entry.title
+            }
+        }
+        // Save the playhead every 10 seconds of playing.
         coordinator.observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 10, preferredTimescale: 1), queue: .main) { [weak player] time in
             MainActor.assumeIsolated {
                 guard let player, player.rate != 0, let duration = player.currentItem?.duration.seconds else { return }
                 library.setPlayhead(coordinator.item, position: time.seconds, duration: duration)
             }
         }
-        // At the end, mark it watched and play the next.
-        let title = $title
-        coordinator.ended = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main) { [weak player] note in
+        // Mark each item watched at its end.
+        coordinator.ended = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main) { note in
             let ended = (note.object as AnyObject?).map(ObjectIdentifier.init)
             MainActor.assumeIsolated {
-                guard let player, let current = player.currentItem, ObjectIdentifier(current) == ended else { return }
-                library.setWatched(coordinator.item, true)
-                guard !coordinator.queue.isEmpty else { return }
-                let next = coordinator.queue.removeFirst()
-                coordinator.item = next.item
-                title.wrappedValue = next.title
-                player.replaceCurrentItem(with: AVPlayerItem(url: next.url))
-                player.play()
+                guard let ended, let entry = coordinator.entries[ended] else { return }
+                library.setWatched(entry.item, true)
             }
         }
         return view
@@ -93,6 +105,7 @@ private struct Player: NSViewRepresentable {
         guard let player = view.player else { return }
         if let observer = coordinator.observer { player.removeTimeObserver(observer) }
         if let ended = coordinator.ended { NotificationCenter.default.removeObserver(ended) }
+        coordinator.current?.invalidate()
         player.pause()
     }
 }

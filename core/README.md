@@ -17,7 +17,7 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 | [crawl](src/crawl.zig) | Listings, detected per repository (`INDEX`, Caddy's or nginx's JSON, HTML), and re-crawls that reuse unchanged directories |
 | [naming](src/naming.zig) | The filename parser |
 | [mp4](src/mp4.zig) | An MP4's cover (as a byte range) and metadata, read by range requests that walk atom headers |
-| [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s; the browsing grid's tiles, with this user's progress; the watchlist |
+| [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s, planned across repositories and described by concurrent workers, prioritized titles first; the browsing grid's tiles, with this user's progress; the watchlist |
 | [library](src/library.zig) | Keys from titles' parsed identities; repositories, crawled into holdings; titles, a title's details, facets, close matches, duplicates, aliases, and playheads |
 | [serve](src/serve.zig) | The repository server, with a hook for other requests, such as syncs |
 | [discover](src/discover.zig) | DNS-SD: advertising and browsing peers |
@@ -26,7 +26,7 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 
 ## Keys
 
-[library.zig](src/library.zig) documents them. A title's key derives from its parsed identity, `t/<kind>/<normalized title>/<year>`, so peers that crawl the same repository independently agree, and a renamed file that parses the same stays where it was. Below a title come episodes (`/e/s03e17`), versions (`/v/<edition>`), parts (`/p/<n>`), and renditions (`/r/<label>`), whose `held:<repository>` fields record where each file is.
+[library.zig](src/library.zig) documents them. A title's key derives from its parsed identity, `t/<kind>/<normalized title>/<year>`, so peers that crawl the same repository independently agree, and a renamed file that parses the same stays where it was. Below a title come episodes (`/e/s03e17`, or `/e/s00-<title>` for a special without a number), versions (`/v/<edition>`), parts (`/p/<n>`), and renditions (`/r/<label>`), whose `held:<repository>` fields record where each file is.
 
 A user's playheads (`p/<user>/<item>`) are private: each device writes them on a private stream of its own, with its own key and numbering, which peers send only to that user's devices, so other users' peers never hold them, nor claim to in their version vectors.
 

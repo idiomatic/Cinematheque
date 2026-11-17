@@ -94,7 +94,10 @@ Movies/All Systems Red (2017) - Director's Cut.mkv
 Movies/Network Effect (2020) {tmdb-12345}/Network Effect (2020).mkv
 TV Shows/Worldhoppers/Worldhoppers 102 The Wormhole.m4v
 TV Shows/Sanctuary Moon (2019)/Season 01/Sanctuary Moon - S01E01 - Pilot.mkv
+TV Shows/Worldhoppers/Worldhoppers The Lost Signal.m4v
 ```
+
+A file without an episode number beside a series' episodes, named for the series (as `Worldhoppers The Lost Signal`), or in a `Specials` folder, is one of the series' specials.
 
 ## Reviewing matches
 

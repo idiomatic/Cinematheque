@@ -36,6 +36,8 @@ const Library = struct {
     replica: ?Replica = null,
     /// Held while a connection writes as this device.
     writer: Io.Mutex = .init,
+    /// Titles to describe first while a crawl runs, such as those on screen.
+    priority: art.Priority = .{},
 
     fn io(lib: *Library) Io {
         return lib.threaded.io();
@@ -92,6 +94,7 @@ fn open(peer_home: ?[*:0]const u8) !*Library {
 export fn cq_close(lib: ?*Library) void {
     const l = lib orelse return;
     if (l.replica) |*r| r.close();
+    l.priority.deinit();
     l.arena_state.deinit();
     l.threaded.deinit();
     gpa.destroy(l);
@@ -294,30 +297,59 @@ fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
     return lib.store.openReplica(arena);
 }
 
-/// Long: crawls every repository and describes what it found, as a JSON
-/// array of objects with `url`, `files`, `titles`, `covers`, and `error`
-/// (null, or why the repository's crawl failed).
+/// Long: crawls every repository, committing each as it's crawled, then
+/// describes what's new (covers and metadata) with concurrent workers,
+/// committing as it goes and taking prioritized titles (`cq_prioritize`)
+/// first. Returns a JSON array of objects with `url`, `files`, `titles`,
+/// and `error` (null, or why its crawl failed), one per repository.
 export fn cq_crawl(lib: *Library) ?[*:0]u8 {
     return json(lib, crawlAll, .{});
 }
 
 fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
-    try lib.writer.lock(lib.io());
-    defer lib.writer.unlock(lib.io());
     var r = try connection(lib, arena);
     defer r.close();
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     const list = try library.repositories(&r, arena);
     const out = try arena.alloc(CrawlJson, list.len);
+    var crawled: std.ArrayList(art.Crawled) = .empty;
     for (list, out) |rp, *o| {
+        try lib.writer.lock(lib.io());
+        defer lib.writer.unlock(lib.io());
+        try r.refresh();
         const s = library.crawlRepository(&r, lib.io(), arena, &client, lib.now(), rp, 16) catch |err| {
             o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = @errorName(err) };
             continue;
         };
-        o.* = .{ .url = rp.url, .files = s.ingest.files, .titles = s.ingest.titles_added, .covers = s.art.covers, .@"error" = null };
+        o.* = .{ .url = rp.url, .files = s.ingest.files, .titles = s.ingest.titles_added, .covers = 0, .@"error" = null };
+        try crawled.append(arena, .{ .repo = rp, .entries = s.entries });
     }
+    const plan = try art.plan(&r, arena, crawled.items);
+    _ = try art.run(lib.io(), &r, arena, &client, lib.now(), plan.jobs, .{
+        .workers = 16,
+        .priority = &lib.priority,
+        .writer = &lib.writer,
+    });
     return out;
+}
+
+/// Sets the titles to describe first, a JSON array of title keys (e.g., the
+/// tiles on screen); any thread.
+export fn cq_prioritize(lib: *Library, title_keys: [*:0]const u8) c_int {
+    return status(lib, prioritize, .{std.mem.span(title_keys)});
+}
+
+fn prioritize(lib: *Library, arena: std.mem.Allocator, title_keys: []const u8) !void {
+    const keys = try std.json.parseFromSliceLeaky([]const []const u8, arena, title_keys, .{});
+    try lib.priority.set(lib.io(), keys);
+}
+
+/// A number that changes when another connection (a long operation) has
+/// committed changes, so the app knows to reload; -1 on failure.
+export fn cq_data_version(lib: *Library) i64 {
+    const r = &(lib.replica orelse return -1);
+    return r.db.scalar("PRAGMA data_version") catch -1;
 }
 
 /// Long: pulls from the peer at `target`, or else from every peer of this

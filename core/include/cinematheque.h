@@ -38,12 +38,20 @@ int cq_repo_add(cq_library *library, const char *url, const char *rendition, con
 int cq_repo_set(cq_library *library, const char *repo, const char *rendition, const char *skip);
 int cq_repo_remove(cq_library *library, const char *repo);
 
-// Long: crawling and describing every repository, syncing with a peer (or,
+// Long: crawling every repository and describing what's new (committing
+// as it goes, so reload when cq_data_version changes), syncing with a peer (or,
 // if url is NULL, every peer found or added), and reading an item's
 // metadata from its file.
 char *cq_crawl(cq_library *library);
 char *cq_sync(cq_library *library, const char *url);
 int cq_describe(cq_library *library, const char *item_key);
+
+// While a crawl describes, which titles to take first (a JSON array of
+// title keys, e.g., the tiles on screen); any thread. And a number that
+// changes when a long operation has committed changes, to know when to
+// reload.
+int cq_prioritize(cq_library *library, const char *title_keys_json);
+long long cq_data_version(cq_library *library);
 
 // Browsing: the grid's tiles, with their covers' byte ranges, and one
 // title, with its metadata and each copy's playable URL.

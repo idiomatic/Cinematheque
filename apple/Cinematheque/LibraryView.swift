@@ -104,6 +104,9 @@ struct CoverGrid: View {
     @Binding var selection: Tile.ID?
     @Environment(Library.self) private var library
     @Environment(\.openWindow) private var openWindow
+    /// Tiles on screen or near it (the lazy grid's), whose titles a crawl
+    /// describes first.
+    @State private var visible: Set<Tile.ID> = []
 
     private struct Group: Identifiable {
         let key: String
@@ -131,6 +134,13 @@ struct CoverGrid: View {
             }
             .padding(20)
         }
+        // Once scrolling settles.
+        .task(id: visible) {
+            try? await Task.sleep(for: .milliseconds(200))
+            // A tile's ID is its title's key, then `#` and a season for a
+            // series' season.
+            if !Task.isCancelled { library.prioritize(Set(visible.map { String($0.split(separator: "#")[0]) })) }
+        }
         .overlay {
             if tiles.isEmpty {
                 ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text("Add repositories and crawl them in Settings."))
@@ -143,6 +153,8 @@ struct CoverGrid: View {
             ForEach(tiles) { tile in
                 // Selecting at once, not after the double-click interval.
                 TileView(tile: tile, aspect: aspect, selected: selection == tile.id)
+                    .onAppear { visible.insert(tile.id) }
+                    .onDisappear { visible.remove(tile.id) }
                     .onTapGesture { selection = tile.id }
                     .simultaneousGesture(TapGesture(count: 2).onEnded { play(tile) })
             }
@@ -180,7 +192,7 @@ struct TileView: View {
         VStack(alignment: .leading, spacing: 6) {
             Color.clear
                 .aspectRatio(aspect, contentMode: .fit)
-                .overlay { CoverImage(cover: tile.cover, title: tile.season == nil ? tile.name : "Season \(tile.season!)") }
+                .overlay { CoverImage(cover: tile.cover, title: tile.seasonName ?? tile.name) }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
@@ -204,7 +216,7 @@ struct TileView: View {
                     }
                 }
                 .shadow(color: .black.opacity(0.15), radius: 3, y: 2)
-            Text(tile.season.map { "Season \($0)" } ?? tile.name)
+            Text(tile.seasonName ?? tile.name)
                 .font(.callout)
                 .lineLimit(1)
             if tile.season == nil, let year = tile.year {
