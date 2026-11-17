@@ -8,7 +8,7 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 
 * [core](core/README.md): the Zig library, and a static library with a C interface ([cinematheque.h](core/include/cinematheque.h), a Swift module by its [module map](core/include/module.modulemap)) whose results are JSON. Its functions belong to one thread but for long ones (crawling, syncing, describing), each on a connection of its own; only one connection writes as the device at a time, and the main one catches up (`Replica.refresh`) before acting.
 * [peer](peer/README.md): the command-line desktop peer, `cinematheque`, for macOS and Linux.
-* [apple](apple/README.md): the Apple players, in SwiftUI; so far a macOS player (macOS 15 or later), bundled as `Cinematheque.app` (`com.rbrian.cinematheque`) by its Xcode project, whose build phase builds the core for each architecture and links it into one object exporting only the C interface, so the compiler runtime Zig bundles can't clash with Xcode's.
+* [apple](apple/README.md): the Apple players, in SwiftUI; so far a macOS player (macOS 15 or later), bundled as `Cinematheque.app` (`com.rbrian.cinematheque`) by its Xcode project (Xcode 27's `project.xcproj` format), whose build phase builds the core for each architecture and links it into one object exporting only the C interface, so the compiler runtime Zig bundles can't clash with Xcode's.
 * [experiments](experiments/README.md): the prototypes the components grew from, kept for reference.
 
 ## Peers
@@ -70,7 +70,9 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 * **Browsing:** shelves (Movies, Series, Watchlist; no All), searchable; a grid of covers in fixed cells, movies 2:3 and each series' seasons square under its name, each with a watched mark or progress bar; a cover shows a color with its title until loaded. Covers are fetched by range request, scaled with ImageIO off the main thread, and cached in memory and in the app's caches.
 * **Inspector:** for the selected tile, a larger cover, Play or Resume (a movie, or a season's next unwatched episode, with the rest of the season queued), a rendition picker, the watchlist and watched marks, metadata, and a season's episodes, each playable, described on demand.
 * **Playing:** a window per queue, in AppKit's `AVPlayerView`, streaming from the repository, starting at the playhead unless watched, saving it every 10 seconds, marking an item watched at its end, and going on to the next.
-* **Managing,** in Settings: repositories (adding, editing, removing, crawling), members (adding and removing; this user's key), and this device (its keys, the user's secret, syncing with peers found or by address). Long operations run off the main thread; the toolbar's Refresh crawls, then syncs.
+* **Managing,** in Settings: repositories (adding, editing, removing, crawling), members (adding and removing; this user's key), and this device (its keys, the user's secret, syncing with peers found or by address). Long operations run off the main thread.
+* **Toolbar:** the sidebar's toggle and the shelf's title and count (or, while it runs, what a long operation is doing) at the leading edge; the inspector's toggle (⌥⌘I) and search at the trailing. Refresh Library (⌘R, in the View menu) crawls, then syncs.
+* The project follows Xcode's recommended settings but for script sandboxing (the core's build phase), the App Sandbox (the home it shares with the peer), the hardened runtime (until signing for distribution), and its macOS 15 minimum. A developer's signing settings stay in an ignored `Local.xcconfig`.
 * The bundle's `Info.plist` allows plain HTTP on the local network. Debug builds take launch options for driving them unattended (`CINEMATHEQUE_SELECT`, a tile, e.g. `t/s/firefly/-#1`; `CINEMATHEQUE_PLAY`; and `CINEMATHEQUE_ITEM`).
 
 ## Implementation

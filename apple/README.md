@@ -12,17 +12,20 @@ open "$(xcodebuild -scheme Cinematheque -configuration Release \
   -showBuildSettings | sed -n 's/^ *BUILT_PRODUCTS_DIR = //p')/Cinematheque.app"
 ```
 
-The project has one macOS app target:
+The project is in Xcode 27's format ([project.xcproj](Cinematheque.xcodeproj/project.xcproj), readable JSON, converted with `xcodebuild -convert-project "Xcode Project"`), so it needs Xcode 27 or later. It has one macOS app target:
 * **Sources:** the [Cinematheque](Cinematheque) folder, which Xcode keeps in sync, so new files need no project edits.
 * **Core:** a build phase builds it with Zig (from `/opt/homebrew/bin` or `/usr/local/bin`) for each architecture being built, so Release builds are universal, and links each into one object exporting only the C interface (`ld -r -exported_symbol '_cq_*'`), since the compiler runtime Zig bundles (which the core needs for 128-bit floats) would otherwise clash with Xcode's. Swift imports it as `CCinematheque`, by the [module map](../core/include/module.modulemap) beside its header.
 * **Bundle:** [Info.plist](Cinematheque/Info.plist), merged into the generated one, allows plain HTTP on the local network, where repositories often are; [Assets.xcassets](Cinematheque/Assets.xcassets) holds the icon and accent color, both empty so far. It's signed ad hoc.
 * **Scheme:** shared, with `CINEMATHEQUE_HOME` ready, disabled, for running on another library.
+* **Settings:** Xcode 27.2's recommended ones (its macOS app template's), but for four, on purpose: script sandboxing is off for the core's build phase, which reads `../core` and Zig's cache; there's no App Sandbox, since the app shares the peer's home in `~/Library/Application Support`; the hardened runtime waits for signing for distribution; and the app runs on macOS 15 or later. Swift code is isolated to the main actor by default, with approachable concurrency; what crosses threads (the core's handle, decoded images) is marked `nonisolated`.
+* **Signing:** ad hoc. A developer's own settings, such as `DEVELOPMENT_TEAM`, go in `Local.xcconfig` beside [Signing.xcconfig](Signing.xcconfig), which includes it if present; Git ignores it, so they stay out of commits.
 
 ## Sources
 
 * [Library.swift](Cinematheque/Library.swift): the library through the C interface, decoding its JSON (status, tiles, a title's details, repositories, members, the watchlist), and running long operations (crawling, syncing, describing) off the main thread.
 * [SetupView.swift](Cinematheque/SetupView.swift): the first run: creating, joining, or linking.
-* [LibraryView.swift](Cinematheque/LibraryView.swift): shelves (Movies, Series, Watchlist) beside a lazy grid of covers in fixed cells, movies 2:3 and seasons square under their series, with watched marks and progress bars; Refresh crawls, then syncs.
+* [LibraryView.swift](Cinematheque/LibraryView.swift): shelves (Movies, Series, Watchlist) beside a lazy grid of covers in fixed cells, movies 2:3 and seasons square under their series, with watched marks and progress bars. The toolbar holds the inspector's toggle (⌥⌘I) and, last, search: SwiftUI pins its toolbar search to the trailing edge, and the guidelines put both at the trailing edge without ordering them, so the toggle goes just before search, as in Photos (a custom field could put the toggle last, but would lose the native one's behavior). The title's subtitle shows the count, or what a long operation is doing.
+* [CinemathequeApp.swift](Cinematheque/CinemathequeApp.swift): the windows, Settings, and Refresh Library (⌘R), which crawls, then syncs.
 * [ArtCache.swift](Cinematheque/ArtCache.swift): covers fetched by range request, scaled with ImageIO off the main thread (480 pixels for tiles, 1,200 for the inspector), and kept in memory and on disk (`~/Library/Caches/com.rbrian.cinematheque/covers`); until one loads, a color of its own with its title.
 * [InspectorView.swift](Cinematheque/InspectorView.swift): the selected tile's larger cover, Play or Resume (a season from its next unwatched episode, the rest queued), a rendition picker, the watchlist and watched marks, metadata, and a season's episodes, described on demand.
 * [PlayerView.swift](Cinematheque/PlayerView.swift): a window per queue, in AppKit's `AVPlayerView`, streaming by byte ranges, starting where the user left off, saving the playhead every 10 seconds, and at each item's end, marking it watched and playing the next.
@@ -31,7 +34,7 @@ The project has one macOS app target:
 
 ## Checking the interface
 
-Screenshots come from a macOS VM, run by terrarium from the `macos-27.2-quiet` layer, whose screen it captures without screen-recording permission on the host. Put the debug build's app into the guest, at `~/Cinematheque.app`, with media and the [peer](../peer/README.md) to serve it on the guest's loopback (`serve --media`), then open the app, to set up from scratch, or with a peer home in place and launch options, e.g., `open --env CINEMATHEQUE_SELECT=t/m/all-systems-red/2017 ~/Cinematheque.app`. Drawing the window from within the app instead (`cacheDisplay`, or rendering its layers) misses macOS 26's floating sidebar.
+Screenshots come from a macOS VM, run by terrarium from the `macos-27.2-quiet` layer, whose screen it captures without screen-recording permission on the host. Put the debug build's app into the guest, at `~/Cinematheque.app`, with media and the [peer](../peer/README.md) to serve it on the guest's loopback (`serve --media`), then open the app, to set up from scratch, or with a peer home in place and launch options, e.g., `open --env CINEMATHEQUE_SELECT=t/m/all-systems-red/2017 ~/Cinematheque.app`. During a tight loop of changes, keep the VM running and only replace the app (quit it, copy the new build in, reopen it), keeping the guest's media server and home; stop the VM when the work moves away from the interface. Drawing the window from within the app instead (`cacheDisplay`, or rendering its layers) misses macOS 26's floating sidebar.
 
 ## Findings
 

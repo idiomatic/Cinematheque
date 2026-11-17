@@ -84,7 +84,7 @@ actor ArtCache {
     }
 }
 
-final class CGImageBox: @unchecked Sendable {
+nonisolated final class CGImageBox: @unchecked Sendable {
     let image: CGImage
     init(_ image: CGImage) { self.image = image }
 }

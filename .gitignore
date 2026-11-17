@@ -12,3 +12,6 @@ xcuserdata/
 *.egress/
 
 .DS_Store
+
+# A developer's own signing settings
+apple/Local.xcconfig

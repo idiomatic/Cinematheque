@@ -23,7 +23,7 @@ zig build --release=fast
 ```sh
 # on hal
 cinematheque library create
-cinematheque repo add "http://nas/Video/Movies/Very Fast 720p30/" --rendition "Very Fast 720p30"
+cinematheque repo add http://nas.local/Video/
 cinematheque crawl
 cinematheque title review
 cinematheque serve &
@@ -41,4 +41,4 @@ cinematheque sync
 
 ## On a real repository
 
-Crawling a Caddy server on a NAS over Wi-Fi, four renditions of movies and TV (50,000 files, 4,000 of them in housekeeping folders the repository skips), took under a second with 32 workers and ingested 40,000 holdings of 5,000 titles; a second crawl took 11 requests instead of 790. Review found 12 close matches (7 years off by one, 4 years missing, 1 spelling) and 39 duplicate files: `.m4v` and `.mp4` copies, episode codes used twice, and a part beside its whole. A second peer synced the library (90,000 operations) in 0.4 s, and an alias reached it as one operation.
+Crawling a Caddy server on a NAS over Wi-Fi, organized by its owner's convention of a folder per rendition (each added as a repository, its rendition named), four renditions of movies and TV (50,000 files, 4,000 of them in housekeeping folders the repository skips), took under a second with 32 workers and ingested 40,000 holdings of 5,000 titles; a second crawl took 11 requests instead of 790. Review found 12 close matches (7 years off by one, 4 years missing, 1 spelling) and 39 duplicate files: `.m4v` and `.mp4` copies, episode codes used twice, and a part beside its whole. A second peer synced the library (90,000 operations) in 0.4 s, and an alias reached it as one operation.

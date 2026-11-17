@@ -1,0 +1,4 @@
+// The app's signing settings that are particular to a developer, such as
+// DEVELOPMENT_TEAM, belong in Local.xcconfig beside this file, which Git
+// ignores, so they stay out of commits. Without it, the app is signed ad hoc.
+#include? "Local.xcconfig"

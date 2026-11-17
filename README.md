@@ -24,7 +24,7 @@ zig build --release=fast
 cp zig-out/bin/cinematheque ~/bin/      # or anywhere on your PATH
 ```
 
-The Mac app needs Xcode too; see [Watching on a Mac](#watching-on-a-mac).
+The Mac app needs Xcode 27 or later too; see [Watching on a Mac](#watching-on-a-mac).
 
 ## Getting started
 
@@ -60,21 +60,28 @@ and remake it whenever the files change. It works the same on Linux, macOS, BSD,
 
 ### Renditions
 
-Add each folder that holds one rendition as a repository, and name its rendition, so the library can tell a title's 720p copy from its 4K one:
+A title's renditions are its copies in different encodings, such as a 720p one and a 4K one. Each file's rendition comes from its name, as media servers put it there, so copies of a title can sit side by side:
 
-```sh
-cinematheque repo add "http://nas.local/Video/Movies/Very Fast 720p30/" --rendition "Very Fast 720p30"
-cinematheque repo add "http://nas.local/Video/Movies/2160p/" --rendition "4K HEVC"
+```
+Movies/All Systems Red (2017)/All Systems Red (2017) - 1080p.mkv
+Movies/All Systems Red (2017)/All Systems Red (2017) - 4K HDR.mkv
+Movies/Network.Effect.2020.1080p.BluRay.x264-GROUP.mkv
 ```
 
-Without `--rendition`, each file's rendition comes from its name, as media servers often put it there: `All Systems Red (2017) - 4K HDR.mkv` (Jellyfin's style) or `Network.Effect.2020.1080p.BluRay.x264-GROUP.mkv` (download names) give the resolution, source, codec, and dynamic range. A file whose name says none of these has an unknown rendition.
+The names give the resolution, source, codec, and dynamic range; a file whose name says none of these has an unknown rendition.
+
+If a folder holds copies of one rendition whose names don't say which (say, everything one encoder preset made), add that folder as a repository of its own, and name its rendition:
+
+```sh
+cinematheque repo add "http://nas.local/Video/Fast 720p/" --rendition "Fast 720p"
+```
 
 `--skip` sets the prefix of folder and file names to leave out, by default `,`, for folders like `,obsolete` that hold files you don't want cataloged.
 
 `repo set` changes a repository's rendition or skipped names; the next crawl applies it. `repo remove` stops using a repository, by its URL or by the ID `repo list` shows: every peer forgets its copies, and titles it alone held stop showing.
 
 ```sh
-cinematheque repo remove "http://nas.local/Video/Movies/Very Fast 720p30/"
+cinematheque repo remove "http://nas.local/Video/Fast 720p/"
 ```
 
 ### Naming

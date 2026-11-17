@@ -10,6 +10,13 @@ struct CinemathequeApp: App {
                 .environment(library)
                 .frame(minWidth: 900, minHeight: 560)
         }
+        .commands {
+            CommandGroup(after: .toolbar) {
+                Button("Refresh Library") { Task { await library.refresh() } }
+                    .keyboardShortcut("r")
+                    .disabled(!library.hasLibrary || library.activity != nil)
+            }
+        }
         WindowGroup("Player", for: PlayRequest.self) { $request in
             if let request {
                 PlayerView(request: request)

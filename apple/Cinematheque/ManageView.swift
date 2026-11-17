@@ -21,7 +21,7 @@ private struct RepositoriesPane: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text("Repositories are folders of videos your servers share over HTTP, such as a NAS's. Add each folder that holds one rendition, and name it.")
+            Text("Repositories are folders of videos your servers share over HTTP, such as a NAS's. Each file's rendition (1080p, 4K HDR, and so on) comes from its name; name a repository's rendition only if it holds one its names don't show.")
                 .foregroundStyle(.secondary)
             Table(library.repositories, selection: $selection) {
                 TableColumn("URL") { Text($0.url.removingPercentEncoding ?? $0.url).lineLimit(1).truncationMode(.middle) }

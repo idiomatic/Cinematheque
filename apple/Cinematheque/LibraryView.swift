@@ -48,9 +48,9 @@ struct LibraryView: View {
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
         } detail: {
             CoverGrid(tiles: shown, selection: $selection)
-                .searchable(text: $search, placement: .toolbar)
                 .navigationTitle(shelf?.rawValue ?? "Cinematheque")
-                .navigationSubtitle("\(shown.count) \(shown.count == 1 ? "title" : "titles")")
+                // What a long operation is doing, while it runs.
+                .navigationSubtitle(library.activity.map { $0 + "…" } ?? "\(shown.count) \(shown.count == 1 ? "title" : "titles")")
                 .inspector(isPresented: $inspecting) {
                     Group {
                         if let tile = library.tiles.first(where: { $0.id == selection }) {
@@ -62,17 +62,12 @@ struct LibraryView: View {
                     }
                     .inspectorColumnWidth(min: 300, ideal: 360, max: 520)
                 }
+                // Search, as SwiftUI places it, goes last; the inspector's
+                // toggle just before it, as in Photos.
+                .searchable(text: $search, placement: .toolbar)
                 .toolbar {
-                    ToolbarItem {
-                        if let activity = library.activity {
-                            ProgressView().controlSize(.small).help(activity)
-                        } else {
-                            Button("Refresh", systemImage: "arrow.clockwise") { Task { await library.refresh() } }
-                                .help("Crawl repositories, then sync with peers")
-                        }
-                    }
-                    ToolbarItem {
-                        Button("Inspector", systemImage: "sidebar.right") { inspecting.toggle() }
+                    ToolbarItem(placement: .primaryAction) {
+                        inspectorToggle
                     }
                 }
         }
@@ -82,6 +77,12 @@ struct LibraryView: View {
             if let url = Launch.play { openWindow(value: PlayRequest(url: url, item: Launch.item ?? "", start: 0)) }
         }
         #endif
+    }
+
+    private var inspectorToggle: some View {
+        Button(inspecting ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.trailing") { inspecting.toggle() }
+            .keyboardShortcut("i", modifiers: [.command, .option])
+            .help(inspecting ? "Hide the inspector" : "Show the inspector")
     }
 
     private var shown: [Tile] {
@@ -215,3 +216,4 @@ struct TileView: View {
         .contentShape(Rectangle())
     }
 }
+

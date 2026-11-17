@@ -96,7 +96,7 @@ struct Status: Codable {
 
 /// The core's handle, shared with long operations on other threads, which
 /// the core allows (see cinematheque.h).
-private struct Handle: @unchecked Sendable {
+private nonisolated struct Handle: @unchecked Sendable {
     let pointer: OpaquePointer
 }
 
