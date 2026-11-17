@@ -1,0 +1,14 @@
+# Build output
+.zig-cache/
+zig-out/
+.build/
+build/
+DerivedData/
+
+# Xcode's per-user state
+xcuserdata/
+
+# Files collected to fork or migrate elsewhere
+*.egress/
+
+.DS_Store

@@ -1,0 +1,28 @@
+//! Cinematheque's core: the replicated library and what peers need to fill
+//! and share it.
+
+pub const replica = @import("replica.zig");
+pub const sync = @import("sync.zig");
+pub const crawl = @import("crawl.zig");
+pub const naming = @import("naming.zig");
+pub const library = @import("library.zig");
+pub const serve = @import("serve.zig");
+pub const discover = @import("discover.zig");
+pub const url = @import("url.zig");
+pub const store = @import("store.zig");
+
+test {
+    _ = replica;
+    _ = sync;
+    _ = crawl;
+    _ = naming;
+    _ = @import("naming_tests.zig");
+    _ = library;
+    _ = serve;
+    _ = discover;
+    _ = url;
+    _ = store;
+    _ = @import("merkle.zig");
+    _ = @import("hlc.zig");
+    _ = @import("op.zig");
+}

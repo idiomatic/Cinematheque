@@ -1,0 +1,5 @@
+module CCinematheque [system] {
+    header "cinematheque.h"
+    link "cinematheque"
+    export *
+}

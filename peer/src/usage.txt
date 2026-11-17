@@ -1,0 +1,83 @@
+Usage: cinematheque [--home DIR] NOUN VERB [ARGUMENTS]
+       cinematheque [--home DIR] crawl | sync | serve | refresh
+
+The peer keeps its identity and its copy of the catalog in its home:
+~/Library/Application Support/Cinematheque on macOS, and
+$XDG_DATA_HOME/cinematheque (~/.local/share/cinematheque) on Linux,
+unless --home or $CINEMATHEQUE_HOME names another directory.
+
+NOUN -h (or NOUN alone) shows only that noun's commands.
+
+USER and FOUNDER are user keys, as user show prints them; TITLE and
+ITEM are title and item keys, as title list and title show print them;
+REPO is a repo's ID or URL.
+
+  user show                    print this user's key, which a member gives
+                               to member add to admit this user
+  user secret                  print this user's secret, to link another
+                               of the user's devices; keep it private
+  user link SECRET             act as the user whose secret it is, on a
+                               new device, before library create or join
+
+  library show                 print the library's ID, founder, member
+                               count, and digest
+  library create               create a library, founded by this user
+  library join FOUNDER         open the library that user founded
+  library handover USER [--leave]
+                               hand the library over to a member
+
+  member list                  list members
+  member add USER              admit a user
+  member remove USER           remove a member
+
+  repo list                    list repos
+  repo show REPO               show a repo
+  repo add URL [--rendition NAME] [--skip PREFIX]
+                               add a repo: the rendition of its files,
+                               if known, and the prefix of names to skip
+                               (default ",")
+  repo set REPO [--rendition NAME] [--skip PREFIX]
+                               change a repo's settings; crawl to apply
+  repo remove REPO             remove a repo and the copies it held, for
+                               every peer
+
+  title list [TEXT]            list titles, or those whose names hold
+                               the text (shortcut: ls)
+  title show TITLE             show a title: its aliases, episodes or
+                               versions, and where each rendition is
+                               (shortcut: show)
+  title review                 list close matches and duplicates
+  title facets                 count titles by facet
+
+  alias list                   list titles that are aliases of others
+  alias add TITLE TARGET       record the title as an alias of the target
+  alias remove TITLE           stop a title being an alias of another
+
+  playhead list [TITLE]        list this user's playheads
+  playhead set ITEM POSITION DURATION
+                               record how far this user has played, in
+                               seconds
+  playhead set ITEM --watched | --unwatched
+                               mark an item watched, or not
+  playhead remove ITEM         forget this user's playhead in an item
+
+  peer list                    list peers found on the network, and added
+  peer add URL                 add a peer that can't be found, such as one
+                               off the network, on this device only
+  peer remove URL              remove an added peer
+
+  agent show [--port PORT]     on macOS, show the launch agents that serve
+                               always, and refresh hourly
+  agent add [--port PORT]      install and start them
+  agent remove                 stop and remove them
+
+  crawl [REPO] [--workers WORKERS]
+                               crawl every repo, or one, and update
+                               holdings, with concurrent workers (16)
+  sync [URL]                   pull from a peer, or from every peer found
+                               or added
+  serve [--port PORT] [--media DIR]
+                               answer peers' syncs, and serve media, on
+                               the port given, else on 8008 or, if that's
+                               taken, any free port
+  refresh                      crawl, then sync

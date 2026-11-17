@@ -1,0 +1,89 @@
+# Cinematheque
+
+Local-first video libraries. Players on Apple devices, macOS, Linux, and Windows browse shared libraries and play each video from any repository that holds it. There is no central server: each library's titles, metadata, and user data replicate among peers, so every peer works offline and catches up when it reconnects.
+
+This file specifies what's built. Plans and open questions are in [DEVELOPMENT.md](DEVELOPMENT.md); the measurements behind the design are in [experiments](experiments/README.md); outside specifications are indexed in [docs/specifications](docs/specifications/README.md).
+
+## Components
+
+* [core](core/README.md): the Zig library, and a static library with a C interface ([cinematheque.h](core/include/cinematheque.h), a Swift module by its [module map](core/include/module.modulemap)) whose results are JSON.
+* [peer](peer/README.md): the command-line desktop peer, `cinematheque`, for macOS and Linux.
+* [apple](apple/README.md): the Apple players, in SwiftUI; so far a macOS player (macOS 15 or later), bundled as `Cinematheque.app` (`com.rbrian.cinematheque`) by its Xcode project, whose build phase builds the core for each architecture.
+* [experiments](experiments/README.md): the prototypes the components grew from, kept for reference.
+
+## Peers
+
+* **Players:** every client. iOS and tvOS players only play.
+* **Repositories:** anything that serves videos over HTTP.
+* **Static servers:** repositories running no Cinematheque code, such as a consumer-grade NAS or a web server (Caddy, nginx, Apache).
+* **Desktop peers:** macOS, Linux, and Windows players. They are repositories too, serving their local and downloaded videos, and differ from static servers only in what they hold and how long they stay online.
+
+## Identity and membership
+
+* **Home:** the peer's own directory ("home," so it isn't taken for media): `~/Library/Application Support/Cinematheque` on macOS, `$XDG_DATA_HOME/cinematheque` (`~/.local/share/cinematheque`) elsewhere, or another by `--home` or `CINEMATHEQUE_HOME`, which the C interface, and so the app, honors too. It holds `identity` (the device's random seed), `user` (the user's seed, if linked), `library` (the founder's user key), and `replica.db`.
+* **Keys:** a device's keys derive from its seed, and its user's from the user's seed, which the user's devices share; a device not linked derives its user's seed from its own. Linking a device means giving it the user's seed (`user secret`, then `user link`), which is a secret.
+* **Certificates:** a device's first write is its certificate, its user's signature over the library and the device key. A device's private stream has a certificate of its own.
+* **Library:** its ID derives from its founder's user key. Members add users to a set; any member may remove another, except the current founder.
+* **Handover:** the founder may hand the library over to a member, staying or leaving. Handovers are a numbered chain, each valid only if written by the previous generation's founder, so peers agree in any order.
+* **Removal:** a removal records, per device of the removed user, the last sequence number the remover had seen; writes through it stand, and later ones are refused. A peer that took later writes before hearing of the removal drops them, notes their fields, and repairs them from a peer that refused them; a write only it held, which lost to a refused one, is lost.
+
+## Replication
+
+* **Operations:** each writes one field of one key. Fields merge last-writer-wins by hybrid logical clock, ties broken by device key; set elements merge by causal length.
+* **Batches:** a device signs each batch of up to 1,024 consecutive writes (a transaction's) once, with Ed25519, over a BLAKE3 Merkle tree of their encodings, so any operation, or set of them, is verifiable by proof.
+* **Storage:** SQLite holds each field's winning operation (as columns, from which its encoding is rebuilt), interned device keys, signed batches, a version vector of each device's highest sequence number covered, fields awaiting repair, and state of the peer's own (`local`, e.g., crawl snapshots). It runs in WAL mode, and connections wait up to 10 seconds for one another's writes, since a peer's `serve` and `refresh` share its replica.
+* **Sync:** the receiver POSTs to `/sync` a request signed by its device, with its certificate, the time, and its version vector. The sender answers members only, within ten minutes of its own clock, with frames: per device, its winning operations above the vector, grouped by batch, each batch with its signature and the leaves of operations not sent; then its vector, which the receiver adopts. Responses are gzipped.
+* **Admission:** a receiver applies a batch only if its device's certificate names a member, else holds it until the end of the response, then rejects it without claiming it in its vector. It refuses operations past a removed member's cutoff, handovers not from the previous founder, and private data not from its user's private stream.
+* **Private data:** a user's playheads (`p/<user>/...`) are written on each device's private stream, with its own key and numbering. Peers send private streams only to their users' devices, and leave them out of the vectors they send others, so private data travels only directly between a user's devices.
+* **Thin fetches:** the core can fetch a title's winning operations with one shared proof per batch, for players that hold part of a library.
+
+## Library
+
+* **Keys:** `t/<m|s>/<normalized title>/<year or ->` for a title; below it `/v/<edition or ->` for a movie's version or `/e/s03e17` for an episode (then `/v/<edition>` for an episode's version), `/p/<n>` for a part, and `/r/<rendition>`, whose `held:<repository>` field records the file's path, size, and modification time, empty when no longer held. A title's key derives from its parsed identity, so peers crawling independently agree.
+* **Naming:** the parser reads Plex, Jellyfin, and Kodi conventions and download names: ID tags, years (the last year ends a title), editions, parts (after the year), extras, `S01E02`, `1x02`, air dates, season folders, and Kodi's compact codes (`Show 317 Title`) right after the series' title from the enclosing folder.
+* **Renditions:** a file's rendition is its repository's, if named; else its name's technical tokens, canonically (resolution, source, codec, dynamic range, e.g., `2160p remux hevc hdr`); else unknown (`-`). Two files of one rendition in one repository are numbered (`~2`) as duplicates.
+* **Review:** among titles some repository holds, close matches (a year off by one, missing, or with transposed digits; the same year, the same digits, and a spelling within two edits; or only diacritics differ) and duplicates. An alias (`aliases`) records that one title key is another's; it replicates, and an empty one undoes it.
+* **Playheads:** per user and item (version, episode, or part), above renditions: position and duration in milliseconds, and watched, set on reaching the last 5% or by hand. Removing a playhead empties all three.
+* **Facets:** titles held by some repository, counted by kind, decade, and rendition.
+
+## Repositories
+
+* **Settings:** a repository is a URL (percent-encoded as typed), with an optional rendition name and a prefix of names to skip (default `,`), changeable later (applied at the next crawl). Its ID is a hash of the URL. Removing it clears its settings and copies for every peer, and the remover's crawl snapshot.
+* **Listings:** a crawl reads an `INDEX` if there is one (a path per line, as `find . -type f ! -name INDEX > INDEX` writes them, optionally followed by tab-separated size and modification time), else JSON listings (Caddy's or nginx's), else HTML, reading only links' targets.
+* **Crawls:** breadth-first with concurrent workers (16 by default), reusing a previous crawl's listing of any directory with only files whose modification time hasn't changed, then bringing the repository's holdings in line with what was found.
+* **Serving:** `serve` listens on the port given, else on 8008 or, if that's taken, any free port, and advertises the port it got. It binds with `SO_REUSEADDR` alone, never `SO_REUSEPORT`, so no two processes share a port. It answers `/sync`, and optionally serves a media directory: files with single byte ranges, `If-Range`, and `mtime-size` ETags; listings as JSON (Caddy's form, on `Accept: application/json`) or HTML; and an `INDEX` with sizes and times.
+* **Discovery:** peers advertise `_cinematheque._tcp` by DNS-SD (Bonjour on macOS, Avahi's compatibility library on Linux), with the library's ID and the sync path in the TXT record.
+
+## Peer
+
+* **Commands:** [usage.txt](peer/src/usage.txt) lists them, and is their help. State commands are `NOUN VERB`, with verbs `list`, `show`, `add`, `set`, and `remove` where they apply, over nouns `user`, `library`, `member`, `repo`, `title`, `alias`, `playhead`, `peer`, and `agent`; whole-peer actions are single words (`crawl`, `sync`, `serve`, `refresh`). Options are named (`--port`, `--leave`); `ls` and `show` are shortcuts for `title list` and `title show`.
+* **Usage:** placeholders are in capitals, named for what they mean rather than their type (`URL`, `--port PORT`). `-h` or `--help` shows usage, of one noun or action if given, as does a noun alone; a command line that isn't one shows the same and exits with status 2.
+* **Added peers:** peers added by URL are kept in `local`, on that device only; `sync` without a URL, and `refresh`, pull from every peer discovered or added.
+* **Background:** on macOS, `agent add` loads two launch agents (`com.rbrian.cinematheque.serve`, keeping `serve` running, and `.refresh`, crawling and syncing with peers discovered or added hourly), logging to `~/Library/Logs/Cinematheque`.
+
+## macOS player
+
+* Titles by kind, searchable, with the kind picker and search in the sidebar; a title's episodes or versions, with the user's progress or watched mark (changeable by a context menu), its renditions by their repositories' names, and each copy's location and size.
+* A window per copy playing, in AppKit's `AVPlayerView`, streaming from the repository, starting at the playhead unless watched, and saving it every 10 seconds.
+* The bundle's `Info.plist` allows plain HTTP on the local network. Debug builds take launch options for driving them unattended (`CINEMATHEQUE_SELECT`, `CINEMATHEQUE_PLAY`, and `CINEMATHEQUE_ITEM`).
+
+## Implementation
+
+* Zig 0.17+ for the core and the peer, with no dependencies beyond the system's SQLite and DNS-SD.
+* SwiftUI for Apple players.
+* SQLite for each peer's replica.
+* Tests: the core's unit tests (`zig build test`), [peer/test.sh](peer/test.sh) (two peers and more, end to end), and screenshots of the player in a macOS VM (terrarium's `macos-27.2-quiet`).
+
+## Scale
+
+100,000+ video files: 4,000+ movies, and 500+ TV series of up to 30 seasons of up to 50 episodes.
+
+## Risks
+
+* App Review may resist publishing a library that encroaches on Apple's own, all the more so one that serves media.
+* Outside metadata comes from providers outside Cinematheque, whose sources' terms (e.g., TMDB's charge for commercial use, IMDb's datasets for personal use only) bind them, not Cinematheque.
+* GPL tools (`HandBrakeCLI`, GPL builds of FFmpeg) must run as separate processes, never linked, or they bind the license of the players and the shared core.
+
+## References
+
+* [Local-first software](https://en.wikipedia.org/wiki/Local-first_software)
