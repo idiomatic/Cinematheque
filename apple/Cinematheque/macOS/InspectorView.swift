@@ -52,15 +52,40 @@ struct InspectorView: View {
         let next = Playback.nextItem(detail, season: tile.season)
         let renditions = Array(Set(items.flatMap { $0.renditions.map(\.label) })).sorted()
         VStack(alignment: .leading, spacing: 10) {
-            Button {
-                if let request = Playback.next(in: detail, season: tile.season, rendition: rendition) { play(request) }
-            } label: {
-                Label(Playback.playLabel(next), systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
+            // Start Over leads, as a player's timeline does.
+            // Going back leads, as on a player's timeline: a season from its
+            // first episode, then the next item from its beginning.
+            HStack {
+                if tile.season != nil {
+                    Button {
+                        if let request = Playback.request(detail, items: items, from: 0, rendition: rendition) { play(request) }
+                    } label: {
+                        Label("From Start", systemImage: "backward.end.fill")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Play the season from its first episode")
+                }
+                if next?.inProgress == true {
+                    Button {
+                        if let request = Playback.next(in: detail, season: tile.season, rendition: rendition, overFromStart: true) { play(request) }
+                    } label: {
+                        Label("Start Over", systemImage: Playback.startOverSymbol)
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Start over")
+                }
+                Button {
+                    if let request = Playback.next(in: detail, season: tile.season, rendition: rendition) { play(request) }
+                } label: {
+                    Label(Playback.playLabel(next), systemImage: "play.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(next == nil)
             }
-            .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(next == nil)
             // On a row of its own: renditions' names are long.
             if renditions.count > 1 {
                 Picker("Rendition", selection: $rendition) {
@@ -85,14 +110,6 @@ struct InspectorView: View {
     private func lists(_ detail: TitleDetail, items: [TitleDetail.Item]) -> some View {
             HStack {
                 Marks(detail: detail, items: items)
-                if tile.season != nil {
-                    Button {
-                        if let request = Playback.request(detail, items: items, from: 0, rendition: rendition) { play(request) }
-                    } label: {
-                        Label("From Start", systemImage: "backward.end.fill")
-                    }
-                    .help("Play the season from its first episode")
-                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)

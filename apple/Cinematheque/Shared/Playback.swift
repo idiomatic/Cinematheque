@@ -20,12 +20,13 @@ struct PlayRequest: Codable, Hashable {
 enum Playback {
     /// A movie's first item, resuming where this user left off; or a
     /// season's next unwatched episode (or its first, if all are watched),
-    /// with the rest of the season queued after it.
-    static func next(in detail: TitleDetail, season: Int?, rendition: String? = nil) -> PlayRequest? {
+    /// with the rest of the season queued after it; with `overFromStart`,
+    /// from its beginning (Start Over).
+    static func next(in detail: TitleDetail, season: Int?, rendition: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
         let items = items(detail, season: season)
         guard !items.isEmpty else { return nil }
         let start = items.firstIndex { !$0.watched } ?? 0
-        return request(detail, items: items, from: start, rendition: rendition)
+        return request(detail, items: items, from: start, rendition: rendition, overFromStart: overFromStart)
     }
 
     /// The items of a movie, or of one season, in order.
@@ -36,15 +37,16 @@ enum Playback {
             .sorted { ($0.episode?.number ?? 0) < ($1.episode?.number ?? 0) }
     }
 
-    /// Plays `items[index]`, then the rest in order.
-    static func request(_ detail: TitleDetail, items: [TitleDetail.Item], from index: Int, rendition: String? = nil) -> PlayRequest? {
+    /// Plays `items[index]`, where this user left off unless watched or
+    /// `overFromStart`, then the rest in order.
+    static func request(_ detail: TitleDetail, items: [TitleDetail.Item], from index: Int, rendition: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
         let queue = items[index...].compactMap { item -> PlayRequest.Entry? in
             guard let copy = copy(item, rendition: rendition), let url = URL(string: copy.url) else { return nil }
             return .init(url: url, item: "\(detail.key)/\(item.key)", title: name(item, in: detail))
         }
         guard let first = queue.first else { return nil }
         let item = items[index]
-        return PlayRequest(url: first.url, item: first.item, start: item.watched ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()))
+        return PlayRequest(url: first.url, item: first.item, start: item.watched || overFromStart ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()))
     }
 
     /// The copy to play: of the chosen rendition if the item has one, else

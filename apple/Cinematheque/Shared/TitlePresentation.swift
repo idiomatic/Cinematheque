@@ -58,6 +58,10 @@ extension Playback {
         return items.first { !$0.watched } ?? items.first
     }
 
+    /// Start Over, beside Resume: the symbol of a button that plays what
+    /// Resume would, from its beginning.
+    static let startOverSymbol = "backward.fill"
+
     /// "Play", "Resume", "Play Episode 3", "Resume Special".
     static func playLabel(_ next: TitleDetail.Item?) -> String {
         guard let next else { return "Play" }

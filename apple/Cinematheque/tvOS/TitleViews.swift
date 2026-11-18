@@ -21,6 +21,12 @@ struct MovieView: View {
                 if let detail {
                     Text(detail.facts(season: nil)).foregroundStyle(.secondary)
                     HStack(spacing: 30) {
+                        if Playback.nextItem(detail, season: nil)?.inProgress == true {
+                            Button("Start Over", systemImage: Playback.startOverSymbol) {
+                                playing = Playback.next(in: detail, season: nil, rendition: detail.rendition(for: detail.items), overFromStart: true)
+                            }
+                            .labelStyle(.iconOnly)
+                        }
                         Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: nil, rendition: detail.rendition(for: detail.items))
                         }
@@ -104,6 +110,12 @@ struct SeriesView: View {
                 if let detail, let tile {
                     let items = Playback.items(detail, season: tile.season)
                     HStack(spacing: 30) {
+                        if Playback.nextItem(detail, season: tile.season)?.inProgress == true {
+                            Button("Start Over", systemImage: Playback.startOverSymbol) {
+                                playing = Playback.next(in: detail, season: tile.season, rendition: detail.rendition(for: items), overFromStart: true)
+                            }
+                            .labelStyle(.iconOnly)
+                        }
                         Button(Playback.playLabel(Playback.nextItem(detail, season: tile.season)), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: tile.season, rendition: detail.rendition(for: items))
                         }
