@@ -52,72 +52,28 @@ pub fn serve(p: *Peer, c: Command) !void {
     const library_hex = std.fmt.bytesToHex(r.library, .lower);
     const txt = try core.sync.advertisement(p.arena, &r, try p.store.user(), try p.store.device());
     r.close();
-    const Listening = struct {
-        peer: *Peer,
-        name: [:0]const u8,
-        txt: []const u8,
-        library: []const u8,
-        media: ?[]const u8,
-        advertisement: ?core.discover.Advertisement = null,
-
-        fn onListen(context: ?*anyopaque, got: u16) void {
-            const l: *@This() = @ptrCast(@alignCast(context.?));
-            l.advertisement = core.discover.advertise(l.name, got, l.txt) catch |err| blk: {
-                std.log.warn("not advertised: {t}", .{err});
-                break :blk null;
-            };
-            l.peer.out.print("serving library {s} on port {d}{s}{s}, as {s}\n", .{ l.library, got, if (l.media != null) " with media from " else "", l.media orelse "", l.name }) catch {};
-            l.peer.out.flush() catch {};
-        }
-    };
-    var listening: Listening = .{
-        .peer = p,
-        .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
-        .txt = txt,
-        .library = &library_hex,
-        .media = media,
-    };
-    defer if (listening.advertisement) |a| a.deinit();
     // The media directory, if any, at the root.
     const one = [_]core.serve.Mount{.{ .path = media orelse "" }};
-    const mounts: []const core.serve.Mount = if (media != null) &one else &.{};
-    try core.serve.serve(p.io, p.gpa, .{
-        .host = "0.0.0.0",
-        .port = port orelse default_port,
-        .fallback = port == null,
-        .mounts = mounts,
-        .handler = source.handler(),
-        .on_listen = Listening.onListen,
-        .on_listen_context = &listening,
-    });
+    var host: core.host.Host = .{
+        .io = p.io,
+        .gpa = p.gpa,
+        .options = .{ .host = "0.0.0.0", .port = port orelse default_port, .fallback = port == null, .mounts = if (media != null) &one else &.{}, .handler = source.handler() },
+        .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
+        .txt = txt,
+    };
+    try host.start();
+    try p.out.print("serving library {s} on port {d}{s}{s}, as {s}\n", .{ &library_hex, host.port, if (media != null) " with media from " else "", media orelse "", host.name });
+    try p.out.flush();
+    try host.wait();
 }
 
-/// On a new device, before it has a library: shows a code, and offers to
-/// pair (serving and advertising) until a member's device pairs it: to be
-/// another of that user's (`kind` link, paired by `user pair CODE`), taking
-/// that user and the library, or to join as a new member (paired by
-/// `member pair CODE`), taking the library.
 pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
     if (p.store.founder(p.arena)) |_| return error.LibraryExists else |_| {}
     var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .kind = kind, .user = try p.user(), .device = try p.store.device() };
-    const Listening = struct {
-        name: [:0]const u8,
-        txt: []const u8,
-        advertisement: ?core.discover.Advertisement = null,
-        /// The port it got, once listening, for the main task to print.
-        port: std.atomic.Value(u16) = .init(0),
-        stop: std.atomic.Value(bool) = .init(false),
-
-        fn onListen(context: ?*anyopaque, got: u16) void {
-            const l: *@This() = @ptrCast(@alignCast(context.?));
-            l.advertisement = core.discover.advertise(l.name, got, l.txt) catch |err| blk: {
-                std.log.warn("not advertised: {t}", .{err});
-                break :blk null;
-            };
-            l.port.store(got, .release);
-        }
-    };
-    var listening: Listening = .{
+    var host: core.host.Host = .{
+        .io = p.io,
+        .gpa = p.gpa,
+        .options = .{ .host = "0.0.0.0", .port = 0, .handler = offer.handler() },
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
         .txt = try core.discover.txtRecord(p.arena, &.{
             .{ "pair", @tagName(kind) },
@@ -125,30 +81,14 @@ pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
             .{ "name", p.environ.get("HOST") orelse "" },
         }),
     };
-    defer if (listening.advertisement) |a| a.deinit();
-    var serving = try p.io.concurrent(core.serve.serve, .{ p.io, p.gpa, core.serve.Options{
-        .host = "0.0.0.0",
-        .port = 0,
-        .handler = offer.handler(),
-        .on_listen = Listening.onListen,
-        .on_listen_context = &listening,
-        .stop = &listening.stop,
-    } });
-    defer {
-        listening.stop.store(true, .release);
-        core.serve.wake(listening.port.load(.acquire));
-        _ = serving.cancel(p.io) catch {};
-    }
-    for (0..1000) |_| {
-        if (listening.port.load(.acquire) != 0) break;
-        try p.io.sleep(.fromMilliseconds(10), .awake);
-    } else return error.NotListening;
+    try host.start();
+    defer host.stop();
     try p.out.print("{s} {s}\n", .{ switch (kind) {
         .link => "on another of your devices, pair this one with the code",
         .join => "on a member's device, let this one join with the code",
     }, offer.code });
     // For a device that can't find this one nearby, as `pair CODE URL`.
-    try p.out.print("listening for it on port {d}, at /pair\n", .{listening.port.load(.acquire)});
+    try p.out.print("listening for it on port {d}, at /pair\n", .{host.port});
     try p.out.flush();
     while (true) {
         try p.io.sleep(.fromSeconds(1), .awake);

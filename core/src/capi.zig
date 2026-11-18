@@ -18,6 +18,7 @@ const thumbhash = @import("thumbhash.zig");
 const store_ = @import("store.zig");
 const sync = @import("sync.zig");
 const discover = @import("discover.zig");
+const Host = @import("host.zig").Host;
 const serve_ = @import("serve.zig");
 const pair = @import("pair.zig");
 const replica_ = @import("replica.zig");
@@ -241,59 +242,12 @@ fn progress(lib: *Library, _: std.mem.Allocator) !ProgressJson {
 
 // Serving.
 
+/// Serving the library (and folders): the host, and what it needs that
+/// outlives the call that started it.
 const Serving = struct {
     arena: std.heap.ArenaAllocator,
-    io: Io,
-    future: Io.Future(anyerror!void) = undefined,
     source: sync.Source,
-    /// What answers requests: a sync source's, or a pairing offer's.
-    handler: serve_.Handler = undefined,
-    /// The port to try first when none is asked for; 0 for any.
-    default_port: u16 = 8008,
-    mounts: []const serve_.Mount,
-    name: [:0]const u8,
-    txt: []const u8,
-    /// Set once listening, or failing to.
-    ready: Io.Event = .unset,
-    port: u16 = 0,
-    failure: ?anyerror = null,
-    advertisement: ?discover.Advertisement = null,
-    stop: std.atomic.Value(bool) = .init(false),
-
-    fn onListen(context: ?*anyopaque, port: u16) void {
-        const s: *Serving = @ptrCast(@alignCast(context.?));
-        s.port = port;
-        s.advertisement = discover.advertise(s.name, port, s.txt) catch null;
-        s.ready.set(s.io);
-    }
-
-    fn run(s: *Serving, port: u16) anyerror!void {
-        defer if (s.advertisement) |a| a.deinit();
-        serve_.serve(s.io, gpa, .{
-            .host = "0.0.0.0",
-            .port = if (port == 0) s.default_port else port,
-            .fallback = true,
-            .mounts = s.mounts,
-            .handler = s.handler,
-            .on_listen = onListen,
-            .on_listen_context = s,
-            .stop = &s.stop,
-        }) catch |err| {
-            if (!s.ready.isSet()) {
-                s.failure = err;
-                s.ready.set(s.io);
-            }
-            return err;
-        };
-    }
-
-    /// Stops it, and waits until it has: told to stop, woken from
-    /// `accept`, then canceled (which ends what it's still answering).
-    fn end(s: *Serving) void {
-        s.stop.store(true, .release);
-        if (s.port != 0) serve_.wake(s.port);
-        _ = s.future.cancel(s.io) catch {};
-    }
+    host: Host,
 };
 
 const MountJson = struct { prefix: []const u8, path: []const u8 };
@@ -320,50 +274,36 @@ fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
     stopServing(lib);
     const s = try gpa.create(Serving);
     errdefer gpa.destroy(s);
-    s.* = .{ .arena = .init(gpa), .io = lib.io(), .source = undefined, .mounts = &.{}, .name = "", .txt = "" };
+    s.arena = .init(gpa);
     errdefer s.arena.deinit();
     const arena = s.arena.allocator();
     // Copied, since they outlive the caller's string.
     const folders = try std.json.parseFromSliceLeaky([]const MountJson, arena, folders_json, .{ .allocate = .alloc_always });
     const mounts = try arena.alloc(serve_.Mount, folders.len);
     for (folders, mounts) |f, *m| m.* = .{ .prefix = f.prefix, .path = f.path, .index = false };
-    s.mounts = mounts;
     s.source = .{
         .path = try lib.store.replicaPath(arena),
         .founder = try lib.store.founder(arena),
         .identity = lib.store.identity,
+        .served = Library.onServed,
+        .served_context = lib,
+        .nudged = Library.onNudged,
     };
-    s.name = try std.fmt.allocPrintSentinel(arena, "{s}", .{try lib.store.serviceName(arena)}, 0);
-    s.txt = try sync.advertisement(arena, try lib.main(), try lib.store.user(), try lib.store.device());
-    s.source.served = Library.onServed;
-    s.source.served_context = lib;
-    s.source.nudged = Library.onNudged;
-    s.handler = s.source.handler();
-    try launch(lib, s, port);
+    s.host = .{
+        .io = lib.io(),
+        .gpa = gpa,
+        .options = .{ .host = "0.0.0.0", .port = if (port == 0) 8008 else port, .fallback = true, .mounts = mounts, .handler = s.source.handler() },
+        .name = try std.fmt.allocPrintSentinel(arena, "{s}", .{try lib.store.serviceName(arena)}, 0),
+        .txt = try sync.advertisement(arena, try lib.main(), try lib.store.user(), try lib.store.device()),
+    };
+    try s.host.start();
     lib.serving = s;
-    return s.port;
-}
-
-/// Starts `s` serving, and waits until it listens; on failure, frees it.
-fn launch(lib: *Library, s: *Serving, port: u16) !void {
-    s.future = lib.io().concurrent(Serving.run, .{ s, port }) catch |err| {
-        s.arena.deinit();
-        gpa.destroy(s);
-        return err;
-    };
-    s.ready.waitTimeout(lib.io(), .{ .duration = .{ .raw = .fromSeconds(10), .clock = .awake } }) catch {};
-    if (!s.ready.isSet() or s.failure != null) {
-        const why = s.failure orelse error.Timeout;
-        _ = s.future.cancel(lib.io()) catch {};
-        s.arena.deinit();
-        gpa.destroy(s);
-        return why;
-    }
+    return s.host.port;
 }
 
 fn stopServing(lib: *Library) void {
     const s = lib.serving orelse return;
-    s.end();
+    s.host.stop();
     s.arena.deinit();
     gpa.destroy(s);
     lib.serving = null;
@@ -415,7 +355,8 @@ fn openFounded(lib: *Library, arena: std.mem.Allocator, founder: [32]u8) !void {
 
 const Pairing = struct {
     offer: pair.Offer,
-    serving: *Serving,
+    arena: std.heap.ArenaAllocator,
+    host: Host,
 };
 
 /// On a new device, before it has a library: offers to pair, to be another
@@ -434,20 +375,21 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, kind: pa
     const p = try gpa.create(Pairing);
     errdefer gpa.destroy(p);
     p.offer = .{ .code = pair.newCode(lib.io()), .kind = kind, .user = try lib.store.user(), .device = try lib.store.device() };
-    const s = try gpa.create(Serving);
-    errdefer gpa.destroy(s);
-    s.* = .{ .arena = .init(gpa), .io = lib.io(), .source = undefined, .mounts = &.{}, .name = "", .txt = "", .default_port = 0 };
-    errdefer s.arena.deinit();
-    const a = s.arena.allocator();
-    s.name = try std.fmt.allocPrintSentinel(a, "{s}", .{try lib.store.serviceName(arena)}, 0);
-    s.txt = try discover.txtRecord(a, &.{
-        .{ "pair", @tagName(kind) },
-        .{ "path", pair.path },
-        .{ "name", name[0..@min(name.len, 200)] },
-    });
-    s.handler = p.offer.handler();
-    try launch(lib, s, 0);
-    p.serving = s;
+    p.arena = .init(gpa);
+    errdefer p.arena.deinit();
+    const a = p.arena.allocator();
+    p.host = .{
+        .io = lib.io(),
+        .gpa = gpa,
+        .options = .{ .host = "0.0.0.0", .port = 0, .handler = p.offer.handler() },
+        .name = try std.fmt.allocPrintSentinel(a, "{s}", .{try lib.store.serviceName(arena)}, 0),
+        .txt = try discover.txtRecord(a, &.{
+            .{ "pair", @tagName(kind) },
+            .{ "path", pair.path },
+            .{ "name", name[0..@min(name.len, 200)] },
+        }),
+    };
+    try p.host.start();
     lib.pairing = p;
     return .{ .code = try arena.dupe(u8, &p.offer.code), .paired = false, .closed = false };
 }
@@ -484,10 +426,8 @@ export fn cq_pair_stop(lib: *Library) void {
 
 fn stopPairing(lib: *Library) void {
     const p = lib.pairing orelse return;
-    const s = p.serving;
-    s.end();
-    s.arena.deinit();
-    gpa.destroy(s);
+    p.host.stop();
+    p.arena.deinit();
     gpa.destroy(p);
     lib.pairing = null;
 }

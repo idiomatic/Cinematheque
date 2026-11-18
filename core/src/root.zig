@@ -15,6 +15,7 @@ pub const jpeg = @import("jpeg.zig");
 pub const thumbhash = @import("thumbhash.zig");
 pub const store = @import("store.zig");
 pub const pair = @import("pair.zig");
+pub const host = @import("host.zig");
 
 test {
     _ = replica;
@@ -32,6 +33,7 @@ test {
     _ = thumbhash;
     _ = store;
     _ = pair;
+    _ = host;
     _ = @import("merkle.zig");
     _ = @import("hlc.zig");
     _ = @import("op.zig");
