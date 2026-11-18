@@ -93,3 +93,23 @@ A backend peer on macOS, Linux, or Windows, also a repository.
 * **MP4 in place:** inspecting MP4s and fixing them without a remux (retagging `hev1` as `hvc1`, moving the index first, editing metadata) come from a separate MP4 parsing and modification project.
 * **Laziness:** transcodes under the user's supervision from transcode queues, so renditions needn't be made in advance (which takes compute and storage a legacy NAS was sized for).
 * **Input and output:** reads input from any repository over HTTP, and serves its output as a repository. `HandBrakeCLI` reads only local paths, so its input, including disc images, is first copied to a cache by resumable range requests, which also serves several renditions. Input is often offline, on removable media.
+
+## Other media
+
+The decentralized library generalized for other apps, of books, audiobooks, and music, with Cinematheque one client of it.
+
+* **Split:** a media-neutral core (identity, membership, pairing, replication and sync, discovery, serving, repositories and crawling, private streams, lists, progress, covers and placeholders, downloads), with each kind of media a module supplying its names' parser, hierarchy, metadata readers, and renditions. Video's conventions (Plex, Jellyfin, and Kodi naming; editions; the transcoder) become one such module.
+* **Kinds:** each under a key prefix of its own (`t/<kind>/...`, as movies and series are), with progress in its own units.
+  * **Books:** EPUB, PDF, and comics (CBZ); author → series → book → format; progress as a locator (an EPUB CFI, or a page), not milliseconds; metadata from EPUB's OPF and Calibre's `metadata.opf` sidecars.
+  * **Audiobooks:** M4B (with chapters), and folders of MP3s; author → series → book → part; progress in milliseconds across parts; the narrator as metadata.
+  * **Music:** artist → album → disc → track; FLAC, ALAC or AAC (M4A), and MP3; tags from Vorbis comments, MP4 atoms, and ID3; play counts and when last played, in place of playheads; lossless and lossy as renditions.
+* **Pairing UX:** pairing by code, New Devices, and setup as a shared SwiftUI package. Pairing once covers every app on a device: its identity and home are shared among the apps (an app group, and a Keychain access group for the seeds).
+* **Lists:** the watchlist generalized, per [Libraries](#libraries): private, shared (read by members), and collaborative (written by members) lists of any kind's titles: reading lists, want-to-hear, and playlists. Playlists are ordered, so collaborative ones need an ordered sequence (Fugue, in [specifications](docs/specifications/README.md)); smart lists are queries over facets.
+* **Covers:** extraction generalized from MP4's `covr`, by range requests, each with its ThumbHash placeholder: ID3's `APIC`, FLAC's `PICTURE` blocks, EPUB's OPF cover item, a comic's first page; and each kind's sidecars (`cover.jpg`, `folder.jpg`, Calibre's `cover.jpg`). PDFs, which need rendering, take a sidecar or none.
+* **Downloads:** generalized from [Players](#players): offline copies per device in a chosen rendition, served to peers nearby from desktop peers; whole albums and audiobooks, and a book's file.
+* **Packaging:** the core as an XCFramework with a Swift package over it (the model, the cover cache, pairing and setup views) for each app; the command-line peer crawls and serves every kind.
+
+Open:
+
+* **Apps and libraries:** one app per kind or one for all, and one library a household shares across kinds or one per kind; a library across kinds lets one repository (a NAS) be crawled once for everything.
+* **Units:** how progress generalizes across kinds without each player knowing every unit.
