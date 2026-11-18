@@ -102,31 +102,54 @@ private struct NowPlaying: View {
 
 /// Hides its window's toolbar, and its title bar's title and background,
 /// while it's there, keeping the window's buttons over the picture (which
-/// SwiftUI's hiding a toolbar takes with it).
+/// SwiftUI's hiding a toolbar takes with it). SwiftUI may show the toolbar
+/// or title again as it updates the window (its title showing over the
+/// picture), so it watches them, and hides them again at once.
 private struct HidesToolbar: NSViewRepresentable {
+    @MainActor
     final class Coordinator {
         weak var window: NSWindow?
         /// The title bar as it was, to put back.
         var transparent = false
         var title = NSWindow.TitleVisibility.visible
+        var watching: [NSKeyValueObservation] = []
+
+        func hide() {
+            guard let window, !watching.isEmpty else { return }
+            if window.toolbar?.isVisible == true { window.toolbar?.isVisible = false }
+            if window.titleVisibility != .hidden { window.titleVisibility = .hidden }
+            if !window.titlebarAppearsTransparent { window.titlebarAppearsTransparent = true }
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSView { NSView() }
 
     func updateNSView(_ view: NSView, context: Context) {
+        let coordinator = context.coordinator
         DispatchQueue.main.async {
-            guard let window = view.window, context.coordinator.window == nil else { return }
-            context.coordinator.window = window
-            context.coordinator.transparent = window.titlebarAppearsTransparent
-            context.coordinator.title = window.titleVisibility
-            window.toolbar?.isVisible = false
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
+            guard let window = view.window else { return }
+            if coordinator.window == nil {
+                coordinator.window = window
+                coordinator.transparent = window.titlebarAppearsTransparent
+                coordinator.title = window.titleVisibility
+                // Ended (breaking the cycle) when playback is.
+                let again: @Sendable () -> Void = { Task { @MainActor in coordinator.hide() } }
+                coordinator.watching = [
+                    window.observe(\.titleVisibility) { _, _ in again() },
+                    window.observe(\.titlebarAppearsTransparent) { _, _ in again() },
+                    window.observe(\.toolbar) { _, _ in again() },
+                ]
+                if let toolbar = window.toolbar {
+                    coordinator.watching.append(toolbar.observe(\.isVisible) { _, _ in again() })
+                }
+            }
+            coordinator.hide()
         }
     }
 
     static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.watching = []
         guard let window = coordinator.window else { return }
         window.toolbar?.isVisible = true
         window.titlebarAppearsTransparent = coordinator.transparent
