@@ -81,6 +81,7 @@ struct InspectorView: View {
                 lists(detail, items: items).labelStyle(.titleAndIcon)
                 lists(detail, items: items).labelStyle(.iconOnly)
             }
+            DownloadControls(detail: detail, items: items, season: tile.season, rendition: rendition)
         }
     }
 
@@ -134,7 +135,7 @@ struct InspectorView: View {
             }
             .padding(.bottom, 6)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                EpisodeRow(item: item, detail: detail) {
+                EpisodeRow(item: item, detail: detail, rendition: rendition) {
                     if let request = Playback.request(detail, items: items, from: index, rendition: rendition) { play(request) }
                 }
                 Divider()
@@ -178,6 +179,7 @@ struct InspectorView: View {
 private struct EpisodeRow: View {
     let item: TitleDetail.Item
     let detail: TitleDetail
+    let rendition: String?
     let play: () -> Void
     @Environment(Library.self) private var library
 
@@ -195,6 +197,7 @@ private struct EpisodeRow: View {
                     Text(item.episodeName)
                         .lineLimit(1)
                     Spacer()
+                    DownloadMark(key: "\(detail.key)/\(item.key)")
                     if let runtime = item.runtime {
                         Text(runtime).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
@@ -213,6 +216,8 @@ private struct EpisodeRow: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .contextMenu {
+            DownloadMenuItems(key: "\(detail.key)/\(item.key)", rendition: rendition)
+            Divider()
             Button(item.watched ? "Mark as Unwatched" : "Mark as Watched") {
                 library.setWatched("\(detail.key)/\(item.key)", !item.watched)
             }
@@ -232,6 +237,122 @@ private struct ClearPosition: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help("Forget where you stopped, to play from the beginning")
+    }
+}
+
+/// Downloading to this Mac: a movie (the version Play plays), or a season,
+/// whole or its next episodes kept.
+private struct DownloadControls: View {
+    let detail: TitleDetail
+    let items: [TitleDetail.Item]
+    let season: Int?
+    let rendition: String?
+    @Environment(Library.self) private var library
+
+    private static let kept = [1, 3, 5, 10]
+
+    var body: some View {
+        if let season {
+            seasonControls(season)
+        } else if let item = items.first {
+            movieControls("\(detail.key)/\(item.key)")
+        }
+    }
+
+    @ViewBuilder
+    private func movieControls(_ key: String) -> some View {
+        HStack {
+            if library.isDownloaded(key) {
+                Label("Downloaded", systemImage: "arrow.down.circle.fill")
+                    .foregroundStyle(.secondary)
+                Button("Remove Download", systemImage: "trash") { library.removeDownload(key) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("Delete it from this Mac")
+            } else if library.isWanted(key) {
+                ProgressView().controlSize(.small)
+                Text("Downloading…").foregroundStyle(.secondary)
+                Button("Cancel Download", systemImage: "xmark.circle.fill") { library.removeDownload(key) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("Stop downloading it")
+            } else {
+                Button("Download", systemImage: "arrow.down.circle") { library.download(key, rendition: rendition) }
+                    .buttonStyle(.bordered)
+                    .help("Download it to this Mac, to watch without a network")
+            }
+        }
+        .controlSize(.small)
+    }
+
+    @ViewBuilder
+    private func seasonControls(_ season: Int) -> some View {
+        let key = detail.key + String(format: "/e/s%02d", season)
+        let keys = items.map { "\(detail.key)/\($0.key)" }
+        let held = keys.filter(library.isDownloaded).count
+        let kept = library.keptEpisodes(detail.key)
+        HStack {
+            Menu {
+                Button("Download Season") { library.download(key, rendition: rendition) }
+                    .disabled(held == keys.count)
+                Picker("Keep Next Episodes", selection: Binding(get: { kept }, set: { library.keep(detail.key, episodes: $0) })) {
+                    Text("Off").tag(0)
+                    ForEach(Self.kept, id: \.self) { n in Text(n == 1 ? "1 Episode" : "\(n) Episodes").tag(n) }
+                }
+                if held > 0 {
+                    Divider()
+                    Button("Remove Season's Downloads", role: .destructive) { library.removeDownload(key) }
+                }
+            } label: {
+                Label("Download", systemImage: held > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
+            }
+            .fixedSize()
+            .help("Download the season, or keep the series' next episodes, to watch without a network")
+            if let status = status(held: held, of: keys.count, kept: kept) {
+                Text(status).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .controlSize(.small)
+    }
+
+    private func status(held: Int, of count: Int, kept: Int) -> String? {
+        var parts: [String] = []
+        if held > 0 { parts.append(held == count ? "All downloaded" : "\(held) of \(count) downloaded") }
+        if kept > 0 { parts.append(kept == 1 ? "keeping the next episode" : "keeping the next \(kept)") }
+        guard !parts.isEmpty else { return nil }
+        let text = parts.joined(separator: ", ")
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+}
+
+/// Beside an episode: downloaded, or downloading.
+private struct DownloadMark: View {
+    let key: String
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        if library.isDownloaded(key) {
+            Image(systemName: "arrow.down.circle.fill")
+                .foregroundStyle(.secondary)
+                .help("Downloaded to this Mac")
+        } else if library.isWanted(key) {
+            ProgressView().controlSize(.mini).help("Downloading")
+        }
+    }
+}
+
+/// An item's download, in its context menu.
+private struct DownloadMenuItems: View {
+    let key: String
+    let rendition: String?
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        if library.isDownloaded(key) || library.isWanted(key) {
+            Button(library.isDownloaded(key) ? "Remove Download" : "Cancel Download") { library.removeDownload(key) }
+        } else {
+            Button("Download") { library.download(key, rendition: rendition) }
+        }
     }
 }
 #endif

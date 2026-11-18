@@ -1,6 +1,9 @@
 import CCinematheque
 import Foundation
 import Observation
+#if os(macOS)
+import SystemConfiguration
+#endif
 
 /// A cover: a byte range of a file in a repository.
 struct Cover: Codable, Hashable {
@@ -109,6 +112,9 @@ struct Repository: Codable, Identifiable, Hashable {
     let skip: String
     let copies: Int
     var absent: [Absence] = []
+    /// A device's downloads, which no one crawls (see the core's
+    /// download.zig).
+    var managed = false
 
     /// Its server and folders, as a person reads them: "art › Movies ›
     /// 2160p".
@@ -204,7 +210,7 @@ final class Library {
     /// What last went wrong, shown modelessly (`ProblemBar`) until the
     /// next action of its kind succeeds or it's dismissed; never an alert.
     var problem: String?
-    private enum Kind { case refresh, change, read, serve }
+    private enum Kind { case refresh, change, read, serve, download }
     private var problemKind: Kind?
     private var refreshedAtLaunch = false
     /// What a long operation is doing, if one is running.
@@ -245,6 +251,9 @@ final class Library {
         repositories = decode([Repository].self) { cq_repos($0) } ?? []
         members = decode([Member].self) { cq_members($0) } ?? []
         devices = decode([Device].self) { cq_devices($0) } ?? []
+        #if os(macOS)
+        reloadDownloads()
+        #endif
         revision += 1
     }
 
@@ -411,6 +420,9 @@ final class Library {
         if named { changed() }
         let crawled = await long("Crawling") { cq_crawl($0) }
         report(.refresh, synced ?? crawled)
+        #if os(macOS)
+        reconcileSoon()
+        #endif
     }
 
     // Names and peers.
@@ -441,6 +453,9 @@ final class Library {
     func setPeer(_ url: String, _ add: Bool) { check(reload: false) { cq_peer($0, url, add ? 1 : 0) } }
 
     // Folders on this device.
+
+    /// The path a Mac's downloads are served at, beside its folders'.
+    static let downloadsPrefix = "downloads"
 
     /// This device's folders served as repositories, for this library.
     private(set) var folders: [Folder] = []
@@ -487,7 +502,8 @@ final class Library {
             .lowercased().replacing(/[^a-z0-9]+/, with: "-").trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         var prefix = base.isEmpty ? "folder" : base
         var n = 2
-        while folders.contains(where: { $0.prefix == prefix }) {
+        // Downloads have a prefix of their own.
+        while folders.contains(where: { $0.prefix == prefix }) || prefix == Self.downloadsPrefix {
             prefix = "\(base)-\(n)"
             n += 1
         }
@@ -524,7 +540,13 @@ final class Library {
         let defaults = UserDefaults.standard
         // A folder that isn't there would keep the server from starting.
         missingFolders = absentFolders
-        let mounts = folders.filter { !missingFolders.contains($0.prefix) }.map { ["prefix": $0.prefix, "path": $0.path] }
+        var mounts = folders.filter { !missingFolders.contains($0.prefix) }.map { ["prefix": $0.prefix, "path": $0.path] }
+        #if os(macOS)
+        if downloads == nil { reloadDownloads() }
+        if (try? FileManager.default.createDirectory(atPath: downloadsDir, withIntermediateDirectories: true)) != nil {
+            mounts.append(["prefix": Self.downloadsPrefix, "path": downloadsDir])
+        }
+        #endif
         let json = String(decoding: (try? JSONSerialization.data(withJSONObject: mounts)) ?? Data("[]".utf8), as: UTF8.self)
         let port = cq_serve(handle.pointer, Int32(defaults.integer(forKey: "servingPort")), json)
         if port < 0 {
@@ -535,6 +557,9 @@ final class Library {
             defaults.set(Int(port), forKey: "servingPort")
             report(.serve, nil)
             repoint(Int(port))
+            #if os(macOS)
+            configureDownloads()
+            #endif
         }
     }
 
@@ -576,11 +601,206 @@ final class Library {
         let synced = await long("Syncing", results: noteReceived) { cq_sync($0, nil) }
         let crawled = await long("Crawling") { cq_crawl($0) }
         report(.refresh, synced ?? crawled)
+        #if os(macOS)
+        reconcileSoon()
+        #endif
     }
 
     func crawl() async { report(.refresh, await long("Crawling") { cq_crawl($0) }) }
 
     func sync(_ url: String? = nil) async { report(.refresh, await long("Syncing", results: noteReceived) { cq_sync($0, url) }) }
+
+    #if os(macOS)
+    // Downloads, this Mac's (see the core's download.zig): kept in a folder
+    // served as a repository of its own, which no one crawls.
+
+    struct Downloads: Decodable, Equatable {
+        struct Held: Decodable, Equatable {
+            let item: String
+            let size: Int
+        }
+
+        struct Wanted: Decodable, Equatable {
+            let key: String
+            let rendition: String
+        }
+
+        struct Kept: Decodable, Equatable {
+            let title: String
+            let episodes: Int
+        }
+
+        let dir: String?
+        let repository: String?
+        let drop_watched: Bool
+        let held: [Held]
+        let wanted: [Wanted]
+        let kept: [Kept]
+        let free: Int?
+        let floor: Int
+        let running: Bool
+        let done_mb: Int
+        let total_mb: Int
+    }
+
+    private(set) var downloads: Downloads?
+    private var reconciling: Task<Void, Never>?
+
+    /// Where downloads go unless Settings says otherwise.
+    static var defaultDownloads: String { URL.moviesDirectory.appending(path: "Cinematheque").path }
+
+    var downloadsDir: String { downloads?.dir ?? Self.defaultDownloads }
+
+    /// This Mac's name on the local network, e.g., `firefly.local`.
+    static var localHost: String {
+        let name = SCDynamicStoreCopyLocalHostName(nil) as String? ?? ProcessInfo.processInfo.hostName
+        return name.hasSuffix(".local") ? name : name + ".local"
+    }
+
+    private func reloadDownloads() {
+        let loaded = decode(Downloads.self) { cq_downloads($0) }
+        guard loaded != downloads else { return }
+        downloads = loaded
+        downloadedTiles = Self.tiles(of: loaded?.held ?? [])
+        if let d = downloads, let id = d.repository, let dir = d.dir, let repo = repositories.first(where: { $0.id == id }) {
+            Playback.downloads = .init(repository: id, base: repo.url, dir: dir)
+        } else {
+            Playback.downloads = nil
+        }
+    }
+
+    /// Whether this Mac holds an item (its full key).
+    func isDownloaded(_ item: String) -> Bool { downloads?.held.contains { $0.item == item } ?? false }
+
+    /// Whether a title, season, or item is wanted, and being fetched if it
+    /// isn't held.
+    func isWanted(_ key: String) -> Bool {
+        downloads?.wanted.contains { wanted in
+            // The key, or a title or season holding it (`…/e/s01` holds
+            // `…/e/s01e02`).
+            guard key.hasPrefix(wanted.key) else { return false }
+            let rest = key.dropFirst(wanted.key.count)
+            return rest.isEmpty || rest.hasPrefix("/") || (wanted.key.contains("/e/s") && rest.hasPrefix("e"))
+        } ?? false
+    }
+
+    /// How many of a series' next episodes this Mac keeps (0: none).
+    func keptEpisodes(_ title: String) -> Int { downloads?.kept.first { $0.title == title }?.episodes ?? 0 }
+
+    /// The tiles (movies, and seasons) with something downloaded, as of the
+    /// last reload.
+    private(set) var downloadedTiles: Set<String> = []
+
+    private static func tiles(of held: [Downloads.Held]) -> Set<String> {
+        Set(held.compactMap { held in
+            let parts = held.item.split(separator: "/", maxSplits: 4, omittingEmptySubsequences: false)
+            guard parts.count >= 4 else { return nil }
+            let title = parts[0..<4].joined(separator: "/")
+            guard parts.count == 5, parts[4].hasPrefix("e/s"), let season = Int(parts[4].dropFirst(3).prefix { $0.isNumber }) else { return title }
+            return "\(title)#\(season)"
+        })
+    }
+
+    /// Bytes this Mac's downloads hold.
+    var downloadedBytes: Int { downloads?.held.reduce(0) { $0 + $1.size } ?? 0 }
+
+    /// Downloads a title, season (`<title>/e/s01`), or item, in the
+    /// rendition given (else the one most items have).
+    func download(_ key: String, rendition: String?) {
+        check { cq_download($0, key, rendition) }
+        reconcileSoon()
+    }
+
+    /// Deletes a title's, season's, or item's downloads, and stops wanting
+    /// them.
+    func removeDownload(_ key: String) { check { cq_download_remove($0, key) } }
+
+    /// Keeps a series' next `episodes` downloaded (0: stops).
+    func keep(_ title: String, episodes: Int) {
+        check { cq_keep($0, title, Int32(episodes)) }
+        reconcileSoon()
+    }
+
+    /// Changes where downloads go, or whether a kept series' watched
+    /// episodes go at once.
+    func setDownloads(dir: String? = nil, dropWatched: Bool? = nil) {
+        if let dir, dir != downloadsDir {
+            configureDownloads(dir: dir, dropWatched: dropWatched)
+            // Served from the new folder; what's wanted is fetched there.
+            if servingPort != nil { serve() }
+        } else {
+            configureDownloads(dir: dir, dropWatched: dropWatched)
+        }
+        reconcileSoon()
+    }
+
+    /// Tells the core where downloads are kept and served (on the port this
+    /// Mac serves on, or last did); a repository served at another address
+    /// before (another port) is removed, its holdings recorded afresh as
+    /// reconciling finds the files.
+    private func configureDownloads(dir: String? = nil, dropWatched: Bool? = nil) {
+        guard hasLibrary else { return }
+        let port = servingPort ?? UserDefaults.standard.integer(forKey: "servingPort")
+        guard port > 0 else { return }
+        let path = dir ?? downloadsDir
+        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        let url = "http://\(Self.localHost):\(port)/\(Self.downloadsPrefix)/"
+        if let id = downloads?.repository, let old = repositories.first(where: { $0.id == id }), old.url != url {
+            removeRepository(old.id)
+        }
+        let drop = dropWatched ?? downloads?.drop_watched ?? false
+        check { cq_downloads_configure($0, path, url, drop ? 1 : 0) }
+    }
+
+    /// Fetches and deletes downloads to match what's kept, off the main
+    /// thread, showing how far it's come; if it's running, it runs again.
+    func reconcileSoon() {
+        guard let handle, hasLibrary, downloads?.dir != nil else { return }
+        guard reconciling == nil else {
+            Task.detached { if let text = cq_reconcile(handle.pointer) { cq_free(text) } }
+            return
+        }
+        reconciling = Task {
+            // Cancelled once reconciling ends, so it holds self no longer.
+            let watcher = Task {
+                var seen = cq_data_version(handle.pointer)
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                    let now = cq_data_version(handle.pointer)
+                    if now != seen {
+                        seen = now
+                        self.reload()
+                    } else {
+                        self.reloadDownloads()
+                    }
+                }
+            }
+            struct Result: Decodable {
+                let failed: Int
+                let no_room: Int
+                let error: String?
+            }
+            let data: Data? = await Task.detached {
+                guard let text = cq_reconcile(handle.pointer) else { return nil }
+                defer { cq_free(text) }
+                return Data(bytes: text, count: strlen(text))
+            }.value
+            watcher.cancel()
+            reconciling = nil
+            reload()
+            let result = data.flatMap { try? JSONDecoder().decode(Result.self, from: $0) }
+            if let result, result.no_room > 0 {
+                let floor = (downloads?.floor ?? 0).formatted(.byteCount(style: .file))
+                report(.download, "Not enough space to download \(result.no_room == 1 ? "one more file" : "\(result.no_room) more files"): Cinematheque keeps \(floor) free.")
+            } else if let result, result.failed > 0, let error = result.error {
+                report(.download, "Downloading failed: \(error.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.lowercased()).")
+            } else {
+                report(.download, data == nil ? "Downloading failed: \(String(cString: cq_error()))." : nil)
+            }
+        }
+    }
+    #endif
 
     // Keeping in sync while running, and saying so.
 
@@ -662,6 +882,10 @@ final class Library {
         }.value
         if let data { noteReceived(data) }
         reload()
+        // What's watched, here or elsewhere, moves kept series along.
+        #if os(macOS)
+        reconcileSoon()
+        #endif
         return true
     }
 

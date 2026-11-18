@@ -5,7 +5,7 @@ import SwiftUI
 /// by shelf and search, beside an inspector for the one selected.
 struct Browser: View {
     /// The shelves in the sidebar.
-    static let shelves: [Shelf] = [.movies, .series, .watchlist, .played]
+    static let shelves: [Shelf] = [.movies, .series, .watchlist, .played, .downloaded]
 
     @Environment(Library.self) private var library
     @State private var shelf: Shelf? = .movies
@@ -259,6 +259,18 @@ struct TileView: View {
                         .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 3 : 1)
                 }
                 .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile), watched: tile.watched) }
+                .overlay(alignment: .bottomTrailing) {
+                    if library.downloadedTiles.contains(tile.id) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .blue)
+                            .font(.title3)
+                            .shadow(radius: 2)
+                            .padding(6)
+                            .padding(.bottom, !tile.watched && tile.progress > 0 ? 14 : 0)
+                            .help("Downloaded to this Mac")
+                    }
+                }
                 .overlay(alignment: .bottom) {
                     if !tile.watched, tile.progress > 0 {
                         ProgressView(value: tile.progress)

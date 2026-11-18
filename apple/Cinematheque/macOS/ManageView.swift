@@ -4,14 +4,15 @@ import SwiftUI
 import SystemConfiguration
 
 /// Settings: the people who share the library, your devices (this Mac's
-/// sharing among them), named in place, and where videos come from;
-/// addresses are kept under Advanced.
+/// sharing among them), named in place, where videos come from, and where
+/// downloads go; addresses are kept under Advanced.
 struct ManageView: View {
     var body: some View {
         TabView {
             Tab("People", systemImage: "person.2") { PeoplePane() }
             Tab("Devices", systemImage: "laptopcomputer.and.iphone") { DevicesPane() }
             Tab("Sources", systemImage: "externaldrive.connected.to.line.below") { SourcesPane() }
+            Tab("Downloads", systemImage: "arrow.down.circle") { DownloadsPane() }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { ProblemBar() }
         .frame(width: 640, height: 480)
@@ -312,7 +313,8 @@ private struct SourcesPane: View {
         VStack(alignment: .leading) {
             Text("Cinematheque finds videos in folders on this Mac, and on servers on your network, such as a NAS.")
                 .foregroundStyle(.secondary)
-            Table(library.repositories, selection: $selection) {
+            // Devices' downloads are theirs to manage (see Downloads).
+            Table(library.repositories.filter { !$0.managed }, selection: $selection) {
                 TableColumn("Source") { repo in
                     if let folder = library.folder(of: repo) {
                         let missing = library.missingFolders.contains(folder.prefix)
@@ -383,13 +385,7 @@ private struct SourcesPane: View {
         panel.prompt = "Add"
         panel.message = "Choose a folder of videos. Cinematheque shares it with your other devices while it's open."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task { await library.addFolder(url.path, host: Self.host) }
-    }
-
-    /// This Mac's name on the local network, e.g., `firefly.local`.
-    static var host: String {
-        let name = SCDynamicStoreCopyLocalHostName(nil) as String? ?? ProcessInfo.processInfo.hostName
-        return name.hasSuffix(".local") ? name : name + ".local"
+        Task { await library.addFolder(url.path, host: Library.localHost) }
     }
 }
 
@@ -471,4 +467,82 @@ private struct SourceSheet: View {
         }
     }
 }
+// Downloads.
+
+/// Where this Mac keeps downloads, how much they hold, and whether a kept
+/// series' watched episodes go at once.
+private struct DownloadsPane: View {
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Folder") {
+                    HStack {
+                        Text((library.downloadsDir as NSString).abbreviatingWithTildeInPath)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(library.downloadsDir)
+                        // Symbols: choosing a folder, and revealing it, as
+                        // the Finder's own reveal arrow does.
+                        Button("Choose Folder…", systemImage: "folder", action: choose)
+                            .labelStyle(.iconOnly)
+                            .help("Choose another folder for downloads")
+                        Button("Show in Finder", systemImage: "arrow.forward.circle") {
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: library.downloadsDir)
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("Show in Finder")
+                    }
+                }
+                LabeledContent("Downloaded", value: downloaded)
+                if let d = library.downloads, d.running, d.total_mb > 0 {
+                    LabeledContent("Downloading") {
+                        ProgressView(value: Double(min(d.done_mb, d.total_mb)), total: Double(d.total_mb)) {
+                            Text("\(megabytes(d.done_mb)) of \(megabytes(d.total_mb))").monospacedDigit()
+                        }
+                    }
+                }
+            } footer: {
+                Text("Your other devices can play what this Mac downloads while Cinematheque is open. It always leaves \(floor) free.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Delete watched episodes right away", isOn: Binding(
+                    get: { library.downloads?.drop_watched ?? false },
+                    set: { library.setDownloads(dropWatched: $0) }
+                ))
+            } header: {
+                Text("Series that keep their next episodes")
+            } footer: {
+                Text("Otherwise a watched episode stays until its space is needed. Either way, only episodes that another source still has are deleted.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var downloaded: String {
+        let held = library.downloads?.held.count ?? 0
+        let size = library.downloadedBytes.formatted(.byteCount(style: .file))
+        let free = library.downloads?.free.map { ", \($0.formatted(.byteCount(style: .file))) free" } ?? ""
+        return "\(held == 1 ? "1 video" : "\(held.formatted()) videos"), \(size)\(free)"
+    }
+
+    private var floor: String { (library.downloads?.floor ?? 0).formatted(.byteCount(style: .file)) }
+
+    private func megabytes(_ mb: Int) -> String { (mb * 1_000_000).formatted(.byteCount(style: .file)) }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        panel.message = "Choose where Cinematheque keeps downloads. What you've downloaded downloads again there; the old folder's files stay until you delete them."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        library.setDownloads(dir: url.path)
+    }
+}
+
 #endif

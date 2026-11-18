@@ -404,6 +404,10 @@ fn crawlRepositories(peer: *Peer, workers: usize, only: ?[]const u8) !void {
     const repos = if (only) |which| &[_]lib.Repository{try lib.findRepository(&r, peer.arena, which)} else try lib.repositories(&r, peer.arena);
     var crawled: std.ArrayList(core.art.Crawled) = .empty;
     for (repos) |rp| {
+        if (rp.managed) {
+            try peer.out.print("{s}: a device's downloads, not crawled\n", .{rp.url});
+            continue;
+        }
         const s = try lib.crawlRepository(&r, peer.io, peer.arena, &client, peer.now(), rp, workers);
         const i = s.ingest;
         try peer.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; holdings {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories absent; {d} ms in all\n", .{

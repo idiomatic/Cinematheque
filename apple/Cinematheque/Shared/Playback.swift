@@ -71,8 +71,31 @@ enum Playback {
         let chosen = item.renditions.first { $0.label == rendition } ?? item.renditions.first
         guard let chosen else { return [] }
         let all = chosen.copies + item.renditions.filter { $0.label != chosen.label }.flatMap(\.copies)
+        // A download on this device first, from its file, in whatever
+        // rendition: it's there to play, online or not.
+        let local = all.compactMap(downloaded)
+        let others = all.filter { $0.repository != downloads?.repository }
         // Those on a drive that isn't there, last.
-        return all.filter { !$0.absent } + all.filter(\.absent)
+        return local + others.filter { !$0.absent } + others.filter(\.absent)
+    }
+
+    /// This device's downloads, if it has any: their repository, the URL
+    /// it's served at, and their folder.
+    struct Downloads {
+        let repository: String
+        let base: String
+        let dir: String
+    }
+
+    static var downloads: Downloads?
+
+    /// A copy of this device's downloads, as its file, if it's there.
+    private static func downloaded(_ copy: TitleDetail.Copy) -> TitleDetail.Copy? {
+        guard let d = downloads, copy.repository == d.repository, copy.url.hasPrefix(d.base),
+              let path = String(copy.url.dropFirst(d.base.count)).removingPercentEncoding else { return nil }
+        let file = URL(fileURLWithPath: d.dir).appending(path: path)
+        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+        return TitleDetail.Copy(url: file.absoluteString, size: copy.size, repository: copy.repository, absent: false)
     }
 
     static func name(_ item: TitleDetail.Item, in detail: TitleDetail) -> String {

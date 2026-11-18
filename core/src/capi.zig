@@ -20,6 +20,7 @@ const sync = @import("sync.zig");
 const discover = @import("discover.zig");
 const Host = @import("host.zig").Host;
 const race = @import("race.zig");
+const download = @import("download.zig");
 const serve_ = @import("serve.zig");
 const pair = @import("pair.zig");
 const replica_ = @import("replica.zig");
@@ -55,6 +56,13 @@ const Library = struct {
     received: Heard = .{},
     /// Servers whose copies didn't answer lately (`cq_race`).
     racing: race.Memory = .{},
+    /// Reconciling downloads (`cq_reconcile`), apart from `progress`, since
+    /// it runs alongside crawls: whether it runs, whether it's asked to run
+    /// again, and how far it's come, in megabytes.
+    reconciling: std.atomic.Value(bool) = .init(false),
+    reconcile_again: std.atomic.Value(bool) = .init(false),
+    downloaded_mb: std.atomic.Value(u32) = .init(0),
+    download_mb: std.atomic.Value(u32) = .init(0),
 
     fn onServed(context: ?*anyopaque, device: [32]u8, operations: usize) void {
         const lib: *Library = @ptrCast(@alignCast(context.?));
@@ -658,7 +666,8 @@ fn peer(lib: *Library, arena: std.mem.Allocator, target: []const u8, add: bool) 
 // Repositories.
 
 /// The repositories, as a JSON array of objects with `id`, `url`,
-/// `rendition`, `skip`, `copies`, and `absent`, its absent directories
+/// `rendition`, `skip`, `copies`, `managed` (a device's downloads), and
+/// `absent`, its absent directories
 /// (`dir`, relative to it, empty for the whole of it, and `since`, in
 /// milliseconds since the epoch).
 export fn cq_repos(lib: *Library) ?[*:0]u8 {
@@ -666,7 +675,7 @@ export fn cq_repos(lib: *Library) ?[*:0]u8 {
 }
 
 const AbsenceJson = struct { dir: []const u8, since: u64 };
-const RepoJson = struct { id: []const u8, url: []const u8, rendition: []const u8, skip: []const u8, copies: i64, absent: []const AbsenceJson };
+const RepoJson = struct { id: []const u8, url: []const u8, rendition: []const u8, skip: []const u8, copies: i64, absent: []const AbsenceJson, managed: bool };
 
 fn repos(lib: *Library, arena: std.mem.Allocator) ![]const RepoJson {
     const r = try lib.main();
@@ -678,6 +687,7 @@ fn repos(lib: *Library, arena: std.mem.Allocator) ![]const RepoJson {
         .rendition = rp.layout.rendition,
         .skip = rp.layout.skip,
         .copies = try library.copies(r, arena, rp),
+        .managed = rp.managed,
         .absent = blk: {
             const list_ = try library.absences(r, arena, &rp.id);
             const absent = try arena.alloc(AbsenceJson, list_.len);
@@ -706,6 +716,133 @@ fn raceCopies(lib: *Library, arena: std.mem.Allocator, urls_json: []const u8) ![
 /// Any thread.
 export fn cq_race_lost(lib: *Library, url: [*:0]const u8) void {
     lib.racing.lost(lib.io(), gpa, std.mem.span(url), lib.now()) catch {};
+}
+
+// Downloads (see download.zig).
+
+/// Sets where this device keeps downloads (`dir`), the URL it serves them
+/// at (made a repository of its own, which no one crawls), and whether a
+/// kept series' watched episodes are deleted at once (nonzero) or only as
+/// space is needed; either way, only once another repository holds them.
+export fn cq_downloads_configure(lib: *Library, dir: [*:0]const u8, served_at: [*:0]const u8, drop_watched: c_int) c_int {
+    return status(lib, downloadsConfigure, .{ std.mem.span(dir), std.mem.span(served_at), drop_watched != 0 });
+}
+
+fn downloadsConfigure(lib: *Library, arena: std.mem.Allocator, dir: []const u8, served_at: []const u8, drop_watched: bool) !void {
+    try lib.writer.lock(lib.io());
+    defer lib.writer.unlock(lib.io());
+    try download.configure(try lib.main(), arena, lib.now(), dir, served_at, drop_watched);
+}
+
+/// Wants a title's, a season's (`<title>/e/s01`), or an item's files kept
+/// on this device, in `rendition` (null or empty: the one most items
+/// have); `cq_reconcile` fetches them.
+export fn cq_download(lib: *Library, key: [*:0]const u8, rendition: ?[*:0]const u8) c_int {
+    return status(lib, downloadWant, .{ std.mem.span(key), span(rendition) orelse "" });
+}
+
+fn downloadWant(lib: *Library, arena: std.mem.Allocator, key: []const u8, rendition: []const u8) !void {
+    try download.want(try lib.main(), arena, key, rendition);
+}
+
+/// Stops keeping a title's, season's, or item's files: deletes those held
+/// here, and forgets wanting them.
+export fn cq_download_remove(lib: *Library, key: [*:0]const u8) c_int {
+    return status(lib, downloadRemove, .{std.mem.span(key)});
+}
+
+fn downloadRemove(lib: *Library, arena: std.mem.Allocator, key: []const u8) !void {
+    _ = try download.remove(lib.io(), arena, try lib.main(), &lib.writer, lib.now(), key);
+}
+
+/// Keeps a series' next `episodes` (after where this user is) downloaded;
+/// 0 stops.
+export fn cq_keep(lib: *Library, title_key: [*:0]const u8, episodes: c_int) c_int {
+    return status(lib, keep, .{ std.mem.span(title_key), @as(u32, @intCast(std.math.clamp(episodes, 0, 1000))) });
+}
+
+fn keep(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, episodes: u32) !void {
+    try download.setKeep(try lib.main(), arena, title_key, episodes);
+}
+
+const HeldJson = struct { item: []const u8, size: u64 };
+const DownloadsJson = struct {
+    dir: ?[]const u8,
+    repository: ?[]const u8,
+    drop_watched: bool,
+    held: []const HeldJson,
+    wanted: []const download.Want,
+    kept: []const download.Keep,
+    free: ?u64,
+    floor: u64,
+    running: bool,
+    done_mb: u32,
+    total_mb: u32,
+};
+
+/// This device's downloads, as a JSON object: `dir`, `repository` (its ID),
+/// and `drop_watched`, as configured (null if not); `held`, the files held
+/// (`item`, `size`); `wanted` (`key`, `rendition`); `kept`, series kept
+/// (`title`, `episodes`); `free` bytes on its volume, if known, and the
+/// `floor` kept free; and whether `cq_reconcile` is `running`, with
+/// `done_mb` of `total_mb`.
+export fn cq_downloads(lib: *Library) ?[*:0]u8 {
+    return json(lib, downloads, .{});
+}
+
+fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
+    const r = try lib.main();
+    const s = try download.settings(r, arena);
+    var list: std.ArrayList(HeldJson) = .empty;
+    if (s) |set| for (try download.held(r, arena, set.repo)) |h| try list.append(arena, .{ .item = h.item, .size = h.size });
+    return .{
+        .dir = if (s) |set| set.dir else null,
+        .repository = if (s) |set| try arena.dupe(u8, &set.repo.id) else null,
+        .drop_watched = if (s) |set| set.drop_watched else false,
+        .held = list.items,
+        .wanted = try download.wants(r, arena),
+        .kept = try download.keeps(r, arena),
+        .free = if (s) |set| download.freeBytes(arena, set.dir) else null,
+        .floor = download.floor(),
+        .running = lib.reconciling.load(.acquire),
+        .done_mb = lib.downloaded_mb.load(.monotonic),
+        .total_mb = lib.download_mb.load(.monotonic),
+    };
+}
+
+/// Long, on a connection of its own: brings this device's downloads in line
+/// with what it keeps (see download.zig), fetching, recording, and deleting
+/// as it goes; if one runs already, asks it to run again and returns at
+/// once, with `busy`. Returns a JSON object with `fetched`, `kept`,
+/// `deleted`, `failed`, `no_room` (files left to keep the floor free),
+/// `error`, and `busy`.
+export fn cq_reconcile(lib: *Library) ?[*:0]u8 {
+    return json(lib, reconcile, .{});
+}
+
+const ReconciledJson = struct { fetched: usize = 0, kept: usize = 0, deleted: usize = 0, failed: usize = 0, no_room: usize = 0, @"error": ?[]const u8 = null, busy: bool = false };
+
+fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
+    lib.reconcile_again.store(true, .release);
+    if (lib.reconciling.swap(true, .acq_rel)) return .{ .busy = true };
+    defer lib.reconciling.store(false, .release);
+    var r = try connection(lib, arena);
+    defer r.close();
+    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
+    defer client.deinit();
+    var out: ReconciledJson = .{};
+    // Again while asked again (a download wanted meanwhile).
+    while (lib.reconcile_again.swap(false, .acq_rel)) {
+        try r.refresh();
+        const done = try download.reconcile(lib.io(), gpa, arena, &client, &lib.racing, &r, &lib.writer, lib.now(), .{ .done = &lib.downloaded_mb, .total = &lib.download_mb });
+        out.fetched += done.fetched;
+        out.kept = done.kept;
+        out.deleted += done.deleted;
+        out.failed = done.failed;
+        out.no_room = done.no_room;
+        out.@"error" = done.@"error";
+    }
+    return out;
 }
 
 /// Forgets an absent directory of a repository (by ID or URL), as if it
@@ -789,6 +926,10 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
     defer lib.progress.finish();
     for (list, out) |rp, *o| {
         defer lib.progress.step();
+        if (rp.managed) {
+            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null };
+            continue;
+        }
         try lib.writer.lock(lib.io());
         defer lib.writer.unlock(lib.io());
         try r.refresh();

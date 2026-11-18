@@ -14,7 +14,7 @@ struct Browser: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            ForEach(Shelf.allCases) { shelf in
+            ForEach(Shelf.allCases.filter { $0 != .downloaded }) { shelf in
                 SwiftUI.Tab(shelf.title, systemImage: shelf.symbol, value: Tab.shelf(shelf)) {
                     Stack {
                         if shelf == .home {

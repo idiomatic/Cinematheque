@@ -58,7 +58,7 @@ A replica keeps each field's winning operation, in SQLite, and nothing else of t
 * **`devices`:** device keys, interned as small integers.
 * **`version_vector`:** per stream, the highest sequence number covered.
 * **`repair`:** fields a removal dropped, to refetch.
-* **`local`:** the peer's own state, which never replicates (crawl snapshots, peers added by address).
+* **`local`:** the peer's own state, which never replicates (crawl snapshots, peers added by address, and downloads: `downloads/dir`, `downloads/repo`, `downloads/drop-watched`, `downloads/want/<key>` (a rendition), and `downloads/keep/<title>` (a count)).
 
 A losing operation is dropped and never sent again, since it can't change anything.
 
@@ -173,7 +173,7 @@ The library ([library.zig](core/src/library.zig), [art.zig](core/src/art.zig)) w
 | `.../v/<edition or ->`, `.../e/s03e17`, `.../e/s00-<title>`, `.../p/<n>` | An item's `edition`, `season`, `episode`, `title`, `description`, `duration` (ms) | Crawls and describing |
 | `.../r/<rendition>` | `held:<repository>`: path, size, and modification time, tab-separated, or empty once gone | Crawls |
 | `u/<path>` | `held:<repository>`, as above, for files that didn't parse | Crawls |
-| `r/<repository>` | `url`, `rendition`, `skip`; `absent:<directory>` (relative to it, empty for the whole of it), when a directory that held files was found empty (an unplugged drive's mount point), in ms, or empty once it's back, deleted, forgotten, or a year on | Adding or changing a repository; crawls; forgetting |
+| `r/<repository>` | `url`, `rendition`, `skip`; `managed` (`1` for a device's downloads, which no one crawls); `absent:<directory>` (relative to it, empty for the whole of it), when a directory that held files was found empty (an unplugged drive's mount point), in ms, or empty once it's back, deleted, forgotten, or a year on | Adding or changing a repository; crawls; forgetting |
 | `aliases` | `<title key>`: the title key it's an alias of, or empty | Review |
 | `n/<hex>` | `name`; for a device, `user` (its user's key, hex) | Naming |
 | `p/<user hex>/<item key>` | `position`, `duration` (ms; empty in the first 10 seconds), `watched` (`1`, `0`, or empty) | Playing, by hand (private) |

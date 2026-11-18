@@ -58,6 +58,22 @@ int cq_forget_absent(cq_library *library, const char *repo, const char *dir);
 char *cq_race(cq_library *library, const char *urls_json);
 void cq_race_lost(cq_library *library, const char *url);
 
+// Downloads, this device's: kept in dir, served at served_at (a repository
+// of its own, never crawled). drop_watched deletes a kept series' watched
+// episodes at once, else only as space is needed; either way only once
+// another repository holds them. cq_download wants a title, season
+// (TITLE/e/s01), or item kept, in a rendition (null: the commonest);
+// cq_keep keeps a series' next episodes (0 stops); cq_download_remove
+// deletes and stops wanting; cq_downloads is all of it as JSON;
+// cq_reconcile (long, its own connection) fetches and deletes to
+// match, returning at once with "busy" if one runs, which then runs again.
+int cq_downloads_configure(cq_library *library, const char *dir, const char *served_at, int drop_watched);
+int cq_download(cq_library *library, const char *key, const char *rendition);
+int cq_download_remove(cq_library *library, const char *key);
+int cq_keep(cq_library *library, const char *title_key, int episodes);
+char *cq_downloads(cq_library *library);
+char *cq_reconcile(cq_library *library);
+
 // Long: crawling every repository and describing what's new (committing
 // as it goes, so reload when cq_data_version changes), syncing with a peer (or,
 // if url is NULL, every peer found or added), and reading an item's

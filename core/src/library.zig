@@ -46,6 +46,10 @@ pub const Repository = struct {
     id: [16]u8,
     url: []const u8,
     layout: Layout,
+    /// A device's downloads (`managed`, see download.zig): its holdings are
+    /// written as files are fetched, onto the renditions they came from, so
+    /// it isn't crawled.
+    managed: bool = false,
 };
 
 /// Lowercases ASCII letters, drops apostrophes and periods, turns other
@@ -324,7 +328,8 @@ pub fn repositories(replica: *Replica, arena: std.mem.Allocator) ![]Repository {
         const value = try arena.dupe(u8, s.blob(2));
         if (std.mem.eql(u8, field, "url")) r.url = value //
         else if (std.mem.eql(u8, field, "rendition")) r.layout.rendition = value //
-        else if (std.mem.eql(u8, field, "skip")) r.layout.skip = value;
+        else if (std.mem.eql(u8, field, "skip")) r.layout.skip = value //
+        else if (std.mem.eql(u8, field, "managed")) r.managed = value.len > 0;
     }
     // Dropped repositories have no URL.
     var kept: std.ArrayList(Repository) = .empty;
