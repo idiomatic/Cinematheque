@@ -172,13 +172,12 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
 
 /// Wakes a server listening on `port` (on this host) from `accept`, so it
 /// sees its `stop`, by connecting to it.
-pub fn wake(port: u16) void {
-    const c = std.c;
-    const fd = socket(c.AF.INET, c.SOCK.STREAM, 0);
-    if (fd < 0) return;
-    defer _ = c.close(fd);
-    var addr: c.sockaddr.in = .{ .port = std.mem.nativeToBig(u16, port), .addr = @bitCast([4]u8{ 127, 0, 0, 1 }) };
-    _ = c.connect(fd, @ptrCast(&addr), @sizeOf(c.sockaddr.in));
+pub fn wake(io: Io, port: u16) void {
+    const address: Io.net.IpAddress = .{ .ip4 = .loopback(port) };
+    // On loopback, to a socket listening or not, connecting doesn't wait,
+    // so it needs no timeout (which Zig 0.17's Io doesn't implement).
+    const stream = address.connect(io, .{ .mode = .stream }) catch return;
+    stream.close(io);
 }
 
 fn handle(ctx: *const Context, stream: Io.net.Stream) Io.Cancelable!void {

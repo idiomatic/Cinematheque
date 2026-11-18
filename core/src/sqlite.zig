@@ -1,6 +1,7 @@
 //! Minimal SQLite bindings: just what the replica needs.
 
 const std = @import("std");
+const Io = std.Io;
 
 const c = struct {
     const sqlite3 = opaque {};
@@ -8,7 +9,7 @@ const c = struct {
 
     extern "c" fn sqlite3_open(filename: [*:0]const u8, db: *?*sqlite3) c_int;
     extern "c" fn sqlite3_close_v2(db: *sqlite3) c_int;
-    extern "c" fn sqlite3_busy_timeout(db: *sqlite3, ms: c_int) c_int;
+    extern "c" fn sqlite3_busy_handler(db: *sqlite3, handler: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int, arg: ?*anyopaque) c_int;
     extern "c" fn sqlite3_exec(db: *sqlite3, sql: [*:0]const u8, callback: ?*const anyopaque, arg: ?*anyopaque, errmsg: ?*?[*:0]u8) c_int;
     extern "c" fn sqlite3_errmsg(db: *sqlite3) [*:0]const u8;
     extern "c" fn sqlite3_prepare_v2(db: *sqlite3, sql: [*]const u8, n: c_int, stmt: *?*sqlite3_stmt, tail: ?*?[*]const u8) c_int;
@@ -31,18 +32,37 @@ pub const Error = error{Sqlite};
 
 pub const Db = struct {
     handle: *c.sqlite3,
+    /// What the busy handler waits through, kept where SQLite can find it.
+    io: *Io,
 
-    pub fn open(path: [:0]const u8) Error!Db {
+    /// How long to wait out other connections' writes (e.g., a crawl while
+    /// serving) instead of failing at once, in steps of `busy_step_ms`.
+    const busy_ms = 10_000;
+    const busy_step_ms = 10;
+
+    pub fn open(path: [:0]const u8, io: Io) Error!Db {
+        const kept = std.heap.c_allocator.create(Io) catch return error.Sqlite;
+        errdefer std.heap.c_allocator.destroy(kept);
+        kept.* = io;
         var handle: ?*c.sqlite3 = null;
         if (c.sqlite3_open(path.ptr, &handle) != ok) return error.Sqlite;
-        // Wait out other connections' writes (e.g., a crawl while serving)
-        // instead of failing at once.
-        _ = c.sqlite3_busy_timeout(handle.?, 10_000);
-        return .{ .handle = handle.? };
+        _ = c.sqlite3_busy_handler(handle.?, busy, kept);
+        return .{ .handle = handle.?, .io = kept };
+    }
+
+    /// Waits for another connection's write through `Io`, so the wait can be
+    /// canceled (which gives up, failing the statement) rather than sleeping
+    /// inside SQLite.
+    fn busy(context: ?*anyopaque, count: c_int) callconv(.c) c_int {
+        const io: *Io = @ptrCast(@alignCast(context.?));
+        if (@as(i64, count) * busy_step_ms >= busy_ms) return 0;
+        io.sleep(.fromMilliseconds(busy_step_ms), .awake) catch return 0;
+        return 1;
     }
 
     pub fn close(db: Db) void {
         _ = c.sqlite3_close_v2(db.handle);
+        std.heap.c_allocator.destroy(db.io);
     }
 
     pub fn exec(db: Db, sql: [:0]const u8) Error!void {

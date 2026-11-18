@@ -110,7 +110,7 @@ This file specifies what's built. How operations are written, merged, and synced
 
 ## Implementation
 
-* Zig 0.17+ for the core and the peer, with no dependencies beyond the system's SQLite and DNS-SD.
+* Zig 0.17+ for the core and the peer, with no dependencies beyond the system's SQLite and DNS-SD. Whatever waits (networking, sleeping, SQLite waiting out another connection's write, DNS-SD waiting for results) does so through Zig's `Io`, so it can be canceled; only what `Io` can't reach blocks outside it (SQLite's own disk I/O, the system's name lookup).
 * SwiftUI for Apple players.
 * SQLite for each peer's replica.
 * Tests: the core's unit tests (`zig build test`), [peer/test.sh](peer/test.sh) (two peers and more, end to end), screenshots of the macOS player in a macOS VM (terrarium's `macos-27.2-quiet`), and of the Apple TV player in the tvOS simulator (an Apple TV 4K, 3rd generation).

@@ -204,7 +204,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         try body.readSliceAll(bytes);
         break :blk bytes;
     } else try body.allocRemaining(arena, .limited(1 << 20));
-    var src = try Replica.open(gpa, source.path, source.founder, source.identity);
+    var src = try Replica.open(gpa, io, source.path, source.founder, source.identity);
     defer src.close();
     const now: u64 = @intCast(Io.Timestamp.now(io, .real).toMilliseconds());
     const checked = readRequest(arena, src.library, head, now) catch |err| {
@@ -356,7 +356,7 @@ test "requests are checked" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const founder = (try replica_.userKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, ":memory:", founder, .from(@splat(2)));
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(2)));
     defer r.close();
     const body = try writeRequest(arena, &r, 1_000_000);
     const checked = try readRequest(arena, r.library, body, 1_000_000 + 60_000);

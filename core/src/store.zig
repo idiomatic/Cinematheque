@@ -99,7 +99,7 @@ pub const Store = struct {
     }
 
     pub fn openReplica(s: *const Store, arena: std.mem.Allocator) !Replica {
-        return Replica.open(s.gpa, try s.replicaPath(arena), try s.founder(arena), s.identity);
+        return Replica.open(s.gpa, s.io, try s.replicaPath(arena), try s.founder(arena), s.identity);
     }
 };
 

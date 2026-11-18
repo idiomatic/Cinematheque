@@ -3,6 +3,7 @@
 //! vector of what the replica has seen.
 
 const std = @import("std");
+const Io = std.Io;
 const Ed25519 = std.crypto.sign.Ed25519;
 const Blake3 = std.crypto.hash.Blake3;
 const sqlite = @import("sqlite.zig");
@@ -196,8 +197,8 @@ pub const Replica = struct {
         };
     }
 
-    pub fn open(gpa: std.mem.Allocator, path: [:0]const u8, founder: Device, identity: Identity) !Replica {
-        const db = try sqlite.Db.open(path);
+    pub fn open(gpa: std.mem.Allocator, io: Io, path: [:0]const u8, founder: Device, identity: Identity) !Replica {
+        const db = try sqlite.Db.open(path, io);
         errdefer db.close();
         try renameOldTables(db);
         try db.exec(schema);
@@ -1412,7 +1413,7 @@ const Peers = struct {
         peers.arena_state = .init(testing.allocator);
         const founder = try testUser(1);
         for (&peers.replicas, 1..) |*r, seed| {
-            r.* = try Replica.open(testing.allocator, ":memory:", founder, .from(@splat(@intCast(seed))));
+            r.* = try Replica.open(testing.allocator, testing.io, ":memory:", founder, .from(@splat(@intCast(seed))));
         }
         for (1..added + 1) |i| try peers.replicas[0].addMember(1, try testUser(@intCast(i + 1)));
         for (1..peers.replicas.len) |i| _ = try peers.sync(i, 0);
@@ -1800,7 +1801,7 @@ test "a chain of handovers arriving out of order is followed" {
     // gets b's generation 2 ahead of a's generation 1 (devices learned last
     // come first), holds it, then follows the chain.
     _ = try p.sync(2, 1);
-    var d = try Replica.open(testing.allocator, ":memory:", try testUser(1), .from(@splat(9)));
+    var d = try Replica.open(testing.allocator, testing.io, ":memory:", try testUser(1), .from(@splat(9)));
     defer d.close();
     const stats = try replica_sync(p.arena_state.allocator(), &d, &p.replicas[2]);
     try testing.expect(stats.deferred > 0);
@@ -1816,7 +1817,7 @@ test "private data reaches its user's other devices, directly, and no one else" 
     const a = &p.replicas[0];
     const b = &p.replicas[1];
     // b2 is another device of b's user.
-    var b2 = try Replica.open(testing.allocator, ":memory:", try testUser(1), .{ .device = @splat(42), .user = Identity.from(@splat(2)).user });
+    var b2 = try Replica.open(testing.allocator, testing.io, ":memory:", try testUser(1), .{ .device = @splat(42), .user = Identity.from(@splat(2)).user });
     defer b2.close();
     const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.userKey(), .lower)});
 
@@ -1863,7 +1864,7 @@ test "a device that lost its replica gets its own private data back" {
     try b.writePrivate(2000, key, &.{.{ "position", "1234" }});
     // b2 is b's device again, with its replica lost (as tvOS may purge
     // one), rebuilt from a peer of its user's.
-    var b2 = try Replica.open(testing.allocator, ":memory:", try testUser(1), .{ .device = @splat(2), .user = Identity.from(@splat(2)).user });
+    var b2 = try Replica.open(testing.allocator, testing.io, ":memory:", try testUser(1), .{ .device = @splat(2), .user = Identity.from(@splat(2)).user });
     defer b2.close();
     try testing.expectEqualSlices(u8, &b.device(), &b2.device());
     const stats = try replica_sync(p.arena_state.allocator(), &b2, b);
@@ -1892,9 +1893,9 @@ test "two connections writing in turn, refreshing first, never reuse a sequence 
     std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
     defer std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
     const founder = (try userKeyPair(@splat(1))).public_key.toBytes();
-    var a = try Replica.open(testing.allocator, path, founder, .from(@splat(1)));
+    var a = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
     defer a.close();
-    var b = try Replica.open(testing.allocator, path, founder, .from(@splat(1)));
+    var b = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
     defer b.close();
     try a.write(1000, "t/m/a/-", "name", "A");
     try b.refresh();

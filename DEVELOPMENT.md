@@ -56,7 +56,7 @@ Open:
 
 ## Players
 
-* **Windows:** the core's server binds with POSIX calls (`listen` in serve.zig, for `SO_REUSEADDR` alone), which need a Winsock path or `Io`'s networking before Windows builds.
+* **Windows:** two POSIX calls remain outside `Io`, each where Zig 0.17's `Io` can't yet do the job, and each needs a Windows path: the server's socket setup (`listen` in serve.zig, since `Io`'s `reuse_address` also sets `SO_REUSEPORT`), and peeking at DNS-SD's socket (`poll` with no wait, in discover.zig, since `Io` can't wait on a foreign socket). Zig 0.17's `Io` also has no connect timeout (it panics), so connecting relies on deadlines around it, as copy racing's.
 * **Platforms:** iOS and iPadOS; Linux and Windows; a web player for low-capacity hosts (e.g., a Raspberry Pi); later Wayland.
 * **Browsing:** by intersections of facets (e.g., new releases, thrillers or mysteries, starring A-listers, English audio), along the title hierarchy, since set-top remotes make typing slow and a library runs to thousands of titles. Full peers query facets in SQLite; thin players hold a bitmap per small facet's value, and posting lists for people.
 * **Cover art, still to come** (what's built is in [AGENTS.md](AGENTS.md)):

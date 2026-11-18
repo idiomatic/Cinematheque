@@ -1173,7 +1173,7 @@ test "an unplugged directory is absent, its copies kept; a deleted one's go" {
     const arena = arena_state.allocator();
     const replica_ = @import("replica.zig");
     const founder = (try replica_.userKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, ":memory:", founder, .from(@splat(1)));
+    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
 
     // Two drives' mount points, served without an INDEX, so listings stay live.
@@ -1254,7 +1254,7 @@ test "state: repositories, aliases, playheads, and members can be listed, set, a
     const arena = arena_state.allocator();
     const replica_ = @import("replica.zig");
     const founder = (try replica_.userKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, ":memory:", founder, .from(@splat(1)));
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
 
     const id = try addRepository(&r, 1000, "http://nas.local/Movies/", .{});
@@ -1354,7 +1354,7 @@ test "users and devices are named, a device with its user" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const founder = (try @import("replica.zig").userKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, ":memory:", founder, .from(@splat(1)));
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
     try setName(&r, arena, 1, founder, " Brian ", null);
     try setName(&r, arena, 2, r.device(), "Brian's MacBook Pro", founder);

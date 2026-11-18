@@ -47,7 +47,7 @@ pub const Host = struct {
     /// canceled, which ends what it's still answering.
     pub fn stop(h: *Host) void {
         h.stopping.store(true, .release);
-        if (h.port != 0) serve_.wake(h.port);
+        if (h.port != 0) serve_.wake(h.io, h.port);
         _ = h.future.cancel(h.io) catch {};
     }
 

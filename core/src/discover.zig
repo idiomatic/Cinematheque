@@ -118,9 +118,13 @@ fn pump(io: Io, ref: c.DNSServiceRef, ms: i64, state: *const State, done: ?usize
         if (done) |n| if (state.services.items.len >= n) return;
         const left = @divTrunc(deadline - Io.Timestamp.now(io, .awake).nanoseconds, std.time.ns_per_ms);
         if (left <= 0) return;
+        // Whether a result is waiting, without waiting (Io has no wait on a
+        // foreign socket); between looks, Io waits, so it can be canceled.
         var fds = [_]std.posix.pollfd{.{ .fd = c.DNSServiceRefSockFD(ref), .events = std.posix.POLL.IN, .revents = 0 }};
-        if (try std.posix.poll(&fds, @intCast(left)) > 0) {
+        if (try std.posix.poll(&fds, 0) > 0) {
             if (c.DNSServiceProcessResult(ref) != 0) return error.DnsSd;
+        } else {
+            try io.sleep(.fromMilliseconds(@intCast(@min(left, 10))), .awake);
         }
         if (state.err) |e| return e;
     }

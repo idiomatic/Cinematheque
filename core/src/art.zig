@@ -757,7 +757,7 @@ test "covers round-trip, and a season without one takes its series'" {
     try std.testing.expectEqualStrings(c.stamp, back.stamp);
 
     const founder = (try @import("replica.zig").userKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, ":memory:", founder, .from(@splat(1)));
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
     try r.write(1, "t/s/firefly/-", "name", "Firefly");
     try r.write(1, "t/s/firefly/-/e/s01e01/r/-", "held:0123456789abcdef", "Firefly/Firefly 101.m4v\t1\t-");
@@ -802,7 +802,7 @@ test "a title in several repositories is described once, from its best source, a
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const founder = (try @import("replica.zig").userKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, ":memory:", founder, .from(@splat(1)));
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
     const a: library.Repository = .{ .id = "aaaaaaaaaaaaaaaa".*, .url = "http://nas/720/", .layout = .{} };
     const b: library.Repository = .{ .id = "bbbbbbbbbbbbbbbb".*, .url = "http://nas/4k/", .layout = .{} };
