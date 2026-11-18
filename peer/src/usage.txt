@@ -66,6 +66,13 @@ prints it.
   title show TITLE             show a title: its aliases, episodes or
                                versions, and where each rendition is
                                (shortcut: show)
+  title download TITLE [--rendition NAME] [--to DIR]
+                               fetch a title's files, or a season's
+                               (TITLE/e/s01) or an ITEM's, into a directory
+                               (the current one), under their repo paths,
+                               from whichever copy answers first; in the
+                               rendition given, else the one most items
+                               have; resuming a download cut short
   title review                 list close matches and duplicates
   title facets                 count titles by facet
 

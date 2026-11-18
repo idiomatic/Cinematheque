@@ -17,6 +17,7 @@ pub const store = @import("store.zig");
 pub const pair = @import("pair.zig");
 pub const host = @import("host.zig");
 pub const race = @import("race.zig");
+pub const download = @import("download.zig");
 
 test {
     _ = replica;
@@ -36,6 +37,7 @@ test {
     _ = pair;
     _ = host;
     _ = race;
+    _ = download;
     _ = @import("merkle.zig");
     _ = @import("hlc.zig");
     _ = @import("op.zig");

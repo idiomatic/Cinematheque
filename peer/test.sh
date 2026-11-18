@@ -150,4 +150,25 @@ $peer $c peer add http://127.0.0.1:8191
 $peer $c peer list | grep -q "8191/sync  added" || { echo "FAIL: peer add"; exit 1; }
 $peer $c peer remove http://127.0.0.1:8191
 $peer $c peer list | grep -q added && { echo "FAIL: peer remove"; exit 1; }
+
+# A downloads a movie under its path in the repo, resumes one cut short,
+# and keeps one already whole: a small file, real, from a server of its
+# own (the generated repository's are sparse, up to 40 GB each, which a
+# download would write out in full).
+small="Small Movie (1999)/Small Movie (1999).mp4"
+mkdir -p "$work/small/${small%/*}"
+head -c 300000 /dev/urandom > "$work/small/$small"
+$peer $a serve --port 8195 --media $work/small > $work/small.log 2>&1 &
+d_pid=$!
+sleep 1
+$peer $a repo add http://127.0.0.1:8195/ > /dev/null
+$peer $a crawl http://127.0.0.1:8195/ > /dev/null
+movie=t/m/small-movie/1999
+$peer $a title download $movie --to $work/dl > /dev/null
+cmp -s "$work/dl/$small" "$work/small/$small" || { echo "FAIL: title download"; exit 1; }
+head -c 1000 "$work/small/$small" > "$work/dl/$small.part"; rm "$work/dl/$small"
+$peer $a title download $movie --to $work/dl | grep -q "done$" || { echo "FAIL: download resumed"; exit 1; }
+cmp -s "$work/dl/$small" "$work/small/$small" && [ ! -e "$work/dl/$small.part" ] || { echo "FAIL: download resumed whole"; exit 1; }
+$peer $a title download $movie --to $work/dl | grep -q "already here$" || { echo "FAIL: download kept"; exit 1; }
+kill $d_pid
 echo PASS

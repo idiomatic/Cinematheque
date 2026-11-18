@@ -67,7 +67,7 @@ Open:
   * **Other sources:** the outside-metadata provider's art, and covers in Matroska files.
 * **Who's watching:** set-top players are often shared, laptops and handhelds seldom; a shared player holds each of its users' private data, and hides it while several users are watching.
 * **Watching together:** on one screen, offer titles every viewer will accept; apart, offer what the others would avoid.
-* **Downloads:** for poor connections (e.g., a flight), where the platform permits, including podcast-like prefetching of a series' next N episodes in a chosen rendition; downloads play offline and, on desktop peers, are served to peers nearby.
+* **Downloads** (the command-line peer's `title download` is built; see [AGENTS.md](AGENTS.md)): in the players, through the C interface, and checking free space first; for poor connections (e.g., a flight), where the platform permits, including podcast-like prefetching of a series' next N episodes in a chosen rendition; downloads play offline and, on desktop peers, are served to peers nearby.
 
 Open:
 

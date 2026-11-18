@@ -81,6 +81,7 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `m
 
 * `title list [TEXT]` (`ls`) prints each title held by some repository whose name contains the text, ignoring case. Each line gives its year, kind, episodes or versions, renditions, and key, with `-> TARGET` if it's an alias. A count ends the list.
 * `title show TITLE` (`show`) prints a title's fields, its aliases, and each item: the item's fields, your playhead, and per rendition, every copy's size, modification time, and URL.
+* `title download TITLE` fetches a title's files (or a season's, `TITLE/e/s01`, or an item's) into the current directory or `--to DIR`, under their paths in the repository, so the directory can be served and added as a repository of its own. It takes `--rendition NAME`, else the rendition most of the items have, tries the copy whose server answers first, then the others, and resumes a file cut short (`<path>.part`) by a range request. Mind the size: a 2160p remux runs to 60 GB.
 * `title review` prints close matches and duplicate files, tab-separated: the reason, then the two titles or files. A summary ends it.
 
   ```

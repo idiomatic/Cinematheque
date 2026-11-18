@@ -245,12 +245,66 @@ pub fn title(peer: *Peer, c: Command) !void {
         const dups = try lib.duplicates(&r, peer.arena);
         for (dups) |m| try out.print("{s}\t{s}\t{s}\n", .{ m.reason, m.a, m.b });
         try out.print("{d} close matches among {d} titles; {d} duplicate files\n", .{ matches.len, all.len, dups.len });
+    } else if (c.is("download", 1, &.{ "--rendition", "--to" })) {
+        try download(peer, c);
     } else if (c.is("facets", 0, &.{})) {
         var r = try peer.open();
         defer r.close();
         for (try lib.facets(peer.arena, try lib.titles(&r, peer.arena))) |f| try out.print("{s}\t{s}\t{d}\n", .{ f.facet, f.value, f.count });
     } else return error.Usage;
 }
+
+/// Fetches a title's, a season's, or an item's files into a directory, under
+/// their repositories' paths (see core's download.zig).
+fn download(peer: *Peer, c: Command) !void {
+    const out = peer.out;
+    const files = blk: {
+        var r = try peer.open();
+        defer r.close();
+        break :blk core.download.plan(&r, peer.arena, c.rest[0], c.args.get("--rendition")) catch |err| switch (err) {
+            error.NotFound => {
+                try out.print("nothing held for {s}{s}{s}\n", .{ c.rest[0], if (c.args.get("--rendition") != null) " in " else "", c.args.get("--rendition") orelse "" });
+                return err;
+            },
+            else => |e| return e,
+        };
+    };
+    var dir = try Io.Dir.cwd().createDirPathOpen(peer.io, c.args.get("--to") orelse ".", .{});
+    defer dir.close(peer.io);
+    var client: std.http.Client = .{ .allocator = peer.gpa, .io = peer.io };
+    defer client.deinit();
+    var memory: core.race.Memory = .{};
+    defer memory.deinit(peer.gpa);
+    var failed: usize = 0;
+    for (files) |f| {
+        try out.print("{s}  {d:.2} GB  {s}", .{ f.path, @as(f64, @floatFromInt(f.size)) / 1e9, f.rendition });
+        try out.flush();
+        var shown = Shown{ .out = out };
+        const fetched = core.download.fetch(peer.io, peer.gpa, peer.arena, &client, &memory, dir, f, peer.now(), .{ .context = &shown, .report = Shown.report }) catch |err| {
+            try out.print("  failed: {t}\n", .{err});
+            failed += 1;
+            continue;
+        };
+        try out.print("{s}\n", .{if (fetched == .kept) "  already here" else "  done"});
+    }
+    if (failed > 0) return error.Incomplete;
+}
+
+/// A download's percentage, as it rises, in tens.
+const Shown = struct {
+    out: *Io.Writer,
+    percent: u64 = 0,
+
+    fn report(context: *anyopaque, done: u64, total: u64) void {
+        const s: *Shown = @ptrCast(@alignCast(context));
+        // In tens, to keep to one line.
+        const percent = if (total == 0) 100 else done * 10 / total * 10;
+        if (percent == s.percent) return;
+        s.percent = percent;
+        s.out.print("  {d}%", .{percent}) catch {};
+        s.out.flush() catch {};
+    }
+};
 
 pub fn alias(peer: *Peer, c: Command) !void {
     if (c.is("list", 0, &.{})) {

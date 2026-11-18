@@ -22,6 +22,7 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 | [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s, planned across repositories and described by concurrent workers, prioritized titles first; the browsing grid's tiles, with this user's progress and whether begun; the watchlist |
 | [library](src/library.zig) | Keys from titles' parsed identities; repositories, crawled into holdings; titles, a title's details, facets, close matches, duplicates, aliases, and playheads |
 | [serve](src/serve.zig) | The repository server, with a hook for other requests, such as syncs |
+| [download](src/download.zig) | Downloads: a title's, season's, or item's files, raced among their copies, resumed, into a directory under their repositories' paths |
 | [race](src/race.zig) | Copy racing: an item's copies in the order to try them, each one's server asked at once, briefly, over `Io`'s networking, and those lately unanswered last |
 | [host](src/host.zig) | A server on a task of its own, advertised by DNS-SD once it listens, and stopped for sure: the apps' serving and pairing, and the peer's |
 | [discover](src/discover.zig) | DNS-SD: advertising and browsing peers |
