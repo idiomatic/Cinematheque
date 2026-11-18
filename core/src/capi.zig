@@ -158,7 +158,9 @@ fn span(text: ?[*:0]const u8) ?[]const u8 {
 }
 
 const CoverJson = struct { url: []const u8, offset: u64, length: u64, stamp: []const u8 };
-const MemberJson = struct { key: []const u8, founder: bool, you: bool };
+const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
+const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
+const PeerJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const u8, user: ?[]const u8, ours: bool, member: bool, added: bool };
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
 const SyncJson = struct { url: []const u8, new: usize, @"error": ?[]const u8 };
 const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64 };
@@ -277,7 +279,8 @@ fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
     s.* = .{ .arena = .init(gpa), .io = lib.io(), .source = undefined, .mounts = &.{}, .name = "", .txt = "" };
     errdefer s.arena.deinit();
     const arena = s.arena.allocator();
-    const folders = try std.json.parseFromSliceLeaky([]const MountJson, arena, folders_json, .{});
+    // Copied, since they outlive the caller's string.
+    const folders = try std.json.parseFromSliceLeaky([]const MountJson, arena, folders_json, .{ .allocate = .alloc_always });
     const mounts = try arena.alloc(serve_.Mount, folders.len);
     for (folders, mounts) |f, *m| m.* = .{ .prefix = f.prefix, .path = f.path, .index = false };
     s.mounts = mounts;
@@ -286,9 +289,18 @@ fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
         .founder = try lib.store.founder(arena),
         .identity = lib.store.identity,
     };
-    const library_id = std.fmt.bytesToHex((try lib.main()).library, .lower);
+    const r = try lib.main();
+    const library_id = std.fmt.bytesToHex(r.library, .lower);
+    const user = std.fmt.bytesToHex(try lib.store.user(), .lower);
+    const named = try library.names(r, arena);
     s.name = try std.fmt.allocPrintSentinel(arena, "{s}", .{try lib.store.serviceName(arena)}, 0);
-    s.txt = try discover.txtRecord(arena, &.{ .{ "library", &library_id }, .{ "path", "/sync" } });
+    s.txt = try discover.txtRecord(arena, &.{
+        .{ "library", &library_id },
+        .{ "path", "/sync" },
+        .{ "user", &user },
+        .{ "name", library.nameOf(named, &std.fmt.bytesToHex(try lib.store.device(), .lower)) orelse "" },
+        .{ "person", library.nameOf(named, &user) orelse "" },
+    });
     s.future = try lib.io().concurrent(Serving.run, .{ s, port });
     s.ready.waitTimeout(lib.io(), .{ .duration = .{ .raw = .fromSeconds(10), .clock = .awake } }) catch {};
     if (!s.ready.isSet() or s.failure != null) {
@@ -363,7 +375,8 @@ fn found(lib: *Library, arena: std.mem.Allocator, founder: ?[]const u8) !void {
     lib.replica = try lib.store.openReplica(lib.arena_state.allocator());
 }
 
-/// The members, as a JSON array of objects with `key`, `founder`, and `you`.
+/// The members, as a JSON array of objects with `key`, `name` (null if
+/// none's set), `founder`, and `you`.
 export fn cq_members(lib: *Library) ?[*:0]u8 {
     return json(lib, members, .{});
 }
@@ -372,9 +385,11 @@ fn members(lib: *Library, arena: std.mem.Allocator) ![]const MemberJson {
     const r = try lib.main();
     const me = try lib.store.user();
     const list = try r.members(arena);
+    const named = try library.names(r, arena);
     const out = try arena.alloc(MemberJson, list.len);
     for (list, out) |m, *o| o.* = .{
         .key = try arena.dupe(u8, &std.fmt.bytesToHex(m, .lower)),
+        .name = library.nameOf(named, &std.fmt.bytesToHex(m, .lower)),
         .founder = std.mem.eql(u8, &m, &r.founder),
         .you = std.mem.eql(u8, &m, &me),
     };
@@ -392,6 +407,93 @@ fn member(lib: *Library, _: std.mem.Allocator, key: []const u8, add: bool) !void
     const r = try lib.main();
     const user = try store_.parseKey(std.mem.trim(u8, key, " \n"));
     if (add) try r.addMember(lib.now(), user) else try r.removeMember(lib.now(), user);
+}
+
+// Names and peers.
+
+/// Names this user (`which` "user") or this device ("device"), for every
+/// peer to show in place of keys.
+export fn cq_set_name(lib: *Library, which: [*:0]const u8, name: [*:0]const u8) c_int {
+    return status(lib, setName, .{ std.mem.span(which), std.mem.span(name) });
+}
+
+fn setName(lib: *Library, arena: std.mem.Allocator, which: []const u8, name: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    const r = try lib.main();
+    if (std.mem.eql(u8, which, "user"))
+        try library.setName(r, arena, lib.now(), try lib.store.user(), name, null)
+    else if (std.mem.eql(u8, which, "device"))
+        try library.setName(r, arena, lib.now(), try lib.store.device(), name, try lib.store.user())
+    else
+        return error.Usage;
+}
+
+/// This user's devices that have names, as a JSON array of objects with
+/// `key`, `name`, and `you` (this one).
+export fn cq_devices(lib: *Library) ?[*:0]u8 {
+    return json(lib, devices, .{});
+}
+
+fn devices(lib: *Library, arena: std.mem.Allocator) ![]const DeviceJson {
+    const r = try lib.main();
+    const me = std.fmt.bytesToHex(try lib.store.user(), .lower);
+    const this = std.fmt.bytesToHex(try lib.store.device(), .lower);
+    var out: std.ArrayList(DeviceJson) = .empty;
+    for (try library.names(r, arena)) |n| if (n.user) |u| if (std.mem.eql(u8, u, &me))
+        try out.append(arena, .{ .key = n.key, .name = n.name, .you = std.mem.eql(u8, n.key, &this) });
+    return out.items;
+}
+
+/// Long (it listens for 2 seconds): the peers found on the network, by
+/// DNS-SD, other than this one, and those added by address, as a JSON
+/// array of objects with `url` (to sync with), `device` and `person` (their
+/// names, if advertised), `user` (key), `ours` (of this library), `member`
+/// (its user is one), and `added`.
+export fn cq_peers(lib: *Library) ?[*:0]u8 {
+    return json(lib, peers, .{});
+}
+
+fn peers(lib: *Library, arena: std.mem.Allocator) ![]const PeerJson {
+    var r = try connection(lib, arena);
+    defer r.close();
+    const mine = std.fmt.bytesToHex(r.library, .lower);
+    const own = try lib.store.serviceName(arena);
+    const list = try r.members(arena);
+    var out: std.ArrayList(PeerJson) = .empty;
+    for (try discover.browse(lib.io(), arena, 2000)) |s| {
+        if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
+        const user = s.get("user");
+        const is_member = if (user) |u| for (list) |m| {
+            if (std.mem.eql(u8, &std.fmt.bytesToHex(m, .lower), u)) break true;
+        } else false else false;
+        try out.append(arena, .{
+            .url = try std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse "/sync" }),
+            .device = s.get("name"),
+            .person = s.get("person"),
+            .user = user,
+            .ours = std.mem.eql(u8, s.get("library") orelse "", &mine),
+            .member = is_member,
+            .added = false,
+        });
+    }
+    for (try r.localKeys(arena, "peer:")) |k|
+        try out.append(arena, .{ .url = k["peer:".len..], .device = null, .person = null, .user = null, .ours = true, .member = true, .added = true });
+    return out.items;
+}
+
+/// Adds (nonzero `add`) or removes a peer by address, such as one off the
+/// network, which syncing then reaches too; on this device only.
+export fn cq_peer(lib: *Library, target: [*:0]const u8, add: c_int) c_int {
+    return status(lib, peer, .{ std.mem.span(target), add != 0 });
+}
+
+fn peer(lib: *Library, arena: std.mem.Allocator, target: []const u8, add: bool) !void {
+    const r = try lib.main();
+    const t = std.mem.trim(u8, target, " \n");
+    const u = if (std.mem.endsWith(u8, t, "/sync")) t else try std.mem.concat(arena, u8, &.{ std.mem.trimEnd(u8, t, "/"), "/sync" });
+    const key = try std.mem.concat(arena, u8, &.{ "peer:", u });
+    if (add) try r.setLocal(key, "") else try r.removeLocal(key);
 }
 
 // Repositories.

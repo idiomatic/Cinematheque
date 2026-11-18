@@ -37,7 +37,11 @@ struct LibraryView: View {
                 browser
             }
         }
-        .task { await library.startAtLaunch() }
+        .task {
+            // This Mac's name, and the account's first name, until set.
+            let first = NSFullUserName().split(separator: " ").first.map(String.init)
+            await library.startAtLaunch(device: Host.current().localizedName ?? "Mac", user: first)
+        }
     }
 
     private var browser: some View {

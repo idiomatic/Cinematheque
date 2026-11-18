@@ -83,6 +83,16 @@ int cq_set_watchlisted(cq_library *library, const char *title_key, int on);
 int cq_serve(cq_library *library, int port, const char *folders_json);
 void cq_stop_serving(cq_library *library);
 
+// Names, shown in place of keys: this user's ("user") or this device's
+// ("device"); this user's named devices; peers found nearby (long: it
+// listens for 2 seconds) and added by address, with their names, whether
+// they're of this library and their users members; and adding (nonzero
+// add) or removing a peer by address, on this device only.
+int cq_set_name(cq_library *library, const char *which, const char *name);
+char *cq_devices(cq_library *library);
+char *cq_peers(cq_library *library);
+int cq_peer(cq_library *library, const char *url, int add);
+
 void cq_free(char *text);
 
 // Why the last call on this thread failed.

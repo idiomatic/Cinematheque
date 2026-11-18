@@ -1066,3 +1066,57 @@ test "a numberless file beside a series' episodes is its special, not a movie" {
     const movie = try parseFile(arena, "Movies/Alien (1979)/Alien (1979).mkv", &series);
     try std.testing.expectEqual(naming.Kind.movie, movie.kind);
 }
+
+/// A user's or device's name: `n/<key>`'s `name`, and for a device, `user`,
+/// its user's key. Any member may set one; peers show names, not keys.
+pub const Name = struct {
+    key: []const u8,
+    name: []const u8,
+    /// A device's user; null for a user's own name.
+    user: ?[]const u8 = null,
+};
+
+/// Names a user, or a device (with its user's key).
+pub fn setName(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [32]u8, name: []const u8, user: ?[32]u8) !void {
+    const k = try std.fmt.allocPrint(arena, "n/{s}", .{std.fmt.bytesToHex(key, .lower)});
+    try replica.write(wall_ms, k, "name", std.mem.trim(u8, name, " \t\n"));
+    if (user) |u| try replica.write(wall_ms, k, "user", &std.fmt.bytesToHex(u, .lower));
+}
+
+/// Every name set, users' and devices'.
+pub fn names(replica: *Replica, arena: std.mem.Allocator) ![]Name {
+    var out: std.ArrayList(Name) = .empty;
+    const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key >= 'n/' AND key < 'n0' AND length(value) > 0 ORDER BY key");
+    defer s.finalize();
+    while (try s.step()) {
+        const key = s.blob(0)["n/".len..];
+        if (out.items.len == 0 or !std.mem.eql(u8, out.items[out.items.len - 1].key, key))
+            try out.append(arena, .{ .key = try arena.dupe(u8, key), .name = "" });
+        const n = &out.items[out.items.len - 1];
+        const value = try arena.dupe(u8, s.blob(2));
+        if (std.mem.eql(u8, s.blob(1), "name")) n.name = value else if (std.mem.eql(u8, s.blob(1), "user")) n.user = value;
+    }
+    return out.items;
+}
+
+/// The name of `key` (hex), if set.
+pub fn nameOf(list: []const Name, key: []const u8) ?[]const u8 {
+    for (list) |n| if (std.mem.eql(u8, n.key, key) and n.name.len > 0) return n.name;
+    return null;
+}
+
+test "users and devices are named, a device with its user" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const founder = (try @import("replica.zig").userKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, ":memory:", founder, .from(@splat(1)));
+    defer r.close();
+    try setName(&r, arena, 1, founder, " Brian ", null);
+    try setName(&r, arena, 2, r.device(), "Brian's MacBook Pro", founder);
+    const list = try names(&r, arena);
+    try std.testing.expectEqual(@as(usize, 2), list.len);
+    try std.testing.expectEqualStrings("Brian", nameOf(list, &std.fmt.bytesToHex(founder, .lower)).?);
+    const device = std.fmt.bytesToHex(r.device(), .lower);
+    for (list) |n| if (std.mem.eql(u8, n.key, &device)) try std.testing.expectEqualStrings(&std.fmt.bytesToHex(founder, .lower), n.user.?);
+}

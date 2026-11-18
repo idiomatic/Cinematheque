@@ -89,13 +89,57 @@ struct Repository: Codable, Identifiable, Hashable {
     let rendition: String
     let skip: String
     let copies: Int
+
+    /// Its server and folders, as a person reads them: "art › Movies ›
+    /// 2160p".
+    var displayName: String {
+        guard let u = URL(string: url), let host = u.host() else { return url.removingPercentEncoding ?? url }
+        let parts = u.pathComponents.filter { $0 != "/" }.compactMap { $0.removingPercentEncoding }
+        // A NAS's shared folder (e.g., Video) is seldom worth showing.
+        let shown = parts.count > 2 ? Array(parts.dropFirst()) : parts
+        return ([host.replacing(/\.local$/, with: "")] + shown).joined(separator: " › ")
+    }
 }
 
 struct Member: Codable, Identifiable, Hashable {
     let key: String
+    let name: String?
     let founder: Bool
     let you: Bool
     var id: String { key }
+}
+
+/// One of this user's devices that has a name.
+struct Device: Codable, Identifiable, Hashable {
+    let key: String
+    let name: String
+    let you: Bool
+    var id: String { key }
+}
+
+/// A peer found nearby, or added by address.
+struct Peer: Codable, Identifiable, Hashable {
+    let url: String
+    let device: String?
+    let person: String?
+    /// Its user's key.
+    let user: String?
+    /// Of this library.
+    let ours: Bool
+    /// Its user is a member.
+    let member: Bool
+    let added: Bool
+    var id: String { url }
+}
+
+/// A folder on this device, served as a repository at `prefix`.
+struct Folder: Codable, Identifiable, Hashable {
+    let prefix: String
+    let path: String
+    /// The repository's URL, as added.
+    var url: String
+    var id: String { prefix }
+    var name: String { URL(fileURLWithPath: path).lastPathComponent }
 }
 
 struct Status: Codable {
@@ -120,6 +164,7 @@ final class Library {
     private(set) var watchlist: Set<String> = []
     private(set) var repositories: [Repository] = []
     private(set) var members: [Member] = []
+    private(set) var devices: [Device] = []
     /// What last went wrong, shown modelessly (`ProblemBar`) until the
     /// next action of its kind succeeds or it's dismissed; never an alert.
     var problem: String?
@@ -162,6 +207,7 @@ final class Library {
         watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
         repositories = decode([Repository].self) { cq_repos($0) } ?? []
         members = decode([Member].self) { cq_members($0) } ?? []
+        devices = decode([Device].self) { cq_devices($0) } ?? []
         revision += 1
     }
 
@@ -193,25 +239,117 @@ final class Library {
 
     func setMember(_ key: String, _ add: Bool) { check { cq_member($0, key, add ? 1 : 0) } }
 
-    /// Once a launch, if there's a library: serves it, then refreshes
-    /// (peers may bring its repositories to a device that has none yet).
-    func startAtLaunch() async {
+    /// Once a launch, if there's a library: names this device and user if
+    /// they have no names yet (`defaults`: e.g., the computer's name and the
+    /// account's first name), serves it, then refreshes (peers may bring
+    /// its repositories to a device that has none yet).
+    func startAtLaunch(device: String, user: String? = nil) async {
         guard !refreshedAtLaunch, hasLibrary else { return }
         refreshedAtLaunch = true
-        serve()
+        if !devices.contains(where: \.you), !device.isEmpty { setName(.device, device) }
+        if let user, !user.isEmpty, members.first(where: \.you)?.name == nil { setName(.user, user) }
+        if sharing { serve() }
         await refresh()
+    }
+
+    // Names and peers.
+
+    enum Named: String { case user, device }
+
+    /// Names this user or this device, for every peer to show in place of
+    /// keys, and advertises the new name.
+    func setName(_ which: Named, _ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        check { cq_set_name($0, which.rawValue, trimmed) }
+        if servingPort != nil { serve() }
+    }
+
+    /// This user's name, and this device's.
+    var userName: String? { members.first(where: \.you)?.name }
+    var deviceName: String? { devices.first(where: \.you)?.name }
+
+    /// Peers found nearby (listening for 2 seconds) and added by address.
+    func peers() async -> [Peer] {
+        guard let handle else { return [] }
+        let data: Data? = await Task.detached {
+            guard let text = cq_peers(handle.pointer) else { return nil }
+            defer { cq_free(text) }
+            return Data(bytes: text, count: strlen(text))
+        }.value
+        return data.flatMap { try? JSONDecoder().decode([Peer].self, from: $0) } ?? []
+    }
+
+    /// Adds a peer by address (e.g., one off the network), or removes one.
+    func setPeer(_ url: String, _ add: Bool) { check(reload: false) { cq_peer($0, url, add ? 1 : 0) } }
+
+    // Folders on this device.
+
+    /// This device's folders served as repositories, for this library.
+    private(set) var folders: [Folder] = []
+
+    private var foldersKey: String { "folders-" + (status?.library ?? "") }
+
+    private func loadFolders() {
+        let data = UserDefaults.standard.data(forKey: foldersKey)
+        folders = data.flatMap { try? JSONDecoder().decode([Folder].self, from: $0) } ?? []
+    }
+
+    private func saveFolders() {
+        UserDefaults.standard.set(try? JSONEncoder().encode(folders), forKey: foldersKey)
+    }
+
+    /// The folder a repository serves from this device, if it's one.
+    func folder(of repository: Repository) -> Folder? {
+        folders.first { $0.url == repository.url }
+    }
+
+    /// Serves a folder of this device as a repository at `http://HOST:PORT/
+    /// NAME/` (`host` being this device's name on the network, e.g.,
+    /// `firefly.local`), adds it, and crawls it.
+    func addFolder(_ path: String, host: String) async {
+        let base = URL(fileURLWithPath: path).lastPathComponent
+            .lowercased().replacing(/[^a-z0-9]+/, with: "-").trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        var prefix = base.isEmpty ? "folder" : base
+        var n = 2
+        while folders.contains(where: { $0.prefix == prefix }) {
+            prefix = "\(base)-\(n)"
+            n += 1
+        }
+        folders.append(Folder(prefix: prefix, path: path, url: ""))
+        serve()
+        guard let port = servingPort else {
+            folders.removeLast()
+            return
+        }
+        folders[folders.count - 1].url = "http://\(host):\(port)/\(prefix)/"
+        saveFolders()
+        addRepository(folders[folders.count - 1].url, rendition: nil, skip: ",")
+        await crawl()
+    }
+
+    /// Stops serving a folder, and removes its repository.
+    func removeFolder(_ folder: Folder) {
+        if let repo = repositories.first(where: { $0.url == folder.url }) { removeRepository(repo.id) }
+        folders.removeAll { $0.prefix == folder.prefix }
+        saveFolders()
+        serve()
     }
 
     /// The port this device serves on, while it does.
     private(set) var servingPort: Int?
 
     /// Serves this library to peers (their syncs, so this device's changes,
-    /// such as playheads, reach them) while the app runs, on the port it
-    /// served on last, so addresses of what it serves stay put.
+    /// such as playheads, reach them), and this device's folders, while the
+    /// app runs, on the port it served on last, so folders' addresses stay
+    /// put.
     func serve() {
         guard let handle, hasLibrary else { return }
+        if folders.isEmpty { loadFolders() }
         let defaults = UserDefaults.standard
-        let port = cq_serve(handle.pointer, Int32(defaults.integer(forKey: "servingPort")), "[]")
+        let mounts = folders.map { ["prefix": $0.prefix, "path": $0.path] }
+        let json = String(decoding: (try? JSONSerialization.data(withJSONObject: mounts)) ?? Data("[]".utf8), as: UTF8.self)
+        let port = cq_serve(handle.pointer, Int32(defaults.integer(forKey: "servingPort")), json)
         if port < 0 {
             servingPort = nil
             report(.serve, "Couldn't share the library with your other devices: \(String(cString: cq_error())).")
@@ -219,7 +357,39 @@ final class Library {
             servingPort = Int(port)
             defaults.set(Int(port), forKey: "servingPort")
             report(.serve, nil)
+            repoint(Int(port))
         }
+    }
+
+    /// Whether this device shares the library (serves it) while the app
+    /// runs: on unless turned off.
+    var sharing: Bool {
+        get { UserDefaults.standard.object(forKey: "sharing") as? Bool ?? true }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "sharing")
+            if newValue { serve() } else { stopServing() }
+        }
+    }
+
+    func stopServing() {
+        guard let handle else { return }
+        cq_stop_serving(handle.pointer)
+        servingPort = nil
+    }
+
+    /// Moves this device's folders' repositories to the port it got, if it
+    /// had to take another (another program had the last one).
+    private func repoint(_ port: Int) {
+        for (i, folder) in folders.enumerated() {
+            guard var parts = URLComponents(string: folder.url), parts.port != nil, parts.port != port else { continue }
+            parts.port = port
+            guard let moved = parts.string else { continue }
+            let old = repositories.first { $0.url == folder.url }
+            addRepository(moved, rendition: old?.rendition.isEmpty == false ? old?.rendition : nil, skip: old?.skip ?? ",")
+            if let old { removeRepository(old.id) }
+            folders[i].url = moved
+        }
+        saveFolders()
     }
 
     /// Syncs with peers found or added, then crawls every repository: what

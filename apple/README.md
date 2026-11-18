@@ -42,7 +42,7 @@ macOS:
 * [CinemathequeApp.swift](Cinematheque/CinemathequeApp.swift): the windows, Settings, and Refresh Library (⌘R), which syncs, then crawls, as the library window does once at launch.
 * [InspectorView.swift](Cinematheque/InspectorView.swift): the selected tile's larger cover, Play or Resume (a season from its next unwatched episode, the rest queued), a rendition picker, the watchlist and watched marks, metadata, a movie's versions, and a season's episodes (season 0 as Specials), described on demand.
 * [PlayerView.swift](Cinematheque/PlayerView.swift): a window per queue, the playback session in AppKit's `AVPlayerView`, titled for the item playing; closing the window stops it.
-* [ManageView.swift](Cinematheque/ManageView.swift): Settings: repositories, members, and this device.
+* [ManageView.swift](Cinematheque/ManageView.swift): Settings, in three panes: General (names, sharing), Sources (folders on this Mac, chosen with an open panel and served while the app runs, and network addresses), and People & Devices (members and devices by name, those waiting to join, and, under Advanced, keys and peers by address); no keys or addresses outside Advanced.
 * [Launch.swift](Cinematheque/Launch.swift), in debug builds only: launch options for driving the app unattended, `CINEMATHEQUE_SELECT` (a tile: a title key, with `#` and a season for a series', e.g., `t/s/firefly/-#1`), `CINEMATHEQUE_PLAY` (a URL to open in a player), and `CINEMATHEQUE_ITEM` (its item key, for its playhead).
 
 Apple TV:

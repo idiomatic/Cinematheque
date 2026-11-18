@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct CinemathequeTVApp: App {
@@ -38,7 +39,8 @@ struct RootView: View {
         }
         .task(id: library.hasLibrary) {
             Keys.save()
-            await library.startAtLaunch()
+            // The Apple TV's name, as set in its settings, until set here.
+            await library.startAtLaunch(device: UIDevice.current.name)
         }
     }
 }

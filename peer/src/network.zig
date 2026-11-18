@@ -55,6 +55,8 @@ pub fn serve(p: *Peer, c: Command) !void {
     };
     var r = try p.open();
     const library_hex = std.fmt.bytesToHex(r.library, .lower);
+    const user_hex = std.fmt.bytesToHex(try p.store.user(), .lower);
+    const named = try core.library.names(&r, p.arena);
     r.close();
     const Listening = struct {
         peer: *Peer,
@@ -77,7 +79,13 @@ pub fn serve(p: *Peer, c: Command) !void {
     var listening: Listening = .{
         .peer = p,
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
-        .txt = try core.discover.txtRecord(p.arena, &.{ .{ "library", &library_hex }, .{ "path", "/sync" } }),
+        .txt = try core.discover.txtRecord(p.arena, &.{
+            .{ "library", &library_hex },
+            .{ "path", "/sync" },
+            .{ "user", &user_hex },
+            .{ "name", core.library.nameOf(named, &std.fmt.bytesToHex(try p.store.device(), .lower)) orelse "" },
+            .{ "person", core.library.nameOf(named, &user_hex) orelse "" },
+        }),
         .library = &library_hex,
         .media = media,
     };
