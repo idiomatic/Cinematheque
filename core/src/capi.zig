@@ -258,6 +258,7 @@ const Serving = struct {
     port: u16 = 0,
     failure: ?anyerror = null,
     advertisement: ?discover.Advertisement = null,
+    stop: std.atomic.Value(bool) = .init(false),
 
     fn onListen(context: ?*anyopaque, port: u16) void {
         const s: *Serving = @ptrCast(@alignCast(context.?));
@@ -276,6 +277,7 @@ const Serving = struct {
             .handler = s.handler,
             .on_listen = onListen,
             .on_listen_context = s,
+            .stop = &s.stop,
         }) catch |err| {
             if (!s.ready.isSet()) {
                 s.failure = err;
@@ -283,6 +285,14 @@ const Serving = struct {
             }
             return err;
         };
+    }
+
+    /// Stops it, and waits until it has: told to stop, woken from
+    /// `accept`, then canceled (which ends what it's still answering).
+    fn end(s: *Serving) void {
+        s.stop.store(true, .release);
+        if (s.port != 0) serve_.wake(s.port);
+        _ = s.future.cancel(s.io) catch {};
     }
 };
 
@@ -363,7 +373,7 @@ fn launch(lib: *Library, s: *Serving, port: u16) !void {
 
 fn stopServing(lib: *Library) void {
     const s = lib.serving orelse return;
-    _ = s.future.cancel(lib.io()) catch {};
+    s.end();
     s.arena.deinit();
     gpa.destroy(s);
     lib.serving = null;
@@ -503,7 +513,7 @@ export fn cq_pair_stop(lib: *Library) void {
 fn stopPairing(lib: *Library) void {
     const p = lib.pairing orelse return;
     const s = p.serving;
-    _ = s.future.cancel(lib.io()) catch {};
+    s.end();
     s.arena.deinit();
     gpa.destroy(s);
     gpa.destroy(p);

@@ -38,6 +38,9 @@ pub const Options = struct {
     /// Called once the server listens, with the port it got.
     on_listen: ?*const fn (context: ?*anyopaque, port: u16) void = null,
     on_listen_context: ?*anyopaque = null,
+    /// Set (then `wake`) to stop: the server checks it whenever `accept`
+    /// returns. Canceling alone can miss a thread blocked in `accept`.
+    stop: ?*const std.atomic.Value(bool) = null,
 };
 
 const Context = struct {
@@ -130,11 +133,26 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
     defer group.cancel(io);
     while (true) {
         const stream = try listener.accept(io);
+        if (options.stop) |stop| if (stop.load(.acquire)) {
+            stream.close(io);
+            return;
+        };
         group.concurrent(io, handle, .{ &ctx, stream }) catch |err| {
             std.log.err("connection: {t}", .{err});
             stream.close(io);
         };
     }
+}
+
+/// Wakes a server listening on `port` (on this host) from `accept`, so it
+/// sees its `stop`, by connecting to it.
+pub fn wake(port: u16) void {
+    const c = std.c;
+    const fd = socket(c.AF.INET, c.SOCK.STREAM, 0);
+    if (fd < 0) return;
+    defer _ = c.close(fd);
+    var addr: c.sockaddr.in = .{ .port = std.mem.nativeToBig(u16, port), .addr = @bitCast([4]u8{ 127, 0, 0, 1 }) };
+    _ = c.connect(fd, @ptrCast(&addr), @sizeOf(c.sockaddr.in));
 }
 
 fn handle(ctx: *const Context, stream: Io.net.Stream) Io.Cancelable!void {
