@@ -124,6 +124,7 @@ struct PosterGrid: View {
 /// below.
 struct Poster: View {
     let tile: Tile
+    @Environment(Library.self) private var library
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -146,6 +147,12 @@ struct Poster: View {
                     }
             }
             .buttonStyle(.card)
+            // Pressed and held: a series' tile stands for the whole series.
+            .contextMenu {
+                if tile.played {
+                    Button("Remove from Played", systemImage: "minus.circle") { library.removeFromPlayed(tile, wholeTitle: tile.isSeries) }
+                }
+            }
             Text(tile.name)
                 .font(.caption)
                 .lineLimit(1)

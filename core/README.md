@@ -19,7 +19,7 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 | [mp4](src/mp4.zig) | An MP4's cover (as a byte range) and metadata, read by range requests that walk atom headers |
 | [jpeg](src/jpeg.zig) | A JPEG's DC coefficients alone: an eighth-size image, for placeholders |
 | [thumbhash](src/thumbhash.zig) | ThumbHash placeholders, encoded and rendered; a port of the MIT-licensed reference |
-| [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s, planned across repositories and described by concurrent workers, prioritized titles first; the browsing grid's tiles, with this user's progress; the watchlist |
+| [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s, planned across repositories and described by concurrent workers, prioritized titles first; the browsing grid's tiles, with this user's progress and whether begun; the watchlist |
 | [library](src/library.zig) | Keys from titles' parsed identities; repositories, crawled into holdings; titles, a title's details, facets, close matches, duplicates, aliases, and playheads |
 | [serve](src/serve.zig) | The repository server, with a hook for other requests, such as syncs |
 | [discover](src/discover.zig) | DNS-SD: advertising and browsing peers |

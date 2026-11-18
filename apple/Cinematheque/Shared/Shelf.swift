@@ -4,7 +4,7 @@ import Foundation
 /// searched, and how it's counted. Each platform shows them its own way
 /// (the Mac in a sidebar, the Apple TV in a tab bar).
 enum Shelf: String, CaseIterable, Identifiable, Hashable {
-    case home, movies, series, watchlist
+    case home, movies, series, watchlist, played
 
     var id: Self { self }
 
@@ -14,6 +14,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .movies: "Movies"
         case .series: "Series"
         case .watchlist: "Watchlist"
+        case .played: "Played"
         }
     }
 
@@ -23,18 +24,22 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .movies: "film"
         case .series: "tv"
         case .watchlist: "star"
+        case .played: "play.circle"
         }
     }
 
     /// Its tiles, a series' by season, whose names hold `search`, if any:
-    /// Home's are those in progress (movies partway, seasons begun).
+    /// Home's are those in progress (movies partway, seasons begun);
+    /// Played's, a smart folder, everything with a playhead, in progress or
+    /// watched.
     @MainActor func tiles(in library: Library, search: String = "") -> [Tile] {
         library.tiles.filter { tile in
             let on = switch self {
-            case .home: !tile.watched && tile.progress > 0
+            case .home: !tile.watched && tile.started
             case .movies: !tile.isSeries
             case .series: tile.isSeries
             case .watchlist: library.watchlist.contains(tile.key)
+            case .played: tile.played
             }
             return on && (search.isEmpty || tile.name.localizedCaseInsensitiveContains(search))
         }
@@ -49,7 +54,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .home: titles == 1 ? "title in progress" : "titles in progress"
         case .movies: titles == 1 ? "movie" : "movies"
         case .series: "series"
-        case .watchlist: titles == 1 ? "title" : "titles"
+        case .watchlist, .played: titles == 1 ? "title" : "titles"
         }
         if !search.isEmpty {
             let matching = Set(tiles(in: library, search: search).map(\.key)).count
@@ -64,9 +69,15 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .home: "What you're watching shows here."
         case .watchlist: "Titles you add to your watchlist show here."
+        case .played: "What you've started or watched shows here."
         case .movies, .series: "Add sources of videos in Cinematheque on your Mac."
         }
     }
+}
+
+extension Tile {
+    /// On the Played shelf: with a playhead, in progress or watched.
+    var played: Bool { started }
 }
 
 extension Array where Element == Tile {

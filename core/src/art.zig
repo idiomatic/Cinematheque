@@ -584,9 +584,12 @@ pub const Tile = struct {
     /// The cover's placeholder, a ThumbHash in base64.
     thumb: ?[]const u8 = null,
     /// This user's: whether every item is watched, and how far along it
-    /// is (a movie's position, or the share of a season's episodes watched).
+    /// is (a movie's position, or the share of a season's episodes watched),
+    /// and whether any item has a playhead (e.g., an episode begun, which a
+    /// season's progress doesn't count).
     watched: bool = false,
     progress: f64 = 0,
+    started: bool = false,
 };
 
 /// The grid's tiles: titles some repository holds, a series' by season,
@@ -646,6 +649,7 @@ fn progress(tile: *Tile, items: anytype, heads: anytype, id: []const u8) void {
     const list = (items.get(id) orelse return).items;
     var watched: usize = 0;
     for (list) |item| if (heads.get(item)) |h| {
+        tile.started = true;
         if (h.watched) watched += 1;
     };
     tile.watched = list.len > 0 and watched == list.len;
@@ -712,8 +716,12 @@ test "covers round-trip, and a season without one takes its series'" {
 
     try library.setWatched(&r, arena, 2, "t/s/firefly/-/e/s01e01", true);
     const after = try tiles(&r, arena);
-    try std.testing.expect(after[0].watched and after[0].progress == 1);
-    try std.testing.expect(!after[1].watched and after[1].progress == 0);
+    try std.testing.expect(after[0].watched and after[0].progress == 1 and after[0].started);
+    try std.testing.expect(!after[1].watched and after[1].progress == 0 and !after[1].started);
+    // An episode begun starts its season, though none is watched.
+    try library.setPlayhead(&r, arena, 3, "t/s/firefly/-/e/s02e01", 600_000, 2_400_000);
+    const begun = try tiles(&r, arena);
+    try std.testing.expect(!begun[1].watched and begun[1].progress == 0 and begun[1].started);
 
     try setWatchlisted(&r, arena, 2, "t/s/firefly/-", true);
     try std.testing.expectEqual(@as(usize, 1), (try watchlist(&r, arena)).len);

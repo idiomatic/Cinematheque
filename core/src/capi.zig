@@ -163,7 +163,7 @@ const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
 const PeerJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const u8, user: ?[]const u8, ours: bool, member: bool, added: bool };
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
 const SyncJson = struct { url: []const u8, new: usize, @"error": ?[]const u8 };
-const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64 };
+const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, started: bool };
 const StatusJson = struct { user: []const u8, linked: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
 
 /// How far a long operation has come, in steps of its phase (repositories
@@ -717,6 +717,7 @@ fn tiles(lib: *Library, arena: std.mem.Allocator) ![]const TileJson {
         .thumb = t.thumb,
         .watched = t.watched,
         .progress = t.progress,
+        .started = t.started,
     };
     return out;
 }
@@ -830,6 +831,17 @@ fn setWatched(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, wat
     const r = try privateWriter(lib);
     defer if (r.locked) lib.writer.unlock(lib.io());
     try library.setWatched(r.replica, arena, lib.now(), item_key, watched);
+}
+
+/// Removes this user's playhead in an item: its position and watched mark.
+export fn cq_remove_playhead(lib: *Library, item_key: [*:0]const u8) c_int {
+    return status(lib, removePlayhead, .{std.mem.span(item_key)});
+}
+
+fn removePlayhead(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !void {
+    const r = try privateWriter(lib);
+    defer if (r.locked) lib.writer.unlock(lib.io());
+    try library.removePlayhead(r.replica, arena, lib.now(), item_key);
 }
 
 /// The titles on this user's watchlist, as a JSON array of title keys.

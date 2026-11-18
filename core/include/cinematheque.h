@@ -72,6 +72,7 @@ int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *
 // "t/m/alien/1979/v/-"), and the watchlist of titles.
 int cq_set_playhead(cq_library *library, const char *item_key, unsigned long long position_ms, unsigned long long duration_ms);
 int cq_set_watched(cq_library *library, const char *item_key, int watched);
+int cq_remove_playhead(cq_library *library, const char *item_key);
 char *cq_watchlist(cq_library *library);
 int cq_set_watchlisted(cq_library *library, const char *title_key, int on);
 

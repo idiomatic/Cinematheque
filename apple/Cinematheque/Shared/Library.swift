@@ -21,9 +21,12 @@ struct Tile: Codable, Identifiable, Hashable {
     let cover: Cover?
     /// The cover's placeholder, a ThumbHash in base64.
     let thumb: String?
-    /// This user's: every item watched, and how far along (0 to 1).
+    /// This user's: every item watched, how far along (0 to 1: a season's,
+    /// the share of its episodes watched), and whether any item has a
+    /// playhead.
     let watched: Bool
     let progress: Double
+    let started: Bool
 
     var id: String { season.map { "\(key)#\($0)" } ?? key }
     var isSeries: Bool { kind == "series" }
@@ -439,6 +442,17 @@ final class Library {
         guard position.isFinite, duration.isFinite, duration > 0 else { return }
         check(reload: false) { cq_set_playhead($0, item, UInt64(max(0, position) * 1000), UInt64(duration * 1000)) }
         revision += 1
+    }
+
+    /// Removes a tile from Played: this user's playheads in its items (a
+    /// movie's, a season's, or with `wholeTitle`, every season's), positions
+    /// and watched marks alike.
+    func removeFromPlayed(_ tile: Tile, wholeTitle: Bool = false) {
+        guard let detail = detail(tile.key) else { return }
+        let items = wholeTitle ? detail.items : Playback.items(detail, season: tile.season)
+        for item in items { check(reload: false) { cq_remove_playhead($0, "\(detail.key)/\(item.key)") } }
+        revision += 1
+        reload()
     }
 
     func setWatched(_ item: String, _ watched: Bool) {
