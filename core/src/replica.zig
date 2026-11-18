@@ -83,7 +83,8 @@ pub const Stats = struct {
     rejected: usize = 0,
     /// Batches held until later frames admitted their devices.
     deferred: usize = 0,
-    /// Operations a removed member's devices wrote after their cutoffs.
+    /// Operations a removed device (or a removed member's) wrote past its
+    /// cutoff.
     refused: usize = 0,
     batches: usize = 0,
     /// What a network transfer would carry: operations, plus each batch's
@@ -411,17 +412,15 @@ pub const Replica = struct {
 
     /// What a device's batches may hold: everything (its user is a
     /// member), nothing yet (no certificate naming a member), or, for a
-    /// removed member's device, writes through a cutoff.
+    /// removed device (or a removed member's), writes through its cutoff.
     const Admission = union(enum) { all, none, through: u64 };
 
     fn admission(replica: *Replica, device_key: Device, ops: []const Op) !Admission {
         if (std.mem.eql(u8, &device_key, &replica.device())) return .all;
         if (std.mem.eql(u8, &device_key, &replica.private_pair.public_key.toBytes())) return .all;
         const c = try replica.certified(device_key, ops) orelse return .none;
-        // A device removed from its user's devices, though its user stays.
         if (try replica.revoked(device_key)) |seq| return .{ .through = seq };
         if (try replica.isMemberUser(c.user)) return .all;
-        if (try replica.cutoff(c.user, device_key)) |seq| return .{ .through = seq };
         return .none;
     }
 
@@ -476,26 +475,6 @@ pub const Replica = struct {
         }
     }
 
-    /// The last sequence number of `device_key` that stands, if `user` was
-    /// removed: as the removal recorded it, or 0 for devices the remover
-    /// didn't know.
-    fn cutoff(replica: *Replica, user: Device, device_key: Device) !?u64 {
-        const s = replica.select_winner;
-        defer s.reset();
-        try s.bindText(1, "cutoffs");
-        try s.bindText(2, &std.fmt.bytesToHex(user, .lower));
-        if (!try s.step()) return null;
-        var r: std.Io.Reader = .fixed(s.blob(3));
-        const n = r.takeInt(u32, .little) catch return 0;
-        for (0..n) |_| {
-            var dev: Device = undefined;
-            r.readSliceAll(&dev) catch return 0;
-            const seq = r.takeInt(u64, .little) catch return 0;
-            if (std.mem.eql(u8, &dev, &device_key)) return seq;
-        }
-        return 0;
-    }
-
     /// Devices certified for `user`, by the certificates held.
     fn devicesOf(replica: *Replica, arena: std.mem.Allocator, user: Device) ![]Device {
         var out: std.ArrayList(Device) = .empty;
@@ -519,6 +498,13 @@ pub const Replica = struct {
     /// it already has, and could pair afresh as another device.
     pub fn revokeDevice(replica: *Replica, wall_ms: u64, device_key: Device) !void {
         if (std.mem.eql(u8, &device_key, &replica.device())) return error.ThisDevice;
+        try replica.revokeStreams(wall_ms, device_key);
+    }
+
+    /// Cuts off a device's streams, its own and its private one, where this
+    /// replica has seen them (`revoked`, a field per stream); merging it
+    /// drops what the stream wrote past there (see `cut`).
+    fn revokeStreams(replica: *Replica, wall_ms: u64, device_key: Device) !void {
         var arena_state = std.heap.ArenaAllocator.init(replica.gpa);
         defer arena_state.deinit();
         const arena = arena_state.allocator();
@@ -554,47 +540,40 @@ pub const Replica = struct {
         return std.mem.readInt(u64, value[0..8], .little);
     }
 
-    /// Removes `user` from the library. Their devices' writes up to what
-    /// this replica has seen stand; later ones are refused. The founder
-    /// (as handed over, if it was) can't be removed.
+    /// Removes `user` from the library, and cuts off each of their devices
+    /// as `revokeDevice` does: their writes up to what this replica has
+    /// seen stand; later ones are refused. A device the remover didn't
+    /// know isn't admitted, its user no longer a member. The founder (as
+    /// handed over, if it was) can't be removed.
     pub fn removeMember(replica: *Replica, wall_ms: u64, user: Device) !void {
         if (std.mem.eql(u8, &user, &replica.founder)) return error.FounderIsPermanent;
         var arena_state = std.heap.ArenaAllocator.init(replica.gpa);
         defer arena_state.deinit();
-        const arena = arena_state.allocator();
-        var value: std.Io.Writer.Allocating = .init(arena);
-        const devices = try replica.devicesOf(arena, user);
-        try value.writer.writeInt(u32, @intCast(devices.len), .little);
-        for (devices) |dev| {
-            try value.writer.writeAll(&dev);
-            try value.writer.writeInt(u64, try replica.seen(try replica.deviceId(dev)), .little);
+        try replica.setMember(wall_ms, "members", &std.fmt.bytesToHex(user, .lower), false);
+        for (try replica.devicesOf(arena_state.allocator(), user)) |dev| {
+            if (!std.mem.eql(u8, &dev, &replica.device())) try replica.revokeStreams(wall_ms, dev);
         }
-        const hex = std.fmt.bytesToHex(user, .lower);
-        try replica.setMember(wall_ms, "members", &hex, false);
-        try replica.write(wall_ms, "cutoffs", &hex, value.written());
     }
 
-    /// Applies a removal's cutoffs: drops winners that the removed user's
-    /// devices wrote past them, and notes those fields for `repair`, which
-    /// refetches them from a peer that refused those writes.
-    fn revoke(replica: *Replica, user_hex: []const u8) !void {
-        var user: Device = undefined;
-        _ = std.fmt.hexToBytes(&user, user_hex) catch return;
-        var arena_state = std.heap.ArenaAllocator.init(replica.gpa);
-        defer arena_state.deinit();
-        for (try replica.devicesOf(arena_state.allocator(), user)) |dev| {
-            const id = replica.ids.get(dev) orelse continue;
-            const through = try replica.cutoff(user, dev) orelse 0;
-            inline for (.{
-                "INSERT OR IGNORE INTO repair SELECT key, field FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'",
-                "DELETE FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'",
-            }) |sql| {
-                const s = try replica.db.prepare(sql);
-                defer s.finalize();
-                try s.bindInt(1, id);
-                try s.bindInt(2, @intCast(through));
-                _ = try s.step();
-            }
+    /// Applies a stream's cutoff (a `revoked` field, `stream_hex`, and its
+    /// last sequence number that stands): drops the winners the stream
+    /// wrote past it, and notes those fields for `repair`, which refetches
+    /// them from a peer that refused those writes.
+    fn cut(replica: *Replica, stream_hex: []const u8, value: []const u8) !void {
+        if (value.len != 8) return;
+        var stream: Device = undefined;
+        _ = std.fmt.hexToBytes(&stream, stream_hex) catch return;
+        const id = replica.ids.get(stream) orelse return;
+        const through = std.mem.readInt(u64, value[0..8], .little);
+        inline for (.{
+            "INSERT OR IGNORE INTO repair SELECT key, field FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'",
+            "DELETE FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'",
+        }) |sql| {
+            const s = try replica.db.prepare(sql);
+            defer s.finalize();
+            try s.bindInt(1, id);
+            try s.bindInt(2, @intCast(through));
+            _ = try s.step();
         }
         replica.repairing = try replica.repairsPending() > 0;
     }
@@ -876,7 +855,7 @@ pub const Replica = struct {
         try u.bindInt(6, @intCast(op.seq));
         try u.bindBlob(7, op.value);
         _ = try u.step();
-        if (std.mem.eql(u8, op.key, "cutoffs")) try replica.revoke(op.field);
+        if (std.mem.eql(u8, op.key, "revoked")) try replica.cut(op.field, op.value);
         if (std.mem.eql(u8, op.key, "founders")) replica.founder = (try replica.founderAt(std.math.maxInt(u32))).user;
         return .won;
     }
@@ -1705,6 +1684,29 @@ test "an invitation later in the same response admits earlier batches" {
     try testing.expectEqual(@as(usize, 0), b_stats.rejected);
     try testing.expect(b_stats.deferred > 0);
     try testing.expectEqualStrings("Relayed", try p.value(1, "t/00002", "name"));
+}
+
+test "a peer that took a removed device's later writes repairs from one that refused them" {
+    var p: Peers = undefined;
+    try p.init();
+    defer p.deinit();
+    const a = &p.replicas[0];
+    const b = &p.replicas[1];
+    const c = &p.replicas[2];
+
+    try b.write(1000, "t/00001", "name", "before");
+    _ = try p.sync(0, 1);
+    try a.revokeDevice(2000, b.device());
+    try b.write(3000, "t/00001", "name", "after");
+    // c hears from b before hearing of the removal, so takes the later write;
+    // hearing of it drops it, and repairing from a restores what stands.
+    _ = try p.sync(2, 1);
+    try testing.expectEqualStrings("after", try p.value(2, "t/00001", "name"));
+    _ = try p.sync(2, 0);
+    try testing.expectEqual(@as(i64, 1), try c.repairsPending());
+    _ = try repair(c, a);
+    try testing.expectEqualStrings("before", try p.value(2, "t/00001", "name"));
+    try testing.expect(try c.isMemberUser(b.userKey()));
 }
 
 test "the founder can't be removed" {

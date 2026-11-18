@@ -72,7 +72,7 @@ Receiving an operation:
 
 Whatever the order operations arrive in, every replica ends with the same winners, so peers converge without coordinating.
 
-Two keys act on winning: `cutoffs` (a removal) drops the removed user's later writes and notes their fields for repair, and `founders` (a handover) moves the founder along the chain.
+Two keys act on winning: `revoked` (a removal) drops the removed stream's later writes and notes their fields for repair, and `founders` (a handover) moves the founder along the chain.
 
 ## Admission
 
@@ -80,11 +80,10 @@ A batch is applied only if its stream may write it. That's decided from operatio
 
 * **Certificates** (`c/<stream key>`): field `user` for a device's own stream, `private` for its private stream. The value is the user's key and the user's signature over `"cinematheque device "` (or `"cinematheque private"`), the library ID, and the stream key. A batch may carry its own certificate.
 * **Members** (`members`): a set of user keys, by causal length. The founder is always a member.
-* **Removals** (`cutoffs`): per removed user, each of their devices' last sequence number that stands.
-* **Device removals** (`revoked`): per removed stream, its last sequence number that stands.
+* **Removals** (`revoked`): per removed stream (a removed device's, or each of a removed member's devices'), its last sequence number that stands.
 * **Handovers** (`founders`): fields numbered from `000001`, each naming the next founder. Each counts only if a device of the founder before it wrote it.
 
-So a stream's batches are admitted whole if its certificate names a member. They're admitted up to a cutoff if its user or the stream was removed, and otherwise not yet. Within a stream that's admitted, these operations are refused:
+So a stream's batches are admitted whole if its certificate names a member. They're admitted up to its cutoff if the stream was removed, and otherwise not yet. Within a stream that's admitted, these operations are refused:
 
 * a handover not from the previous founder;
 * private data (`p/<user>/...`) not on that user's private stream;
@@ -184,8 +183,7 @@ The library ([library.zig](core/src/library.zig), [art.zig](core/src/art.zig)) w
 | `p/<user hex>/watchlist` | `<title key>` or `<title key>#<season>`: `1`, or empty | The watchlist (private) |
 | `c/<stream hex>` | `user` or `private`: a certificate | Each device, first |
 | `members` | `<user hex>`: causal length | Adding and removing members |
-| `cutoffs` | `<user hex>`: a count, then each device key and last sequence number that stands | Removing a member |
-| `revoked` | `<stream hex>`: the last sequence number that stands, u64 | Removing a device |
+| `revoked` | `<stream hex>`: the last sequence number that stands, u64 | Removing a device, or a member |
 | `founders` | `000001`...: the next founder's key | Handing over |
 
 Title and item keys derive from a file's parsed identity, so peers that crawl the same files write the same keys, and their operations merge field by field instead of duplicating titles.
