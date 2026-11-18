@@ -508,14 +508,14 @@ private struct DownloadsPane: View {
                     .foregroundStyle(.secondary)
             }
             Section {
-                Toggle("Delete watched episodes right away", isOn: Binding(
+                Toggle("Delete watched downloads right away", isOn: Binding(
                     get: { library.downloads?.drop_watched ?? false },
                     set: { library.setDownloads(dropWatched: $0) }
                 ))
             } header: {
-                Text("Series that keep their next episodes")
+                Text("Watched downloads")
             } footer: {
-                Text("Otherwise a watched episode stays until its space is needed. Either way, only episodes that another source still has are deleted.")
+                Text("Otherwise a download you've watched stays until its space is needed, as for a series' next episodes. Either way, only downloads that another source still has are deleted, and never those you keep.")
                     .foregroundStyle(.secondary)
             }
         }

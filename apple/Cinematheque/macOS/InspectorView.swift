@@ -263,12 +263,16 @@ private struct DownloadControls: View {
     private func movieControls(_ key: String) -> some View {
         HStack {
             if library.isDownloaded(key) {
-                Label("Downloaded", systemImage: "arrow.down.circle.fill")
-                    .foregroundStyle(.secondary)
+                DownloadState(key: key)
+                if library.done(key) != nil {
+                    Button("Keep") { library.pin(key, true) }
+                        .buttonStyle(.borderless)
+                        .help("Keep it on this Mac, however it's watched")
+                }
                 Button("Remove Download", systemImage: "trash") { library.removeDownload(key) }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
-                    .help("Delete it from this Mac")
+                    .help(library.done(key)?.deletable == false ? "Delete it from this Mac: the only copy" : "Delete it from this Mac")
             } else if library.isWanted(key) {
                 ProgressView().controlSize(.small)
                 Text("Downloading…").foregroundStyle(.secondary)
@@ -325,16 +329,38 @@ private struct DownloadControls: View {
     }
 }
 
-/// Beside an episode: downloaded, or downloading.
+/// A download's state, in words: kept, watched (waiting for its space to
+/// be needed, or the only copy), or downloaded.
+private struct DownloadState: View {
+    let key: String
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        if let done = library.done(key) {
+            Label(done.deletable ? "Watched: goes when space is needed" : "Watched, and the only copy", systemImage: done.deletable ? "hourglass.circle.fill" : "exclamationmark.circle.fill")
+                .foregroundStyle(done.deletable ? Color.secondary : Color.orange)
+        } else {
+            Label(library.isPinned(key) ? "Downloaded, kept" : "Downloaded", systemImage: "arrow.down.circle.fill")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Beside an episode: downloaded (and watched, waiting or the only copy),
+/// or downloading.
 private struct DownloadMark: View {
     let key: String
     @Environment(Library.self) private var library
 
     var body: some View {
-        if library.isDownloaded(key) {
+        if let done = library.done(key) {
+            Image(systemName: done.deletable ? "hourglass.circle.fill" : "exclamationmark.circle.fill")
+                .foregroundStyle(done.deletable ? Color.secondary : Color.orange)
+                .help(done.deletable ? "Watched: deleted when its space is needed, as another source has it" : "Watched, and the only copy: delete it, or keep it")
+        } else if library.isDownloaded(key) {
             Image(systemName: "arrow.down.circle.fill")
                 .foregroundStyle(.secondary)
-                .help("Downloaded to this Mac")
+                .help(library.isPinned(key) ? "Downloaded to this Mac, and kept" : "Downloaded to this Mac")
         } else if library.isWanted(key) {
             ProgressView().controlSize(.mini).help("Downloading")
         }
@@ -348,8 +374,15 @@ private struct DownloadMenuItems: View {
     @Environment(Library.self) private var library
 
     var body: some View {
-        if library.isDownloaded(key) || library.isWanted(key) {
-            Button(library.isDownloaded(key) ? "Remove Download" : "Cancel Download") { library.removeDownload(key) }
+        if library.isDownloaded(key) {
+            if library.done(key) != nil {
+                Button("Keep Download") { library.pin(key, true) }
+            } else if library.isPinned(key) {
+                Button("Stop Keeping Download") { library.pin(key, false) }
+            }
+            Button(library.done(key)?.deletable == false ? "Delete Download (the Only Copy)" : "Delete Download") { library.removeDownload(key) }
+        } else if library.isWanted(key) {
+            Button("Cancel Download") { library.removeDownload(key) }
         } else {
             Button("Download") { library.download(key, rendition: rendition) }
         }

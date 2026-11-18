@@ -630,12 +630,22 @@ final class Library {
             let episodes: Int
         }
 
+        /// Watched since downloaded, and not pinned: `deletable` (waiting
+        /// for its space to be needed) once another source holds it, else
+        /// the only copy, for a person to delete or keep.
+        struct Done: Decodable, Equatable {
+            let item: String
+            let deletable: Bool
+        }
+
         let dir: String?
         let repository: String?
         let drop_watched: Bool
         let held: [Held]
         let wanted: [Wanted]
         let kept: [Kept]
+        let watched: [Done]
+        let pinned: [String]
         let free: Int?
         let floor: Int
         let running: Bool
@@ -661,7 +671,14 @@ final class Library {
         let loaded = decode(Downloads.self) { cq_downloads($0) }
         guard loaded != downloads else { return }
         downloads = loaded
-        downloadedTiles = Self.tiles(of: loaded?.held ?? [])
+        downloadedTiles = Self.tiles(of: (loaded?.held ?? []).map(\.item))
+        // A tile is waiting if all its watched downloads are; else it needs
+        // a person.
+        var watched: [String: Bool] = [:]
+        for done in loaded?.watched ?? [] {
+            for tile in Self.tiles(of: [done.item]) { watched[tile] = (watched[tile] ?? true) && done.deletable }
+        }
+        watchedTiles = watched
         if let d = downloads, let id = d.repository, let dir = d.dir, let repo = repositories.first(where: { $0.id == id }) {
             Playback.downloads = .init(repository: id, base: repo.url, dir: dir)
         } else {
@@ -691,9 +708,21 @@ final class Library {
     /// last reload.
     private(set) var downloadedTiles: Set<String> = []
 
-    private static func tiles(of held: [Downloads.Held]) -> Set<String> {
-        Set(held.compactMap { held in
-            let parts = held.item.split(separator: "/", maxSplits: 4, omittingEmptySubsequences: false)
+    /// The tiles with downloads watched since, and whether each is only
+    /// waiting (every one held elsewhere) or needs a person (the only copy).
+    private(set) var watchedTiles: [String: Bool] = [:]
+
+    /// A download watched since, if this item is.
+    func done(_ item: String) -> Downloads.Done? { downloads?.watched.first { $0.item == item } }
+
+    func isPinned(_ item: String) -> Bool { downloads?.pinned.contains(item) ?? false }
+
+    /// Keeps a download however it's watched, or lets it go once watched.
+    func pin(_ item: String, _ on: Bool) { check { cq_pin($0, item, on ? 1 : 0) } }
+
+    private static func tiles(of items: [String]) -> Set<String> {
+        Set(items.compactMap { item in
+            let parts = item.split(separator: "/", maxSplits: 4, omittingEmptySubsequences: false)
             guard parts.count >= 4 else { return nil }
             let title = parts[0..<4].joined(separator: "/")
             guard parts.count == 5, parts[4].hasPrefix("e/s"), let season = Int(parts[4].dropFirst(3).prefix { $0.isNumber }) else { return title }

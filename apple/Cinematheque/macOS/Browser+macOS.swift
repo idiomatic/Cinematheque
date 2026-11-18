@@ -5,7 +5,7 @@ import SwiftUI
 /// by shelf and search, beside an inspector for the one selected.
 struct Browser: View {
     /// The shelves in the sidebar.
-    static let shelves: [Shelf] = [.movies, .series, .watchlist, .played, .downloaded]
+    static let shelves: [Shelf] = [.movies, .series, .watchlist, .played, .downloaded, .watchedDownloads]
 
     @Environment(Library.self) private var library
     @State private var shelf: Shelf? = .movies
@@ -260,14 +260,11 @@ struct TileView: View {
                 }
                 .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile), watched: tile.watched) }
                 .overlay(alignment: .bottomTrailing) {
-                    if library.downloadedTiles.contains(tile.id) {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, .blue)
-                            .font(.title3)
-                            .shadow(radius: 2)
-                            .padding(6)
-                            .padding(.bottom, !tile.watched && tile.progress > 0 ? 14 : 0)
+                    if let waiting = library.watchedTiles[tile.id] {
+                        DownloadBadge(symbol: waiting ? "hourglass.circle.fill" : "exclamationmark.circle.fill", color: waiting ? .gray : .orange, raised: !tile.watched && tile.progress > 0)
+                            .help(waiting ? "Watched: deleted when its space is needed, as another source has it" : "Watched, and the only copy: delete it, or keep it")
+                    } else if library.downloadedTiles.contains(tile.id) {
+                        DownloadBadge(symbol: "arrow.down.circle.fill", color: .blue, raised: !tile.watched && tile.progress > 0)
                             .help("Downloaded to this Mac")
                     }
                 }
@@ -293,6 +290,24 @@ struct TileView: View {
     }
 }
 
+
+/// A cover's download mark, at its bottom trailing corner, above its
+/// progress bar if it has one.
+private struct DownloadBadge: View {
+    let symbol: String
+    let color: Color
+    let raised: Bool
+
+    var body: some View {
+        Image(systemName: symbol)
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(.white, color)
+            .font(.title3)
+            .shadow(radius: 2)
+            .padding(6)
+            .padding(.bottom, raised ? 14 : 0)
+    }
+}
 
 /// What last went wrong, along the bottom of a window, until dismissed or
 /// the next action of its kind succeeds: modeless, never an alert.

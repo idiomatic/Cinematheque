@@ -67,7 +67,7 @@ Open:
   * **Other sources:** the outside-metadata provider's art, and covers in Matroska files.
 * **Who's watching:** set-top players are often shared, laptops and handhelds seldom; a shared player holds each of its users' private data, and hides it while several users are watching.
 * **Watching together:** on one screen, offer titles every viewer will accept; apart, offer what the others would avoid.
-* **Downloads** (the command-line peer's and the Mac's are built; see [AGENTS.md](AGENTS.md)), still to come: iOS and iPadOS, and Linux and Windows, whose free space the core can't yet read (only macOS's `statfs`); moving files when the folder changes, rather than fetching them again; removing one episode of a season downloaded whole, which the season's want fetches again; downloading while the app is closed (with background serving); and keeping a series' next episodes in a rendition of its own, rather than the commonest.
+* **Downloads** (the command-line peer's and the Mac's are built; see [AGENTS.md](AGENTS.md)), still to come: iOS and iPadOS, and Linux and Windows, whose free space the core can't yet read (only macOS's `statfs`); moving files when the folder changes, rather than fetching them again; downloading while the app is closed (with background serving); and keeping a series' next episodes in a rendition of its own, rather than the commonest.
 
 Open:
 

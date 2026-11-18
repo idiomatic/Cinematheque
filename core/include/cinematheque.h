@@ -59,9 +59,10 @@ char *cq_race(cq_library *library, const char *urls_json);
 void cq_race_lost(cq_library *library, const char *url);
 
 // Downloads, this device's: kept in dir, served at served_at (a repository
-// of its own, never crawled). drop_watched deletes a kept series' watched
-// episodes at once, else only as space is needed; either way only once
-// another repository holds them. cq_download wants a title, season
+// of its own, never crawled). drop_watched deletes downloads watched since
+// fetched at once, else only as space is needed; either way only once
+// another repository holds them, and never pinned ones (cq_pin).
+// cq_download wants a title, season
 // (TITLE/e/s01), or item kept, in a rendition (null: the commonest);
 // cq_keep keeps a series' next episodes (0 stops); cq_download_remove
 // deletes and stops wanting; cq_downloads is all of it as JSON;
@@ -71,6 +72,8 @@ int cq_downloads_configure(cq_library *library, const char *dir, const char *ser
 int cq_download(cq_library *library, const char *key, const char *rendition);
 int cq_download_remove(cq_library *library, const char *key);
 int cq_keep(cq_library *library, const char *title_key, int episodes);
+// Pins a download (an item), so it's never deleted as watched; 0 unpins.
+int cq_pin(cq_library *library, const char *item_key, int on);
 char *cq_downloads(cq_library *library);
 char *cq_reconcile(cq_library *library);
 

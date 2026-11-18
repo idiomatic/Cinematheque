@@ -4,8 +4,9 @@ import Foundation
 /// searched, and how it's counted. Each platform shows them its own way
 /// (the Mac in a sidebar, the Apple TV in a tab bar).
 enum Shelf: String, CaseIterable, Identifiable, Hashable {
-    /// Downloaded is the Mac's only: what this Mac keeps.
-    case home, movies, series, watchlist, played, downloaded
+    /// Downloaded and Watched Downloads are the Mac's only: what this Mac
+    /// keeps.
+    case home, movies, series, watchlist, played, downloaded, watchedDownloads
 
     var id: Self { self }
 
@@ -17,6 +18,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .watchlist: "Watchlist"
         case .played: "Played"
         case .downloaded: "Downloaded"
+        case .watchedDownloads: "Watched Downloads"
         }
     }
 
@@ -28,6 +30,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .watchlist: "star"
         case .played: "play.circle"
         case .downloaded: "arrow.down.circle"
+        case .watchedDownloads: "hourglass"
         }
     }
 
@@ -38,8 +41,10 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
     @MainActor func tiles(in library: Library, search: String = "") -> [Tile] {
         #if os(macOS)
         let downloaded = self == .downloaded ? library.downloadedTiles : []
+        let watched = self == .watchedDownloads ? library.watchedTiles : [:]
         #else
         let downloaded: Set<String> = []
+        let watched: [String: Bool] = [:]
         #endif
         return library.tiles.filter { tile in
             let on = switch self {
@@ -49,6 +54,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
             case .watchlist: library.watchlist.contains(tile.id)
             case .played: tile.played
             case .downloaded: downloaded.contains(tile.id)
+            case .watchedDownloads: watched[tile.id] != nil
             }
             return on && (search.isEmpty || tile.name.localizedCaseInsensitiveContains(search))
         }
@@ -63,7 +69,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .home: titles == 1 ? "title in progress" : "titles in progress"
         case .movies: titles == 1 ? "movie" : "movies"
         case .series: "series"
-        case .watchlist, .played, .downloaded: titles == 1 ? "title" : "titles"
+        case .watchlist, .played, .downloaded, .watchedDownloads: titles == 1 ? "title" : "titles"
         }
         if !search.isEmpty {
             let matching = Set(tiles(in: library, search: search).map(\.key)).count
@@ -80,6 +86,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .watchlist: "Titles you add to your watchlist show here."
         case .played: "What you've started or watched shows here."
         case .downloaded: "What you download, to watch without a network, shows here."
+        case .watchedDownloads: "Downloads you've watched show here: those another source has, until their space is needed; those that are the only copy, until you delete or keep them."
         case .movies, .series: "Add sources of videos in Cinematheque on your Mac."
         }
     }

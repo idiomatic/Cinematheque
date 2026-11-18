@@ -745,7 +745,7 @@ pub const Playhead = struct {
     watched: bool = false,
 };
 
-fn playheadKey(replica: *Replica, arena: std.mem.Allocator, item_key: []const u8) ![]u8 {
+pub fn playheadKey(replica: *Replica, arena: std.mem.Allocator, item_key: []const u8) ![]u8 {
     return std.fmt.allocPrint(arena, "p/{s}/{s}", .{ std.fmt.bytesToHex(replica.userKey(), .lower), item_key });
 }
 
