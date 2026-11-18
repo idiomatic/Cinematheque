@@ -38,7 +38,7 @@ struct RootView: View {
         }
         .task(id: library.hasLibrary) {
             Keys.save()
-            await library.refreshAtLaunch()
+            await library.startAtLaunch()
         }
     }
 }

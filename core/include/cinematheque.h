@@ -75,6 +75,14 @@ int cq_set_watched(cq_library *library, const char *item_key, int watched);
 char *cq_watchlist(cq_library *library);
 int cq_set_watchlisted(cq_library *library, const char *title_key, int on);
 
+// Long, but returns once listening: serves this library to peers and
+// folders as repositories (a JSON array of objects with "prefix", the path
+// each is served at, and "path"), on the port given, else 8008, else any
+// free port, advertised by DNS-SD, until stopped or closed. Returns the
+// port, or -1.
+int cq_serve(cq_library *library, int port, const char *folders_json);
+void cq_stop_serving(cq_library *library);
+
 void cq_free(char *text);
 
 // Why the last call on this thread failed.

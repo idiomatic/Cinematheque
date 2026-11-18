@@ -15,14 +15,25 @@ pub const Handler = struct {
     function: *const fn (context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool,
 };
 
+/// A directory served as a repository, at `/` (an empty prefix, as the only
+/// one) or at `/<prefix>/`.
+pub const Mount = struct {
+    prefix: []const u8 = "",
+    path: []const u8,
+    /// Serve an `INDEX` of the tree, built when the server starts, so it
+    /// goes stale as the tree changes; without one, crawlers read listings,
+    /// which are live.
+    index: bool = true,
+};
+
 pub const Options = struct {
     host: []const u8 = "127.0.0.1",
     port: u16,
     /// If `port` is taken, listen on any free port instead (reported to
     /// `on_listen`).
     fallback: bool = false,
-    /// A directory to serve as a repository, or none.
-    media: ?[]const u8 = null,
+    /// Directories to serve as repositories, if any.
+    mounts: []const Mount = &.{},
     handler: ?Handler = null,
     /// Called once the server listens, with the port it got.
     on_listen: ?*const fn (context: ?*anyopaque, port: u16) void = null,
@@ -32,10 +43,15 @@ pub const Options = struct {
 const Context = struct {
     io: Io,
     gpa: std.mem.Allocator,
-    root: ?Io.Dir,
-    index: []const u8,
-    index_etag: []const u8,
+    mounts: []const Served,
     handler: ?Handler,
+};
+
+const Served = struct {
+    prefix: []const u8,
+    root: Io.Dir,
+    index: ?[]const u8,
+    index_etag: []const u8,
 };
 
 extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
@@ -75,24 +91,28 @@ test "a port in use is refused, and a free one found" {
     try std.testing.expectError(error.AddressInUse, listen(.{ .bytes = .{ 127, 0, 0, 1 }, .port = port }));
 }
 
+/// Serves until canceled (through `io`).
 pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
-    var root: ?Io.Dir = null;
-    var index: []u8 = &.{};
-    defer if (root) |r| {
-        r.close(io);
-        gpa.free(index);
-    };
-    if (options.media) |media| {
-        root = try Io.Dir.cwd().openDir(io, media, .{ .iterate = true });
-        index = try buildIndex(io, gpa, root.?);
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const mounts = try arena.alloc(Served, options.mounts.len);
+    var opened: usize = 0;
+    defer for (mounts[0..opened]) |m| m.root.close(io);
+    for (options.mounts, mounts) |m, *out| {
+        const root = try Io.Dir.cwd().openDir(io, m.path, .{ .iterate = true });
+        out.* = .{ .prefix = std.mem.trim(u8, m.prefix, "/"), .root = root, .index = null, .index_etag = "" };
+        opened += 1;
+        if (m.index) {
+            const index = try buildIndex(io, arena, root);
+            out.index = index;
+            out.index_etag = try std.fmt.allocPrint(arena, "\"{x}\"", .{std.hash.Wyhash.hash(0, index)});
+        }
     }
-    var etag_buf: [32]u8 = undefined;
     const ctx: Context = .{
         .io = io,
         .gpa = gpa,
-        .root = root,
-        .index = index,
-        .index_etag = try std.fmt.bufPrint(&etag_buf, "\"{x}\"", .{std.hash.Wyhash.hash(0, index)}),
+        .mounts = mounts,
         .handler = options.handler,
     };
 
@@ -143,7 +163,6 @@ fn header(request: *const http.Server.Request, name: []const u8) ?[]const u8 {
 
 fn respond(ctx: *const Context, request: *http.Server.Request) !void {
     if (ctx.handler) |h| if (try h.function(h.context, ctx.io, ctx.gpa, request)) return;
-    const root = ctx.root orelse return request.respond("not found\n", .{ .status = .not_found });
     var target_buf: [4096]u8 = undefined;
     const raw = request.head.target;
     const path_end = std.mem.indexOfScalar(u8, raw, '?') orelse raw.len;
@@ -153,17 +172,26 @@ fn respond(ctx: *const Context, request: *http.Server.Request) !void {
     var segments = std.mem.splitScalar(u8, path, '/');
     while (segments.next()) |s| if (std.mem.eql(u8, s, "..")) return request.respond("", .{ .status = .forbidden });
 
-    if (std.mem.eql(u8, path, "/INDEX")) {
-        if (header(request, "if-none-match")) |tag| if (std.mem.eql(u8, tag, ctx.index_etag))
-            return request.respond("", .{ .status = .not_modified, .extra_headers = &.{.{ .name = "etag", .value = ctx.index_etag }} });
-        return request.respond(ctx.index, .{ .extra_headers = &.{
-            .{ .name = "content-type", .value = "text/plain; charset=utf-8" },
-            .{ .name = "etag", .value = ctx.index_etag },
-        } });
-    }
+    // The mount, and the path within it.
+    const found: struct { mount: *const Served, within: []const u8 } = for (ctx.mounts) |*m| {
+        if (m.prefix.len == 0) break .{ .mount = m, .within = path };
+        if (path.len > m.prefix.len and std.mem.eql(u8, path[1 .. 1 + m.prefix.len], m.prefix) and (path.len == 1 + m.prefix.len or path[1 + m.prefix.len] == '/'))
+            break .{ .mount = m, .within = path[1 + m.prefix.len ..] };
+    } else return request.respond("not found\n", .{ .status = .not_found });
+    const mount = found.mount;
+    const within = if (found.within.len == 0) "/" else found.within;
 
-    const rel = std.mem.trim(u8, path, "/");
-    const stat = root.statFile(ctx.io, if (rel.len == 0) "." else rel, .{}) catch
+    if (std.mem.eql(u8, within, "/INDEX")) if (mount.index) |index| {
+        if (header(request, "if-none-match")) |tag| if (std.mem.eql(u8, tag, mount.index_etag))
+            return request.respond("", .{ .status = .not_modified, .extra_headers = &.{.{ .name = "etag", .value = mount.index_etag }} });
+        return request.respond(index, .{ .extra_headers = &.{
+            .{ .name = "content-type", .value = "text/plain; charset=utf-8" },
+            .{ .name = "etag", .value = mount.index_etag },
+        } });
+    };
+
+    const rel = std.mem.trim(u8, within, "/");
+    const stat = mount.root.statFile(ctx.io, if (rel.len == 0) "." else rel, .{}) catch
         return request.respond("not found\n", .{ .status = .not_found });
     if (stat.kind == .directory) {
         if (path[path.len - 1] != '/') {
@@ -173,15 +201,15 @@ fn respond(ctx: *const Context, request: *http.Server.Request) !void {
             } });
         }
         const json = if (header(request, "accept")) |a| std.mem.indexOf(u8, a, "application/json") != null else false;
-        return listing(ctx, request, rel, json);
+        return listing(ctx, request, mount.root, rel, json);
     }
-    return sendFile(ctx, request, rel, stat);
+    return sendFile(ctx, request, mount.root, rel, stat);
 }
 
-fn listing(ctx: *const Context, request: *http.Server.Request, rel: []const u8, json: bool) !void {
+fn listing(ctx: *const Context, request: *http.Server.Request, root: Io.Dir, rel: []const u8, json: bool) !void {
     const io = ctx.io;
     const gpa = ctx.gpa;
-    var dir = try ctx.root.?.openDir(io, if (rel.len == 0) "." else rel, .{ .iterate = true });
+    var dir = try root.openDir(io, if (rel.len == 0) "." else rel, .{ .iterate = true });
     defer dir.close(io);
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(gpa);
@@ -218,7 +246,7 @@ fn listing(ctx: *const Context, request: *http.Server.Request, rel: []const u8, 
     } });
 }
 
-fn sendFile(ctx: *const Context, request: *http.Server.Request, rel: []const u8, stat: Io.File.Stat) !void {
+fn sendFile(ctx: *const Context, request: *http.Server.Request, root: Io.Dir, rel: []const u8, stat: Io.File.Stat) !void {
     const io = ctx.io;
     var etag_buf: [48]u8 = undefined;
     const mtime: u64 = @intCast(@divTrunc(stat.mtime.nanoseconds, std.time.ns_per_s));
@@ -257,7 +285,7 @@ fn sendFile(ctx: *const Context, request: *http.Server.Request, rel: []const u8,
         },
     });
     if (request.head.method != .HEAD and len > 0) {
-        const file = try ctx.root.?.openFile(io, rel, .{});
+        const file = try root.openFile(io, rel, .{});
         defer file.close(io);
         var file_buf: [64 * 1024]u8 = undefined;
         var file_reader = file.reader(io, &file_buf);

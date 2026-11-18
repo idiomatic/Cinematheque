@@ -82,11 +82,14 @@ pub fn serve(p: *Peer, c: Command) !void {
         .media = media,
     };
     defer if (listening.advertisement) |a| a.deinit();
+    // The media directory, if any, at the root.
+    const one = [_]core.serve.Mount{.{ .path = media orelse "" }};
+    const mounts: []const core.serve.Mount = if (media != null) &one else &.{};
     try core.serve.serve(p.io, p.gpa, .{
         .host = "0.0.0.0",
         .port = port orelse default_port,
         .fallback = port == null,
-        .media = media,
+        .mounts = mounts,
         .handler = source.handler(),
         .on_listen = Listening.onListen,
         .on_listen_context = &listening,

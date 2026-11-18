@@ -4,11 +4,11 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 
 ## Next
 
-* **macOS:** serving from the app and its background agent (both need the command-line peer today), an app icon, lists beyond the watchlist, and signing for distribution.
+* **macOS:** serving and refreshing in the background, when the app isn't running (the command-line peer's agents can't reach the LAN; see below), an app icon, lists beyond the watchlist, and signing for distribution.
 * **Linux:** running the peer itself there (its experiments ran in a VM).
 * **Experiments:** merge the READMEs of experiments whose code is gone (crdt, naming, discovery, repository) into [experiments/README.md](experiments/README.md), keeping their methods and results.
 * **Known issues:**
-  * macOS's Local Network privacy blocks the peer from the LAN (`HostUnreachable`) when run as a launch agent or started by another app, so `agent add`'s agents can't reach a NAS; Terminal and SSH sessions and system daemons are exempt (TN3179). The fix is to run it from a signed app bundle whose `Info.plist` says why it needs the local network, so macOS can ask once (or to serve from the Mac app). Until then, a test peer runs in Terminal.
+  * macOS's Local Network privacy blocks the peer from the LAN (`HostUnreachable`) when run as a launch agent or started by another app, so `agent add`'s agents can't reach a NAS; Terminal and SSH sessions and system daemons are exempt (TN3179). The fix is to run it from a signed app bundle whose `Info.plist` says why it needs the local network, so macOS can ask once (the Mac app serves only while it runs). Until then, a test peer runs in Terminal.
 
 ## Libraries
 
@@ -75,7 +75,6 @@ Open:
 
 What's built is in [AGENTS.md](AGENTS.md); still to come:
 
-* **Serving:** its playheads and watchlist reach the user's other devices only if they can pull from it, so it should serve sync while it runs (as the Mac app should).
 * **Linking,** without typing a 64-digit secret: the TV advertises itself; the Mac app lists it in Settings (This Device), both derive a key by X25519 and show the same six digits, and once they're confirmed on the Mac, it sends the user's seed, encrypted; the library's founder key comes the same way.
 * **Movies:** an alphabetical jump, and filters by decade and genre (facets), since 4,000 covers are a long way by remote; Home's recently added titles.
 * **Purges:** check that a purged replica comes back by syncing and crawling, with the seeds from the Keychain.

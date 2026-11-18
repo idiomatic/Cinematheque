@@ -123,7 +123,7 @@ final class Library {
     /// What last went wrong, shown modelessly (`ProblemBar`) until the
     /// next action of its kind succeeds or it's dismissed; never an alert.
     var problem: String?
-    private enum Kind { case refresh, change, read }
+    private enum Kind { case refresh, change, read, serve }
     private var problemKind: Kind?
     private var refreshedAtLaunch = false
     /// What a long operation is doing, if one is running.
@@ -193,12 +193,33 @@ final class Library {
 
     func setMember(_ key: String, _ add: Bool) { check { cq_member($0, key, add ? 1 : 0) } }
 
-    /// Refreshes once a launch, if there's a library: peers may bring its
-    /// repositories to a device that has none yet.
-    func refreshAtLaunch() async {
+    /// Once a launch, if there's a library: serves it, then refreshes
+    /// (peers may bring its repositories to a device that has none yet).
+    func startAtLaunch() async {
         guard !refreshedAtLaunch, hasLibrary else { return }
         refreshedAtLaunch = true
+        serve()
         await refresh()
+    }
+
+    /// The port this device serves on, while it does.
+    private(set) var servingPort: Int?
+
+    /// Serves this library to peers (their syncs, so this device's changes,
+    /// such as playheads, reach them) while the app runs, on the port it
+    /// served on last, so addresses of what it serves stay put.
+    func serve() {
+        guard let handle, hasLibrary else { return }
+        let defaults = UserDefaults.standard
+        let port = cq_serve(handle.pointer, Int32(defaults.integer(forKey: "servingPort")), "[]")
+        if port < 0 {
+            servingPort = nil
+            report(.serve, "Couldn't share the library with your other devices: \(String(cString: cq_error())).")
+        } else {
+            servingPort = Int(port)
+            defaults.set(Int(port), forKey: "servingPort")
+            report(.serve, nil)
+        }
     }
 
     /// Syncs with peers found or added, then crawls every repository: what

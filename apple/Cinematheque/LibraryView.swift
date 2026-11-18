@@ -37,7 +37,7 @@ struct LibraryView: View {
                 browser
             }
         }
-        .task { await library.refreshAtLaunch() }
+        .task { await library.startAtLaunch() }
     }
 
     private var browser: some View {

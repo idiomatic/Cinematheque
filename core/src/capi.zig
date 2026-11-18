@@ -18,6 +18,7 @@ const thumbhash = @import("thumbhash.zig");
 const store_ = @import("store.zig");
 const sync = @import("sync.zig");
 const discover = @import("discover.zig");
+const serve_ = @import("serve.zig");
 const replica_ = @import("replica.zig");
 const Replica = replica_.Replica;
 
@@ -41,6 +42,8 @@ const Library = struct {
     priority: art.Priority = .{},
     /// How far the long operation running has come.
     progress: Progress = .{},
+    /// Serving, while it does (`cq_serve`).
+    serving: ?*Serving = null,
 
     fn io(lib: *Library) Io {
         return lib.threaded.io();
@@ -111,6 +114,7 @@ fn open(peer_home: ?[*:0]const u8) !*Library {
 
 export fn cq_close(lib: ?*Library) void {
     const l = lib orelse return;
+    stopServing(l);
     if (l.replica) |*r| r.close();
     l.priority.deinit();
     l.arena_state.deinit();
@@ -201,6 +205,109 @@ fn progress(lib: *Library, _: std.mem.Allocator) !ProgressJson {
         .done = lib.progress.done.load(.monotonic),
         .total = lib.progress.total.load(.monotonic),
     };
+}
+
+// Serving.
+
+const Serving = struct {
+    arena: std.heap.ArenaAllocator,
+    io: Io,
+    future: Io.Future(anyerror!void) = undefined,
+    source: sync.Source,
+    mounts: []const serve_.Mount,
+    name: [:0]const u8,
+    txt: []const u8,
+    /// Set once listening, or failing to.
+    ready: Io.Event = .unset,
+    port: u16 = 0,
+    failure: ?anyerror = null,
+    advertisement: ?discover.Advertisement = null,
+
+    fn onListen(context: ?*anyopaque, port: u16) void {
+        const s: *Serving = @ptrCast(@alignCast(context.?));
+        s.port = port;
+        s.advertisement = discover.advertise(s.name, port, s.txt) catch null;
+        s.ready.set(s.io);
+    }
+
+    fn run(s: *Serving, port: u16) anyerror!void {
+        defer if (s.advertisement) |a| a.deinit();
+        serve_.serve(s.io, gpa, .{
+            .host = "0.0.0.0",
+            .port = if (port == 0) 8008 else port,
+            .fallback = true,
+            .mounts = s.mounts,
+            .handler = s.source.handler(),
+            .on_listen = onListen,
+            .on_listen_context = s,
+        }) catch |err| {
+            if (!s.ready.isSet()) {
+                s.failure = err;
+                s.ready.set(s.io);
+            }
+            return err;
+        };
+    }
+};
+
+const MountJson = struct { prefix: []const u8, path: []const u8 };
+
+/// Long, but returns once listening: serves this library to peers (their
+/// syncs) and `folders_json`'s folders as repositories (a JSON array of
+/// objects with `prefix`, the path they're served at, and `path`), on
+/// `port`, else 8008, else any free port; advertises it by DNS-SD; and
+/// keeps serving, on a thread of its own, until `cq_stop_serving` or
+/// `cq_close`. Serving again restarts it. Returns the port, or -1.
+export fn cq_serve(lib: *Library, port: c_int, folders_json: [*:0]const u8) c_int {
+    return startServing(lib, @intCast(std.math.clamp(port, 0, 65535)), std.mem.span(folders_json)) catch |err| {
+        fail(err);
+        return -1;
+    };
+}
+
+/// Stops serving, if it is.
+export fn cq_stop_serving(lib: *Library) void {
+    stopServing(lib);
+}
+
+fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
+    stopServing(lib);
+    const s = try gpa.create(Serving);
+    errdefer gpa.destroy(s);
+    s.* = .{ .arena = .init(gpa), .io = lib.io(), .source = undefined, .mounts = &.{}, .name = "", .txt = "" };
+    errdefer s.arena.deinit();
+    const arena = s.arena.allocator();
+    const folders = try std.json.parseFromSliceLeaky([]const MountJson, arena, folders_json, .{});
+    const mounts = try arena.alloc(serve_.Mount, folders.len);
+    for (folders, mounts) |f, *m| m.* = .{ .prefix = f.prefix, .path = f.path, .index = false };
+    s.mounts = mounts;
+    s.source = .{
+        .path = try lib.store.replicaPath(arena),
+        .founder = try lib.store.founder(arena),
+        .identity = lib.store.identity,
+    };
+    const library_id = std.fmt.bytesToHex((try lib.main()).library, .lower);
+    s.name = try std.fmt.allocPrintSentinel(arena, "{s}", .{try lib.store.serviceName(arena)}, 0);
+    s.txt = try discover.txtRecord(arena, &.{ .{ "library", &library_id }, .{ "path", "/sync" } });
+    s.future = try lib.io().concurrent(Serving.run, .{ s, port });
+    s.ready.waitTimeout(lib.io(), .{ .duration = .{ .raw = .fromSeconds(10), .clock = .awake } }) catch {};
+    if (!s.ready.isSet() or s.failure != null) {
+        const why = s.failure orelse error.Timeout;
+        _ = s.future.cancel(lib.io()) catch {};
+        s.arena.deinit();
+        gpa.destroy(s);
+        return why;
+    }
+    lib.serving = s;
+    return s.port;
+}
+
+fn stopServing(lib: *Library) void {
+    const s = lib.serving orelse return;
+    _ = s.future.cancel(lib.io()) catch {};
+    s.arena.deinit();
+    gpa.destroy(s);
+    lib.serving = null;
 }
 
 // Identity and membership.
