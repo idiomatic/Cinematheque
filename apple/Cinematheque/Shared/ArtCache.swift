@@ -60,25 +60,6 @@ actor ArtCache {
         return image
     }
 
-    /// Deletes the cached copies, at every size, on disk and in memory, of
-    /// those of `covers` that aren't square.
-    func purgeNonSquare(_ covers: [Cover]) {
-        for cover in covers {
-            for size in Size.allCases {
-                let name = Self.name(cover, size)
-                let file = directory.appending(path: name + ".jpg")
-                // Its dimensions, from its header, without decoding it.
-                guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-                      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-                      let width = properties[kCGImagePropertyPixelWidth] as? Int,
-                      let height = properties[kCGImagePropertyPixelHeight] as? Int,
-                      width != height else { continue }
-                try? FileManager.default.removeItem(at: file)
-                memory.removeObject(forKey: name as NSString)
-            }
-        }
-    }
-
     private static func name(_ cover: Cover, _ size: Size) -> String {
         let digest = SHA256.hash(data: Data("\(cover.url)|\(cover.offset)|\(cover.length)|\(cover.stamp)".utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined() + "-\(size.rawValue)"

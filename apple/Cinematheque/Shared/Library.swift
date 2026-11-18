@@ -225,7 +225,6 @@ final class Library {
             ($0.name.localizedStandardCompare($1.name), $0.year ?? 0, $0.season ?? 0) < (.orderedSame, $1.year ?? 0, $1.season ?? 0)
         }
         watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
-        listSeasonsOfSeries()
         repositories = decode([Repository].self) { cq_repos($0) } ?? []
         members = decode([Member].self) { cq_members($0) } ?? []
         devices = decode([Device].self) { cq_devices($0) } ?? []
@@ -342,13 +341,6 @@ final class Library {
     func startAtLaunch(device: String, user: String? = nil) async {
         guard !refreshedAtLaunch, hasLibrary else { return }
         refreshedAtLaunch = true
-        // Once a device: cached series and season covers that aren't
-        // square, from before seasons' covers were fit whole, go.
-        let purged = "Purged non-square season covers"
-        if !UserDefaults.standard.bool(forKey: purged) {
-            await ArtCache.shared.purgeNonSquare(tiles.filter(\.isSeries).compactMap(\.cover))
-            UserDefaults.standard.set(true, forKey: purged)
-        }
         if sharing { serve() }
         // Syncing before writing anything: a device whose replica was lost
         // (as tvOS may purge one) learns its own writes back, and so where
@@ -681,18 +673,6 @@ final class Library {
         check(reload: false) { cq_set_watchlisted($0, key, on ? 1 : 0) }
         watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
         changed()
-    }
-
-    /// Puts each season of a series listed whole (as the watchlist once
-    /// listed series) on the watchlist on its own, in its place.
-    private func listSeasonsOfSeries() {
-        let series = watchlist.filter { key in tiles.contains { $0.isSeries && $0.key == key } }
-        guard !series.isEmpty else { return }
-        for key in series {
-            for tile in tiles where tile.key == key { check(reload: false) { cq_set_watchlisted($0, tile.id, 1) } }
-            check(reload: false) { cq_set_watchlisted($0, key, 0) }
-        }
-        watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
     }
 
     /// Which titles a crawl should describe first: those on screen.
