@@ -22,9 +22,8 @@ The project is in Xcode 27's format ([project.xcproj](Cinematheque.xcodeproj/pro
 * **Core:** the build phase runs [build-core.zsh](build-core.zsh), which builds it with Zig (from `/opt/homebrew/bin` or `/usr/local/bin`) for the platform (macOS, tvOS, or its simulator, with the SDK as sysroot) and each architecture being built, so Release builds are universal, and links each into one object exporting only the C interface (`ld -r -exported_symbol '_cq_*'`), since the compiler runtime Zig bundles (which the core needs for 128-bit floats) would otherwise clash with Xcode's. Swift imports it as `CCinematheque`, by the [module map](../core/include/module.modulemap) beside its header.
 * **Bundle:** [Info.plist](Cinematheque/Info.plist), merged into the generated one, allows plain HTTP and Bonjour (`_cinematheque._tcp`) on the local network, where repositories and peers are; [Assets.xcassets](Cinematheque/Assets.xcassets) holds the Mac's icon and the accent color, both empty so far.
 * **Scheme:** shared, with `CINEMATHEQUE_HOME` ready, disabled, for running on another library.
-* **Signing:** on the Mac, ad hoc; on tvOS, automatic, so the simulator needs no team, and an Apple TV needs `DEVELOPMENT_TEAM` for tvOS in `Local.xcconfig`.
 * **Settings:** Xcode 27.2's recommended ones (its macOS app template's), but for four, on purpose: script sandboxing is off for the core's build phase, which reads `../core` and Zig's cache; there's no App Sandbox, since the app shares the peer's home in `~/Library/Application Support`; the hardened runtime waits for signing for distribution; and the app runs on macOS 15 or later. Swift code is isolated to the main actor by default, with approachable concurrency; what crosses threads (the core's handle, decoded images) is marked `nonisolated`.
-* **Signing:** ad hoc. A developer's own settings, such as `DEVELOPMENT_TEAM`, go in `Local.xcconfig` beside [Signing.xcconfig](Signing.xcconfig), which includes it if present; Git ignores it, so they stay out of commits.
+* **Signing:** on the Mac, ad hoc; on tvOS, automatic, so the simulator needs no team, and an Apple TV needs `DEVELOPMENT_TEAM` for tvOS. A developer's own settings, such as `DEVELOPMENT_TEAM`, go in `Local.xcconfig` beside [Signing.xcconfig](Signing.xcconfig), which includes it if present; Git ignores it, so they stay out of commits.
 
 ## Sources
 
@@ -60,7 +59,6 @@ Apple TV:
 ## Checking the interface
 
 The Apple TV player runs in the tvOS simulator (an Apple TV 4K, 3rd generation, made for testing with `simctl create`), which reaches the LAN from the host. Install the debug build with `simctl install`, launch it with launch options prefixed `SIMCTL_CHILD_` (e.g., `SIMCTL_CHILD_CINEMATHEQUE_TAB=movies xcrun simctl launch DEVICE com.rbrian.cinematheque`), and capture it with `simctl io DEVICE screenshot`; the remote can't be driven from a script, hence the options.
-
 
 Screenshots come from a macOS VM, run by terrarium from the `macos-27.2-quiet` layer, whose screen it captures without screen-recording permission on the host. Put the debug build's app into the guest, at `~/Cinematheque.app`, with media and the [peer](../peer/README.md) to serve it on the guest's loopback (`serve --media`), then open the app, to set up from scratch, or with a peer home in place and launch options, e.g., `open --env CINEMATHEQUE_SELECT=t/m/all-systems-red/2017 ~/Cinematheque.app`. During a tight loop of changes, keep the VM running and only replace the app (quit it, copy the new build in, reopen it), keeping the guest's media server and home; stop the VM when the work moves away from the interface. Drawing the window from within the app instead (`cacheDisplay`, or rendering its layers) misses macOS 26's floating sidebar.
 

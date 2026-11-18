@@ -1,43 +1,184 @@
 # Peer
 
-The command-line desktop peer, `cinematheque`, for macOS and Linux, on the [core](../core/README.md).
+The command-line desktop peer, `cinematheque`, for macOS and Linux, on the [core](../core/README.md). It does everything a player does but play: it founds or joins a library, pairs devices, crawls repositories, reviews what it found, records playheads, and serves and syncs with other peers. Run in the background, it's a library's always-on hub.
+
+## Building
+
+It needs [Zig](https://ziglang.org) 0.17 or later and SQLite (built into macOS; on Linux, your distribution's package). On Linux, finding other peers on your network needs Avahi and its Bonjour compatibility library (`libdns_sd`; e.g., `avahi` and `avahi-compat-libdns_sd` on Alpine).
 
 ```sh
 zig build --release=fast
-./zig-out/bin/cinematheque [--home DIR] NOUN VERB [ARGUMENTS]
+cp zig-out/bin/cinematheque ~/bin/   # or anywhere on your PATH
 ./test.sh       # peers, a generated repository, sync, and every command
 ```
 
-[usage.txt](src/usage.txt) lists the commands, and is also their help. The peer's home (by default `~/Library/Application Support/Cinematheque` on macOS, and `$XDG_DATA_HOME/cinematheque` or `~/.local/share/cinematheque` on Linux) holds the device's identity (its seed, and its user's seed if linked), the library's founder key, and the replica, whose `local` state keeps what's this device's alone: crawl snapshots and added peers.
+[build.zig](build.zig) builds the peer and, with `zig build gen`, the test repository's generator.
 
-## Sources
+## Getting started
 
-* [main.zig](src/main.zig): parsing the command line, help, and dispatch to a function per noun or action.
-* [commands.zig](src/commands.zig): the state nouns (`user`, `library`, `member`, `repo`, `title`, `alias`, `playhead`, `agent`), and `crawl` and `refresh`.
-* [network.zig](src/network.zig): `serve`, `sync`, and `peer`: serving on 8008 or a free port, discovery, and peers added by URL.
-* [agent.zig](src/agent.zig): the macOS launch agents.
-* [test.sh](test.sh) and [test/gen.zig](test/gen.zig): the end-to-end test, on a generated repository of sparse files (`zig build gen` builds the generator), which a peer serves as media.
-
-## A session
+Create a library, add a repository, and see what's in it:
 
 ```sh
-# on hal
+cinematheque library create
+cinematheque repo add http://nas.local/Video/Movies/
+cinematheque crawl
+cinematheque ls "All Systems Red"
+cinematheque show t/m/all-systems-red/2017
+```
+
+`ls` prints each title's key, such as `t/m/all-systems-red/2017`, and `show` prints everything about one: its versions or episodes, and where each copy is. What a repository needs, and how to name files so titles are recognized, are in the [README](../README.md#preparing-a-repository).
+
+## Home
+
+The peer keeps its state in a directory of its own, its home. By default that's `~/Library/Application Support/Cinematheque` on macOS, the same home the Mac app uses, so both act as one device. On Linux it's `$XDG_DATA_HOME/cinematheque`, or `~/.local/share/cinematheque`. `--home DIR` or `CINEMATHEQUE_HOME` names another, which is how one computer runs several peers, as [test.sh](test.sh) does. The home is created on first use.
+
+| File | Holds |
+|---|---|
+| `identity` | The device's random seed, from which its keys derive |
+| `user` | The user's seed, once this device is linked to another of the user's; until then, the user's seed derives from the device's |
+| `library` | The library's founder's user key, once this device has a library |
+| `replica.db` | The replica: the library's operations, and in its `local` table, what's this device's alone (crawl snapshots, and peers added by URL) |
+
+`identity` and `user` are secrets: anyone with the user's seed can act as the user. Don't copy a home to another device, since each device needs its own identity; pair the other device instead.
+
+## The command line
+
+State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `member`, `repo`, `title`, `alias`, `playhead`, `peer`, and `agent`. Actions on the whole peer are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
+
+* **Options** are named and may come anywhere: `--port PORT`, `--media DIR`, `--rendition NAME`, `--skip PREFIX`, and `--workers WORKERS` take a value. `--leave`, `--watched`, and `--unwatched` are flags. `--home DIR` works with every command.
+* **Help:** [usage.txt](src/usage.txt) lists every command, and is the help, built into the binary. `-h` or `--help` prints it all. With a noun or action (`cinematheque repo -h`), or for a noun alone, only that one's commands are printed.
+* **Arguments:** keys are 64 hexadecimal digits, as `user show` prints them. Titles and items are keys, as `title list` and `title show` print them (`t/m/alien/1979`, `t/s/firefly/-/e/s01e01`). A repository is its ID (16 hexadecimal digits) or its URL.
+* **Exit status:** 0 on success. A command line that isn't one prints the help for its noun (or all of it) and exits with status 2. Any other failure prints `error:` and the error's name (e.g., `error: NoLibrary`, before there's a library), and exits with status 1. Debug builds add a stack trace.
+
+## Commands
+
+[usage.txt](src/usage.txt) has their syntax; this says what each does and prints.
+
+### Users and libraries
+
+* `user show` prints this user's key. `user secret` prints the user's seed, and `user link SECRET` makes this device act as that user. Linking must come before `library create` or `join`, since a device's library and certificates are its user's; once the home has a replica, it fails (`AlreadyInUse`).
+* `user pair`, on a new device without a library, prints a 6-digit code and waits. Meanwhile it serves `/pair` on a free port and advertises itself (`pair=link`, named by `$HOST`). `user pair CODE` on one of the user's devices finds it nearby, or at the URL given, and sends it the user's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its user.
+* `library create` founds a library with this user as founder, and prints its ID. `library join FOUNDER` opens the library that user founded and prints this user's key, which a member must add with `member add`. `library join` alone pairs instead: it offers a code, as `user pair` does, for a member's `member pair CODE`.
+* `library show` prints the library's ID, founder, member count, and digest. The digest is a hash of every field's winning value, so two peers that have synced fully print the same one.
+* `library handover USER` makes a member the founder; this user stays a member unless `--leave`. Only the founder may.
+
+### Members
+
+* `member list` prints the members' keys, marking the founder and you.
+* `member add USER` admits a user. `member pair CODE [URL]` admits the user of a new device offering to join, and sends it the library's founder.
+* `member remove USER` removes a member, except the founder. Their devices' writes up to what this peer has seen stand; later ones are refused everywhere.
+
+### Repositories and crawling
+
+* `repo add URL` adds a repository. The URL is percent-encoded as typed, and given a trailing slash. `--rendition NAME` names its files' rendition (e.g., a HandBrake preset's), and `--skip PREFIX` skips names beginning with it (default `,`). It prints the repository's ID, a hash of its URL.
+* `repo list` and `repo show REPO` print repositories' settings; `show` adds how many copies of files the repository holds.
+* `repo set REPO` changes `--rendition` or `--skip`; the next crawl applies it. `repo remove REPO` removes the repository and every holding it had, for every peer.
+* `crawl [REPO]` crawls every repository, or one, with 16 concurrent workers unless `--workers` says otherwise. It reuses the last crawl's listing of any directory whose files haven't changed. Each repository gets a line of requests, files, titles added, holdings changed, and duplicates. Then covers and metadata are described, with one line of totals.
+
+### Titles
+
+* `title list [TEXT]` (`ls`) prints each title held by some repository whose name contains the text, ignoring case. Each line gives its year, kind, episodes or versions, renditions, and key, with `-> TARGET` if it's an alias. A count ends the list.
+* `title show TITLE` (`show`) prints a title's fields, its aliases, and each item: the item's fields, your playhead, and per rendition, every copy's size, modification time, and URL.
+* `title review` prints close matches and duplicate files, tab-separated: the reason, then the two titles or files. A summary ends it.
+
+  ```
+  year off by one   t/m/rogue-protocol/2018   t/m/rogue-protocol/2019
+  year missing      t/s/worldhoppers/-        t/s/worldhoppers/2024
+  duplicate         .../Worldhoppers 105.m4v  .../Worldhoppers 105.mp4
+  ```
+
+  Some are mistakes to fix in the repository; others are different titles (a series and its reboot may share a name). `alias add TITLE TARGET` records that two are the same, `alias remove TITLE` undoes it, and `alias list` prints them. Aliases replicate, so one peer records each once for everyone.
+* `title facets` counts titles by kind, decade, and rendition, tab-separated.
+
+### Playheads
+
+* `playhead list [TITLE]` prints this user's playheads, or a title's: each item, whether watched, and where it's at.
+* `playhead set ITEM POSITION DURATION` records a position, in seconds. The core's rules apply: within the last 5% marks the item watched, and within the first 10 seconds clears the position. `playhead set ITEM --watched` (or `--unwatched`) marks it by hand, and `playhead remove ITEM` forgets it.
+
+Playheads are private: they're written on this device's private stream, and travel only directly between the user's devices.
+
+### Peers, syncing, and serving
+
+* `serve` answers other peers' syncs (`/sync`) until stopped. It listens on `--port`, or else on 8008, falling back to any free port if 8008 is taken. It advertises the port it got by DNS-SD, with the library, the user, and the names of this device and user. `--media DIR` also serves a directory of videos at the root, so the peer is a repository too: byte ranges, listings as JSON or HTML, and an `INDEX` of every file, built at start. It prints a line once listening.
+* `sync [URL]` pulls from one peer, or from every peer of this library found nearby or added. Each prints a line: operations sent, how many were new, lost (older than what's held), known, rejected (from a device not yet admitted), and refused (past a cutoff), then batches, size, and time. A peer that can't be reached prints its error, and the rest go on.
+* `refresh` syncs with every peer, then crawls every repository: the catalog others have already described arrives first, so the crawl finds little to do.
+* `peer list` prints peers found nearby (with their libraries) and peers added. `peer add URL` adds a peer that can't be found, such as one beyond a NAT, on this device only; `peer remove URL` forgets it. A URL may be a peer's base or its `/sync`.
+
+Syncing pulls only; to get a change to another peer, that peer pulls. The apps pull when nudged (`POST /nudge`), but `serve` ignores nudges, so its own pulls come from `sync` or `refresh`.
+
+### In the background
+
+On macOS, `agent add` installs and starts two launch agents in `~/Library/LaunchAgents`, run with this home:
+* `com.rbrian.cinematheque.serve`, kept running: `serve`, on `--port` if given.
+* `com.rbrian.cinematheque.refresh`: `refresh`, at load and hourly.
+
+Both log to `~/Library/Logs/Cinematheque` (`serve.log`, `refresh.log`). `agent add` needs a library first, and replaces agents already running; `agent show` prints their property lists without installing them, and `agent remove` stops and removes them. On Linux, run `serve` and `refresh` with systemd or cron instead.
+
+## Sharing a library
+
+```sh
+# on hal: found a library, and fill it
 cinematheque library create
 cinematheque repo add http://nas.local/Video/
 cinematheque crawl
 cinematheque title review
-cinematheque serve &
+cinematheque agent add            # serve, and refresh hourly
 
-# on perihelion
-cinematheque library join HAL_KEY
-cinematheque user show
-
+# on perihelion, another of your devices
+cinematheque user pair            # prints a code, waits
 # on hal
-cinematheque member add PERIHELION_KEY
+cinematheque user pair CODE
 
-# on perihelion
+# on art, someone else's device
+cinematheque library join         # prints a code, waits
+# on hal
+cinematheque member pair CODE
+
+# on perihelion or art
 cinematheque sync
 ```
+
+Without DNS-SD between them (across networks), pass the new device's pairing URL after the code, or join by hand:
+
+```sh
+# someone else's device: join by the founder's key,
+cinematheque library join FOUNDER_KEY
+cinematheque user show            # and give a member this key
+# on a member's device
+cinematheque member add NEW_USER_KEY
+
+# another of your devices: act as you, then join
+cinematheque user secret          # on a device you use
+cinematheque user link SECRET     # on the new one
+cinematheque library join FOUNDER_KEY
+```
+
+Then sync from a peer by URL, and add it, so later syncs and refreshes reach it too:
+
+```sh
+cinematheque sync http://hal.example.net:8008
+cinematheque peer add http://hal.example.net:8008
+```
+
+## Limits
+
+What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
+
+* The peer can't name users or devices, or remove a device; the apps do both, and the names reach the peer by sync.
+* `serve` doesn't pull when nudged (see above).
+* There's no Windows build yet.
+
+## Sources
+
+* [main.zig](src/main.zig): the command line. `Args` parses words and options (an option not among the flags takes the next word as its value) and expands the `ls` and `show` shortcuts. `Command.is` matches a verb, its arity, and the options it allows. The nouns and actions are tables of functions, and `help` prints a noun's or action's part of [usage.txt](src/usage.txt), which it embeds. It opens the home and the `Peer` every command acts with (the store, the output, and the clock), and turns `error.Usage` into help and status 2.
+* [commands.zig](src/commands.zig): the state nouns, a function each (`user`, `library`, `member`, `repo`, `title`, `alias`, `playhead`, `agent`), sending pairing codes (`pairWith`, which finds the one device offering nearby), and `crawl` and `refresh`, which crawl repositories and then describe them.
+* [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync` and `pullAll`, which find peers by DNS-SD and in `local` (`peer:URL`); `peer`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
+* [agent.zig](src/agent.zig): the launch agents' property lists, installed and removed by `launchctl bootstrap` and `bootout`.
+* [usage.txt](src/usage.txt): the commands and the help.
+* [test.sh](test.sh): the end-to-end test. Peers on one computer, each with a home of its own, found a library and serve a generated repository as media. They crawl, join by key, and sync until their digests match, and the test checks that a non-member is refused and that playheads travel only between the user's devices. Pairing isn't covered yet.
+* [test/gen.zig](test/gen.zig): the test repository's generator (`gen DIR [DIVISOR]`): a media tree at the library's full scale, or a fraction of it, named as Plex and Jellyfin expect, of sparse files that take no disk space.
+
+The library itself, from parsing names to syncing, is the [core](../core/README.md)'s; how its operations work is in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## On a real repository
 

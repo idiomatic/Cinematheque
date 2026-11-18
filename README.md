@@ -4,7 +4,7 @@ Cinematheque is a video library for your household. It catalogs the movies and T
 
 Every device keeps its own copy of the catalog: the titles, their episodes and versions, where each file is, and what you've watched, but not the videos themselves. So each device can browse while offline, and catches up with the others when they meet, on your home network or wherever else they can reach each other. The videos stay where they are, on servers you already run, such as a NAS's web server, Caddy, nginx, or Apache, and play from there over plain HTTP.
 
-> **Status:** early. Today Cinematheque is a command-line peer for macOS and Linux that builds and shares a library, and a first macOS player that browses it and plays from your repositories. Players for other Apple devices, Linux, and Windows, outside metadata beyond what video files carry, and the transcoder are planned; see [DEVELOPMENT.md](DEVELOPMENT.md).
+> **Status:** early. Today Cinematheque is players for the Mac and the Apple TV, and a command-line peer for macOS and Linux that builds and shares a library. Players for other Apple devices, Linux, and Windows, outside metadata beyond what video files carry, and the transcoder are planned; see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Ideas
 
@@ -16,35 +16,8 @@ Every device keeps its own copy of the catalog: the titles, their episodes and v
 
 ## Getting it
 
-The command-line peer needs [Zig](https://ziglang.org) 0.17 or later, and SQLite (built into macOS; on Linux, your distribution's SQLite package). On Linux, finding other peers on your network needs Avahi and its Bonjour compatibility library (e.g., `avahi` and `avahi-compat-libdns_sd` on Alpine).
-
-```sh
-cd peer
-zig build --release=fast
-cp zig-out/bin/cinematheque ~/bin/      # or anywhere on your PATH
-```
-
-The Mac app needs Xcode 27 or later too; see [Watching on a Mac](#watching-on-a-mac).
-
-## Getting started
-
-Create a library, add a repository, and see what's in it:
-
-```sh
-cinematheque library create
-cinematheque repo add http://nas.local/Video/Movies/
-cinematheque crawl
-cinematheque ls "All Systems Red"
-cinematheque show t/m/all-systems-red/2017
-```
-
-`crawl` reads the repository's listings, recognizes titles from file and folder names, and records each file as a rendition. Later crawls are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title.
-
-`ls` prints each title's key, such as `t/m/all-systems-red/2017`, and `show` prints everything about one: its versions or episodes, and where each copy is.
-
-Most commands name a thing, then what to do with it: `list`, `show`, `add`, `set`, or `remove`, as in `repo list` or `playhead remove`; `ls` and `show` are shortcuts for `title list` and `title show`. `cinematheque -h` lists every command (also in [peer/src/usage.txt](peer/src/usage.txt)), and `cinematheque repo -h`, or just `cinematheque repo`, those of one kind of thing.
-
-The peer keeps its identity and its copy of the catalog in its home directory: `~/Library/Application Support/Cinematheque` on macOS, and `~/.local/share/cinematheque` (or `$XDG_DATA_HOME/cinematheque`) on Linux. To use another, such as for a second library or a test, pass `--home DIR` or set `CINEMATHEQUE_HOME`. Don't copy a home to another device: each device needs its own identity.
+* **On a Mac or an Apple TV,** build the app; [apple/README.md](apple/README.md) says how. It needs Xcode 27 or later.
+* **On the command line,** on macOS or Linux, build the peer; [peer/README.md](peer/README.md) says how, and how to use it. It builds and shares a library, and run in the background, keeps it available to your other devices.
 
 ## Preparing a repository
 
@@ -58,6 +31,8 @@ find . -type f ! -name INDEX > INDEX
 
 and remake it whenever the files change. It works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to catalog a large repository: one request instead of one per folder.
 
+Crawling a repository reads its listings, recognizes titles from file and folder names, and records each file as a rendition. Later crawls are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title.
+
 ### Renditions
 
 A title's renditions are its copies in different encodings, such as a 720p one and a 4K one. Each file's rendition comes from its name, as media servers put it there, so copies of a title can sit side by side:
@@ -70,19 +45,7 @@ Movies/Network.Effect.2020.1080p.BluRay.x264-GROUP.mkv
 
 The names give the resolution, source, codec, and dynamic range; a file whose name says none of these has an unknown rendition.
 
-If a folder holds copies of one rendition whose names don't say which (say, everything one encoder preset made), add that folder as a repository of its own, and name its rendition:
-
-```sh
-cinematheque repo add "http://nas.local/Video/Fast 720p/" --rendition "Fast 720p"
-```
-
-`--skip` sets the prefix of folder and file names to leave out, by default `,`, for folders like `,obsolete` that hold files you don't want cataloged.
-
-`repo set` changes a repository's rendition or skipped names; the next crawl applies it. `repo remove` stops using a repository, by its URL or by the ID `repo list` shows: every peer forgets its copies, and titles it alone held stop showing.
-
-```sh
-cinematheque repo remove "http://nas.local/Video/Fast 720p/"
-```
+If a folder holds copies of one rendition whose names don't say which (say, everything one encoder preset made), add that folder as a repository of its own, and name its rendition: in the Mac app, under Advanced in Settings › Sources, or with `repo add --rendition` on the command line. A repository can also skip names beginning with a prefix, by default `,`, for folders like `,obsolete` that hold files you don't want cataloged. Removing a repository makes every peer forget its copies, so titles it alone held stop showing.
 
 ### Naming
 
@@ -99,124 +62,19 @@ TV Shows/Worldhoppers/Worldhoppers The Lost Signal.m4v
 
 A file without an episode number beside a series' episodes, named for the series (as `Worldhoppers The Lost Signal`), or in a `Specials` folder, is one of the series' specials.
 
-## Reviewing matches
+Names aren't always consistent: a year off by one, a title spelled two ways, or a file copied twice. The command-line peer's review lists what looks related, and an alias, recorded once, tells every peer that two entries are the same title; see [peer/README.md](peer/README.md#titles).
 
-Names aren't always consistent: a year off by one, a title spelled two ways, or a file copied twice. `title review` lists what looks related, among titles some repository holds:
+## Watching
 
-```sh
-cinematheque title review
-```
+The apps browse the library by cover art: movies, and each series by season. Choose one for its details, and play it straight from its repository, resuming where you left off on any of your devices; a season plays on from the episode you're partway through, or else its next unwatched one. Covers and descriptions come from your repositories: a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them, or else the cover and details your MP4 files carry (as HandBrake, iTunes, and tagging tools write them). Until a cover loads, its tile shows a blurred likeness of it, which travels with the library, so even a newly paired device shows one at once. Star titles for your watchlist, which, like what you've watched, is yours alone. Stopping within the first 10 seconds forgets where you were, so going back to the start sticks.
 
-```
-year off by one   t/m/rogue-protocol/2018   t/m/rogue-protocol/2019
-year missing      t/s/worldhoppers/-        t/s/worldhoppers/2024
-duplicate         .../Worldhoppers 105.m4v  .../Worldhoppers 105.mp4
-```
-
-Some are mistakes to fix in the repository; others are different titles (a series and its reboot may share a name). When two entries are the same title, record one as an alias of the other:
-
-```sh
-cinematheque alias add t/m/rogue-protocol/2019 t/m/rogue-protocol/2018
-```
-
-Aliases are shared with every peer, so you only do it once; `alias list` shows them, and `alias remove` undoes one.
-
-## Watching on a Mac
-
-The Mac app browses the library by cover art: movies, and each series by season. Select one for its details, and play it straight from its repository, resuming where you left off on any of your devices; a season plays on from its next unwatched episode. Covers and descriptions come from your repositories: a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them, or else the cover and details your MP4 files carry (as HandBrake, iTunes, and tagging tools write them). Until a cover loads, its tile shows a blurred likeness of it, which travels with the library, so even a newly linked Mac shows one at once. Star titles for your watchlist, which, like what you've watched, is yours alone.
-
-On first run, the app creates a library, or joins one; its Settings manage repositories, members, and syncing, so a household needs no command line. Open [apple/Cinematheque.xcodeproj](apple/Cinematheque.xcodeproj) in Xcode and run it, or build it from the command line:
-
-```sh
-cd apple
-xcodebuild -scheme Cinematheque -configuration Release build
-open "$(xcodebuild -scheme Cinematheque -configuration Release \
-  -showBuildSettings | sed -n 's/^ *BUILT_PRODUCTS_DIR = //p')/Cinematheque.app"
-```
-
-It uses the same home as the command-line peer, so either can manage the library. Serving, so others can sync from this Mac, and the background agent still take the command-line peer.
-
-Stopping within the first 10 seconds forgets where you were, so going back to the start sticks. From the command line, `playhead list` shows what you're partway through or have watched, `playhead set` records it, and `playhead remove` forgets it.
+On first run, an app creates a library, or pairs with one of your devices or someone's library by a code it shows; the Mac's Settings manage repositories, people, and devices, so a household needs no command line. The Mac app uses the same home as the command-line peer on that Mac, so either can manage the library.
 
 ## Sharing a library
 
-On a device that has the library, let other peers reach it:
+A library is shared by pairing: the new device shows a 6-digit code, and someone already in the library enters it, in the Mac app under Settings › People & Devices › New Devices, or with the command-line peer. Pair as another of your own devices to use the library as yourself, with your playheads and watchlist; or as someone new, who joins as a member. The code seals what's sent, so only the device showing it can open it, and the new device stops after 3 wrong tries. [peer/README.md](peer/README.md#sharing-a-library) covers the command line, and joining by hand from off your network.
 
-```sh
-cinematheque serve
-```
-
-It answers on port 8008, or on any free port if that one's taken, and announces itself on your network; `--port` fixes the port, for peers others add by URL. For another person, on their device, on the same network, ask to join:
-
-```sh
-cinematheque library join
-```
-
-It shows a code. A member enters it, which sends the new peer the library and adds its user:
-
-```sh
-cinematheque member pair CODE
-```
-
-On the apps, the new device shows the code (Join Someone's Library), and a member enters it on their Mac, in Settings › People & Devices, under New Devices. Away from your network, join by the founder's key instead, and have a member add the new peer's key:
-
-```sh
-cinematheque library join FOUNDER_KEY
-cinematheque user show
-cinematheque member add NEW_USER_KEY
-```
-
-Then the new peer syncs, from every peer found on the network, or from one by its URL:
-
-```sh
-cinematheque sync
-cinematheque sync http://hal.local:8008
-```
-
-A peer that discovery can't find, such as one away from your network, can be added by URL with `peer add`; `sync` then syncs with it too.
-
-Each peer checks, by signature, that every change comes from a member, so a peer that relays the library can't alter it, and it serves the library only to members' devices. `member list` shows who belongs. Removing a member (`member remove`) stops their later changes everywhere, while what they did before stands.
-
-## Your other devices
-
-To use the library on another of your own devices as yourself, with your playheads, pair it before it has a library. On the new one, on the same network:
-
-```sh
-cinematheque user pair
-```
-
-It shows a code. On a device you already use:
-
-```sh
-cinematheque user pair CODE
-```
-
-That sends the new device your secret and the library, sealed so that only a device showing the code can open them. The code is short, but it's worth one guess per try, and the new device stops after 3 wrong ones. On the apps, the new device shows the code (I Use Cinematheque on Another Device, or on a Mac, Pair with Your Other Device), and you enter it on your Mac, in Settings › People & Devices, under New Devices.
-
-A device off your network can be linked by hand instead. On a device you already use:
-
-```sh
-cinematheque user secret
-```
-
-and on the new one:
-
-```sh
-cinematheque user link SECRET
-cinematheque library join FOUNDER_KEY
-```
-
-The secret lets a device act as you, so keep it to yourself.
-
-## Running in the background
-
-On a Mac, the peer can keep serving, and sync and crawl every hour, on its own:
-
-```sh
-cinematheque agent add
-```
-
-`agent show` shows what it would install, and `agent remove` removes it. Its logs are in `~/Library/Logs/Cinematheque`.
+Peers find each other on your network, and while an app runs, it serves the library to your other devices, and syncs with them every minute and whenever you make a change. Each peer checks, by signature, that every change comes from a member, so a peer that relays the library can't alter it, and it serves the library only to members' devices. Removing a member stops their later changes everywhere, while what they did before stands; removing one of your devices does the same for that device.
 
 ## Privacy
 
@@ -225,6 +83,7 @@ Cinematheque has no accounts and no central server, and nothing leaves your devi
 ## For developers
 
 * [AGENTS.md](AGENTS.md) specifies what's built; [DEVELOPMENT.md](DEVELOPMENT.md) holds the plans, open questions, and known issues.
+* [ARCHITECTURE.md](ARCHITECTURE.md) explains operations: how devices write, sign, merge, and sync them, and every key and field the library writes.
 * [core](core/README.md) is the Zig library, [peer](peer/README.md) the command-line peer, and [apple](apple/README.md) the Apple players.
 * [experiments](experiments/README.md) hold the measurements behind the design.
 * [docs/specifications](docs/specifications/README.md) indexes the outside specifications and papers Cinematheque relies on.

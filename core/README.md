@@ -27,12 +27,8 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 | [pair](src/pair.zig) | Pairing a new device by a 6-digit code it shows: CPace over the code, then the user's secret and the library's founder sealed with the key it derives |
 | [capi](src/capi.zig) | The C interface: setup, management, long operations on their own connections, browsing, and private data |
 
-## Keys
+## Keys and operations
 
-[library.zig](src/library.zig) documents them. A title's key derives from its parsed identity, `t/<kind>/<normalized title>/<year>`, so peers that crawl the same repository independently agree, and a renamed file that parses the same stays where it was. Below a title come episodes (`/e/s03e17`, or `/e/s00-<title>` for a special without a number), versions (`/v/<edition>`), parts (`/p/<n>`), and renditions (`/r/<label>`), whose `held:<repository>` fields record where each file is.
-
-A user's playheads (`p/<user>/<item>`) are private: each device writes them on a private stream of its own, with its own key and numbering, which peers send only to that user's devices, so other users' peers never hold them, nor claim to in their version vectors.
-
-Titles whose keys nearly agree (a year off by one, missing, or with transposed digits; a title spelled slightly differently, or with other diacritics, but with the same numbers) are close matches for review, as are two files of one rendition in one repository. An alias records that one title is another, and replicates like anything else.
+[ARCHITECTURE.md](../ARCHITECTURE.md) explains how the replica writes, signs, merges, and syncs operations, and lists every key and field the library writes; [library.zig](src/library.zig) documents its keys beside the code that derives them from titles' parsed identities.
 
 The measurements behind its design are in the [experiments](../experiments/README.md).

@@ -5,7 +5,7 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 ## Next
 
 * **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (the command-line peer's agents can't reach the LAN; see below), an app icon, lists beyond the watchlist, and signing for distribution.
-* **Names from the command line:** commands to name the user and the device, so command-line peers show by name rather than as someone's device.
+* **Command-line peer:** commands to name the user and the device, so command-line peers show by name rather than as someone's device, and to remove a device; `serve` pulling when nudged, as the apps do; and pairing in [test.sh](peer/test.sh).
 * **Settings:** when each device was last seen.
 * **Linux:** running the peer itself there (its experiments ran in a VM).
 * **Experiments:** merge the READMEs of experiments whose code is gone (crdt, naming, discovery, repository) into [experiments/README.md](experiments/README.md), keeping their methods and results.
