@@ -19,14 +19,20 @@ struct PlayRequest: Codable, Hashable {
 /// What to play next, and the queue after it.
 enum Playback {
     /// A movie's first item, resuming where this user left off; or a
-    /// season's next unwatched episode (or its first, if all are watched),
-    /// with the rest of the season queued after it; with `overFromStart`,
-    /// from its beginning (Start Over).
+    /// season's episode in progress (the latest, if more than one), else its
+    /// next unwatched (or its first, if all are watched), with the rest of
+    /// the season queued after it; with `overFromStart`, from its beginning
+    /// (Start Over).
     static func next(in detail: TitleDetail, season: Int?, rendition: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
         let items = items(detail, season: season)
         guard !items.isEmpty else { return nil }
-        let start = items.firstIndex { !$0.watched } ?? 0
-        return request(detail, items: items, from: start, rendition: rendition, overFromStart: overFromStart)
+        return request(detail, items: items, from: nextIndex(items), rendition: rendition, overFromStart: overFromStart)
+    }
+
+    /// Which of `items` Play plays: the latest in progress, else the first
+    /// unwatched, else the first.
+    static func nextIndex(_ items: [TitleDetail.Item]) -> Int {
+        items.lastIndex { $0.inProgress } ?? items.firstIndex { !$0.watched } ?? 0
     }
 
     /// The items of a movie, or of one season, in order.

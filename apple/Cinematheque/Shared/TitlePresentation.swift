@@ -51,11 +51,11 @@ enum Runtime {
 }
 
 extension Playback {
-    /// What Play plays: a movie's item, or a season's next unwatched
-    /// episode (its first, if all are watched).
+    /// What Play plays: a movie's item, or a season's episode in progress,
+    /// else its next unwatched (its first, if all are watched).
     static func nextItem(_ detail: TitleDetail, season: Int?) -> TitleDetail.Item? {
         let items = items(detail, season: season)
-        return items.first { !$0.watched } ?? items.first
+        return items.isEmpty ? nil : items[nextIndex(items)]
     }
 
     /// Start Over, beside Resume: the symbol of a button that plays what
