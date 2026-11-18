@@ -117,7 +117,8 @@ struct Marks: View {
             library.setWatchlisted(detail.key, !listed)
         }
         .help(listed ? "Remove from your watchlist" : "Add to your watchlist")
-        Button(watched ? "Watched" : "Mark Watched", systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
+        // A status that pressing toggles: it shows whether it's watched.
+        Button(watched ? "Watched" : "Unwatched", systemImage: watched ? "checkmark.circle.fill" : "circle") {
             library.setWatched(items, of: detail, !watched)
         }
         .help(watched ? "Mark as unwatched" : "Mark as watched")
