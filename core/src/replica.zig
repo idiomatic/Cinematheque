@@ -606,23 +606,32 @@ pub const Replica = struct {
 
     fn deviceId(replica: *Replica, key: Device) !i64 {
         if (replica.ids.get(key)) |id| return id;
-        const s = replica.insert_device;
-        defer s.reset();
-        try s.bindBlob(1, &key);
-        if (!try s.step()) return error.Sqlite;
-        const id = s.int(0);
-        try replica.intern(id, key);
+        const id = blk: {
+            const s = replica.insert_device;
+            defer s.reset();
+            try s.bindBlob(1, &key);
+            if (!try s.step()) return error.Sqlite;
+            break :blk s.int(0);
+        };
+        // Devices another connection added meanwhile come first.
+        if (id != replica.keys.items.len + 1) try replica.internAdded();
+        if (replica.ids.get(key) == null) try replica.intern(id, key);
         return id;
+    }
+
+    /// Learns the devices other connections added since this one last did.
+    fn internAdded(replica: *Replica) !void {
+        const s = try replica.db.prepare("SELECT id, key FROM devices WHERE id > ?1 ORDER BY id");
+        defer s.finalize();
+        try s.bindInt(1, @intCast(replica.keys.items.len));
+        while (try s.step()) try replica.intern(s.int(0), s.blob(1)[0..32].*);
     }
 
     /// Catches up with what another connection to the same database wrote:
     /// devices it learned of, this device's sequence numbers, and the
     /// founder. Only one connection may write as this device at a time.
     pub fn refresh(replica: *Replica) !void {
-        const s = try replica.db.prepare("SELECT id, key FROM devices WHERE id > ?1 ORDER BY id");
-        defer s.finalize();
-        try s.bindInt(1, @intCast(replica.keys.items.len));
-        while (try s.step()) try replica.intern(s.int(0), s.blob(1)[0..32].*);
+        try replica.internAdded();
         replica.seq = try replica.seen(replica.own);
         replica.private_seq = try replica.seen(replica.private_own);
         replica.founder = (try replica.founderAt(std.math.maxInt(u32))).user;
@@ -662,8 +671,11 @@ pub const Replica = struct {
     }
 
     /// Starts a transaction; local writes until `commit` share one signature.
+    /// It takes the write lock at once (waiting for another connection's,
+    /// as a server applying a push may hold it), since a deferred one that
+    /// read first would fail to write once another had committed.
     pub fn begin(replica: *Replica) !void {
-        try replica.db.exec("BEGIN");
+        try replica.db.exec("BEGIN IMMEDIATE");
         replica.batching = true;
     }
 
@@ -1129,9 +1141,13 @@ fn writeBatch(w: *std.Io.Writer, batch: *const Batch, rows: []const Row) !void {
     }
 }
 
-/// Applies a sync response in one transaction; nothing is kept unless the
-/// whole response checks out.
-pub fn readSync(dst: *Replica, r: *std.Io.Reader) !Stats {
+/// The sender's version vector, as a sync's frames end with it, for the
+/// receiver to answer with what the sender lacks (a push).
+pub const Theirs = struct { arena: std.mem.Allocator, vector: *std.ArrayList(Entry) };
+
+/// Applies a sync's frames (a pulled response's, or a pushed request's) in
+/// one transaction; nothing is kept unless they all check out.
+pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs) !Stats {
     var leaves: std.ArrayList(Hash) = .empty;
     defer leaves.deinit(dst.gpa);
     var ops: std.ArrayList(Op) = .empty;
@@ -1207,6 +1223,7 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader) !Stats {
                 try r.readSliceAll(&entry.device);
                 entry.seq = try r.takeInt(u64, .little);
                 try vector.append(pa, entry);
+                if (theirs) |t| try t.vector.append(t.arena, entry);
                 stats.wire_bytes += 40;
             },
             'E' => break,
@@ -1253,7 +1270,7 @@ pub fn sync(arena: std.mem.Allocator, dst: *Replica, src: *Replica) !Stats {
     var response: std.Io.Writer.Allocating = .init(arena);
     _ = try writeSync(src, arena, wanted, dst.userKey(), &response.writer);
     var response_reader: std.Io.Reader = .fixed(response.written());
-    var stats = try readSync(dst, &response_reader);
+    var stats = try readSync(dst, &response_reader, null);
     stats.wire_bytes = request.written().len + response.written().len;
     return stats;
 }

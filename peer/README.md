@@ -100,11 +100,11 @@ Playheads are private: they're written on this device's private stream, and trav
 ### Peers, syncing, and serving
 
 * `serve` answers other peers' syncs (`/sync`) until stopped. It listens on `--port`, or else on 8008, falling back to any free port if 8008 is taken. It advertises the port it got by DNS-SD, with the library, the user, and the names of this device and user. `--media DIR` also serves a directory of videos at the root, so the peer is a repository too: byte ranges, listings as JSON or HTML, and an `INDEX` of every file, built at start. It prints a line once listening.
-* `sync [URL]` pulls from one peer, or from every peer of this library found nearby or added. Each prints a line: operations sent, how many were new, lost (older than what's held), known, rejected (from a device not yet admitted), and refused (past a cutoff), then batches, size, and time. A peer that can't be reached prints its error, and the rest go on.
+* `sync [URL]` syncs both ways with one peer, or with every peer of this library found nearby or added: it pulls what this peer lacks, then pushes what the other does. Each prints a line: operations pulled, how many were new, lost (older than what's held), known, rejected (from a device not yet admitted), and refused (past a cutoff), then batches and size, how many were pushed, and time. A peer that can't be reached prints its error, and the rest go on.
 * `refresh` syncs with every peer, then crawls every repository: the catalog others have already described arrives first, so the crawl finds little to do.
 * `peer list` prints peers found nearby (with their libraries) and peers added. `peer add URL` adds a peer that can't be found, such as one beyond a NAT, on this device only; `peer remove URL` forgets it. A URL may be a peer's base or its `/sync`.
 
-Syncing pulls only; to get a change to another peer, that peer pulls. The apps pull when nudged (`POST /nudge`), but `serve` ignores nudges, so its own pulls come from `sync` or `refresh`.
+Since `sync` pushes as well as pulls, a peer behind a NAT keeps a server it can reach in step both ways, and `serve` on the server takes pushes as it answers pulls.
 
 ### In the background
 
@@ -159,7 +159,6 @@ cinematheque peer add http://hal.example.net:8008
 What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 
 * The peer can't name users or devices, or remove a device; the apps do both, and the names reach the peer by sync.
-* `serve` doesn't pull when nudged (see above).
 * There's no Windows build yet.
 
 ## Sources

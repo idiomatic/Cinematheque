@@ -1,13 +1,18 @@
-//! Sync over HTTP. The receiver POSTs to `/sync` a request signed by its
-//! device:
+//! Sync over HTTP, both ways, started by either side. A device POSTs to
+//! `/sync` a request signed by its device:
 //!
 //! device key (32) | certificate (96) | time, Unix milliseconds (8) |
 //! version vector (see `replica.writeVector`) | signature (64)
 //!
 //! The certificate is the device's user's signature over the device key
-//! (see `Replica.certificate`). The sender answers only members, with its
+//! (see `Replica.certificate`). The peer answers only members, with its
 //! frames (see `replica.writeSync`), in a chunked, gzipped response, leaving
-//! out other users' private streams.
+//! out other users' private streams, and with its own device key and
+//! certificate in headers. The device then pushes what the peer lacks: a
+//! second POST (`push_type`), of the request's length (u32) and a request,
+//! then its frames above the peer's vector, gzipped, which the peer applies
+//! as it would a response. So a device that can reach a peer, though the
+//! peer can't reach it (behind a NAT), syncs both ways.
 
 const std = @import("std");
 const Io = std.Io;
@@ -112,6 +117,12 @@ test "sync URLs" {
     try std.testing.expectEqualStrings("http://hal:8008/sync", try syncUrl(arena, "http://hal:8008/sync"));
 }
 
+/// A push's content type, which a peer too old to take pushes doesn't
+/// know, and so refuses as a request whose signature doesn't verify.
+pub const push_type = "application/x-cinematheque-push";
+const device_header = "x-cinematheque-device";
+const certificate_header = "x-cinematheque-certificate";
+
 /// How far a request's time may be from the server's.
 const freshness_ms = 10 * 60 * 1000;
 
@@ -124,11 +135,10 @@ pub const Source = struct {
     /// Told of each sync served: the device that asked, and how many
     /// operations it was sent (for apps to show).
     served: ?*const fn (context: ?*anyopaque, device: [32]u8, operations: usize) void = null,
-    served_context: ?*anyopaque = null,
-    /// Told of each nudge: a peer that changed something, asking to be
-    /// pulled from (`POST /nudge`, which carries nothing, so it's only ever
-    /// a hint to sync with the peers this one already knows).
-    nudged: ?*const fn (context: ?*anyopaque) void = null,
+    /// Told of each push taken: the device that pushed, and how many of its
+    /// operations won (for apps to reload, and show).
+    received: ?*const fn (context: ?*anyopaque, device: [32]u8, operations: usize) void = null,
+    context: ?*anyopaque = null,
 
     pub fn handler(source: *Source) serve_.Handler {
         return .{ .context = source, .function = respond };
@@ -173,24 +183,31 @@ pub fn readRequest(arena: std.mem.Allocator, library: [16]u8, body: []const u8, 
 }
 
 fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool {
-    if (request.head.method != .POST) return false;
+    if (request.head.method != .POST or !std.mem.eql(u8, request.head.target, path)) return false;
     const source: *Source = @ptrCast(@alignCast(context.?));
-    if (std.mem.eql(u8, request.head.target, "/nudge")) {
-        if (source.nudged) |f| f(source.served_context);
-        try request.respond("", .{ .status = .no_content });
-        return true;
-    }
-    if (!std.mem.eql(u8, request.head.target, path)) return false;
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
+    const pushed = if (request.head.content_type) |t| std.mem.eql(u8, t, push_type) else false;
 
-    var body_buf: [4096]u8 = undefined;
-    const body = try request.readerExpectNone(&body_buf).allocRemaining(arena, .limited(1 << 20));
+    var body_buf: [64 * 1024]u8 = undefined;
+    const body = request.readerExpectNone(&body_buf);
+    // A push's request comes first, its length before it; a pull's is the
+    // whole body.
+    const head = if (pushed) blk: {
+        const n = try body.takeInt(u32, .little);
+        if (n > 1 << 20) {
+            try request.respond("Malformed", .{ .status = .bad_request });
+            return true;
+        }
+        const bytes = try arena.alloc(u8, n);
+        try body.readSliceAll(bytes);
+        break :blk bytes;
+    } else try body.allocRemaining(arena, .limited(1 << 20));
     var src = try Replica.open(gpa, source.path, source.founder, source.identity);
     defer src.close();
     const now: u64 = @intCast(Io.Timestamp.now(io, .real).toMilliseconds());
-    const checked = readRequest(arena, src.library, body, now) catch |err| {
+    const checked = readRequest(arena, src.library, head, now) catch |err| {
         try request.respond(@errorName(err), .{ .status = .bad_request });
         return true;
     };
@@ -199,40 +216,68 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         try request.respond("not a member\n", .{ .status = .forbidden });
         return true;
     }
+    const window = try arena.alloc(u8, flate.max_window_len);
 
+    if (pushed) {
+        var gunzip: flate.Decompress = .init(body, .gzip, window);
+        const stats = replica_.readSync(&src, &gunzip.reader, null) catch |err| {
+            try request.respond(@errorName(err), .{ .status = .bad_request });
+            return true;
+        };
+        try request.respond("", .{ .status = .no_content });
+        if (source.received) |f| f(source.context, checked[0].device, stats.won);
+        return true;
+    }
+
+    // Who's answering, for the device to push to: its key and certificate.
+    const device_hex = std.fmt.bytesToHex(src.device(), .lower);
+    const certificate_hex = std.fmt.bytesToHex(try src.certificate(false), .lower);
     var response_buf: [64 * 1024]u8 = undefined;
     var response = try request.respondStreaming(&response_buf, .{ .respond_options = .{
         .extra_headers = &.{
             .{ .name = "content-type", .value = "application/octet-stream" },
             .{ .name = "content-encoding", .value = "gzip" },
+            .{ .name = device_header, .value = &device_hex },
+            .{ .name = certificate_header, .value = &certificate_hex },
         },
     } });
-    const window = try arena.alloc(u8, flate.max_window_len);
     var gz = try flate.Compress.init(&response.writer, window, .gzip, .fastest);
     const sent = try replica_.writeSync(&src, arena, checked[0].vector, reader, &gz.writer);
     try gz.finish();
     try response.end();
-    if (source.served) |f| f(source.served_context, checked[0].device, sent);
+    if (source.served) |f| f(source.context, checked[0].device, sent);
     return true;
 }
 
-/// Asks the peer whose sync URL this is to pull from this one soon.
-pub fn nudge(client: *http.Client, sync_url: []const u8) !void {
-    var buf: [512]u8 = undefined;
-    const base = if (std.mem.endsWith(u8, sync_url, path)) sync_url[0 .. sync_url.len - path.len] else std.mem.trimEnd(u8, sync_url, "/");
-    const url = try std.fmt.bufPrint(&buf, "{s}/nudge", .{base});
-    var request = try client.request(.POST, try std.Uri.parse(url), .{ .keep_alive = false });
-    defer request.deinit();
-    request.transfer_encoding = .{ .content_length = 0 };
-    var sending = try request.sendBodyUnflushed(&.{});
-    try sending.end();
-    try request.connection.?.flush();
-    const response = try request.receiveHead(&.{});
-    if (response.head.status != .no_content) return error.Refused;
+/// What came of a sync with a peer: what was pulled, and how many
+/// operations were pushed (none to a peer too old to take pushes).
+pub const Exchanged = struct {
+    stats: replica_.Stats,
+    sent: usize = 0,
+};
+
+/// Syncs both ways with the peer at `url` (e.g.,
+/// `http://perihelion.local:8008/sync`): pulls what `dst` lacks, then pushes
+/// what the peer does, if it's a member's device that takes pushes.
+pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !Exchanged {
+    var theirs: std.ArrayList(replica_.Entry) = .empty;
+    const pulled = try pull(arena, client, dst, url, now_ms, &theirs);
+    var out: Exchanged = .{ .stats = pulled.stats };
+    const user = pulled.user orelse return out;
+    if (!try dst.isMemberUser(user)) return out;
+    out.sent = push(arena, client, dst, url, now_ms, theirs.items, user) catch |err| switch (err) {
+        // A peer too old to take pushes, which still pulls from this one.
+        error.Refused => 0,
+        else => |e| return e,
+    };
+    return out;
 }
 
-/// Pulls from the peer at `url` (e.g., `http://perihelion.local:8008/sync`).
-pub fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !replica_.Stats {
+const Pulled = struct { stats: replica_.Stats, user: ?[32]u8 };
+
+/// Pulls from the peer at `url`, collecting its vector into `theirs`, and
+/// the user its certificate names, if it sent one that verifies.
+fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64, theirs: *std.ArrayList(replica_.Entry)) !Pulled {
     const body = try writeRequest(arena, dst, now_ms);
     var request = try client.request(.POST, try std.Uri.parse(url), .{
         .headers = .{ .accept_encoding = .{ .override = "gzip" } },
@@ -250,12 +295,60 @@ pub fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: 
         .bad_request => return error.Refused,
         else => return error.BadStatus,
     }
+    var device: ?[32]u8 = null;
+    var certificate: ?[96]u8 = null;
+    var headers = response.head.iterateHeaders();
+    while (headers.next()) |h| {
+        if (std.ascii.eqlIgnoreCase(h.name, device_header)) {
+            var d: [32]u8 = undefined;
+            if (std.fmt.hexToBytes(&d, h.value)) |_| {
+                device = d;
+            } else |_| {}
+        } else if (std.ascii.eqlIgnoreCase(h.name, certificate_header)) {
+            var c: [96]u8 = undefined;
+            if (std.fmt.hexToBytes(&c, h.value)) |_| {
+                certificate = c;
+            } else |_| {}
+        }
+    }
+    const user = if (device != null and certificate != null) replica_.verifyCertificate(dst.library, device.?, false, certificate.?) else null;
     var transfer: [64 * 1024]u8 = undefined;
     var decompress: http.Decompress = undefined;
     const window = try arena.alloc(u8, flate.max_window_len);
-    var stats = try replica_.readSync(dst, response.readerDecompressing(&transfer, &decompress, window));
+    var stats = try replica_.readSync(dst, response.readerDecompressing(&transfer, &decompress, window), .{ .arena = arena, .vector = theirs });
     stats.wire_bytes += body.len;
-    return stats;
+    return .{ .stats = stats, .user = user };
+}
+
+/// Pushes to the peer at `url` what `wanted` (its vector) shows it lacks,
+/// leaving out private streams that aren't `reader`'s (its user's); returns
+/// how many operations it sent. Nothing to send sends nothing.
+fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []const u8, now_ms: u64, wanted: replica_.VersionVector, reader: [32]u8) !usize {
+    const head = try writeRequest(arena, src, now_ms);
+    var body: Io.Writer.Allocating = .init(arena);
+    try body.writer.writeInt(u32, @intCast(head.len), .little);
+    try body.writer.writeAll(head);
+    const window = try arena.alloc(u8, flate.max_window_len);
+    var gz = try flate.Compress.init(&body.writer, window, .gzip, .fastest);
+    const sent = try replica_.writeSync(src, arena, wanted, reader, &gz.writer);
+    try gz.finish();
+    if (sent == 0) return 0;
+    var request = try client.request(.POST, try std.Uri.parse(url), .{
+        .headers = .{ .content_type = .{ .override = push_type } },
+    });
+    defer request.deinit();
+    request.transfer_encoding = .{ .content_length = body.written().len };
+    var sending = try request.sendBodyUnflushed(&.{});
+    try sending.writer.writeAll(body.written());
+    try sending.end();
+    try request.connection.?.flush();
+    const response = try request.receiveHead(&.{});
+    return switch (response.head.status) {
+        .no_content => sent,
+        .forbidden => error.NotAMember,
+        .bad_request => error.Refused,
+        else => error.BadStatus,
+    };
 }
 
 test "requests are checked" {

@@ -5,7 +5,7 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 ## Next
 
 * **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (the command-line peer's agents can't reach the LAN; see below), an app icon, lists beyond the watchlist, and signing for distribution.
-* **Command-line peer:** commands to name the user and the device, so command-line peers show by name rather than as someone's device, and to remove a device; and `serve` pulling when nudged, as the apps do.
+* **Command-line peer:** commands to name the user and the device, so command-line peers show by name rather than as someone's device, and to remove a device.
 * **Settings:** when each device was last seen.
 * **Linux:** running the peer itself there (its experiments ran in a VM).
 * **Known issues:**
@@ -42,7 +42,7 @@ Open:
 
 Open:
 
-* **Connectivity beyond the LAN:** how peers reach each other across NATs, which the direct-connection rule for private data depends on. Explored in other projects.
+* **Connectivity beyond the LAN:** sync runs both ways, so a device behind a NAT syncs with a peer it can reach (a hosted server, say), but two devices both behind NATs still can't reach each other, which the direct-connection rule for private data depends on; and sync isn't encrypted, so beyond the LAN it wants a TLS proxy in front of `serve`, or a VPN. Explored in other projects.
 * **CloudKit:** an alternative to the CRDT, if non-Apple players can use it without a Developer subscription, and if it honors the direct-connection rule for private data.
 
 ## Repositories

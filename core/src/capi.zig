@@ -48,26 +48,19 @@ const Library = struct {
     serving: ?*Serving = null,
     /// Offering to pair, while it does (`cq_pair_offer`).
     pairing: ?*Pairing = null,
-    /// The last sync served, from the server's task (`cq_served`).
-    served: struct { mutex: Io.Mutex = .init, device: [32]u8 = @splat(0), operations: usize = 0, at: u64 = 0 } = .{},
+    /// The last sync served (`cq_served`), and the last push taken
+    /// (`cq_received`), from the server's task.
+    served: Heard = .{},
+    received: Heard = .{},
 
-    /// When a peer last nudged this one (`cq_nudged`), in milliseconds.
-    nudged_at: std.atomic.Value(u64) = .init(0),
-
-    /// Records a nudge; called on the server's task.
-    fn onNudged(context: ?*anyopaque) void {
-        const lib: *Library = @ptrCast(@alignCast(context.?));
-        lib.nudged_at.store(lib.now(), .release);
-    }
-
-    /// Records a sync served; called on the server's task.
     fn onServed(context: ?*anyopaque, device: [32]u8, operations: usize) void {
         const lib: *Library = @ptrCast(@alignCast(context.?));
-        lib.served.mutex.lockUncancelable(lib.io());
-        defer lib.served.mutex.unlock(lib.io());
-        lib.served.device = device;
-        lib.served.operations = operations;
-        lib.served.at = lib.now();
+        lib.served.note(lib, device, operations);
+    }
+
+    fn onReceived(context: ?*anyopaque, device: [32]u8, operations: usize) void {
+        const lib: *Library = @ptrCast(@alignCast(context.?));
+        lib.received.note(lib, device, operations);
     }
 
     fn io(lib: *Library) Io {
@@ -192,8 +185,38 @@ const PeerJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const
 const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
 const PairedJson = struct { user: []const u8, device: []const u8 };
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
-const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, @"error": ?[]const u8 };
-const ServedJson = struct { device: []const u8, name: ?[]const u8, operations: usize, at: u64 };
+const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, sent: usize = 0, @"error": ?[]const u8 };
+const HeardJson = struct { device: []const u8, name: ?[]const u8, operations: usize, at: u64 };
+
+/// An exchange the server had with a peer, recorded on the server's task:
+/// with which device, how many operations, and when.
+const Heard = struct {
+    mutex: Io.Mutex = .init,
+    device: [32]u8 = @splat(0),
+    operations: usize = 0,
+    at: u64 = 0,
+
+    fn note(h: *Heard, lib: *Library, device: [32]u8, operations: usize) void {
+        h.mutex.lockUncancelable(lib.io());
+        defer h.mutex.unlock(lib.io());
+        h.device = device;
+        h.operations = operations;
+        h.at = lib.now();
+    }
+
+    /// As JSON, with the device's name if it has one; null if none yet.
+    fn json(h: *Heard, lib: *Library, arena: std.mem.Allocator) !?HeardJson {
+        h.mutex.lockUncancelable(lib.io());
+        const device = h.device;
+        const operations = h.operations;
+        const at = h.at;
+        h.mutex.unlock(lib.io());
+        if (at == 0) return null;
+        const key = try arena.dupe(u8, &std.fmt.bytesToHex(device, .lower));
+        const named = library.names(try lib.main(), arena) catch &.{};
+        return .{ .device = key, .name = library.nameOf(named, key), .operations = operations, .at = at };
+    }
+};
 const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool };
 const StatusJson = struct { user: []const u8, linked: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
 
@@ -286,8 +309,8 @@ fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
         .founder = try lib.store.founder(arena),
         .identity = lib.store.identity,
         .served = Library.onServed,
-        .served_context = lib,
-        .nudged = Library.onNudged,
+        .received = Library.onReceived,
+        .context = lib,
     };
     s.host = .{
         .io = lib.io(),
@@ -762,36 +785,15 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]cons
     lib.progress.start(.syncing, urls.len);
     for (urls, out) |u, *o| {
         defer lib.progress.step();
-        const stats = sync.pull(arena, &client, &r, u, lib.now()) catch |err| {
+        const exchanged = sync.exchange(arena, &client, &r, u, lib.now()) catch |err| {
             o.* = .{ .url = u, .name = names.get(u), .new = 0, .@"error" = @errorName(err) };
             continue;
         };
-        o.* = .{ .url = u, .name = names.get(u), .new = stats.won, .@"error" = null };
+        o.* = .{ .url = u, .name = names.get(u), .new = exchanged.stats.won, .sent = exchanged.sent, .@"error" = null };
     }
     return out;
 }
 
-/// Long: asks every peer this one syncs with to pull from it soon, as after
-/// a change of its own (a playhead, the watchlist); those that don't answer
-/// are passed over.
-export fn cq_nudge(lib: *Library) c_int {
-    return status(lib, nudgeAll, .{});
-}
-
-fn nudgeAll(lib: *Library, arena: std.mem.Allocator) !void {
-    var r = try connection(lib, arena);
-    defer r.close();
-    const reachable = try sync.peers(lib.io(), arena, &r, try lib.store.serviceName(arena), null);
-    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
-    defer client.deinit();
-    for (reachable.urls) |u| sync.nudge(&client, u) catch {};
-}
-
-/// When a peer last nudged this one, in milliseconds since the epoch, or 0.
-/// Any thread.
-export fn cq_nudged(lib: *Library) u64 {
-    return lib.nudged_at.load(.acquire);
-}
 
 /// The last sync this peer served, while serving, as JSON: `device` (the
 /// key of the device that asked), its `name` if it has one, how many
@@ -801,16 +803,19 @@ export fn cq_served(lib: *Library) ?[*:0]u8 {
     return json(lib, served, .{});
 }
 
-fn served(lib: *Library, arena: std.mem.Allocator) !?ServedJson {
-    lib.served.mutex.lockUncancelable(lib.io());
-    const device = lib.served.device;
-    const operations = lib.served.operations;
-    const at = lib.served.at;
-    lib.served.mutex.unlock(lib.io());
-    if (at == 0) return null;
-    const key = try arena.dupe(u8, &std.fmt.bytesToHex(device, .lower));
-    const named = library.names(try lib.main(), arena) catch &.{};
-    return .{ .device = key, .name = library.nameOf(named, key), .operations = operations, .at = at };
+/// The last push this peer took, while serving, as `cq_served` tells of a
+/// sync: from which device, and how many of its operations won; an app
+/// reloads when it changes.
+export fn cq_received(lib: *Library) ?[*:0]u8 {
+    return json(lib, receivedPush, .{});
+}
+
+fn receivedPush(lib: *Library, arena: std.mem.Allocator) !?HeardJson {
+    return lib.received.json(lib, arena);
+}
+
+fn served(lib: *Library, arena: std.mem.Allocator) !?HeardJson {
+    return lib.served.json(lib, arena);
 }
 
 /// Long: reads an item's metadata (an episode's title, description, and

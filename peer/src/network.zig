@@ -32,7 +32,7 @@ pub fn peer(p: *Peer, c: Command) !void {
 pub fn sync(p: *Peer, c: Command) !void {
     if (c.rest.len > 1) return error.Usage;
     try c.args.only(&.{});
-    try pullAll(p, if (c.rest.len == 1) c.rest[0] else null);
+    try syncAll(p, if (c.rest.len == 1) c.rest[0] else null);
 }
 
 /// `serve [--port PORT] [--media DIR]`: serves on `PORT`, or on
@@ -107,9 +107,9 @@ fn serviceName(p: *Peer) ![]const u8 {
     return p.store.serviceName(p.arena);
 }
 
-/// Pulls from the peer at `target`, or else from every peer of this
-/// library found or added.
-pub fn pullAll(p: *Peer, target: ?[]const u8) !void {
+/// Syncs both ways with the peer at `target`, or else with every peer of
+/// this library found or added.
+pub fn syncAll(p: *Peer, target: ?[]const u8) !void {
     var r = try p.open();
     defer r.close();
     var client: std.http.Client = .{ .allocator = p.gpa, .io = p.io };
@@ -118,13 +118,14 @@ pub fn pullAll(p: *Peer, target: ?[]const u8) !void {
     if (found.urls.len == 0) try p.out.print("no peers of this library found or added\n", .{});
     for (found.urls) |u| {
         const start = Io.Timestamp.now(p.io, .awake);
-        const stats = core.sync.pull(p.arena, &client, &r, u, p.now()) catch |err| {
+        const exchanged = core.sync.exchange(p.arena, &client, &r, u, p.now()) catch |err| {
             try p.out.print("{s}: {t}\n", .{ u, err });
             continue;
         };
-        try p.out.print("{s}: {d} operations ({d} new, {d} lost, {d} known, {d} rejected, {d} refused) in {d} batches, {d:.1} KB, {d} ms\n", .{
-            u, stats.sent, stats.won, stats.lost, stats.known, stats.rejected, stats.refused, stats.batches,
-            @as(f64, @floatFromInt(stats.wire_bytes)) / 1e3, start.durationTo(Io.Timestamp.now(p.io, .awake)).toMilliseconds(),
+        const stats = exchanged.stats;
+        try p.out.print("{s}: {d} operations ({d} new, {d} lost, {d} known, {d} rejected, {d} refused) in {d} batches, {d:.1} KB; {d} pushed; {d} ms\n", .{
+            u,                                               stats.sent,     stats.won,                                                         stats.lost, stats.known, stats.rejected, stats.refused, stats.batches,
+            @as(f64, @floatFromInt(stats.wire_bytes)) / 1e3, exchanged.sent, start.durationTo(Io.Timestamp.now(p.io, .awake)).toMilliseconds(),
         });
     }
 }

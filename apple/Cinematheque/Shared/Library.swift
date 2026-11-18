@@ -529,41 +529,34 @@ final class Library {
     /// When this device last synced, from which the next quiet sync waits
     /// a minute.
     private var lastSync = Date.distantPast
-    /// The last nudge from a peer acted on (`cq_nudged`); one that came
-    /// before (at launch, or while busy) is acted on once it can be.
-    private var lastNudge: UInt64 = 0
     /// Syncing after a change, once changes stop for a moment.
     private var afterChange: Task<Void, Never>?
 
     /// While the app runs: syncs quietly a minute after it last synced (as
-    /// when it comes to the front), and at once when a peer nudges it, so
-    /// what other devices change (playheads, the watchlist) arrives without
-    /// a refresh; and notes each sync served to a peer.
+    /// when it comes to the front), so what other devices change
+    /// (playheads, the watchlist) arrives without a refresh; reloads at
+    /// once when a peer pushes its changes here; and notes each sync served
+    /// to a peer.
     func keepInSync() async {
         var tick = 0
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(1))
             tick += 1
+            notePushed()
             if tick % 5 == 0 { noteServed() }
-            let nudged = handle.map { cq_nudged($0.pointer) } ?? 0
-            if nudged != lastNudge {
-                if await syncQuietly() { lastNudge = nudged }
-            } else if Date.now.timeIntervalSince(lastSync) >= 60 {
-                await syncQuietly()
-            }
+            if Date.now.timeIntervalSince(lastSync) >= 60 { await syncQuietly() }
         }
     }
 
     /// After a change of this user's (leaving playback, the watchlist, a
-    /// watched mark), once changes stop for a second: syncs, then nudges
-    /// every peer to pull it from here, rather than waiting a minute.
+    /// watched mark), once changes stop for a second: syncs, which pushes
+    /// it to every peer, rather than waiting a minute.
     func changed() {
         afterChange?.cancel()
         afterChange = Task {
             try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled, let handle, hasLibrary else { return }
+            guard !Task.isCancelled else { return }
             await syncQuietly()
-            _ = await Task.detached { cq_nudge(handle.pointer) }.value
         }
     }
 
@@ -590,25 +583,48 @@ final class Library {
             let url: String
             let name: String?
             let new: Int
+            let sent: Int?
             let error: String?
+
+            var peer: String {
+                let host = URL(string: url)?.host().map { $0.hasSuffix(".local") ? String($0.dropLast(6)) : $0 }
+                return name ?? host ?? url
+            }
         }
         lastSync = .now
         guard let results = try? JSONDecoder().decode([Result].self, from: data) else { return }
         let reached = results.filter { $0.error == nil }
         guard let most = reached.max(by: { $0.new < $1.new }) else { return }
-        let host = URL(string: most.url)?.host().map { $0.hasSuffix(".local") ? String($0.dropLast(6)) : $0 }
-        let peer = most.name ?? host ?? most.url
-        received = Exchange(count: reached.reduce(0) { $0 + $1.new }, peer: peer, at: .now)
+        received = Exchange(count: reached.reduce(0) { $0 + $1.new }, peer: most.peer, at: .now)
+        // What this device pushed, to the peer it sent most to.
+        if let pushed = reached.max(by: { ($0.sent ?? 0) < ($1.sent ?? 0) }), let count = pushed.sent, count > 0 {
+            sent = Exchange(count: reached.reduce(0) { $0 + ($1.sent ?? 0) }, peer: pushed.peer, at: .now)
+        }
+    }
+
+    /// When a peer has pushed its changes here: reloads, and notes it.
+    private func notePushed() {
+        guard hasLibrary, let pushed = decode(Heard?.self, { cq_received($0) }) ?? nil else { return }
+        let at = Date(timeIntervalSince1970: pushed.at / 1000)
+        guard lastPush != at else { return }
+        lastPush = at
+        received = Exchange(count: pushed.operations, peer: pushed.name ?? String(pushed.device.prefix(8)), at: at)
+        reload()
+    }
+
+    /// When a peer last pushed here, as `notePushed` last saw it.
+    private var lastPush: Date?
+
+    /// An exchange the server had with a peer (`cq_served`, `cq_received`).
+    private struct Heard: Decodable {
+        let device: String
+        let name: String?
+        let operations: Int
+        let at: Double
     }
 
     private func noteServed() {
-        struct Served: Decodable {
-            let device: String
-            let name: String?
-            let operations: Int
-            let at: Double
-        }
-        guard hasLibrary, let served = decode(Served?.self, { cq_served($0) }) ?? nil else { return }
+        guard hasLibrary, let served = decode(Heard?.self, { cq_served($0) }) ?? nil else { return }
         let at = Date(timeIntervalSince1970: served.at / 1000)
         guard sent?.at != at else { return }
         sent = Exchange(count: served.operations, peer: served.name ?? String(served.device.prefix(8)), at: at)

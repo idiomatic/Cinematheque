@@ -95,7 +95,7 @@ A response is applied in one transaction. A batch whose stream isn't admitted ye
 
 ## Sync
 
-Sync is pull-only: a device asks a peer for what it lacks.
+Sync runs both ways, started by either side: a device asks a peer for what it lacks, then sends the peer what it lacks. So a device that can reach a peer, though the peer can't reach it (behind a NAT), still syncs both ways, and only one of them need accept connections.
 
 * **Request:** `POST /sync` with the device key, its certificate, the time, and the version vector, signed by the device (the bytes are in [HTTP endpoints](#post-sync)). The peer answers only a member's device that isn't removed, and only within ten minutes of its own clock.
 * **Response,** gzipped, as frames:
@@ -104,13 +104,13 @@ Sync is pull-only: a device asks a peer for what it lacks.
   * `V`, one per stream: the sender's version vector entry, which the receiver adopts.
   * `E`: the end.
 * **What's sent:** for each stream, the winners above the receiver's vector, grouped by batch. Other users' private streams are left out, frames and vector entries alike, so private data never reaches another user's peers.
+* **Push:** the response also names the peer, by its device key and certificate. The device then sends what the peer lacks, by the vector the response ended with: a second `POST /sync`, of a signed request and the same frames, leaving out private streams not the peer's user's, which the peer applies as it would a response. A peer too old to take pushes refuses one, and is only pulled from.
 
 Since only winners are sent, a sync carries the current state of what changed, not its history: a playhead moved ten times since the last sync is one operation per field.
 
-* **Nudges:** `POST /nudge` carries nothing and asks a peer to pull soon. The apps send one to every peer after their own changes, and pull when nudged. A nudge only prompts a sync with peers already known, so anyone may send one.
 * **Repair:** a removal drops winners past its cutoff. The fields it dropped are refetched from a peer that refused those writes: just those fields' winners, with one shared proof per batch (the sibling hashes covering all the operations taken from it), so they're verified without the batch's other leaves.
 
-The apps' status line ("Received 3 changes from firefly") counts operations: received, the operations that won their fields, and sent, the operations a response carried.
+The apps' status line ("Received 3 changes from firefly") counts operations: received, the operations that won their fields, and sent, the operations a response or a push carried.
 
 ## HTTP endpoints
 
@@ -118,8 +118,7 @@ Peers speak plain HTTP/1.1, without TLS: operations are signed, and pairing seal
 
 | Endpoint | Answered by | For |
 |---|---|---|
-| `POST /sync` | Every peer that serves | Pulling operations |
-| `POST /nudge` | Every peer that serves | Asking a peer to pull |
+| `POST /sync` | Every peer that serves | Pulling operations, and pushing them |
 | `GET` and `POST /pair` | A new device offering to pair | Pairing by code |
 | `GET` and `HEAD` of any other path | A peer serving media | Files, listings, and `INDEX` |
 
@@ -143,12 +142,11 @@ Answers:
   * `O`, an operation: sequence number (u64), clock (u64), kind (u8), then the key, field, and value, each its length (u16, u16, and u32) and bytes.
   * `V`, a version vector entry: stream key (32) and sequence number (u64).
   * `E`: the end.
+  With it, two headers name the peer: `x-cinematheque-device`, its device key, and `x-cinematheque-certificate`, its certificate, each in hex.
 * **400,** the error's name as text: `Malformed`, `BadSignature`, `BadCertificate` (one that doesn't verify for this library), or `Stale` (a time more than ten minutes from the peer's).
 * **403,** `not a member`: the certificate's user isn't a member, or the device was removed.
 
-### `POST /nudge`
-
-An empty body, answered with 204: the peer will sync with the peers it knows. A peer that doesn't act on nudges (the command-line peer's `serve`) answers the same.
+A push is a `POST /sync` with `Content-Type: application/x-cinematheque-push`: the request's length (u32) and a request, as above (its vector unused), then frames, as a response's, gzipped. It's answered with 204, once applied, or 400 or 403 as above. A peer too old to take pushes reads the whole body as a request, and refuses it as `BadSignature`.
 
 ### `/pair`
 

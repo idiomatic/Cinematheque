@@ -302,7 +302,7 @@ pub fn refresh(peer: *Peer, c: Command) !void {
     try c.args.only(&.{});
     // Peers' catalog first, already described, so crawling then finds
     // little to do.
-    try network.pullAll(peer, null);
+    try network.syncAll(peer, null);
     try crawlRepositories(peer, 16, null);
 }
 

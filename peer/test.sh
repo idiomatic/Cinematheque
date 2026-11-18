@@ -1,9 +1,9 @@
 #!/bin/zsh
 # Peer test: peer A founds a library, serves a generated repository as
 # media, and crawls it; peer B pairs to join, syncs, and must match A
-# exactly; a change on A reaches B through discovery; C, paired then
-# removed, is refused; and B's playhead reaches B's other device, B2
-# (paired to be B's), only directly.
+# exactly; a change on A reaches B through discovery, and one on B reaches
+# A by push; C, paired then removed, is refused; and B's playhead reaches
+# B's other device, B2 (paired to be B's), only directly.
 set -eu
 here=${0:A:h}
 work=${1:-/tmp/cinematheque-peer-test}
@@ -62,6 +62,10 @@ $peer $a alias remove t/m/movie-0001/1921
 $peer $b sync http://127.0.0.1:8191
 $peer $b alias list | grep -q . && { echo "FAIL: alias remove"; exit 1; }
 [[ $($peer $b member list | wc -l) -eq 2 ]] || { echo "FAIL: member list"; exit 1; }
+# B's change reaches A by B's push, A pulling nothing.
+$peer $b alias add t/m/movie-0004/1924 t/m/movie-0005/1925
+$peer $b sync http://127.0.0.1:8191 | grep -q " [1-9][0-9]* pushed" || { echo "FAIL: B pushed nothing"; exit 1; }
+$peer $a alias list | grep -q "movie-0004/1924 -> " || { echo "FAIL: B's push didn't reach A"; exit 1; }
 
 pair $work/c "library join" $work/a "member pair"
 $peer $a member remove $($peer $c user show)
@@ -70,6 +74,9 @@ $peer $c sync http://127.0.0.1:8191 | grep -q NotAMember || { echo "FAIL: a remo
 item=t/m/movie-0003/1923/v/-
 pair $work/b2 "user pair" $work/b "user pair"
 $peer $b playhead set $item 600 6000
+# B's pushes to A, another user's device, leave out B's playheads.
+$peer $b sync http://127.0.0.1:8191
+$peer $a show ${item%/v/-} | grep -q " at " && { echo "FAIL: B pushed its playhead to another user"; exit 1; }
 $peer $b serve --port 8192 > $work/b.log 2>&1 &
 b_pid=$!
 sleep 1
