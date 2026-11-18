@@ -45,17 +45,21 @@ struct WindowPlayer: View {
             }
             .overlay(alignment: .topLeading) {
                 // On a material, to show over any picture; still there,
-                // unseen, for Escape.
-                Button(action: leave) {
-                    Label("Back", systemImage: "chevron.backward")
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.regularMaterial, in: Capsule())
+                // unseen, for Escape. Beside it, what's playing, since the
+                // window's title bar hides its title.
+                HStack(alignment: .center, spacing: 12) {
+                    Button(action: leave) {
+                        Label("Back", systemImage: "chevron.backward")
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.regularMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
+                    .help("Back to the library (Escape)")
+                    .onHover { onBack = $0 }
+                    NowPlaying(title: title.isEmpty ? request.title : title)
                 }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-                .help("Back to the library (Escape)")
-                .onHover { onBack = $0 }
                 .padding(16)
                 .opacity(showsBack ? 1 : 0)
                 .allowsHitTesting(showsBack)
@@ -69,6 +73,30 @@ struct WindowPlayer: View {
     /// then for the library.
     private func leave() {
         curtain.lower(then: close)
+    }
+}
+
+/// What's playing, over the picture: a movie's name, or a series' with the
+/// episode (its code and name) beneath.
+private struct NowPlaying: View {
+    let title: String
+
+    var body: some View {
+        // Playback.name joins them with " · ": the title, then the rest.
+        let parts = title.split(separator: " · ", maxSplits: 1).map(String.init)
+        if let name = parts.first {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name).font(.headline)
+                if parts.count > 1 {
+                    Text(parts[1]).font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .allowsHitTesting(false)
+        }
     }
 }
 
