@@ -207,9 +207,55 @@ private struct SourceSheet: View {
 
 // People and devices.
 
+/// A new device nearby offering to pair: the code it shows, entered here,
+/// pairs it.
+private struct PairRow: View {
+    let peer: Peer
+    @Environment(Library.self) private var library
+    @State private var code = ""
+    @State private var pairing = false
+    @State private var paired = false
+    @State private var failure: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label(peer.device.flatMap { $0.isEmpty ? nil : $0 } ?? "A new device", systemImage: "appletv")
+                Text(paired ? "Paired" : "wants to pair").foregroundStyle(.secondary)
+                Spacer()
+                if !paired {
+                    TextField("Code", text: $code, prompt: Text("Code"))
+                        .labelsHidden()
+                        .font(.body.monospacedDigit())
+                        .frame(width: 90)
+                        .onSubmit(pair)
+                    Button("Pair", action: pair)
+                        .disabled(digits.count != 6 || pairing)
+                }
+            }
+            if let failure {
+                Text(failure).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var digits: String { code.filter(\.isNumber) }
+
+    private func pair() {
+        guard digits.count == 6, !pairing else { return }
+        pairing = true
+        Task {
+            failure = await library.pair(peer, code: digits)
+            paired = failure == nil
+            pairing = false
+        }
+    }
+}
+
 private struct PeoplePane: View {
     @Environment(Library.self) private var library
     @State private var nearby: [Peer] = []
+    @State private var adding = false
     @State private var showingSecret = false
     @State private var advanced = false
     @State private var address = ""
@@ -249,17 +295,28 @@ private struct PeoplePane: View {
                         if device.you { Text("This Mac").foregroundStyle(.secondary) }
                     }
                 }
-                DisclosureGroup("Add a Device", isExpanded: $showingSecret) {
-                    Text("On the new device, choose to link it to you, and enter your secret below. It makes that device act as you, so keep it to yourself.")
+                DisclosureGroup("Add a Device", isExpanded: $adding) {
+                    Text("On the new device, choose I Use Cinematheque on Another Device. It shows a code: enter it here, beside its name.")
                         .foregroundStyle(.secondary)
-                    if showingSecret { KeyField(key: library.secret ?? "") }
-                    LabeledContent("Founder's key") { KeyField(key: library.status?.founder ?? "") }
+                    ForEach(nearby.filter(\.pairing)) { peer in PairRow(peer: peer) }
+                    if !nearby.contains(where: \.pairing) {
+                        HStack {
+                            ProgressView().controlSize(.small)
+                            Text("Looking for new devices nearby…").foregroundStyle(.secondary)
+                        }
+                    }
                 }
             } header: {
                 Text("Your Devices")
             }
             Section("Advanced", isExpanded: $advanced) {
                 LabeledContent("Your key") { KeyField(key: library.status?.user ?? "") }
+                DisclosureGroup("Your Secret", isExpanded: $showingSecret) {
+                    Text("To link a device that can't pair, such as one off this network, enter your secret and the founder's key on it. Your secret makes a device act as you, so keep it to yourself.")
+                        .foregroundStyle(.secondary)
+                    if showingSecret { KeyField(key: library.secret ?? "") }
+                    LabeledContent("Founder's key") { KeyField(key: library.status?.founder ?? "") }
+                }
                 HStack {
                     TextField("A new member's key", text: $key, prompt: Text("To add someone by their key"))
                         .font(.body.monospaced())
@@ -295,16 +352,17 @@ private struct PeoplePane: View {
             }
         }
         .formStyle(.grouped)
-        .task {
-            // Who's nearby, now and then.
+        .task(id: adding) {
+            // Who's nearby, now and then; often while adding a device.
             while !Task.isCancelled {
                 nearby = await library.peers()
-                try? await Task.sleep(for: .seconds(10))
+                try? await Task.sleep(for: .seconds(adding ? 2 : 10))
             }
         }
     }
 
     /// Devices of this library nearby whose users aren't members yet.
+    /// (New devices offering to pair have no library yet.)
     private var waiting: [Peer] {
         var seen: Set<String> = []
         return nearby.filter { $0.ours && !$0.member && !$0.added && $0.user != nil && seen.insert($0.user!).inserted }

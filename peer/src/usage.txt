@@ -18,6 +18,12 @@ REPO is a repo's ID or URL.
                                of the user's devices; keep it private
   user link SECRET             act as the user whose secret it is, on a
                                new device, before library create or join
+  user pair                    on a new device, show a code, and wait
+                               for another of the user's devices to pair
+                               this one with it
+  user pair CODE [URL]         pair the new device showing CODE (found
+                               nearby, or at URL), sending it this user's
+                               secret and the library's founder
 
   library show                 print the library's ID, founder, member
                                count, and digest

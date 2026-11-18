@@ -19,6 +19,7 @@ const store_ = @import("store.zig");
 const sync = @import("sync.zig");
 const discover = @import("discover.zig");
 const serve_ = @import("serve.zig");
+const pair = @import("pair.zig");
 const replica_ = @import("replica.zig");
 const Replica = replica_.Replica;
 
@@ -44,6 +45,8 @@ const Library = struct {
     progress: Progress = .{},
     /// Serving, while it does (`cq_serve`).
     serving: ?*Serving = null,
+    /// Offering to pair, while it does (`cq_pair_offer`).
+    pairing: ?*Pairing = null,
 
     fn io(lib: *Library) Io {
         return lib.threaded.io();
@@ -115,6 +118,7 @@ fn open(peer_home: ?[*:0]const u8) !*Library {
 export fn cq_close(lib: ?*Library) void {
     const l = lib orelse return;
     stopServing(l);
+    stopPairing(l);
     if (l.replica) |*r| r.close();
     l.priority.deinit();
     l.arena_state.deinit();
@@ -160,7 +164,8 @@ fn span(text: ?[*:0]const u8) ?[]const u8 {
 const CoverJson = struct { url: []const u8, offset: u64, length: u64, stamp: []const u8 };
 const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
 const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
-const PeerJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const u8, user: ?[]const u8, ours: bool, member: bool, added: bool };
+const PeerJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const u8, user: ?[]const u8, ours: bool, member: bool, added: bool, pairing: bool };
+const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
 const SyncJson = struct { url: []const u8, new: usize, @"error": ?[]const u8 };
 const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, started: bool };
@@ -216,6 +221,10 @@ const Serving = struct {
     io: Io,
     future: Io.Future(anyerror!void) = undefined,
     source: sync.Source,
+    /// What answers requests: a sync source's, or a pairing offer's.
+    handler: serve_.Handler = undefined,
+    /// The port to try first when none is asked for; 0 for any.
+    default_port: u16 = 8008,
     mounts: []const serve_.Mount,
     name: [:0]const u8,
     txt: []const u8,
@@ -236,10 +245,10 @@ const Serving = struct {
         defer if (s.advertisement) |a| a.deinit();
         serve_.serve(s.io, gpa, .{
             .host = "0.0.0.0",
-            .port = if (port == 0) 8008 else port,
+            .port = if (port == 0) s.default_port else port,
             .fallback = true,
             .mounts = s.mounts,
-            .handler = s.source.handler(),
+            .handler = s.handler,
             .on_listen = onListen,
             .on_listen_context = s,
         }) catch |err| {
@@ -301,7 +310,19 @@ fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
         .{ "name", library.nameOf(named, &std.fmt.bytesToHex(try lib.store.device(), .lower)) orelse "" },
         .{ "person", library.nameOf(named, &user) orelse "" },
     });
-    s.future = try lib.io().concurrent(Serving.run, .{ s, port });
+    s.handler = s.source.handler();
+    try launch(lib, s, port);
+    lib.serving = s;
+    return s.port;
+}
+
+/// Starts `s` serving, and waits until it listens; on failure, frees it.
+fn launch(lib: *Library, s: *Serving, port: u16) !void {
+    s.future = lib.io().concurrent(Serving.run, .{ s, port }) catch |err| {
+        s.arena.deinit();
+        gpa.destroy(s);
+        return err;
+    };
     s.ready.waitTimeout(lib.io(), .{ .duration = .{ .raw = .fromSeconds(10), .clock = .awake } }) catch {};
     if (!s.ready.isSet() or s.failure != null) {
         const why = s.failure orelse error.Timeout;
@@ -310,8 +331,6 @@ fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
         gpa.destroy(s);
         return why;
     }
-    lib.serving = s;
-    return s.port;
 }
 
 fn stopServing(lib: *Library) void {
@@ -376,6 +395,100 @@ fn found(lib: *Library, arena: std.mem.Allocator, founder: ?[]const u8) !void {
     const key = if (founder) |f| try store_.parseKey(std.mem.trim(u8, f, " \n")) else try lib.store.user();
     try lib.store.setFounder(arena, key);
     lib.replica = try lib.store.openReplica(lib.arena_state.allocator());
+}
+
+// Pairing: a new device shows a code, and another of its user's, given it,
+// sends it the user's secret and the library's founder's key (see pair.zig).
+
+const Pairing = struct {
+    offer: pair.Offer,
+    serving: *Serving,
+};
+
+/// On a new device, before it has a library: offers to pair, serving and
+/// advertising by DNS-SD (as `name`, for the other device to show) until
+/// paired or `cq_pair_stop`. Returns its state, as `cq_pair_check` does,
+/// with a new code. Offering again starts over, with another code.
+export fn cq_pair_offer(lib: *Library, name: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, pairOffer, .{std.mem.span(name)});
+}
+
+fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8) !PairJson {
+    if (lib.replica != null) return error.LibraryExists;
+    stopPairing(lib);
+    const p = try gpa.create(Pairing);
+    errdefer gpa.destroy(p);
+    p.offer = .{ .code = pair.newCode(lib.io()) };
+    const s = try gpa.create(Serving);
+    errdefer gpa.destroy(s);
+    s.* = .{ .arena = .init(gpa), .io = lib.io(), .source = undefined, .mounts = &.{}, .name = "", .txt = "", .default_port = 0 };
+    errdefer s.arena.deinit();
+    const a = s.arena.allocator();
+    s.name = try std.fmt.allocPrintSentinel(a, "{s}", .{try lib.store.serviceName(arena)}, 0);
+    s.txt = try discover.txtRecord(a, &.{
+        .{ "pair", "1" },
+        .{ "path", pair.path },
+        .{ "name", name[0..@min(name.len, 200)] },
+    });
+    s.handler = p.offer.handler();
+    try launch(lib, s, 0);
+    p.serving = s;
+    lib.pairing = p;
+    return .{ .code = try arena.dupe(u8, &p.offer.code), .paired = false, .closed = false };
+}
+
+/// On a new device offering to pair: its state, as JSON: `code` (to show,
+/// while it offers), `paired` (it has the user's secret and the library,
+/// and has stopped offering), and `closed` (it stopped, after too many
+/// wrong codes; offer again for a new one).
+export fn cq_pair_check(lib: *Library) ?[*:0]u8 {
+    return json(lib, pairCheck, .{});
+}
+
+fn pairCheck(lib: *Library, arena: std.mem.Allocator) !PairJson {
+    const p = lib.pairing orelse return .{ .code = null, .paired = lib.replica != null, .closed = lib.replica == null };
+    const received, const closed = p.offer.outcome(lib.io());
+    if (received) |secrets| {
+        stopPairing(lib);
+        try lib.store.link(arena, &std.fmt.bytesToHex(secrets.user, .lower));
+        try found(lib, arena, &std.fmt.bytesToHex(secrets.founder, .lower));
+        return .{ .code = null, .paired = true, .closed = false };
+    }
+    if (closed) {
+        stopPairing(lib);
+        return .{ .code = null, .paired = false, .closed = true };
+    }
+    return .{ .code = try arena.dupe(u8, &p.offer.code), .paired = false, .closed = false };
+}
+
+/// Stops offering to pair, if it is.
+export fn cq_pair_stop(lib: *Library) void {
+    stopPairing(lib);
+}
+
+fn stopPairing(lib: *Library) void {
+    const p = lib.pairing orelse return;
+    const s = p.serving;
+    _ = s.future.cancel(lib.io()) catch {};
+    s.arena.deinit();
+    gpa.destroy(s);
+    gpa.destroy(p);
+    lib.pairing = null;
+}
+
+/// Long: pairs the new device offering at `url` (a `pairing` peer's, from
+/// `cq_peers`) with this user, given the code it shows: sends it this
+/// user's secret and the library's founder's key, which it takes only if
+/// the code is right. Fails with `WrongCode`, or `Closed` once it stopped.
+export fn cq_pair(lib: *Library, url: [*:0]const u8, code: [*:0]const u8) c_int {
+    return status(lib, pairWith, .{ std.mem.span(url), std.mem.span(code) });
+}
+
+fn pairWith(lib: *Library, arena: std.mem.Allocator, url: []const u8, code: []const u8) !void {
+    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
+    defer client.deinit();
+    const digits = std.mem.trim(u8, code, " \n");
+    try pair.send(lib.io(), arena, &client, url, digits, .{ .user = lib.store.identity.user, .founder = try lib.store.founder(arena) });
 }
 
 /// The members, as a JSON array of objects with `key`, `name` (null if
@@ -450,9 +563,10 @@ fn devices(lib: *Library, arena: std.mem.Allocator) ![]const DeviceJson {
 
 /// Long (it listens for 2 seconds): the peers found on the network, by
 /// DNS-SD, other than this one, and those added by address, as a JSON
-/// array of objects with `url` (to sync with), `device` and `person` (their
-/// names, if advertised), `user` (key), `ours` (of this library), `member`
-/// (its user is one), and `added`.
+/// array of objects with `url` (to sync with, or for one `pairing`, to pair
+/// with), `device` and `person` (their names, if advertised), `user` (key),
+/// `ours` (of this library), `member` (its user is one), `added`, and
+/// `pairing` (a new device offering to pair, by `cq_pair`).
 export fn cq_peers(lib: *Library) ?[*:0]u8 {
     return json(lib, peers, .{});
 }
@@ -478,10 +592,11 @@ fn peers(lib: *Library, arena: std.mem.Allocator) ![]const PeerJson {
             .ours = std.mem.eql(u8, s.get("library") orelse "", &mine),
             .member = is_member,
             .added = false,
+            .pairing = s.get("pair") != null,
         });
     }
     for (try r.localKeys(arena, "peer:")) |k|
-        try out.append(arena, .{ .url = k["peer:".len..], .device = null, .person = null, .user = null, .ours = true, .member = true, .added = true });
+        try out.append(arena, .{ .url = k["peer:".len..], .device = null, .person = null, .user = null, .ours = true, .member = true, .added = true, .pairing = false });
     return out.items;
 }
 

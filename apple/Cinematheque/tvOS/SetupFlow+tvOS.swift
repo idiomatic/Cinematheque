@@ -4,7 +4,7 @@ import SwiftUI
 /// Setting up on an Apple TV, as tvOS apps do: the app's name over a few
 /// large choices, each a screen of its own with one thing to enter.
 struct SetupFlow: View {
-    enum Step: String, Hashable { case link, join, joinOther }
+    enum Step: String, Hashable { case link, secret, join, joinOther }
 
     @Environment(Library.self) private var library
     @State private var path: [Step] = []
@@ -37,6 +37,8 @@ struct SetupFlow: View {
             .navigationDestination(for: Step.self) { step in
                 switch step {
                 case .link:
+                    PairingStep { path.append(.secret) }
+                case .secret:
                     Entry(
                         title: "Enter Your Secret",
                         detail: "On your Mac, open Cinematheque's Settings, then People & Devices › Add a Device.",
@@ -62,6 +64,57 @@ struct SetupFlow: View {
                 }
             }
         }
+    }
+}
+
+/// Pairing with another of the user's devices: a code to enter there,
+/// which brings this one the user and the library; or, failing that,
+/// entering the user's secret instead.
+private struct PairingStep: View {
+    let enterSecret: () -> Void
+    @Environment(Library.self) private var library
+    @State private var state: Library.Pairing?
+    /// Counts offers, each with a new code.
+    @State private var offers = 0
+
+    var body: some View {
+        VStack(spacing: 40) {
+            Text("Pair with Your Mac").font(.title.weight(.bold))
+            Text("On your Mac, open Cinematheque's Settings, then People & Devices › Add a Device, and enter this code beside this Apple TV's name.")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if let code = state?.code {
+                // In two groups of three, to read at a distance.
+                Text(code.prefix(3) + " " + code.suffix(3))
+                    .font(.system(size: 140, weight: .semibold, design: .rounded).monospacedDigit())
+                    .padding(.horizontal, 60)
+                    .padding(.vertical, 20)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24))
+                HStack(spacing: 16) {
+                    ProgressView()
+                    Text("Waiting for your Mac…").foregroundStyle(.secondary)
+                }
+            } else if state?.closed == true {
+                Text("That was too many wrong codes.").foregroundStyle(.secondary)
+                Button("Show a New Code") { offers += 1 }
+            }
+            Button("Enter Your Secret Instead", action: enterSecret)
+            if let problem = library.problem {
+                Label(problem, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: 1200)
+        .task(id: offers) {
+            state = library.offerPairing()
+            // Until paired (the app then leaves setup) or stopped.
+            while !Task.isCancelled, state?.code != nil {
+                try? await Task.sleep(for: .seconds(1))
+                if let checked = library.checkPairing() { state = checked }
+            }
+        }
+        .onDisappear { library.stopPairing() }
     }
 }
 

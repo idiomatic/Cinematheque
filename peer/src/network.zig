@@ -104,6 +104,57 @@ pub fn serve(p: *Peer, c: Command) !void {
     });
 }
 
+/// On a new device, before it has a library: shows a code, and offers to
+/// pair (serving and advertising) until another of the user's devices
+/// pairs it, with `user pair CODE`; then takes that user, and the library.
+pub fn offerPairing(p: *Peer) !void {
+    if (p.store.founder(p.arena)) |_| return error.LibraryExists else |_| {}
+    var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io) };
+    const Listening = struct {
+        name: [:0]const u8,
+        txt: []const u8,
+        advertisement: ?core.discover.Advertisement = null,
+
+        fn onListen(context: ?*anyopaque, got: u16) void {
+            const l: *@This() = @ptrCast(@alignCast(context.?));
+            l.advertisement = core.discover.advertise(l.name, got, l.txt) catch |err| blk: {
+                std.log.warn("not advertised: {t}", .{err});
+                break :blk null;
+            };
+        }
+    };
+    var listening: Listening = .{
+        .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
+        .txt = try core.discover.txtRecord(p.arena, &.{
+            .{ "pair", "1" },
+            .{ "path", core.pair.path },
+            .{ "name", p.environ.get("HOST") orelse "" },
+        }),
+    };
+    defer if (listening.advertisement) |a| a.deinit();
+    var serving = try p.io.concurrent(core.serve.serve, .{ p.io, p.gpa, core.serve.Options{
+        .host = "0.0.0.0",
+        .port = 0,
+        .handler = offer.handler(),
+        .on_listen = Listening.onListen,
+        .on_listen_context = &listening,
+    } });
+    defer _ = serving.cancel(p.io) catch {};
+    try p.out.print("on another of your devices, pair this one with the code {s}\n", .{offer.code});
+    try p.out.flush();
+    while (true) {
+        try p.io.sleep(.fromSeconds(1), .awake);
+        const received, const closed = offer.outcome(p.io);
+        if (received) |secrets| {
+            try p.store.link(p.arena, &std.fmt.bytesToHex(secrets.user, .lower));
+            try p.store.setFounder(p.arena, secrets.founder);
+            try p.out.print("paired: this device now acts as user {s}, in the library {s} founded\n", .{ std.fmt.bytesToHex(try p.user(), .lower), std.fmt.bytesToHex(secrets.founder, .lower) });
+            return;
+        }
+        if (closed) return error.TooManyWrongCodes;
+    }
+}
+
 fn serviceName(p: *Peer) ![]const u8 {
     return p.store.serviceName(p.arena);
 }

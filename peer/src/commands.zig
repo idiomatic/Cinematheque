@@ -23,7 +23,29 @@ pub fn user(peer: *Peer, c: Command) !void {
     } else if (c.is("link", 1, &.{})) {
         try peer.store.link(peer.arena, c.rest[0]);
         try peer.out.print("this device now acts as user {s}\n", .{hex(try peer.user())});
+    } else if (c.is("pair", 0, &.{})) {
+        try network.offerPairing(peer);
+    } else if (c.is("pair", 1, &.{}) or c.is("pair", 2, &.{})) {
+        const url = if (c.rest.len == 2) c.rest[1] else try offering(peer);
+        var client: std.http.Client = .{ .allocator = peer.gpa, .io = peer.io };
+        defer client.deinit();
+        try core.pair.send(peer.io, peer.arena, &client, url, c.rest[0], .{
+            .user = peer.store.identity.user,
+            .founder = try peer.store.founder(peer.arena),
+        });
+        try peer.out.print("paired {s}\n", .{url});
     } else return error.Usage;
+}
+
+/// The one new device nearby offering to pair.
+fn offering(peer: *Peer) ![]const u8 {
+    var found: ?[]const u8 = null;
+    for (try core.discover.browse(peer.io, peer.arena, 2000)) |s| {
+        if (s.host.len == 0 or s.get("pair") == null) continue;
+        if (found != null) return error.SeveralOffering;
+        found = try std.fmt.allocPrint(peer.arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse core.pair.path });
+    }
+    return found orelse error.NoneOffering;
 }
 
 pub fn library(peer: *Peer, c: Command) !void {

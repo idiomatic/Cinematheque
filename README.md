@@ -172,7 +172,21 @@ Each peer checks, by signature, that every change comes from a member, so a peer
 
 ## Your other devices
 
-To use the library on another of your own devices as yourself, with your playheads, link it before it joins. On a device you already use:
+To use the library on another of your own devices as yourself, with your playheads, pair it before it has a library. On the new one, on the same network:
+
+```sh
+cinematheque user pair
+```
+
+It shows a code. On a device you already use:
+
+```sh
+cinematheque user pair CODE
+```
+
+That sends the new device your secret and the library, sealed so that only a device showing the code can open them. The code is short, but it's worth one guess per try, and the new device stops after 3 wrong ones. On the apps, the Apple TV shows the code, and you enter it on the Mac, in Settings › People & Devices › Add a Device.
+
+A device off your network can be linked by hand instead. On a device you already use:
 
 ```sh
 cinematheque user secret

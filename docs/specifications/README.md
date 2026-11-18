@@ -22,6 +22,14 @@ External specifications and papers Cinematheque relies on. They're linked rather
 | Keyhive | https://www.inkandswitch.com/project/keyhive/ | Prior art on access control as a CRDT. |
 | p2panda | https://p2panda.org | Prior art on signed per-author logs. |
 
+## Pairing
+
+| Title | Source | Why it applies |
+|---|---|---|
+| CPace, a balanced composable PAKE (draft-irtf-cfrg-cpace) | https://datatracker.ietf.org/doc/draft-irtf-cfrg-cpace/ | Pairing derives its key from a short code, worth one guess per attempt. |
+| RFC 9496, The ristretto255 and decaf448 Groups | https://www.rfc-editor.org/rfc/rfc9496 | The group CPace runs over, with its hash to the group. |
+| RFC 8439, ChaCha20 and Poly1305 | https://www.rfc-editor.org/rfc/rfc8439 | Seals the secrets sent once paired. |
+
 ## Repositories
 
 | Title | Source | Why it applies |

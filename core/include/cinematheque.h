@@ -28,6 +28,15 @@ char *cq_secret(cq_library *library);
 int cq_link(cq_library *library, const char *secret);
 // Creates a library (founder NULL), or joins the one founder founded.
 int cq_found(cq_library *library, const char *founder);
+// Pairing: on a new device, before it has a library, offering to pair
+// (serving and advertising as name), with a code to show, and checking
+// whether it's paired (taking the user's secret and the library) or closed
+// (too many wrong codes); and on another of the user's devices, long,
+// pairing the one offering at url (a pairing peer's) given its code.
+char *cq_pair_offer(cq_library *library, const char *name);
+char *cq_pair_check(cq_library *library);
+void cq_pair_stop(cq_library *library);
+int cq_pair(cq_library *library, const char *url, const char *code);
 char *cq_members(cq_library *library);
 int cq_member(cq_library *library, const char *user_key, int add);
 

@@ -132,6 +132,8 @@ struct Peer: Codable, Identifiable, Hashable {
     /// Its user is a member.
     let member: Bool
     let added: Bool
+    /// A new device offering to pair (`url` is where to pair it).
+    let pairing: Bool
     var id: String { url }
 }
 
@@ -230,6 +232,55 @@ final class Library {
 
     /// Acts as the user whose secret it is, before creating or joining.
     func link(_ secret: String) { check { cq_link($0, secret) } }
+
+    // Pairing a new device with another of this user's by a code it shows.
+
+    /// A new device's offer: the code to show, and whether it's paired (it
+    /// has the library) or stopped, after too many wrong codes.
+    struct Pairing: Codable, Equatable {
+        let code: String?
+        let paired: Bool
+        let closed: Bool
+    }
+
+    /// On this device, before it has a library: offers to pair, with a new
+    /// code.
+    func offerPairing() -> Pairing? {
+        // As setup leaves, once paired, its screen may ask once more.
+        guard !hasLibrary else { return nil }
+        return decode(Pairing.self) { cq_pair_offer($0, Platform.deviceName) }
+    }
+
+    /// The offer's state; once paired, this device has its user and library.
+    func checkPairing() -> Pairing? {
+        guard !hasLibrary else { return nil }
+        let state = decode(Pairing.self) { cq_pair_check($0) }
+        if state?.paired == true { reload() }
+        return state
+    }
+
+    func stopPairing() {
+        if let handle { cq_pair_stop(handle.pointer) }
+    }
+
+    /// Pairs the new device `peer` offers, given the code it shows, sending
+    /// it this user's secret and the library. Returns what went wrong, in
+    /// words, if anything did.
+    func pair(_ peer: Peer, code: String) async -> String? {
+        guard let handle else { return "The library isn't open." }
+        let url = peer.url
+        let name = peer.device.flatMap { $0.isEmpty ? nil : $0 } ?? "The device"
+        let failure: String? = await Task.detached {
+            cq_pair(handle.pointer, url, code) == 0 ? nil : String(cString: cq_error())
+        }.value
+        return failure.map {
+            switch $0 {
+            case "WrongCode": "That isn't the code \(name) shows. Check it, and try again."
+            case "Closed": "\(name) stopped pairing after too many wrong codes. On it, show a new code."
+            default: "Couldn't pair with \(name): \($0)."
+            }
+        }
+    }
 
     // Managing.
 
