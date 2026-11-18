@@ -190,12 +190,12 @@ struct CoverGrid: View {
         // The last row clears the status bar floating over the grid.
         .contentMargins(.bottom, StatusBar.height, for: .scrollContent)
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { _, _ in
-            if let top = anchor.top { position.scrollTo(id: top, anchor: .top) }
+            if let top = anchor.top { scroll(to: top) }
         }
         .task {
             // After the first layout, which ignores scrolling.
             await Task.yield()
-            if search.isEmpty, let top = positions.tops[shelf] { position.scrollTo(id: top, anchor: .top) }
+            if search.isEmpty, let top = positions.tops[shelf] { scroll(to: top) }
             restored = true
         }
         // A new search starts at the top, which its results may not reach.
@@ -216,6 +216,16 @@ struct CoverGrid: View {
             if tiles.isEmpty {
                 ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text("Add repositories and crawl them in Settings."))
             }
+        }
+    }
+
+    /// Puts a title at the top; the first, with the grid's top margin above
+    /// it, as when it was first shown.
+    private func scroll(to top: String) {
+        if top == tiles.first?.key {
+            position.scrollTo(edge: .top)
+        } else {
+            position.scrollTo(id: top, anchor: .top)
         }
     }
 

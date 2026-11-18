@@ -8,7 +8,6 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 * **Linux:** running the peer itself there (its experiments ran in a VM).
 * **Experiments:** merge the READMEs of experiments whose code is gone (crdt, naming, discovery, repository) into [experiments/README.md](experiments/README.md), keeping their methods and results.
 * **Known issues:**
-  * Switching shelves can narrow the inspector to its minimum width, reflowing the grid.
   * macOS's Local Network privacy can block the peer from reaching the LAN (`HostUnreachable`, as Python's `No route to host`) when it's started by a program without that permission, while Apple's own tools, such as `curl`, get through; check the launch agents, and how the peer asks.
 
 ## Libraries
