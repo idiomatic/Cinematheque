@@ -56,7 +56,11 @@ const index_max_age_ms = 60 * 1000;
 
 const Served = struct {
     prefix: []const u8,
-    root: Io.Dir,
+    path: []const u8,
+    /// Kept open if it has an `INDEX` (the command-line peer's media);
+    /// else opened for each request, so a folder that goes (a share
+    /// unmounted, a drive unplugged) and comes back is served as it is.
+    root: ?Io.Dir,
     /// Its `INDEX`, if it has one (allocated by the server's `gpa`), its
     /// ETag, and when it was built; held while built or sent.
     index: ?[]u8,
@@ -68,7 +72,7 @@ const Served = struct {
     fn freshen(m: *Served, io: Io, gpa: std.mem.Allocator, now_ms: i64) !void {
         const old = m.index orelse return;
         if (now_ms - m.index_built_ms < index_max_age_ms) return;
-        const index = try buildIndex(io, gpa, m.root);
+        const index = try buildIndex(io, gpa, m.root.?);
         gpa.free(old);
         m.setIndex(index, now_ms);
     }
@@ -129,14 +133,14 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
     const mounts = try arena.alloc(Served, options.mounts.len);
     var opened: usize = 0;
     defer for (mounts[0..opened]) |m| {
-        m.root.close(io);
+        if (m.root) |root| root.close(io);
         if (m.index) |index| gpa.free(index);
     };
     for (options.mounts, mounts) |m, *out| {
-        const root = try Io.Dir.cwd().openDir(io, m.path, .{ .iterate = true });
-        out.* = .{ .prefix = std.mem.trim(u8, m.prefix, "/"), .root = root, .index = null };
+        const root = if (m.index) try Io.Dir.cwd().openDir(io, m.path, .{ .iterate = true }) else null;
+        out.* = .{ .prefix = std.mem.trim(u8, m.prefix, "/"), .path = m.path, .root = root, .index = null };
         opened += 1;
-        if (m.index) out.setIndex(try buildIndex(io, gpa, root), nowMs(io));
+        if (root) |r| out.setIndex(try buildIndex(io, gpa, r), nowMs(io));
     }
     const ctx: Context = .{
         .io = io,
@@ -237,7 +241,18 @@ fn respond(ctx: *const Context, request: *http.Server.Request) !void {
     }
 
     const rel = std.mem.trim(u8, within, "/");
-    const stat = mount.root.statFile(ctx.io, if (rel.len == 0) "." else rel, .{}) catch
+    const json = if (header(request, "accept")) |a| std.mem.indexOf(u8, a, "application/json") != null else false;
+    const opened = if (mount.root == null) Io.Dir.cwd().openDir(ctx.io, mount.path, .{ .iterate = true }) catch {
+        // Not there: listed empty, as an unplugged drive's mount point is,
+        // so a crawl finds it absent (its copies kept) rather than failing.
+        if (rel.len == 0 and path[path.len - 1] == '/') return request.respond(if (json) "[]" else "<!DOCTYPE html>\n<html><body><pre>\n</pre></body></html>\n", .{ .extra_headers = &.{
+            .{ .name = "content-type", .value = if (json) "application/json" else "text/html; charset=utf-8" },
+        } });
+        return request.respond("not found\n", .{ .status = .not_found });
+    } else null;
+    defer if (opened) |d| d.close(ctx.io);
+    const root = mount.root orelse opened.?;
+    const stat = root.statFile(ctx.io, if (rel.len == 0) "." else rel, .{}) catch
         return request.respond("not found\n", .{ .status = .not_found });
     if (stat.kind == .directory) {
         if (path[path.len - 1] != '/') {
@@ -246,10 +261,9 @@ fn respond(ctx: *const Context, request: *http.Server.Request) !void {
                 .{ .name = "location", .value = try std.fmt.bufPrint(&location, "{s}/", .{raw[0..path_end]}) },
             } });
         }
-        const json = if (header(request, "accept")) |a| std.mem.indexOf(u8, a, "application/json") != null else false;
-        return listing(ctx, request, mount.root, rel, json);
+        return listing(ctx, request, root, rel, json);
     }
-    return sendFile(ctx, request, mount.root, rel, stat);
+    return sendFile(ctx, request, root, rel, stat);
 }
 
 fn listing(ctx: *const Context, request: *http.Server.Request, root: Io.Dir, rel: []const u8, json: bool) !void {

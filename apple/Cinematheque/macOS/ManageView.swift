@@ -323,7 +323,7 @@ private struct SourcesPane: View {
                         } icon: {
                             Image(systemName: missing ? "folder.badge.questionmark" : "folder")
                         }
-                        .help(missing ? "\(folder.path) isn't there (on a drive that's unplugged?), so it isn't shared; it will be once it's back." : folder.path)
+                        .help(missing ? "\(folder.path) isn't there (a share unmounted, or a drive unplugged?); its titles show dimmed until it's back." : folder.path)
                     } else {
                         Label {
                             // Folders of it on drives that aren't there.

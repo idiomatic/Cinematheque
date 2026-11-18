@@ -1251,6 +1251,30 @@ test "an unplugged directory is absent, its copies kept; a deleted one's go" {
     try t.expectEqual(@as(usize, 1), try forgetAbsent(&r, arena, 9000 + absent_expiry_ms, repo, "/"));
     try t.expectEqual(@as(i64, 0), try copies(&r, arena, repo));
     try t.expectEqual(@as(usize, 0), (try absences(&r, arena, &repo.id)).len);
+
+    // A folder served at a path of its own (as the apps serve theirs) that
+    // goes altogether, as a share unmounted: it lists empty, so it's
+    // absent, its copies kept, and back again once it returns.
+    try tmp.dir.createDirPath(io, "share");
+    try tmp.dir.writeFile(io, .{ .sub_path = "share/Casablanca (1942).mp4", .data = "x" });
+    var folder: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .prefix = "movies", .path = try std.fmt.allocPrint(arena, "{s}/share", .{root}), .index = false }} } };
+    try folder.start();
+    defer folder.stop();
+    _ = try addRepository(&r, 9000, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/movies/", .{folder.port}), .{});
+    const share = for (try repositories(&r, arena)) |rp| {
+        if (std.mem.endsWith(u8, rp.url, "/movies/")) break rp;
+    } else unreachable;
+    _ = try Fresh.crawl(&r, io, arena, &client, 10_000, share);
+    try t.expectEqual(@as(i64, 1), try copies(&r, arena, share));
+    try tmp.dir.rename("share", tmp.dir, "share-away", io);
+    stats = (try Fresh.crawl(&r, io, arena, &client, 11_000, share)).ingest;
+    try t.expectEqual(@as(usize, 1), stats.absent);
+    try t.expectEqual(@as(i64, 1), try copies(&r, arena, share));
+    try t.expectEqualStrings("", (try absences(&r, arena, &share.id))[0].dir);
+    try tmp.dir.rename("share-away", tmp.dir, "share", io);
+    stats = (try Fresh.crawl(&r, io, arena, &client, 12_000, share)).ingest;
+    try t.expectEqual(@as(usize, 0), stats.absent);
+    try t.expectEqual(@as(usize, 0), (try absences(&r, arena, &share.id)).len);
 }
 
 test "state: repositories, aliases, playheads, and members can be listed, set, and removed" {

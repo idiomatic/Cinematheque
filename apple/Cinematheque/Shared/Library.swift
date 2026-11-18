@@ -459,8 +459,9 @@ final class Library {
 
     /// This device's folders served as repositories, for this library.
     private(set) var folders: [Folder] = []
-    /// Folders not there when serving last started (on a drive unplugged,
-    /// say), by prefix: the rest are served, and these once they're back.
+    /// Folders not there when last looked (on a drive unplugged, or a share
+    /// unmounted), by prefix: served all the same, listed empty while gone,
+    /// so crawls find them absent, their titles dimmed, not failed.
     private(set) var missingFolders: Set<String> = []
 
     /// Folders that aren't there now.
@@ -471,11 +472,10 @@ final class Library {
         }.map(\.prefix))
     }
 
-    /// Serves again if a folder has come back, or gone, since serving
-    /// started.
+    /// Notes folders that have come back, or gone, for Settings to show.
     private func checkFolders() {
-        guard servingPort != nil, absentFolders != missingFolders else { return }
-        serve()
+        let now = absentFolders
+        if now != missingFolders { missingFolders = now }
     }
 
     private var foldersKey: String { "folders-" + (status?.library ?? "") }
@@ -538,14 +538,12 @@ final class Library {
         guard let handle, hasLibrary else { return }
         if folders.isEmpty { loadFolders() }
         let defaults = UserDefaults.standard
-        // A folder that isn't there would keep the server from starting.
         missingFolders = absentFolders
-        var mounts = folders.filter { !missingFolders.contains($0.prefix) }.map { ["prefix": $0.prefix, "path": $0.path] }
+        var mounts = folders.map { ["prefix": $0.prefix, "path": $0.path] }
         #if os(macOS)
         if downloads == nil { reloadDownloads() }
-        if (try? FileManager.default.createDirectory(atPath: downloadsDir, withIntermediateDirectories: true)) != nil {
-            mounts.append(["prefix": Self.downloadsPrefix, "path": downloadsDir])
-        }
+        try? FileManager.default.createDirectory(atPath: downloadsDir, withIntermediateDirectories: true)
+        mounts.append(["prefix": Self.downloadsPrefix, "path": downloadsDir])
         #endif
         let json = String(decoding: (try? JSONSerialization.data(withJSONObject: mounts)) ?? Data("[]".utf8), as: UTF8.self)
         let port = cq_serve(handle.pointer, Int32(defaults.integer(forKey: "servingPort")), json)
@@ -1051,14 +1049,34 @@ final class Library {
 
     /// A long operation's failures in a sentence: the first, by its
     /// server's name and the error in words, and how many more there were.
-    nonisolated static func describe(_ failed: [(url: String, error: String)], _ what: String) -> String? {
+    /// "Crawling failed for art › Movies › 2160p (and 2 more): the server
+    /// has nothing at that address." Each source by its name, if known
+    /// (as Settings shows it, or a peer as it advertised itself), else its
+    /// server.
+    nonisolated static func describe(_ failed: [(url: String, name: String?, error: String)], _ what: String) -> String? {
         guard let first = failed.first else { return nil }
-        let host = URL(string: first.url)?.host() ?? first.url
-        // "ConnectionRefused" to "connection refused".
-        let reason = first.error.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.lowercased()
+        let host = URL(string: first.url)?.host()?.replacing(/\.local$/, with: "") ?? first.url
         let others = failed.count - 1
         let more = others == 0 ? "" : " (and \(others) more)"
-        return "\(what) failed for \(host)\(more): \(reason)."
+        return "\(what) failed for \(first.name ?? host)\(more): \(reason(first.error))."
+    }
+
+    /// The core's error, as a person reads it.
+    nonisolated static func reason(_ error: String) -> String {
+        switch error {
+        case "NotFound": "the server has nothing at that address"
+        case "AccessDenied": "the server refused access"
+        case "ServerError": "the server had a problem"
+        case "BadStatus": "the server answered unexpectedly"
+        case "ConnectionRefused": "nothing answered there (is the server running?)"
+        case "ConnectionTimedOut", "Timeout": "it didn't answer in time"
+        case "UnknownHostName", "NameServerFailure", "TemporaryNameServerFailure": "no server by that name was found"
+        case "NetworkUnreachable", "HostUnreachable": "it can't be reached from this network"
+        case "NotAMember": "it isn't a member of this library"
+        default:
+            // "ConnectionResetByPeer" to "connection reset by peer".
+            error.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.lowercased()
+        }
     }
 
     /// Shows a problem, or with none, clears one of the same kind.
@@ -1101,12 +1119,16 @@ final class Library {
             watcher.cancel()
             progress = nil
         }
+        // Sources by the names Settings gives them.
+        let names = Dictionary(repositories.map { ($0.url, folder(of: $0).map { "\($0.name) on this Mac" } ?? $0.displayName) }, uniquingKeysWith: { a, _ in a })
         let (failure, data): (String?, Data?) = await Task.detached {
             guard let text = body(handle.pointer) else { return (String(cString: cq_error()), nil) }
             defer { cq_free(text) }
             let data = Data(bytes: text, count: strlen(text))
             let results = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
-            let failed = results.compactMap { r in (r["error"] as? String).map { (url: r["url"] as? String ?? "", error: $0) } }
+            let failed = results.compactMap { r in
+                (r["error"] as? String).map { (url: r["url"] as? String ?? "", name: r["name"] as? String ?? names[r["url"] as? String ?? ""], error: $0) }
+            }
             return (Library.describe(failed, what), data)
         }.value
         if let data { results?(data) }

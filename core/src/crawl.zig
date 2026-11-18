@@ -154,7 +154,7 @@ const Worker = struct {
         };
         if (status != .ok) {
             std.log.err("{s}: {d}", .{ dir, @intFromEnum(status) });
-            return error.BadStatus;
+            return statusError(status);
         }
         const text = body.written();
         w.result.requests += 1;
@@ -294,6 +294,16 @@ pub fn crawl(io: Io, arena: std.mem.Allocator, client: *http.Client, base: []con
     return result;
 }
 
+/// What a server's status says went wrong, as an error a person can read
+/// (see the apps' messages): nothing there, refused, or the server's fault.
+pub fn statusError(status: http.Status) anyerror {
+    return switch (status) {
+        .not_found, .gone => error.NotFound,
+        .unauthorized, .forbidden => error.AccessDenied,
+        else => if (@intFromEnum(status) >= 500) error.ServerError else error.BadStatus,
+    };
+}
+
 /// Asks for a listing as JSON and sees whether that's what came back.
 fn sniff(arena: std.mem.Allocator, client: *http.Client, base: []const u8) !Format {
     var body: Io.Writer.Allocating = .init(arena);
@@ -302,7 +312,7 @@ fn sniff(arena: std.mem.Allocator, client: *http.Client, base: []const u8) !Form
         .response_writer = &body.writer,
         .extra_headers = &.{.{ .name = "accept", .value = "application/json" }},
     })).status;
-    if (status != .ok) return error.BadStatus;
+    if (status != .ok) return statusError(status);
     const text = std.mem.trimStart(u8, body.written(), " \t\r\n");
     return if (text.len > 0 and text[0] == '[') .json else .html;
 }
@@ -318,7 +328,7 @@ fn crawlIndex(arena: std.mem.Allocator, client: *http.Client, base: []const u8, 
         .response_writer = &body.writer,
     })).status;
     if (status == .not_found) return null;
-    if (status != .ok) return error.BadStatus;
+    if (status != .ok) return statusError(status);
     var result: Result = .{ .requests = 1, .listing_bytes = body.written().len };
     var lines = std.mem.splitScalar(u8, body.written(), '\n');
     while (lines.next()) |line| {
