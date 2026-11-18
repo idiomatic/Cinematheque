@@ -18,7 +18,21 @@ struct Browser: View {
     @State private var gridHeight: CGFloat = 0
     @Environment(\.openWindow) private var openWindow
 
+    /// What plays in the library's window, filling it.
+    @State private var playing: PlayRequest?
+
     var body: some View {
+        ZStack {
+            browser
+            if let playing {
+                WindowPlayer(request: playing) { self.playing = nil }
+                    .id(playing)
+            }
+        }
+        .environment(\.play, PlayAction(inWindow: { playing = $0 }, newWindow: { openWindow(value: $0) }))
+    }
+
+    private var browser: some View {
         NavigationSplitView {
             List(Self.shelves, selection: $shelf) { shelf in
                 Label(shelf.title, systemImage: shelf.symbol)
@@ -60,7 +74,7 @@ struct Browser: View {
         #if DEBUG
         .onAppear {
             if let id = Launch.selection { selection = id }
-            if let url = Launch.play.flatMap(URL.init(string:)) { openWindow(value: PlayRequest(url: url, item: Launch.item ?? "", start: 0)) }
+            if let url = Launch.play.flatMap(URL.init(string:)) { playing = PlayRequest(url: url, item: Launch.item ?? "", start: 0) }
         }
         #endif
     }
@@ -97,7 +111,7 @@ struct CoverGrid: View {
     /// first layout (at the top) isn't recorded over it.
     @State private var restored = false
     @Environment(Library.self) private var library
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.play) private var play
     /// Tiles at least half on screen, whose titles a crawl describes first,
     /// and the first of which the grid keeps in place.
     @State private var visible: Set<Tile.ID> = []
@@ -191,7 +205,7 @@ struct CoverGrid: View {
                     // saying it's no longer visible.
                     .onDisappear { visible.remove(tile.id) }
                     .onTapGesture { selection = tile.id }
-                    .simultaneousGesture(TapGesture(count: 2).onEnded { play(tile) })
+                    .simultaneousGesture(TapGesture(count: 2).onEnded { playNext(tile) })
                     .contextMenu {
                         if tile.played {
                             Button("Remove from Played") { library.removeFromPlayed(tile) }
@@ -216,10 +230,10 @@ struct CoverGrid: View {
 
     /// Plays what's next in a tile: a movie, or a season's next unwatched
     /// episode, then the rest of the season.
-    private func play(_ tile: Tile) {
+    private func playNext(_ tile: Tile) {
         selection = tile.id
         guard let detail = library.detail(tile.key), let request = Playback.next(in: detail, season: tile.season) else { return }
-        openWindow(value: request)
+        play(request)
     }
 }
 

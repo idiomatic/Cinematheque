@@ -6,7 +6,7 @@ import SwiftUI
 struct InspectorView: View {
     let tile: Tile
     @Environment(Library.self) private var library
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.play) private var play
     @State private var detail: TitleDetail?
     @State private var rendition: String?
 
@@ -53,7 +53,7 @@ struct InspectorView: View {
         let renditions = Array(Set(items.flatMap { $0.renditions.map(\.label) })).sorted()
         VStack(alignment: .leading, spacing: 10) {
             Button {
-                if let request = Playback.next(in: detail, season: tile.season, rendition: rendition) { openWindow(value: request) }
+                if let request = Playback.next(in: detail, season: tile.season, rendition: rendition) { play(request) }
             } label: {
                 Label(Playback.playLabel(next), systemImage: "play.fill")
                     .frame(maxWidth: .infinity)
@@ -87,7 +87,7 @@ struct InspectorView: View {
                 Marks(detail: detail, items: items)
                 if tile.season != nil {
                     Button {
-                        if let request = Playback.request(detail, items: items, from: 0, rendition: rendition) { openWindow(value: request) }
+                        if let request = Playback.request(detail, items: items, from: 0, rendition: rendition) { play(request) }
                     } label: {
                         Label("From Start", systemImage: "backward.end.fill")
                     }
@@ -126,7 +126,7 @@ struct InspectorView: View {
             Text("Episodes").font(.headline).padding(.bottom, 6)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 EpisodeRow(item: item, detail: detail) {
-                    if let request = Playback.request(detail, items: items, from: index, rendition: rendition) { openWindow(value: request) }
+                    if let request = Playback.request(detail, items: items, from: index, rendition: rendition) { play(request) }
                 }
                 Divider()
             }
@@ -140,7 +140,7 @@ struct InspectorView: View {
             ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
                 HStack {
                     Button {
-                        if let request = Playback.request(detail, items: [item], from: 0, rendition: rendition) { openWindow(value: request) }
+                        if let request = Playback.request(detail, items: [item], from: 0, rendition: rendition) { play(request) }
                     } label: {
                         Image(systemName: item.watched ? "checkmark.circle.fill" : "play.circle")
                             .font(.title3)

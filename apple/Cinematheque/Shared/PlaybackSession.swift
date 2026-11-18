@@ -13,6 +13,10 @@ final class PlaybackSession {
     let player: AVQueuePlayer
     /// Called as each item starts, e.g., for a window's title.
     var onItem: ((PlayRequest.Entry) -> Void)?
+    /// Called once the queue's last item has played to its end.
+    var onFinished: (() -> Void)?
+    /// The queue's last player item.
+    private let last: ObjectIdentifier?
     private let library: Library
     private let start: Double
     /// Each queued player item's item key and title.
@@ -41,6 +45,7 @@ final class PlaybackSession {
             return playerItem
         }
         self.entries = entries
+        last = items.last.map(ObjectIdentifier.init)
         player = AVQueuePlayer(items: items)
     }
 
@@ -76,6 +81,7 @@ final class PlaybackSession {
                 guard let self, let id, let entry = self.entries[id] else { return }
                 self.library.setWatched(entry.item, true)
                 self.library.reload()
+                if id == self.last { self.onFinished?() }
             }
         }
     }
