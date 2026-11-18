@@ -132,14 +132,8 @@ struct Poster: View {
                 Color.clear
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)
                     .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name) }
-                    .overlay(alignment: .topTrailing) {
-                        if tile.watched {
-                            Image(systemName: "checkmark.circle.fill")
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, Color.accentColor)
-                                .padding(10)
-                        }
-                    }
+                    // A series' tile stands for the whole series.
+                    .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: true), watched: tile.watched, padding: 10) }
                     .overlay(alignment: .bottom) {
                         if !tile.watched, tile.progress > 0 {
                             ProgressView(value: tile.progress).tint(.white).padding(12)

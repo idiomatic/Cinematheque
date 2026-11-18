@@ -131,3 +131,31 @@ struct Marks: View {
         .help(watched ? "Mark as unwatched" : "Mark as watched")
     }
 }
+
+/// A cover's marks: a star at its top leading corner if it's on the
+/// watchlist, and a check at its trailing one if it's watched.
+struct CoverMarks: View {
+    let listed: Bool
+    let watched: Bool
+    var padding: CGFloat = 6
+
+    var body: some View {
+        HStack(alignment: .top) {
+            if listed { mark("star.circle.fill", .yellow) }
+            Spacer()
+            // Green, not the accent color, which is white on tvOS.
+            if watched { mark("checkmark.circle.fill", .green) }
+        }
+        .padding(padding)
+    }
+
+    private func mark(_ symbol: String, _ color: Color) -> some View {
+        Image(systemName: symbol)
+            #if os(macOS)
+            .font(.title3)
+            #endif
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(.white, color)
+            .shadow(color: .black.opacity(0.3), radius: 2)
+    }
+}

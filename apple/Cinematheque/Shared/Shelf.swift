@@ -75,6 +75,16 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+extension Library {
+    /// Whether a tile is on the watchlist; with `anySeason`, a series'
+    /// tile standing for the whole series is if any of its seasons is.
+    func isListed(_ tile: Tile, anySeason: Bool = false) -> Bool {
+        if watchlist.contains(tile.id) { return true }
+        guard anySeason, tile.isSeries else { return false }
+        return watchlist.contains { $0.hasPrefix(tile.key + "#") }
+    }
+}
+
 extension Tile {
     /// On the Played shelf: with a playhead, in progress or watched.
     var played: Bool { started }

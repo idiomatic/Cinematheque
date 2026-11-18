@@ -243,6 +243,7 @@ struct TileView: View {
     let tile: Tile
     let aspect: Double
     let selected: Bool
+    @Environment(Library.self) private var library
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -254,15 +255,7 @@ struct TileView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 3 : 1)
                 }
-                .overlay(alignment: .topTrailing) {
-                    if tile.watched {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title3)
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, Color.accentColor)
-                            .padding(6)
-                    }
-                }
+                .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile), watched: tile.watched) }
                 .overlay(alignment: .bottom) {
                     if !tile.watched, tile.progress > 0 {
                         ProgressView(value: tile.progress)
