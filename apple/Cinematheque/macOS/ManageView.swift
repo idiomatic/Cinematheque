@@ -271,7 +271,13 @@ private struct DeviceRow: View {
                 .labelsHidden()
                 .textFieldStyle(.plain)
                 .onSubmit { library.renameDevice(device.key, name) }
-            if device.you { Text("This Mac").foregroundStyle(.secondary) }
+            if device.you {
+                Text("This Mac").foregroundStyle(.secondary)
+            } else {
+                Button("Remove", role: .destructive) { withAnimation { library.removeDevice(device.key) } }
+                    .buttonStyle(.borderless)
+                    .help("Remove it from your devices: what it changes from now on is refused, and it isn't synced with. It still knows your secret, so it could be paired again.")
+            }
         }
         .help("Rename it for everyone in the library")
         .onAppear { name = device.name }

@@ -418,6 +418,8 @@ pub const Replica = struct {
         if (std.mem.eql(u8, &device_key, &replica.device())) return .all;
         if (std.mem.eql(u8, &device_key, &replica.private_pair.public_key.toBytes())) return .all;
         const c = try replica.certified(device_key, ops) orelse return .none;
+        // A device removed from its user's devices, though its user stays.
+        if (try replica.revoked(device_key)) |seq| return .{ .through = seq };
         if (try replica.isMemberUser(c.user)) return .all;
         if (try replica.cutoff(c.user, device_key)) |seq| return .{ .through = seq };
         return .none;
@@ -509,10 +511,52 @@ pub const Replica = struct {
         return out.items;
     }
 
+    /// Removes one device (of this user's, or any member's) without its
+    /// user: its streams, its own and its private one, are cut off where
+    /// this replica has seen them, so writes through there stand and later
+    /// ones are refused, and it's served no more. It still holds its user's
+    /// secret, so it isn't kept out of the user's other devices' data that
+    /// it already has, and could pair afresh as another device.
+    pub fn revokeDevice(replica: *Replica, wall_ms: u64, device_key: Device) !void {
+        if (std.mem.eql(u8, &device_key, &replica.device())) return error.ThisDevice;
+        var arena_state = std.heap.ArenaAllocator.init(replica.gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        var streams: std.ArrayList(Device) = .empty;
+        try streams.append(arena, device_key);
+        // Its private streams, whose certificates it wrote.
+        {
+            const s = try replica.db.prepare("SELECT key FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private' AND device = ?1");
+            defer s.finalize();
+            try s.bindInt(1, try replica.deviceId(device_key));
+            while (try s.step()) {
+                var private: Device = undefined;
+                _ = std.fmt.hexToBytes(&private, s.blob(0)[2..]) catch continue;
+                try streams.append(arena, private);
+            }
+        }
+        for (streams.items) |stream| {
+            var seq: [8]u8 = undefined;
+            std.mem.writeInt(u64, &seq, try replica.seen(try replica.deviceId(stream)), .little);
+            try replica.write(wall_ms, "revoked", &std.fmt.bytesToHex(stream, .lower), &seq);
+        }
+    }
+
+    /// Where a stream of a removed device was cut off, if it was.
+    pub fn revoked(replica: *Replica, stream: Device) !?u64 {
+        const s = replica.select_winner;
+        defer s.reset();
+        try s.bindText(1, "revoked");
+        try s.bindText(2, &std.fmt.bytesToHex(stream, .lower));
+        if (!try s.step()) return null;
+        const value = s.blob(3);
+        if (value.len != 8) return null;
+        return std.mem.readInt(u64, value[0..8], .little);
+    }
+
     /// Removes `user` from the library. Their devices' writes up to what
     /// this replica has seen stand; later ones are refused. The founder
-    /// (as handed over, if it was)
-    /// can't be removed.
+    /// (as handed over, if it was) can't be removed.
     pub fn removeMember(replica: *Replica, wall_ms: u64, user: Device) !void {
         if (std.mem.eql(u8, &user, &replica.founder)) return error.FounderIsPermanent;
         var arena_state = std.heap.ArenaAllocator.init(replica.gpa);
@@ -1620,6 +1664,26 @@ test "a device whose certificate doesn't verify writes a fresh one, and its whol
     try testing.expectEqual(@as(usize, 0), stats.rejected);
     try testing.expectEqualStrings("Metropolis", try p.value(1, "t/00001", "name"));
     try testing.expectEqualStrings("Nosferatu", try p.value(1, "t/00002", "name"));
+}
+
+test "a device removed has its later writes refused, though its user stays" {
+    var p: Peers = undefined;
+    try p.init();
+    defer p.deinit();
+    const a = &p.replicas[0];
+    const c = &p.replicas[2];
+
+    try c.write(1000, "t/00001", "name", "Before");
+    _ = try p.sync(0, 2);
+    try a.revokeDevice(2000, c.device());
+    try c.write(3000, "t/00002", "name", "After");
+    _ = try p.sync(1, 0);
+    const stats = try p.sync(1, 2);
+    try testing.expect(stats.refused > 0);
+    try testing.expectEqualStrings("Before", try p.value(1, "t/00001", "name"));
+    try testing.expectError(error.Missing, p.value(1, "t/00002", "name"));
+    try testing.expect(try c.isMemberUser(c.userKey()));
+    try testing.expectError(error.ThisDevice, a.revokeDevice(4000, a.device()));
 }
 
 test "an invitation later in the same response admits earlier batches" {

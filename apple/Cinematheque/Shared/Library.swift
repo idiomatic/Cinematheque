@@ -306,6 +306,10 @@ final class Library {
         check { cq_name($0, key, user, trimmed) }
     }
 
+    /// Removes another of this user's devices from the library: its later
+    /// writes are refused, and it's served no more.
+    func removeDevice(_ key: String) { check { cq_remove_device($0, key) } }
+
     /// Takes in a device just paired: names it as it advertised itself
     /// (until it names itself), so it's among its user's devices at once,
     /// and if it's joining, adds its user as a member.

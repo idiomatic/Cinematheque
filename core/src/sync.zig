@@ -101,7 +101,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         return true;
     };
     const reader = checked[1];
-    if (!try src.isMemberUser(reader)) {
+    if (!try src.isMemberUser(reader) or try src.revoked(checked[0].device) != null) {
         try request.respond("not a member\n", .{ .status = .forbidden });
         return true;
     }

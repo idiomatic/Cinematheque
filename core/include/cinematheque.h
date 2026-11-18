@@ -111,6 +111,7 @@ void cq_stop_serving(cq_library *library);
 // they're of this library and their users members; and adding (nonzero
 // add) or removing a peer by address, on this device only.
 int cq_name(cq_library *library, const char *device_key, const char *user_key, const char *name);
+int cq_remove_device(cq_library *library, const char *device_key);
 int cq_set_name(cq_library *library, const char *which, const char *name);
 char *cq_devices(cq_library *library);
 char *cq_peers(cq_library *library);

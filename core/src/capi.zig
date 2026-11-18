@@ -612,9 +612,27 @@ fn devices(lib: *Library, arena: std.mem.Allocator) ![]const DeviceJson {
     const me = std.fmt.bytesToHex(try lib.store.user(), .lower);
     const this = std.fmt.bytesToHex(try lib.store.device(), .lower);
     var out: std.ArrayList(DeviceJson) = .empty;
-    for (try library.names(r, arena)) |n| if (n.user) |u| if (std.mem.eql(u8, u, &me))
+    for (try library.names(r, arena)) |n| if (n.user) |u| if (std.mem.eql(u8, u, &me)) {
+        // Those removed aren't this user's devices any more.
+        const key = store_.parseKey(n.key) catch continue;
+        if (try r.revoked(key) != null) continue;
         try out.append(arena, .{ .key = n.key, .name = n.name, .you = std.mem.eql(u8, n.key, &this) });
+    };
     return out.items;
+}
+
+/// Removes another device (`device`, a key) from the library: its writes
+/// past where this one has seen them are refused everywhere, and it's
+/// served no more. It still holds its user's secret, and could pair again
+/// as a new device.
+export fn cq_remove_device(lib: *Library, device: [*:0]const u8) c_int {
+    return status(lib, removeDevice, .{std.mem.span(device)});
+}
+
+fn removeDevice(lib: *Library, _: std.mem.Allocator, device: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    try (try lib.main()).revokeDevice(lib.now(), try store_.parseKey(device));
 }
 
 /// Long (it listens for 2 seconds): the peers found on the network, by
