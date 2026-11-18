@@ -123,7 +123,7 @@ Aliases are shared with every peer, so you only do it once; `alias list` shows t
 
 ## Watching on a Mac
 
-The Mac app browses the library by cover art: movies, and each series by season. Select one for its details, and play it straight from its repository, resuming where you left off on any of your devices; a season plays on from its next unwatched episode. Covers and descriptions come from your repositories: a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them, or else the cover and details your MP4 files carry (as HandBrake, iTunes, and tagging tools write them). Star titles for your watchlist, which, like what you've watched, is yours alone.
+The Mac app browses the library by cover art: movies, and each series by season. Select one for its details, and play it straight from its repository, resuming where you left off on any of your devices; a season plays on from its next unwatched episode. Covers and descriptions come from your repositories: a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them, or else the cover and details your MP4 files carry (as HandBrake, iTunes, and tagging tools write them). Until a cover loads, its tile shows a blurred likeness of it, which travels with the library, so even a newly linked Mac shows one at once. Star titles for your watchlist, which, like what you've watched, is yours alone.
 
 On first run, the app creates a library, or joins one; its Settings manage repositories, members, and syncing, so a household needs no command line. Open [apple/Cinematheque.xcodeproj](apple/Cinematheque.xcodeproj) in Xcode and run it, or build it from the command line:
 

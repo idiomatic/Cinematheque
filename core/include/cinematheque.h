@@ -58,6 +58,11 @@ long long cq_data_version(cq_library *library);
 char *cq_tiles(cq_library *library);
 char *cq_title(cq_library *library, const char *key);
 
+// A tile's placeholder (its `thumb`, a ThumbHash in base64) as RGBA
+// pixels, not premultiplied, 32 on the longer side, into 32*32*4 bytes;
+// 0, or -1 if it isn't one. Any thread.
+int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *height);
+
 // This user's private data: playheads in items (e.g.,
 // "t/m/alien/1979/v/-"), and the watchlist of titles.
 int cq_set_playhead(cq_library *library, const char *item_key, unsigned long long position_ms, unsigned long long duration_ms);

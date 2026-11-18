@@ -14,6 +14,7 @@ const std = @import("std");
 const Io = std.Io;
 const library = @import("library.zig");
 const art = @import("art.zig");
+const thumbhash = @import("thumbhash.zig");
 const store_ = @import("store.zig");
 const sync = @import("sync.zig");
 const discover = @import("discover.zig");
@@ -57,6 +58,21 @@ const Library = struct {
 
 export fn cq_error() [*:0]const u8 {
     return &last_error;
+}
+
+/// Renders a ThumbHash in base64 as RGBA pixels (not premultiplied) into
+/// `rgba`, which holds 32×32×4 bytes, 32 pixels on its longer side; sets
+/// `width` and `height`. Returns 0, or -1 if the hash isn't one. Any thread.
+export fn cq_thumbhash(hash_base64: [*:0]const u8, rgba: *[thumbhash.max_pixels * 4]u8, width: *c_int, height: *c_int) c_int {
+    var bytes: [thumbhash.max_len]u8 = undefined;
+    const text = std.mem.span(hash_base64);
+    const len = std.base64.standard.Decoder.calcSizeForSlice(text) catch return -1;
+    if (len > bytes.len) return -1;
+    std.base64.standard.Decoder.decode(bytes[0..len], text) catch return -1;
+    const r = thumbhash.decode(bytes[0..len], rgba) catch return -1;
+    width.* = @intCast(r.width);
+    height.* = @intCast(r.height);
+    return 0;
 }
 
 export fn cq_free(text: ?[*:0]u8) void {
@@ -139,7 +155,7 @@ const CoverJson = struct { url: []const u8, offset: u64, length: u64, stamp: []c
 const MemberJson = struct { key: []const u8, founder: bool, you: bool };
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
 const SyncJson = struct { url: []const u8, new: usize, @"error": ?[]const u8 };
-const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, watched: bool, progress: f64 };
+const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64 };
 const StatusJson = struct { user: []const u8, library: ?[]const u8, founder: ?[]const u8, members: usize };
 
 // Identity and membership.
@@ -411,8 +427,9 @@ fn describeItem(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !
 /// The grid's tiles, as a JSON array of objects with `key` (the title's),
 /// `name`, `year`, `kind` (`movie` or `series`), `season` (a series', or
 /// null), and `cover` (null, or `url`, `offset`, `length`, and `stamp`, a
-/// byte range to fetch, and what changes when it does), and this user's
-/// `watched` (every item) and `progress` (0 to 1).
+/// byte range to fetch, and what changes when it does), `thumb` (null, or
+/// the cover's placeholder, a ThumbHash in base64, for `cq_thumbhash`), and
+/// this user's `watched` (every item) and `progress` (0 to 1).
 export fn cq_tiles(lib: *Library) ?[*:0]u8 {
     return json(lib, tiles, .{});
 }
@@ -430,6 +447,7 @@ fn tiles(lib: *Library, arena: std.mem.Allocator) ![]const TileJson {
         .kind = if (t.kind == 's') "series" else "movie",
         .season = t.season,
         .cover = if (t.cover) |c| try coverJson(arena, bases, c) else null,
+        .thumb = t.thumb,
         .watched = t.watched,
         .progress = t.progress,
     };

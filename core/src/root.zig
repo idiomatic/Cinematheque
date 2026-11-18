@@ -11,6 +11,8 @@ pub const discover = @import("discover.zig");
 pub const url = @import("url.zig");
 pub const mp4 = @import("mp4.zig");
 pub const art = @import("art.zig");
+pub const jpeg = @import("jpeg.zig");
+pub const thumbhash = @import("thumbhash.zig");
 pub const store = @import("store.zig");
 
 test {
@@ -25,6 +27,8 @@ test {
     _ = url;
     _ = mp4;
     _ = art;
+    _ = jpeg;
+    _ = thumbhash;
     _ = store;
     _ = @import("merkle.zig");
     _ = @import("hlc.zig");

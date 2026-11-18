@@ -19,6 +19,8 @@ struct Tile: Codable, Identifiable, Hashable {
     let kind: String
     let season: Int?
     let cover: Cover?
+    /// The cover's placeholder, a ThumbHash in base64.
+    let thumb: String?
     /// This user's: every item watched, and how far along (0 to 1).
     let watched: Bool
     let progress: Double

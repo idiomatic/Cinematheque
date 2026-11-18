@@ -43,6 +43,14 @@ External specifications and papers Cinematheque relies on. They're linked rather
 | Kodi: naming episodes | https://kodi.wiki/view/Naming_video_files/Episodes | Episode naming conventions. |
 | parse-torrent-title (MIT) | https://github.com/TheBeastLT/parse-torrent-title | Model and test fixtures for the filename parser. |
 
+## Cover art
+
+| Title | Source | Why it applies |
+|---|---|---|
+| ITU-T T.81, JPEG | https://www.w3.org/Graphics/JPEG/itu-t81.pdf | Huffman-coded sequential and progressive scans, whose DC coefficients the core decodes for placeholders. |
+| ThumbHash (MIT) | https://github.com/evanw/thumbhash | The placeholder format, and the reference implementation the core's port reproduces. |
+| QuickTime File Format: metadata | https://developer.apple.com/documentation/quicktime-file-format | Atom layout, and the `ilst` items (`covr`, `©nam`, `ldes`) MP4 covers and metadata come from. |
+
 ## Transcoding
 
 | Title | Source | Why it applies |

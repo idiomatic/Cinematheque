@@ -16,6 +16,8 @@ pub const Cover = struct {
     offset: u64,
     length: u64,
     image: Image,
+    /// The image itself, read with `udta`.
+    bytes: []const u8 = &.{},
 };
 
 pub const Info = struct {
@@ -195,7 +197,7 @@ fn setItem(info: *Info, name: [4]u8, kind: u32, value: []const u8, offset: u64) 
     const eql = std.mem.eql;
     const text: ?[]const u8 = if (kind == 1 and std.unicode.utf8ValidateSlice(value)) value else null;
     if (eql(u8, &name, "covr") and info.cover == null and (kind == 13 or kind == 14)) {
-        info.cover = .{ .offset = offset, .length = value.len, .image = if (kind == 14) .png else .jpeg };
+        info.cover = .{ .offset = offset, .length = value.len, .image = if (kind == 14) .png else .jpeg, .bytes = value };
     } else if (eql(u8, &name, "\xa9nam")) {
         info.title = text;
     } else if (eql(u8, &name, "\xa9gen")) {

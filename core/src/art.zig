@@ -2,8 +2,9 @@
 //!
 //! Fields, beside the library's (see library.zig):
 //! * on a title's key: `art`, its cover; for a series, `art:s01`, `art:s02`,
-//!   and so on, its seasons'; and `description`, `genre`, `released`, and
-//!   `network`.
+//!   and so on, its seasons'; `thumb` (and `thumb:s01`...), each cover's
+//!   placeholder, a ThumbHash in base64 (`-` if its image can't be read);
+//!   and `description`, `genre`, `released`, and `network`.
 //! * on an item's key: `title` (an episode's), `description`, and
 //!   `duration` (milliseconds).
 //!
@@ -22,6 +23,8 @@ const naming = @import("naming.zig");
 const crawl = @import("crawl.zig");
 const mp4 = @import("mp4.zig");
 const url = @import("url.zig");
+const jpeg = @import("jpeg.zig");
+const thumbhash = @import("thumbhash.zig");
 
 pub const Cover = struct {
     repository: []const u8,
@@ -60,6 +63,8 @@ pub fn fileUrl(arena: std.mem.Allocator, base: []const u8, path: []const u8) ![]
 
 pub const Stats = struct {
     covers: usize = 0,
+    /// Placeholders (ThumbHashes) made.
+    thumbs: usize = 0,
     described: usize = 0,
     unchanged: usize = 0,
     failed: usize = 0,
@@ -96,6 +101,9 @@ pub const Job = struct {
     target: Target,
     repo: library.Repository,
     sidecar: ?Source,
+    /// An unchanged cover still without a placeholder, to make one for
+    /// alone (one request, for covers described before placeholders).
+    placeholder_for: ?Cover = null,
 
     /// The file the cover comes from.
     fn source(j: Job) Source {
@@ -165,7 +173,11 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
             for (list.items) |j| {
                 const src = j.source();
                 if (std.mem.eql(u8, c.repository, &j.repo.id) and std.mem.eql(u8, c.path, src.path) and std.mem.eql(u8, c.stamp, src.stamp)) {
-                    unchanged += 1;
+                    if (c.length > 0 and try library.fieldValue(replica, arena, j.target.title_key, try thumbField(arena, j.target.field)) == null) {
+                        var again = j;
+                        again.placeholder_for = c;
+                        try jobs.append(arena, again);
+                    } else unchanged += 1;
                     continue :next;
                 }
             }
@@ -201,9 +213,21 @@ pub const Write = struct { key: []const u8, field: []const u8, value: []const u8
 fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, writes: *std.ArrayList(Write), stats: *Stats) !void {
     const t = job.target;
     const repo = job.repo;
+    if (job.placeholder_for) |c| {
+        const bytes = fetch(arena, client, try fileUrl(arena, repo.url, c.path), c.offset, c.length) catch |err| {
+            if (unreachable_(err)) return; // to try again next crawl
+            return writePlaceholder(arena, writes, t, null, stats);
+        };
+        return writePlaceholder(arena, writes, t, bytes, stats);
+    }
     if (job.sidecar) |s| {
         const size = std.fmt.parseInt(u64, s.stamp[0 .. std.mem.indexOfScalar(u8, s.stamp, '\t') orelse 0], 10) catch 0;
+        const bytes = fetch(arena, client, try fileUrl(arena, repo.url, s.path), 0, size) catch |err| blk: {
+            if (unreachable_(err)) return; // to try again next crawl
+            break :blk null;
+        };
         try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = s.path, .offset = 0, .length = size, .stamp = s.stamp }).format(arena) });
+        try writePlaceholder(arena, writes, t, bytes, stats);
         stats.covers += 1;
     }
     if (!isMp4(t.path)) {
@@ -224,10 +248,72 @@ fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, wri
     stats.described += 1;
     if (job.sidecar == null) {
         const c = info.cover orelse mp4.Cover{ .offset = 0, .length = 0, .image = .jpeg };
-        if (info.cover != null) stats.covers += 1;
         try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = t.path, .offset = c.offset, .length = c.length, .stamp = t.stamp }).format(arena) });
+        if (info.cover) |found| {
+            stats.covers += 1;
+            try writePlaceholder(arena, writes, t, found.bytes, stats);
+        }
     }
     try appendInfo(arena, writes, t, info);
+}
+
+/// `thumb` for `art`, `thumb:s01` for `art:s01`.
+fn thumbField(arena: std.mem.Allocator, art_field: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(arena, "thumb{s}", .{art_field[3..]});
+}
+
+/// Records a cover's placeholder: its ThumbHash in base64, or `-` if the
+/// image couldn't be read (so it isn't tried again until the cover
+/// changes).
+fn writePlaceholder(arena: std.mem.Allocator, writes: *std.ArrayList(Write), t: Target, image: ?[]const u8, stats: *Stats) !void {
+    const hash = if (image) |bytes| placeholder(arena, bytes) catch null else null;
+    if (hash != null) stats.thumbs += 1;
+    try writes.append(arena, .{ .key = t.title_key, .field = try thumbField(arena, t.field), .value = hash orelse "-" });
+}
+
+/// A JPEG's ThumbHash, in base64, from its DC coefficients (an eighth of
+/// its size), averaged down to fit 100×100.
+pub fn placeholder(arena: std.mem.Allocator, bytes: []const u8) ![]const u8 {
+    const dc = try jpeg.decodeDc(arena, bytes);
+    const longer = @max(dc.width, dc.height);
+    const w = if (longer <= 100) dc.width else @max(1, (dc.width * 100 + longer / 2) / longer);
+    const h = if (longer <= 100) dc.height else @max(1, (dc.height * 100 + longer / 2) / longer);
+    const rgba = try arena.alloc(u8, w * h * 4);
+    for (0..h) |y| for (0..w) |x| {
+        const x0 = x * dc.width / w;
+        const x1 = @max(x0 + 1, (x + 1) * dc.width / w);
+        const y0 = y * dc.height / h;
+        const y1 = @max(y0 + 1, (y + 1) * dc.height / h);
+        var sum: [3]usize = @splat(0);
+        for (y0..y1) |sy| for (x0..x1) |sx| for (0..3) |c| {
+            sum[c] += dc.rgb[(sy * dc.width + sx) * 3 + c];
+        };
+        const n = (x1 - x0) * (y1 - y0);
+        const px = rgba[(y * w + x) * 4 ..][0..4];
+        for (0..3) |c| px[c] = @intCast((sum[c] + n / 2) / n);
+        px[3] = 255;
+    };
+    var hash: [thumbhash.max_len]u8 = undefined;
+    const len = try thumbhash.encode(arena, w, h, rgba, &hash);
+    const out = try arena.alloc(u8, std.base64.standard.Encoder.calcSize(len));
+    return std.base64.standard.Encoder.encode(out, hash[0..len]);
+}
+
+/// A file's bytes, or the range of them given; at most 16 MB.
+fn fetch(arena: std.mem.Allocator, client: *std.http.Client, target: []const u8, offset: u64, length: u64) ![]const u8 {
+    if (length == 0 or length > 16 << 20) return error.TooLarge;
+    var range_buf: [64]u8 = undefined;
+    const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-{d}", .{ offset, offset + length - 1 });
+    var request = try client.request(.GET, try std.Uri.parse(target), .{
+        .extra_headers = &.{.{ .name = "range", .value = range }},
+    });
+    defer request.deinit();
+    try request.sendBodiless();
+    var response = try request.receiveHead(&.{});
+    // Whole, only if the file is no more than what was asked for.
+    if (response.head.status != .partial_content and !(response.head.status == .ok and offset == 0)) return error.NoRanges;
+    var transfer: [8192]u8 = undefined;
+    return response.reader(&transfer).allocRemaining(arena, .limited(length));
 }
 
 /// Whether an error is the network's, worth trying again later.
@@ -367,6 +453,7 @@ const Runner = struct {
             .value = try r.arena.dupe(u8, w.value),
         });
         r.stats.covers += stats.covers;
+        r.stats.thumbs += stats.thumbs;
         r.stats.described += stats.described;
         r.stats.failed += stats.failed;
         r.batched += 1;
@@ -491,6 +578,8 @@ pub const Tile = struct {
     kind: u8,
     season: ?u16 = null,
     cover: ?Cover = null,
+    /// The cover's placeholder, a ThumbHash in base64.
+    thumb: ?[]const u8 = null,
     /// This user's: whether every item is watched, and how far along it
     /// is (a movie's position, or the share of a season's episodes watched).
     watched: bool = false,
@@ -530,8 +619,9 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     for (try library.titles(replica, arena)) |t| {
         if (t.renditions == 0 or t.alias != null) continue;
         const own = coverOf(try library.fieldValue(replica, arena, t.key, "art"));
+        const own_thumb = if (own != null) thumbOf(try library.fieldValue(replica, arena, t.key, "thumb")) else null;
         if (t.kind != 's') {
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own };
+            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb };
             progress(&tile, &items, &heads, try std.fmt.allocPrint(arena, "{s}#0", .{t.key}));
             try out.append(arena, tile);
             continue;
@@ -540,7 +630,8 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
         std.mem.sort(u16, list, {}, std.sort.asc(u16));
         for (list) |n| {
             const field = try std.fmt.allocPrint(arena, "art:s{d:0>2}", .{n});
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = coverOf(try library.fieldValue(replica, arena, t.key, field)) orelse own };
+            const cover = coverOf(try library.fieldValue(replica, arena, t.key, field));
+            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try library.fieldValue(replica, arena, t.key, try thumbField(arena, field))) else own_thumb };
             progress(&tile, &items, &heads, try std.fmt.allocPrint(arena, "{s}#{d}", .{ t.key, n }));
             try out.append(arena, tile);
         }
@@ -560,6 +651,11 @@ fn progress(tile: *Tile, items: anytype, heads: anytype, id: []const u8) void {
     } else if (heads.get(list[0])) |h| if (!h.watched and h.duration_ms > 0) {
         tile.progress = @as(f64, @floatFromInt(h.position_ms)) / @as(f64, @floatFromInt(h.duration_ms));
     };
+}
+
+fn thumbOf(value: ?[]const u8) ?[]const u8 {
+    const v = value orelse return null;
+    return if (std.mem.eql(u8, v, "-")) null else v;
 }
 
 fn coverOf(value: ?[]const u8) ?Cover {
@@ -641,7 +737,21 @@ test "a title in several repositories is described once, from its best source, a
     // Once described from b, it's unchanged, whichever repository's crawl
     // comes first.
     try r.write(1, "t/m/network-effect/2020", "art", try (Cover{ .repository = &b.id, .path = "Network Effect (2020).m4v", .offset = 9, .length = 9, .stamp = "2\tt" }).format(arena));
+    // Without a placeholder, it's planned for one alone, from that cover.
     const again = try plan(&r, arena, &crawled);
-    try std.testing.expectEqual(@as(usize, 0), again.jobs.len);
-    try std.testing.expectEqual(@as(usize, 1), again.unchanged);
+    try std.testing.expectEqual(@as(usize, 1), again.jobs.len);
+    try std.testing.expectEqual(@as(u64, 9), again.jobs[0].placeholder_for.?.offset);
+    try r.write(1, "t/m/network-effect/2020", "thumb", "-");
+    const settled = try plan(&r, arena, &crawled);
+    try std.testing.expectEqual(@as(usize, 0), settled.jobs.len);
+    try std.testing.expectEqual(@as(usize, 1), settled.unchanged);
+}
+
+test "a JPEG cover's placeholder is the reference ThumbHash of its DC image" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    // From evanw/thumbhash's rgbaToThumbHash, given the same 10×15 pixels.
+    try std.testing.expectEqualStrings("GRgKfQqDg5CYSIiIeIqnl49oyG92", try placeholder(arena, @embedFile("testdata/pattern.jpg")));
+    try std.testing.expectEqualStrings("GRgKfQqDg5CYSIiIeIqnl49oyG92", try placeholder(arena, @embedFile("testdata/pattern-progressive.jpg")));
 }

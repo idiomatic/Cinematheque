@@ -1,4 +1,5 @@
 import AppKit
+import CCinematheque
 import CryptoKit
 import ImageIO
 import SwiftUI
@@ -89,21 +90,51 @@ nonisolated final class CGImageBox: @unchecked Sendable {
     init(_ image: CGImage) { self.image = image }
 }
 
-/// A cover, or until it's loaded (or if there's none), a color of its own
-/// with its title, in a fixed frame, so the grid never waits on an image.
+/// Covers' placeholders, rendered by the core from their ThumbHashes (32
+/// pixels on the longer side, blurred further by scaling up), and kept in
+/// memory.
+enum Placeholder {
+    /// NSCache is safe to use from any thread.
+    nonisolated(unsafe) private static let memory = NSCache<NSString, CGImageBox>()
+
+    static func image(_ hash: String) -> CGImage? {
+        if let box = memory.object(forKey: hash as NSString) { return box.image }
+        var rgba = [UInt8](repeating: 0, count: 32 * 32 * 4)
+        var width: Int32 = 0
+        var height: Int32 = 0
+        guard cq_thumbhash(hash, &rgba, &width, &height) == 0,
+              let provider = CGDataProvider(data: Data(rgba[0..<Int(width * height * 4)]) as CFData),
+              let image = CGImage(width: Int(width), height: Int(height), bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: Int(width) * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+        else { return nil }
+        memory.setObject(CGImageBox(image), forKey: hash as NSString)
+        return image
+    }
+}
+
+/// A cover, or until it's loaded, its placeholder: a blurred likeness from
+/// its ThumbHash, or without one, a color of its own with its title; in a
+/// fixed frame, so the grid never waits on an image.
 struct CoverImage: View {
     let cover: Cover?
+    let thumb: String?
     let title: String
-    var size: ArtCache.Size = .tile
+    let size: ArtCache.Size
+    /// The cover, once loaded: from memory at once when the view is made,
+    /// so scrolling back shows no placeholder, else when it arrives.
     @State private var image: CGImage?
+
+    init(cover: Cover?, thumb: String? = nil, title: String, size: ArtCache.Size = .tile) {
+        self.cover = cover
+        self.thumb = thumb
+        self.title = title
+        self.size = size
+        _image = State(initialValue: cover.flatMap { ArtCache.shared.cached($0, size) })
+    }
 
     var body: some View {
         ZStack {
-            // From memory at once, so scrolling back shows no placeholder.
-            if let image = image ?? cover.flatMap({ ArtCache.shared.cached($0, size) }) {
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+            if let image {
+                Self.filling(Image(decorative: image, scale: 1).resizable())
             } else {
                 placeholder
             }
@@ -111,12 +142,32 @@ struct CoverImage: View {
         .clipped()
         .task(id: cover) {
             guard let cover else { return }
-            if ArtCache.shared.cached(cover, size) != nil { return }
-            image = await ArtCache.shared.image(cover, size)
+            if let cached = ArtCache.shared.cached(cover, size) {
+                image = cached
+                return
+            }
+            if let loaded = await ArtCache.shared.image(cover, size) { image = loaded }
         }
     }
 
+    /// An image filling the frame offered, cropped to it: an image scaled
+    /// to fill reports a size larger than its frame.
+    private static func filling(_ image: Image) -> some View {
+        Color.clear
+            .overlay { image.aspectRatio(contentMode: .fill) }
+            .clipped()
+    }
+
+    @ViewBuilder
     private var placeholder: some View {
+        if let thumb, let image = Placeholder.image(thumb) {
+            Self.filling(Image(decorative: image, scale: 1).resizable().interpolation(.high))
+        } else {
+            colored
+        }
+    }
+
+    private var colored: some View {
         // Stable across launches, unlike hashValue.
         let hue = Double(title.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xffff } % 360) / 360
         return ZStack {

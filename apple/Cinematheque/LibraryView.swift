@@ -20,6 +20,8 @@ struct LibraryView: View {
     @State private var search = ""
     @State private var selection: Tile.ID?
     @State private var inspecting = true
+    /// Each shelf's scroll position, to return to.
+    @State private var positions = ScrollMemory()
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -47,7 +49,10 @@ struct LibraryView: View {
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
         } detail: {
-            CoverGrid(tiles: shown, selection: $selection)
+            // A scroll view per shelf: one left scrolled past the end of a
+            // shorter shelf shows nothing until scrolled.
+            CoverGrid(tiles: shown, selection: $selection, shelf: shelf ?? .movies, search: search, positions: positions)
+                .id(shelf)
                 .navigationTitle(shelf?.rawValue ?? "Cinematheque")
                 // What a long operation is doing, while it runs.
                 .navigationSubtitle(library.activity.map { $0 + "…" } ?? "\(shown.count) \(shown.count == 1 ? "title" : "titles")")
@@ -99,9 +104,24 @@ struct LibraryView: View {
 
 /// Tiles of fixed size, laid out lazily: movies' covers 2:3, and each
 /// series' seasons together, square.
+/// Each shelf's topmost title in view, to return to: a movie's tile or a
+/// series' seasons, by title key (not an offset, which a change in the
+/// grid's width would move). Not observed, so scrolling doesn't redraw the
+/// view that holds it.
+final class ScrollMemory {
+    var tops: [LibraryView.Shelf: String] = [:]
+}
+
 struct CoverGrid: View {
     let tiles: [Tile]
     @Binding var selection: Tile.ID?
+    let shelf: LibraryView.Shelf
+    let search: String
+    let positions: ScrollMemory
+    @State private var position = ScrollPosition(edge: .top)
+    /// Whether the shelf's place has been restored, before which the grid's
+    /// first layout (at the top) isn't recorded over it.
+    @State private var restored = false
     @Environment(Library.self) private var library
     @Environment(\.openWindow) private var openWindow
     /// Tiles on screen or near it (the lazy grid's), whose titles a crawl
@@ -134,12 +154,24 @@ struct CoverGrid: View {
             }
             .padding(20)
         }
+        .scrollPosition($position)
+        .task {
+            // After the first layout, which ignores scrolling.
+            await Task.yield()
+            if search.isEmpty, let top = positions.tops[shelf] { position.scrollTo(id: top, anchor: .top) }
+            restored = true
+        }
+        // A new search starts at the top, which its results may not reach.
+        .onChange(of: search) { position.scrollTo(edge: .top) }
         // Once scrolling settles.
         .task(id: visible) {
             try? await Task.sleep(for: .milliseconds(200))
             // A tile's ID is its title's key, then `#` and a season for a
             // series' season.
-            if !Task.isCancelled { library.prioritize(Set(visible.map { String($0.split(separator: "#")[0]) })) }
+            guard !Task.isCancelled else { return }
+            library.prioritize(Set(visible.map { String($0.split(separator: "#")[0]) }))
+            // The shelf's whole grid, not a search's results.
+            if restored, search.isEmpty { positions.tops[shelf] = tiles.first { visible.contains($0.id) }?.key }
         }
         .overlay {
             if tiles.isEmpty {
@@ -192,7 +224,7 @@ struct TileView: View {
         VStack(alignment: .leading, spacing: 6) {
             Color.clear
                 .aspectRatio(aspect, contentMode: .fit)
-                .overlay { CoverImage(cover: tile.cover, title: tile.seasonName ?? tile.name) }
+                .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.seasonName ?? tile.name) }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)

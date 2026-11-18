@@ -291,7 +291,7 @@ fn crawlRepositories(peer: *Peer, workers: usize, only: ?[]const u8) !void {
     const start = Io.Timestamp.now(peer.io, .awake);
     const plan = try core.art.plan(&r, peer.arena, crawled.items);
     const a = try core.art.run(peer.io, &r, peer.arena, &client, peer.now(), plan.jobs, .{ .workers = workers });
-    try peer.out.print("described {d} movies and seasons ({d} unchanged) in {d} ms: {d} covers found, {d} files read, {d} failed\n", .{
-        plan.jobs.len, plan.unchanged, start.durationTo(Io.Timestamp.now(peer.io, .awake)).toMilliseconds(), a.covers, a.described, a.failed,
+    try peer.out.print("described {d} movies and seasons ({d} unchanged) in {d} ms: {d} covers found, {d} placeholders made, {d} files read, {d} failed\n", .{
+        plan.jobs.len, plan.unchanged, start.durationTo(Io.Timestamp.now(peer.io, .awake)).toMilliseconds(), a.covers, a.thumbs, a.described, a.failed,
     });
 }
