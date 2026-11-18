@@ -342,6 +342,9 @@ private struct SourcesPane: View {
             }
             .contextMenu(forSelectionType: Repository.ID.self) { ids in
                 if let repo = library.repositories.first(where: { $0.id == ids.first }) {
+                    Button(openLabel(repo)) { open(repo) }
+                        .disabled(!canOpen(repo))
+                    Divider()
                     Button("Edit…") { editing = repo }
                     Button("Remove", role: .destructive) { remove(repo) }
                 }
@@ -353,10 +356,18 @@ private struct SourcesPane: View {
                     .help("Add a folder on this Mac")
                 Button("Add Server…", systemImage: "server.rack") { adding = true }
                     .help("Add a server on your network, such as a NAS, by its address")
+                // A bare minus, as under tables on the Mac.
                 Button("Remove", systemImage: "minus") {
                     if let repo = library.repositories.first(where: { $0.id == selection }) { remove(repo) }
                 }
+                .labelStyle(.iconOnly)
+                .help("Remove the selected source")
                 .disabled(selection == nil)
+                if let repo = selected {
+                    Button(openLabel(repo), systemImage: library.folder(of: repo) == nil ? "safari" : "folder") { open(repo) }
+                        .disabled(!canOpen(repo))
+                        .help(library.folder(of: repo) == nil ? "See what the server lists, in your browser" : "See the folder in the Finder")
+                }
                 Spacer()
                 if let activity = library.activity {
                     ProgressView().controlSize(.small)
@@ -370,6 +381,27 @@ private struct SourcesPane: View {
         .padding()
         .sheet(isPresented: $adding) { SourceSheet(repository: nil) }
         .sheet(item: $editing) { SourceSheet(repository: $0) }
+    }
+
+    private var selected: Repository? { library.repositories.first { $0.id == selection } }
+
+    /// A folder on this Mac opens in the Finder; a server, in the browser,
+    /// which shows its listing.
+    private func openLabel(_ repo: Repository) -> String {
+        library.folder(of: repo) == nil ? "Open in Browser" : "Show in Finder"
+    }
+
+    private func canOpen(_ repo: Repository) -> Bool {
+        guard let folder = library.folder(of: repo) else { return URL(string: repo.url) != nil }
+        return !library.missingFolders.contains(folder.prefix)
+    }
+
+    private func open(_ repo: Repository) {
+        if let folder = library.folder(of: repo) {
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folder.path)
+        } else if let url = URL(string: repo.url) {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func remove(_ repo: Repository) {
