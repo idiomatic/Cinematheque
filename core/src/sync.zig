@@ -16,7 +16,101 @@ const flate = std.compress.flate;
 const Ed25519 = std.crypto.sign.Ed25519;
 const replica_ = @import("replica.zig");
 const serve_ = @import("serve.zig");
+const discover = @import("discover.zig");
+const library_ = @import("library.zig");
 const Replica = replica_.Replica;
+
+/// Where peers answer syncs, as they advertise it.
+pub const path = "/sync";
+
+/// Where peers added by URL are kept, in the replica's `local` state: on
+/// this device only.
+const added_prefix = "peer:";
+
+/// A peer's sync URL, from its base URL or the sync URL itself.
+pub fn syncUrl(arena: std.mem.Allocator, target: []const u8) ![]const u8 {
+    const t = std.mem.trim(u8, target, " \n");
+    if (std.mem.endsWith(u8, t, path)) return t;
+    return std.mem.concat(arena, u8, &.{ std.mem.trimEnd(u8, t, "/"), path });
+}
+
+/// What a peer serving `r`'s library advertises by DNS-SD (its TXT
+/// record): the library's ID, the sync path, its user's key, and the names
+/// of this device (`device`) and its user (`user`), if they have them.
+pub fn advertisement(arena: std.mem.Allocator, r: *Replica, user: [32]u8, device: [32]u8) ![]const u8 {
+    const user_hex = std.fmt.bytesToHex(user, .lower);
+    const named = try library_.names(r, arena);
+    return discover.txtRecord(arena, &.{
+        .{ "library", &std.fmt.bytesToHex(r.library, .lower) },
+        .{ "path", path },
+        .{ "user", &user_hex },
+        .{ "name", library_.nameOf(named, &std.fmt.bytesToHex(device, .lower)) orelse "" },
+        .{ "person", library_.nameOf(named, &user_hex) orelse "" },
+    });
+}
+
+/// The sync URL of a peer found nearby.
+pub fn foundUrl(arena: std.mem.Allocator, s: discover.Service) ![]const u8 {
+    return std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse path });
+}
+
+/// The sync URLs of the peers added by URL.
+pub fn addedPeers(r: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
+    const keys = try r.localKeys(arena, added_prefix);
+    const urls = try arena.alloc([]const u8, keys.len);
+    for (keys, urls) |k, *u| u.* = k[added_prefix.len..];
+    return urls;
+}
+
+/// Adds a peer by URL, or removes one added; returns its sync URL.
+pub fn setAdded(r: *Replica, arena: std.mem.Allocator, target: []const u8, add: bool) ![]const u8 {
+    const u = try syncUrl(arena, target);
+    const key = try std.mem.concat(arena, u8, &.{ added_prefix, u });
+    if (add) try r.setLocal(key, "") else try r.removeLocal(key);
+    return u;
+}
+
+/// The peers to sync with: their sync URLs, and the names of those found
+/// nearby, as they advertise them.
+pub const Peers = struct {
+    urls: []const []const u8,
+    names: std.StringHashMapUnmanaged([]const u8),
+};
+
+/// `target` alone, if given; else every peer of `r`'s library found nearby
+/// (but this one, advertised as `own`), then those added that weren't.
+pub fn peers(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8, target: ?[]const u8) !Peers {
+    var urls: std.ArrayList([]const u8) = .empty;
+    var names: std.StringHashMapUnmanaged([]const u8) = .empty;
+    if (target) |t| {
+        try urls.append(arena, try syncUrl(arena, t));
+        return .{ .urls = urls.items, .names = names };
+    }
+    const mine = std.fmt.bytesToHex(r.library, .lower);
+    for (try discover.browse(io, arena, 2000)) |s| {
+        if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
+        if (!std.mem.eql(u8, s.get("library") orelse "", &mine)) continue;
+        const u = try foundUrl(arena, s);
+        try urls.append(arena, u);
+        if (s.get("name")) |n| if (n.len > 0) try names.put(arena, u, n);
+    }
+    const found = urls.items.len;
+    for (try addedPeers(r, arena)) |u| {
+        for (urls.items[0..found]) |f| {
+            if (std.mem.eql(u8, f, u)) break;
+        } else try urls.append(arena, u);
+    }
+    return .{ .urls = urls.items, .names = names };
+}
+
+test "sync URLs" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    try std.testing.expectEqualStrings("http://hal:8008/sync", try syncUrl(arena, "http://hal:8008"));
+    try std.testing.expectEqualStrings("http://hal:8008/sync", try syncUrl(arena, "http://hal:8008/ "));
+    try std.testing.expectEqualStrings("http://hal:8008/sync", try syncUrl(arena, "http://hal:8008/sync"));
+}
 
 /// How far a request's time may be from the server's.
 const freshness_ms = 10 * 60 * 1000;
@@ -86,7 +180,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         try request.respond("", .{ .status = .no_content });
         return true;
     }
-    if (!std.mem.eql(u8, request.head.target, "/sync")) return false;
+    if (!std.mem.eql(u8, request.head.target, path)) return false;
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -122,11 +216,10 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     return true;
 }
 
-/// Pulls from the peer at `url` (e.g., `http://perihelion.local:8008/sync`).
 /// Asks the peer whose sync URL this is to pull from this one soon.
 pub fn nudge(client: *http.Client, sync_url: []const u8) !void {
     var buf: [512]u8 = undefined;
-    const base = if (std.mem.endsWith(u8, sync_url, "/sync")) sync_url[0 .. sync_url.len - "/sync".len] else std.mem.trimEnd(u8, sync_url, "/");
+    const base = if (std.mem.endsWith(u8, sync_url, path)) sync_url[0 .. sync_url.len - path.len] else std.mem.trimEnd(u8, sync_url, "/");
     const url = try std.fmt.bufPrint(&buf, "{s}/nudge", .{base});
     var request = try client.request(.POST, try std.Uri.parse(url), .{ .keep_alive = false });
     defer request.deinit();
@@ -138,6 +231,7 @@ pub fn nudge(client: *http.Client, sync_url: []const u8) !void {
     if (response.head.status != .no_content) return error.Refused;
 }
 
+/// Pulls from the peer at `url` (e.g., `http://perihelion.local:8008/sync`).
 pub fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !replica_.Stats {
     const body = try writeRequest(arena, dst, now_ms);
     var request = try client.request(.POST, try std.Uri.parse(url), .{

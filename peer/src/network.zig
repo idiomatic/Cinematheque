@@ -12,24 +12,19 @@ const Replica = core.replica.Replica;
 /// The port peers serve on by default.
 const default_port = 8008;
 
-/// Where peers added by URL are kept, in the replica's `local` state: on
-/// this device only.
-const added_prefix = "peer:";
-
 pub fn peer(p: *Peer, c: Command) !void {
     if (c.is("list", 0, &.{})) {
         for (try core.discover.browse(p.io, p.arena, 2000)) |s|
-            try p.out.print("http://{s}:{d}{s}  found  {s}, library {s}\n", .{ s.host, s.port, s.get("path") orelse "", s.name, s.get("library") orelse "?" });
+            try p.out.print("{s}  found  {s}, library {s}\n", .{ try core.sync.foundUrl(p.arena, s), s.name, s.get("library") orelse "?" });
         var r = try p.open();
         defer r.close();
-        for (try addedPeers(&r, p.arena)) |u| try p.out.print("{s}  added\n", .{u});
+        for (try core.sync.addedPeers(&r, p.arena)) |u| try p.out.print("{s}  added\n", .{u});
     } else if (c.is("add", 1, &.{}) or c.is("remove", 1, &.{})) {
         var r = try p.open();
         defer r.close();
-        const u = try syncUrl(p.arena, c.rest[0]);
-        const key = try std.mem.concat(p.arena, u8, &.{ added_prefix, u });
-        if (std.mem.eql(u8, c.verb, "add")) try r.setLocal(key, "") else try r.removeLocal(key);
-        try p.out.print("{s} {s}\n", .{ if (std.mem.eql(u8, c.verb, "add")) "added" else "removed", u });
+        const add = std.mem.eql(u8, c.verb, "add");
+        const u = try core.sync.setAdded(&r, p.arena, c.rest[0], add);
+        try p.out.print("{s} {s}\n", .{ if (add) "added" else "removed", u });
     } else return error.Usage;
 }
 
@@ -55,8 +50,7 @@ pub fn serve(p: *Peer, c: Command) !void {
     };
     var r = try p.open();
     const library_hex = std.fmt.bytesToHex(r.library, .lower);
-    const user_hex = std.fmt.bytesToHex(try p.store.user(), .lower);
-    const named = try core.library.names(&r, p.arena);
+    const txt = try core.sync.advertisement(p.arena, &r, try p.store.user(), try p.store.device());
     r.close();
     const Listening = struct {
         peer: *Peer,
@@ -79,13 +73,7 @@ pub fn serve(p: *Peer, c: Command) !void {
     var listening: Listening = .{
         .peer = p,
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
-        .txt = try core.discover.txtRecord(p.arena, &.{
-            .{ "library", &library_hex },
-            .{ "path", "/sync" },
-            .{ "user", &user_hex },
-            .{ "name", core.library.nameOf(named, &std.fmt.bytesToHex(try p.store.device(), .lower)) orelse "" },
-            .{ "person", core.library.nameOf(named, &user_hex) orelse "" },
-        }),
+        .txt = txt,
         .library = &library_hex,
         .media = media,
     };
@@ -171,25 +159,9 @@ pub fn pullAll(p: *Peer, target: ?[]const u8) !void {
     defer r.close();
     var client: std.http.Client = .{ .allocator = p.gpa, .io = p.io };
     defer client.deinit();
-    var urls: std.ArrayList([]const u8) = .empty;
-    if (target) |t| {
-        try urls.append(p.arena, try syncUrl(p.arena, t));
-    } else {
-        const mine = std.fmt.bytesToHex(r.library, .lower);
-        const own = try serviceName(p);
-        for (try core.discover.browse(p.io, p.arena, 2000)) |s| {
-            if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
-            if (!std.mem.eql(u8, s.get("library") orelse "", &mine)) continue;
-            try urls.append(p.arena, try std.fmt.allocPrint(p.arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse "/sync" }));
-        }
-        for (try addedPeers(&r, p.arena)) |u| {
-            for (urls.items) |found| {
-                if (std.mem.eql(u8, found, u)) break;
-            } else try urls.append(p.arena, u);
-        }
-        if (urls.items.len == 0) try p.out.print("no peers of this library found or added\n", .{});
-    }
-    for (urls.items) |u| {
+    const found = try core.sync.peers(p.io, p.arena, &r, try serviceName(p), target);
+    if (found.urls.len == 0) try p.out.print("no peers of this library found or added\n", .{});
+    for (found.urls) |u| {
         const start = Io.Timestamp.now(p.io, .awake);
         const stats = core.sync.pull(p.arena, &client, &r, u, p.now()) catch |err| {
             try p.out.print("{s}: {t}\n", .{ u, err });
@@ -200,17 +172,4 @@ pub fn pullAll(p: *Peer, target: ?[]const u8) !void {
             @as(f64, @floatFromInt(stats.wire_bytes)) / 1e3, start.durationTo(Io.Timestamp.now(p.io, .awake)).toMilliseconds(),
         });
     }
-}
-
-/// A peer's sync URL, from its base URL or the sync URL itself.
-fn syncUrl(arena: std.mem.Allocator, target: []const u8) ![]const u8 {
-    if (std.mem.endsWith(u8, target, "/sync")) return target;
-    return std.mem.concat(arena, u8, &.{ std.mem.trimEnd(u8, target, "/"), "/sync" });
-}
-
-fn addedPeers(r: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
-    const keys = try r.localKeys(arena, added_prefix);
-    const urls = try arena.alloc([]const u8, keys.len);
-    for (keys, urls) |k, *u| u.* = k[added_prefix.len..];
-    return urls;
 }

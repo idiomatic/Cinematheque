@@ -333,18 +333,8 @@ fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
         .founder = try lib.store.founder(arena),
         .identity = lib.store.identity,
     };
-    const r = try lib.main();
-    const library_id = std.fmt.bytesToHex(r.library, .lower);
-    const user = std.fmt.bytesToHex(try lib.store.user(), .lower);
-    const named = try library.names(r, arena);
     s.name = try std.fmt.allocPrintSentinel(arena, "{s}", .{try lib.store.serviceName(arena)}, 0);
-    s.txt = try discover.txtRecord(arena, &.{
-        .{ "library", &library_id },
-        .{ "path", "/sync" },
-        .{ "user", &user },
-        .{ "name", library.nameOf(named, &std.fmt.bytesToHex(try lib.store.device(), .lower)) orelse "" },
-        .{ "person", library.nameOf(named, &user) orelse "" },
-    });
+    s.txt = try sync.advertisement(arena, try lib.main(), try lib.store.user(), try lib.store.device());
     s.source.served = Library.onServed;
     s.source.served_context = lib;
     s.source.nudged = Library.onNudged;
@@ -670,7 +660,7 @@ fn peers(lib: *Library, arena: std.mem.Allocator) ![]const PeerJson {
             if (std.mem.eql(u8, &std.fmt.bytesToHex(m, .lower), u)) break true;
         } else false else false;
         try out.append(arena, .{
-            .url = try std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse "/sync" }),
+            .url = try sync.foundUrl(arena, s),
             .device = s.get("name"),
             .person = s.get("person"),
             .user = user,
@@ -680,8 +670,8 @@ fn peers(lib: *Library, arena: std.mem.Allocator) ![]const PeerJson {
             .pairing = s.get("pair"),
         });
     }
-    for (try r.localKeys(arena, "peer:")) |k|
-        try out.append(arena, .{ .url = k["peer:".len..], .device = null, .person = null, .user = null, .ours = true, .member = true, .added = true, .pairing = null });
+    for (try sync.addedPeers(&r, arena)) |u|
+        try out.append(arena, .{ .url = u, .device = null, .person = null, .user = null, .ours = true, .member = true, .added = true, .pairing = null });
     return out.items;
 }
 
@@ -692,11 +682,7 @@ export fn cq_peer(lib: *Library, target: [*:0]const u8, add: c_int) c_int {
 }
 
 fn peer(lib: *Library, arena: std.mem.Allocator, target: []const u8, add: bool) !void {
-    const r = try lib.main();
-    const t = std.mem.trim(u8, target, " \n");
-    const u = if (std.mem.endsWith(u8, t, "/sync")) t else try std.mem.concat(arena, u8, &.{ std.mem.trimEnd(u8, t, "/"), "/sync" });
-    const key = try std.mem.concat(arena, u8, &.{ "peer:", u });
-    if (add) try r.setLocal(key, "") else try r.removeLocal(key);
+    _ = try sync.setAdded(try lib.main(), arena, target, add);
 }
 
 // Repositories.
@@ -845,7 +831,7 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]cons
     defer lib.writer.unlock(lib.io());
     var r = try connection(lib, arena);
     defer r.close();
-    const reachable = try peerUrls(lib, arena, &r, target);
+    const reachable = try sync.peers(lib.io(), arena, &r, try lib.store.serviceName(arena), target);
     const urls = reachable.urls;
     const names = reachable.names;
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
@@ -863,30 +849,6 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]cons
     return out;
 }
 
-/// The sync URLs of the peers to sync with: `target` alone if given, else
-/// every peer of the library found nearby or added, with the names those
-/// found nearby advertise.
-fn peerUrls(lib: *Library, arena: std.mem.Allocator, r: *Replica, target: ?[]const u8) !struct { urls: []const []const u8, names: std.StringHashMapUnmanaged([]const u8) } {
-    var urls: std.ArrayList([]const u8) = .empty;
-    // The names peers found nearby advertise, by URL.
-    var names: std.StringHashMapUnmanaged([]const u8) = .empty;
-    if (target) |t| {
-        try urls.append(arena, if (std.mem.endsWith(u8, t, "/sync")) t else try std.mem.concat(arena, u8, &.{ std.mem.trimEnd(u8, t, "/"), "/sync" }));
-    } else {
-        const mine = std.fmt.bytesToHex(r.library, .lower);
-        const own = try lib.store.serviceName(arena);
-        for (try discover.browse(lib.io(), arena, 2000)) |s| {
-            if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
-            if (!std.mem.eql(u8, s.get("library") orelse "", &mine)) continue;
-            const u = try std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse "/sync" });
-            try urls.append(arena, u);
-            if (s.get("name")) |n| if (n.len > 0) try names.put(arena, u, n);
-        }
-        for (try r.localKeys(arena, "peer:")) |k| try urls.append(arena, k["peer:".len..]);
-    }
-    return .{ .urls = urls.items, .names = names };
-}
-
 /// Long: asks every peer this one syncs with to pull from it soon, as after
 /// a change of its own (a playhead, the watchlist); those that don't answer
 /// are passed over.
@@ -897,7 +859,7 @@ export fn cq_nudge(lib: *Library) c_int {
 fn nudgeAll(lib: *Library, arena: std.mem.Allocator) !void {
     var r = try connection(lib, arena);
     defer r.close();
-    const reachable = try peerUrls(lib, arena, &r, null);
+    const reachable = try sync.peers(lib.io(), arena, &r, try lib.store.serviceName(arena), null);
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     for (reachable.urls) |u| sync.nudge(&client, u) catch {};

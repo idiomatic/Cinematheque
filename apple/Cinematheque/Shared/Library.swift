@@ -42,7 +42,6 @@ struct TitleDetail: Codable {
     struct Copy: Codable, Hashable {
         let url: String
         let size: Int
-        let mtime: String
         let repository: String
     }
 
@@ -80,8 +79,6 @@ struct TitleDetail: Codable {
     let key: String
     let name: String
     let year: Int?
-    let aliasOf: String?
-    let aliases: [String]
     /// `description`, `genre`, `released`, and `network`.
     let fields: [String: String]
     /// By field: `art`, `art:s01`...
