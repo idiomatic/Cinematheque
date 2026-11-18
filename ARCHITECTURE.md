@@ -108,8 +108,7 @@ Sync is pull-only: a device asks a peer for what it lacks.
 Since only winners are sent, a sync carries the current state of what changed, not its history: a playhead moved ten times since the last sync is one operation per field.
 
 * **Nudges:** `POST /nudge` carries nothing and asks a peer to pull soon. The apps send one to every peer after their own changes, and pull when nudged. A nudge only prompts a sync with peers already known, so anyone may send one.
-* **Thin fetches:** a peer can fetch the winners under some keys (a title's) with one shared proof per batch: the sibling hashes covering all the operations taken from it. It keeps no batches or version vector for them.
-* **Repair:** a removal drops winners past its cutoff. The fields it dropped are refetched the same way, from a peer that refused those writes.
+* **Repair:** a removal drops winners past its cutoff. The fields it dropped are refetched from a peer that refused those writes: just those fields' winners, with one shared proof per batch (the sibling hashes covering all the operations taken from it), so they're verified without the batch's other leaves.
 
 The apps' status line ("Received 3 changes from firefly") counts operations: received, the operations that won their fields, and sent, the operations a response carried.
 

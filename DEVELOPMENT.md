@@ -36,7 +36,7 @@ Open:
 ## Sync
 
 * **Pairing:** by address in the apps, for a new device off the network (it would show its address with its code, as the command-line peer prints its port); a QR code carrying the code, for a phone app.
-* **Partial replicas:** tvOS players have only purgeable cache storage, so they may be thin, holding part of a library fetched on demand (the core's thin fetches) and its facet bitmaps, if rebuilding a whole replica after a purge (see [Apple TV player](#apple-tv-player)) proves too slow.
+* **Partial replicas:** tvOS players have only purgeable cache storage, so they may be thin, holding part of a library fetched on demand (by a title's prefix, with shared proofs, as repair fetches fields; a prefix fetch was built and dropped unused after commit `ae9f1d6`) and its facet bitmaps, if rebuilding a whole replica after a purge (see [Apple TV player](#apple-tv-player)) proves too slow.
 * **Repair:** range-based set reconciliation, if catching up by version vectors proves insufficient.
 * **Compaction:** emptied fields stay as tombstones, so a peer that missed the emptying can't revive an older value, and they grow with churn: in a reference library, 40,000 emptied holdings (from removed repositories, and keys that parser fixes changed) outnumbered 20,000 live ones, 28% of all winners. Drop a tombstone once every member device's version vector covers it, which needs peers to share the vectors they've seen of others; a device not heard from in long enough could be set aside, at the cost of its stale writes being refused.
 

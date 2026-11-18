@@ -88,7 +88,7 @@ pub const Stats = struct {
     refused: usize = 0,
     batches: usize = 0,
     /// What a network transfer would carry: operations, plus each batch's
-    /// device, range, signature, and leaves (or proofs, for thin fetches).
+    /// device, range, signature, and leaves (or proofs, for repair).
     wire_bytes: usize = 0,
 
     fn count(stats: *Stats, outcome: Outcome) void {
@@ -795,7 +795,7 @@ pub const Replica = struct {
     }
 
     /// Accepts some of a batch's operations with one shared proof against
-    /// the batch's signed root, as a thin replica does, keeping neither the
+    /// the batch's signed root, as repair does, keeping neither the
     /// batch nor a version vector.
     pub fn receiveShared(replica: *Replica, batch: Batch, count: usize, indices: []const usize, siblings: []const Hash, ops: []const Op, stats: *Stats) !void {
         var leaves: [merkle.max_leaves]Hash = undefined;
@@ -1258,43 +1258,30 @@ pub fn sync(arena: std.mem.Allocator, dst: *Replica, src: *Replica) !Stats {
     return stats;
 }
 
-/// Fetches the winning operations whose keys start with any of `prefixes`
-/// (e.g., a title and its subtree) into a thin replica: for each batch they
-/// come from, its device, range, and signature, the operations' indices
-/// (2 bytes each), one shared proof, and the operations. A thin replica
-/// fetches the certificates (`c/`) and members (`members`) that admit
-/// devices along with its first titles; batches not yet admitted wait for
-/// the rest of the fetch.
-pub fn fetch(dst: *Replica, src: *Replica, prefixes: []const []const u8) !Stats {
-    var arena_state = std.heap.ArenaAllocator.init(src.gpa);
-    defer arena_state.deinit();
-    const queries = try arena_state.allocator().alloc(Query, prefixes.len);
-    for (queries, prefixes) |*q, p| q.* = .{ .prefix = p };
-    return fetchQueries(dst, src, queries);
-}
-
-/// Refetches the fields a removal dropped (see `Replica.revoke`) from a
-/// peer, whose winners exclude the refused writes.
+/// Refetches the fields a removal dropped (see `Replica.cut`) from a peer,
+/// whose winners exclude the refused writes.
 pub fn repair(dst: *Replica, src: *Replica) !Stats {
     var arena_state = std.heap.ArenaAllocator.init(src.gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    var queries: std.ArrayList(Query) = .empty;
+    var fields: std.ArrayList(Field) = .empty;
     const s = try dst.db.prepare("SELECT key, field FROM repair");
     defer s.finalize();
-    while (try s.step()) try queries.append(arena, .{ .field = .{
+    while (try s.step()) try fields.append(arena, .{
         .key = try arena.dupe(u8, s.blob(0)),
         .field = try arena.dupe(u8, s.blob(1)),
-    } });
-    return fetchQueries(dst, src, queries.items);
+    });
+    return fetchFields(dst, src, fields.items);
 }
 
-const Query = union(enum) {
-    prefix: []const u8,
-    field: struct { key: []const u8, field: []const u8 },
-};
+const Field = struct { key: []const u8, field: []const u8 };
 
-fn fetchQueries(dst: *Replica, src: *Replica, queries: []const Query) !Stats {
+/// Fetches `fields`' winning operations from `src`: for each batch they
+/// come from, its device, range, and signature, the operations' indices,
+/// one shared proof, and the operations, which `dst` verifies against the
+/// batch's signed root without the batch's other leaves. Batches not yet
+/// admitted wait for the rest of the fetch.
+fn fetchFields(dst: *Replica, src: *Replica, fields: []const Field) !Stats {
     const gpa = src.gpa;
     var leaves: std.ArrayList(Hash) = .empty;
     defer leaves.deinit(gpa);
@@ -1317,34 +1304,14 @@ fn fetchQueries(dst: *Replica, src: *Replica, queries: []const Query) !Stats {
     var stats: Stats = .{};
     try dst.begin();
     errdefer dst.db.exec("ROLLBACK") catch {};
-    for (queries) |query| {
-        var upper_buf: [256]u8 = undefined;
-        const s = switch (query) {
-            .prefix => |prefix| blk: {
-                // Keys from `prefix` up to, not including, `prefix` with its
-                // last byte incremented.
-                if (prefix.len == 0 or prefix.len > upper_buf.len or prefix[prefix.len - 1] == 0xff) return error.BadPrefix;
-                @memcpy(upper_buf[0..prefix.len], prefix);
-                upper_buf[prefix.len - 1] += 1;
-                const s = try src.db.prepare(
-                    \\SELECT kind, key, field, hlc, seq, value, device FROM winners
-                    \\WHERE key >= ?1 AND key < ?2 ORDER BY device, seq
-                );
-                try s.bindText(1, prefix);
-                try s.bindText(2, upper_buf[0..prefix.len]);
-                break :blk s;
-            },
-            .field => |f| blk: {
-                const s = try src.db.prepare(
-                    \\SELECT kind, key, field, hlc, seq, value, device FROM winners
-                    \\WHERE key = ?1 AND field = ?2
-                );
-                try s.bindText(1, f.key);
-                try s.bindText(2, f.field);
-                break :blk s;
-            },
-        };
+    for (fields) |f| {
+        const s = try src.db.prepare(
+            \\SELECT kind, key, field, hlc, seq, value, device FROM winners
+            \\WHERE key = ?1 AND field = ?2
+        );
         defer s.finalize();
+        try s.bindText(1, f.key);
+        try s.bindText(2, f.field);
         var batch: ?Batch = null;
         var batch_id: i64 = 0;
         while (true) {
@@ -1572,7 +1539,7 @@ test "set membership: concurrent add and remove, then re-add" {
     try testing.expect(try a.isMember("l/watchlist", "t/00001"));
 }
 
-test "a thin fetch verifies operations by proof" {
+test "fetched fields are verified by shared proof" {
     var p: Peers = undefined;
     try p.init();
     defer p.deinit();
@@ -1584,10 +1551,13 @@ test "a thin fetch verifies operations by proof" {
         try a.write(1000, try std.fmt.bufPrint(&key, "t/{d:0>5}", .{i / 10}), try std.fmt.bufPrint(key[8..], "f{d}", .{i}), "x");
     }
     try a.commit();
-    const stats = try fetch(&p.replicas[2], a, &.{"t/00002"});
-    try testing.expectEqual(@as(usize, 10), stats.won);
+    // The certificate that admits a's device, then two fields of its batch.
+    var cert: [66]u8 = undefined;
+    _ = try fetchFields(&p.replicas[2], a, &.{.{ .key = certKey(&cert, a.device()), .field = "user" }});
+    const stats = try fetchFields(&p.replicas[2], a, &.{ .{ .key = "t/00002", .field = "f20" }, .{ .key = "t/00002", .field = "f21" } });
+    try testing.expectEqual(@as(usize, 2), stats.won);
     try a.db.exec("UPDATE winners SET value = 'y' WHERE key = 't/00003' AND field = 'f30'");
-    try testing.expectError(error.SignatureVerificationFailed, fetch(&p.replicas[2], a, &.{"t/00003"}));
+    try testing.expectError(error.SignatureVerificationFailed, fetchFields(&p.replicas[2], a, &.{.{ .key = "t/00003", .field = "f30" }}));
 }
 
 test "batches from devices of users who aren't members are rejected, then accepted once added" {
