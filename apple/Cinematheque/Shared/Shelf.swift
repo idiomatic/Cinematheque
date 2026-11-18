@@ -91,7 +91,8 @@ extension Library {
                 watched: seasons.allSatisfy(\.watched),
                 progress: runtime > 0 ? Double(elapsed) / Double(runtime) : 0,
                 elapsed: elapsed, runtime: runtime,
-                started: seasons.contains(where: \.started)
+                started: seasons.contains(where: \.started),
+                absent: seasons.allSatisfy(\.absent)
             )
         }
     }

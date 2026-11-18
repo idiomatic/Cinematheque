@@ -217,7 +217,7 @@ const Heard = struct {
         return .{ .device = key, .name = library.nameOf(named, key), .operations = operations, .at = at };
     }
 };
-const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool };
+const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, absent: bool };
 const StatusJson = struct { user: []const u8, linked: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
 
 /// How far a long operation has come, in steps of its phase (repositories
@@ -633,12 +633,15 @@ fn peer(lib: *Library, arena: std.mem.Allocator, target: []const u8, add: bool) 
 // Repositories.
 
 /// The repositories, as a JSON array of objects with `id`, `url`,
-/// `rendition`, `skip`, and `copies`.
+/// `rendition`, `skip`, `copies`, and `absent`, its absent directories
+/// (`dir`, relative to it, empty for the whole of it, and `since`, in
+/// milliseconds since the epoch).
 export fn cq_repos(lib: *Library) ?[*:0]u8 {
     return json(lib, repos, .{});
 }
 
-const RepoJson = struct { id: []const u8, url: []const u8, rendition: []const u8, skip: []const u8, copies: i64 };
+const AbsenceJson = struct { dir: []const u8, since: u64 };
+const RepoJson = struct { id: []const u8, url: []const u8, rendition: []const u8, skip: []const u8, copies: i64, absent: []const AbsenceJson };
 
 fn repos(lib: *Library, arena: std.mem.Allocator) ![]const RepoJson {
     const r = try lib.main();
@@ -650,8 +653,27 @@ fn repos(lib: *Library, arena: std.mem.Allocator) ![]const RepoJson {
         .rendition = rp.layout.rendition,
         .skip = rp.layout.skip,
         .copies = try library.copies(r, arena, rp),
+        .absent = blk: {
+            const list_ = try library.absences(r, arena, &rp.id);
+            const absent = try arena.alloc(AbsenceJson, list_.len);
+            for (list_, absent) |a, *j| j.* = .{ .dir = a.dir, .since = a.since_ms };
+            break :blk absent;
+        },
     };
     return out;
+}
+
+/// Forgets an absent directory of a repository (by ID or URL), as if it
+/// were deleted: its copies go, for every peer.
+export fn cq_forget_absent(lib: *Library, repo: [*:0]const u8, dir: [*:0]const u8) c_int {
+    return status(lib, forgetAbsent, .{ std.mem.span(repo), std.mem.span(dir) });
+}
+
+fn forgetAbsent(lib: *Library, arena: std.mem.Allocator, repo: []const u8, dir: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    const r = try lib.main();
+    _ = try library.forgetAbsent(r, arena, lib.now(), try library.findRepository(r, arena, repo), dir);
 }
 
 /// Adds a repository by URL, as typed, with its rendition and the prefix of
@@ -842,7 +864,8 @@ fn describeItem(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !
 /// byte range to fetch, and what changes when it does), `thumb` (null, or
 /// the cover's placeholder, a ThumbHash in base64, for `cq_thumbhash`), and
 /// this user's `watched` (every item), `progress` (0 to 1, by running time),
-/// `elapsed` and `runtime` (milliseconds played, of how many), and `started`.
+/// `elapsed` and `runtime` (milliseconds played, of how many), and `started`;
+/// and `absent`, whether every copy it has is under an absent directory.
 export fn cq_tiles(lib: *Library) ?[*:0]u8 {
     return json(lib, tiles, .{});
 }
@@ -866,6 +889,7 @@ fn tiles(lib: *Library, arena: std.mem.Allocator) ![]const TileJson {
         .elapsed = t.played,
         .runtime = t.total,
         .started = t.started,
+        .absent = t.absent,
     };
     return out;
 }
@@ -887,13 +911,13 @@ fn coverJson(arena: std.mem.Allocator, bases: std.StringHashMapUnmanaged(library
 /// `key`, `fields` (e.g., an episode's `title`), this user's `position`,
 /// `duration` (milliseconds), and `watched`, and `renditions`, each with
 /// its `label`, `name` (as its repositories give it), and `copies`: `url`
-/// (ready to play), `size`, `mtime`, and `repository`. Null if there's no
-/// such title.
+/// (ready to play), `size`, `mtime`, `repository`, and `absent` (under an
+/// absent directory of its repository). Null if there's no such title.
 export fn cq_title(lib: *Library, key: [*:0]const u8) ?[*:0]u8 {
     return json(lib, title, .{std.mem.span(key)});
 }
 
-const Copy = struct { url: []const u8, size: u64, mtime: []const u8, repository: []const u8 };
+const Copy = struct { url: []const u8, size: u64, mtime: []const u8, repository: []const u8, absent: bool };
 const RenditionJson = struct { label: []const u8, name: []const u8, copies: []const Copy };
 const ItemJson = struct { key: []const u8, fields: std.json.ArrayHashMap([]const u8), renditions: []const RenditionJson, position: u64, duration: u64, watched: bool };
 
@@ -918,7 +942,7 @@ fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !struct {
             var name = rn.label;
             for (rn.holdings.items, copies) |h, *c| {
                 const rp = bases.get(h.repository);
-                c.* = .{ .url = if (rp) |b| try art.fileUrl(arena, b.url, h.path) else "", .size = h.size, .mtime = h.mtime, .repository = h.repository };
+                c.* = .{ .url = if (rp) |b| try art.fileUrl(arena, b.url, h.path) else "", .size = h.size, .mtime = h.mtime, .repository = h.repository, .absent = h.absent };
                 // The rendition's name as its repositories give it.
                 if (rp) |b| if (b.layout.rendition.len > 0) {
                     name = b.layout.rendition;

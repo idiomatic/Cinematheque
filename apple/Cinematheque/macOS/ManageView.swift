@@ -323,10 +323,15 @@ private struct SourcesPane: View {
                         }
                         .help(missing ? "\(folder.path) isn't there (on a drive that's unplugged?), so it isn't shared; it will be once it's back." : folder.path)
                     } else {
-                        Label(repo.displayName, systemImage: "server.rack")
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(repo.url.removingPercentEncoding ?? repo.url)
+                        Label {
+                            // Folders of it on drives that aren't there.
+                            Text(repo.displayName) + Text(repo.absent.isEmpty ? "" : "  \(repo.absent.count == 1 ? "a folder" : "\(repo.absent.count) folders") unavailable").foregroundStyle(.secondary)
+                        } icon: {
+                            Image(systemName: "server.rack")
+                        }
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(repo.url.removingPercentEncoding ?? repo.url)
                     }
                 }
                 TableColumn("Videos") { Text($0.copies.formatted()).monospacedDigit() }
@@ -419,6 +424,24 @@ private struct SourceSheet: View {
                 Footer("Name its rendition (e.g., 4K HDR) only if its files' names don't show it.")
                 Section {
                     TextField("Skip names starting with", text: $skip)
+                }
+            }
+            // As it is now, so one forgotten leaves the list.
+            if let current = library.repositories.first(where: { $0.id == repository?.id }), !current.absent.isEmpty {
+                Section {
+                    ForEach(current.absent, id: \.dir) { gone in
+                        HStack {
+                            Label(gone.name, systemImage: "externaldrive.badge.questionmark")
+                            Text("since \(gone.date.formatted(date: .abbreviated, time: .omitted))").foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Forget") { library.forgetAbsent(current.id, gone.dir) }
+                                .help("Forget it as if deleted: its videos go, for every device")
+                        }
+                    }
+                } header: {
+                    Text("Unavailable")
+                } footer: {
+                    Text("Folders that held videos and are empty now, as a drive's is when it's unplugged. Their videos stay, dimmed, until they're back, for a year, or until you forget them.")
                 }
             }
         }

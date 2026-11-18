@@ -132,6 +132,8 @@ struct Poster: View {
                 Color.clear
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)
                     .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name) }
+                    // Its copies are all on drives that aren't there.
+                    .opacity(tile.absent ? 0.4 : 1)
                     // A series' tile stands for the whole series.
                     .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: true), watched: tile.watched, padding: 10) }
                     .overlay(alignment: .bottom) {

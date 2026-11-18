@@ -47,6 +47,8 @@ char *cq_repos(cq_library *library);
 int cq_repo_add(cq_library *library, const char *url, const char *rendition, const char *skip);
 int cq_repo_set(cq_library *library, const char *repo, const char *rendition, const char *skip);
 int cq_repo_remove(cq_library *library, const char *repo);
+// Forgets an absent directory of a repository, as if deleted.
+int cq_forget_absent(cq_library *library, const char *repo, const char *dir);
 
 // Long: crawling every repository and describing what's new (committing
 // as it goes, so reload when cq_data_version changes), syncing with a peer (or,

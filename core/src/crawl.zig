@@ -327,6 +327,10 @@ fn crawlIndex(arena: std.mem.Allocator, client: *http.Client, base: []const u8, 
         var path = fields.first();
         if (std.mem.startsWith(u8, path, "./")) path = path[2..];
         if (path.len == 0 or std.mem.eql(u8, path, "INDEX")) continue;
+        // A directory, as Cinematheque's own server lists them, so an empty
+        // one (an unplugged drive's mount point) shows it's still there.
+        const is_dir = std.mem.endsWith(u8, path, "/");
+        if (is_dir) path = path[0 .. path.len - 1];
         const size = if (fields.next()) |f| std.fmt.parseInt(u64, f, 10) catch 0 else 0;
         const mtime = fields.next() orelse "";
         var href: std.ArrayList(u8) = .empty;
@@ -342,10 +346,15 @@ fn crawlIndex(arena: std.mem.Allocator, client: *http.Client, base: []const u8, 
             first = false;
             try url.encode(arena, &href, seg);
         }
-        result.files += 1;
-        result.size += size;
-        if (result.sample == null) result.sample = href.items;
-        if (entries) |e| try e.append(arena, .{ .url = href.items, .parent = href.items[0..parent_len], .is_dir = false, .size = size, .mtime = mtime });
+        if (is_dir) {
+            try href.append(arena, '/');
+            result.dirs += 1;
+        } else {
+            result.files += 1;
+            result.size += size;
+            if (result.sample == null) result.sample = href.items;
+        }
+        if (entries) |e| try e.append(arena, .{ .url = href.items, .parent = href.items[0..parent_len], .is_dir = is_dir, .size = size, .mtime = mtime });
     }
     return result;
 }

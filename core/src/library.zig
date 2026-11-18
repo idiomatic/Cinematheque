@@ -13,7 +13,9 @@
 //!   repository's path, size, and modification time, tab-separated, or
 //!   empty once no longer held.
 //! * `r/<repository>`: fields `url`, `rendition` (its files' rendition, or
-//!   empty if unknown), and `skip` (the prefix of names to skip).
+//!   empty if unknown), `skip` (the prefix of names to skip), and
+//!   `absent:<directory>` (when it was noticed, in milliseconds), for each
+//!   directory that held files and lists none now, its holdings kept.
 //! * `aliases`: field `<title key>`, value the title key it's an alias of,
 //!   or empty if none.
 //! * `u/<path>`: files that didn't parse, with `held:<repository>`.
@@ -295,13 +297,6 @@ pub fn crawlRepository(replica: *Replica, io: Io, arena: std.mem.Allocator, clie
         .entries = &entries,
     });
     const crawled = Io.Timestamp.now(io, .awake);
-    // A repository that held files but lists none (a NAS serving an
-    // unplugged drive's empty mount point, say) is left as it was, rather
-    // than emptied for every peer; removing it is how to say it's gone.
-    const files = for (entries.items) |e| {
-        if (!e.is_dir) break true;
-    } else false;
-    if (!files and try copies(replica, arena, repo) > 0) return error.NothingFound;
     const stats = try ingest(replica, arena, wall_ms, repo, entries.items);
     var saved: Io.Writer.Allocating = .init(arena);
     try crawl.Snapshot.save(entries.items, &saved.writer);
@@ -349,6 +344,8 @@ pub const IngestStats = struct {
     /// Files whose rendition another file of the same repository already
     /// had.
     duplicates: usize = 0,
+    /// Directories that held files and list none now, their holdings kept.
+    absent: usize = 0,
     duplicate_example: ?[]const u8 = null,
 };
 
@@ -415,6 +412,44 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, repo: R
         while (try s.step()) try current.put(arena, try arena.dupe(u8, s.blob(0)), try arena.dupe(u8, s.blob(1)));
     }
 
+    // Directories listed now, and those with files beneath.
+    var listed: std.StringHashMapUnmanaged(void) = .empty;
+    var with_files: std.StringHashMapUnmanaged(void) = .empty;
+    try listed.put(arena, "", {});
+    for (entries) |entry| {
+        const rel = relativeOrNull(arena, repo.url, entry.url) orelse continue;
+        if (entry.is_dir) {
+            try listed.put(arena, std.mem.trimEnd(u8, rel, "/"), {});
+        } else {
+            var parents = parentsOf(rel);
+            while (parents.next()) |dir| try with_files.put(arena, dir, {});
+        }
+    }
+    // A directory that held files and is still listed but holds none (an
+    // unplugged drive's empty mount point) is absent, its holdings kept;
+    // one gone from its parent's listing was deleted. Only the topmost of an
+    // absent subtree is noted.
+    var absent_now: std.StringArrayHashMapUnmanaged(void) = .empty;
+    var held = current.valueIterator();
+    while (held.next()) |value| {
+        var parents = parentsOf(holdingPath(value.*));
+        while (parents.next()) |dir| {
+            if (!listed.contains(dir)) break;
+            if (with_files.contains(dir)) continue;
+            try absent_now.put(arena, dir, {});
+            break;
+        }
+    }
+    var marked: std.StringHashMapUnmanaged(u64) = .empty;
+    for (try absences(replica, arena, &repo.id)) |a| try marked.put(arena, a.dir, a.since_ms);
+    // Kept until it comes back, is deleted, is forgotten, or a year passes.
+    var kept: std.ArrayList([]const u8) = .empty;
+    for (absent_now.keys()) |dir| {
+        const since = marked.get(dir) orelse wall_ms;
+        if (wall_ms -| since < absent_expiry_ms) try kept.append(arena, dir);
+    }
+    stats.absent = kept.items.len;
+
     try replica.begin();
     errdefer replica.db.exec("ROLLBACK") catch {};
     for (titles_seen.items) |t| {
@@ -442,14 +477,128 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, repo: R
         try replica.write(wall_ms, e.key_ptr.*, held_field, e.value_ptr.*);
     }
     var cur = current.iterator();
-    while (cur.next()) |e| {
+    removing: while (cur.next()) |e| {
         if (wanted.contains(e.key_ptr.*)) continue;
+        for (kept.items) |dir| if (under(holdingPath(e.value_ptr.*), dir)) continue :removing;
         stats.holdings_removed += 1;
         try replica.write(wall_ms, e.key_ptr.*, held_field, "");
+    }
+    const repo_key = try std.fmt.allocPrint(arena, "r/{s}", .{repo.id});
+    for (kept.items) |dir| if (!marked.contains(dir))
+        try replica.write(wall_ms, repo_key, try absentField(arena, dir), try std.fmt.allocPrint(arena, "{d}", .{wall_ms}));
+    var was = marked.keyIterator();
+    clearing: while (was.next()) |dir| {
+        for (kept.items) |k| if (std.mem.eql(u8, k, dir.*)) continue :clearing;
+        try replica.write(wall_ms, repo_key, try absentField(arena, dir.*), "");
     }
     try replica.commit();
     return stats;
 }
+
+/// How long a directory may be absent before its holdings go, as if it
+/// were deleted: a year.
+pub const absent_expiry_ms: u64 = 365 * 24 * 60 * 60 * 1000;
+
+/// A directory of a repository that held files and lists none now (an
+/// unplugged drive's mount point, say): `dir` relative to the repository,
+/// empty for the whole of it, and when it was noticed.
+pub const Absence = struct { dir: []const u8, since_ms: u64 };
+
+fn absentField(arena: std.mem.Allocator, dir: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(arena, "absent:{s}", .{dir});
+}
+
+/// A repository's absent directories.
+pub fn absences(replica: *Replica, arena: std.mem.Allocator, repo_id: []const u8) ![]Absence {
+    var out: std.ArrayList(Absence) = .empty;
+    const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND field LIKE 'absent:%' AND length(value) > 0 ORDER BY field");
+    defer s.finalize();
+    try s.bindText(1, try std.fmt.allocPrint(arena, "r/{s}", .{repo_id}));
+    while (try s.step()) try out.append(arena, .{
+        .dir = try arena.dupe(u8, s.blob(0)["absent:".len..]),
+        .since_ms = std.fmt.parseInt(u64, s.blob(1), 10) catch 0,
+    });
+    return out.items;
+}
+
+/// Every repository's absent directories, to tell which copies are under
+/// one.
+pub const Absences = struct {
+    by_repo: std.StringHashMapUnmanaged(std.ArrayList([]const u8)) = .empty,
+
+    pub fn load(replica: *Replica, arena: std.mem.Allocator) !Absences {
+        var a: Absences = .{};
+        const s = try replica.db.prepare("SELECT key, field FROM winners WHERE key >= 'r/' AND key < 'r0' AND field LIKE 'absent:%' AND length(value) > 0");
+        defer s.finalize();
+        while (try s.step()) {
+            const key = s.blob(0);
+            if (key.len != 18) continue;
+            const gop = try a.by_repo.getOrPut(arena, try arena.dupe(u8, key[2..]));
+            if (!gop.found_existing) gop.value_ptr.* = .empty;
+            try gop.value_ptr.append(arena, try arena.dupe(u8, s.blob(1)["absent:".len..]));
+        }
+        return a;
+    }
+
+    /// Whether a holding (`value`, as `held:<repo>` holds it) is under one of
+    /// its repository's absent directories.
+    pub fn has(a: *const Absences, repo_id: []const u8, value: []const u8) bool {
+        const dirs = a.by_repo.get(repo_id) orelse return false;
+        for (dirs.items) |dir| if (under(holdingPath(value), dir)) return true;
+        return false;
+    }
+};
+
+/// Forgets an absent directory, as if it were deleted: its holdings go,
+/// for every peer. Returns how many.
+pub fn forgetAbsent(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, repo: Repository, dir: []const u8) !usize {
+    const d = std.mem.trim(u8, dir, "/");
+    const held_field = try std.fmt.allocPrint(arena, "held:{s}", .{repo.id});
+    var gone: std.ArrayList([]const u8) = .empty;
+    {
+        const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND length(value) > 0");
+        defer s.finalize();
+        try s.bindText(1, held_field);
+        while (try s.step()) if (under(holdingPath(s.blob(1)), d)) try gone.append(arena, try arena.dupe(u8, s.blob(0)));
+    }
+    try replica.begin();
+    errdefer replica.db.exec("ROLLBACK") catch {};
+    for (gone.items) |key| try replica.write(wall_ms, key, held_field, "");
+    try replica.write(wall_ms, try std.fmt.allocPrint(arena, "r/{s}", .{repo.id}), try absentField(arena, d), "");
+    try replica.commit();
+    return gone.items.len;
+}
+
+/// A holding's path, before its size and time.
+fn holdingPath(value: []const u8) []const u8 {
+    return value[0 .. std.mem.indexOfScalar(u8, value, '\t') orelse value.len];
+}
+
+/// Whether `path` is within `dir` (empty for the root).
+fn under(path: []const u8, dir: []const u8) bool {
+    return dir.len == 0 or (path.len > dir.len and std.mem.startsWith(u8, path, dir) and path[dir.len] == '/');
+}
+
+/// The directories a path is within, from the root (empty) down.
+fn parentsOf(path: []const u8) Parents {
+    return .{ .path = path };
+}
+
+const Parents = struct {
+    path: []const u8,
+    at: ?usize = 0,
+
+    fn next(p: *Parents) ?[]const u8 {
+        const at = p.at orelse return null;
+        if (at == 0) {
+            p.at = std.mem.indexOfScalar(u8, p.path, '/');
+            return "";
+        }
+        const dir = p.path[0..at];
+        p.at = if (std.mem.indexOfScalarPos(u8, p.path, at + 1, '/')) |i| i else null;
+        return dir;
+    }
+};
 
 /// A file's rendition label: the repository's, if it names one; else what
 /// the file's name says (e.g., `2160p-hevc-hdr`); else `-`, unknown.
@@ -563,6 +712,8 @@ pub const Holding = struct {
     path: []const u8,
     size: u64,
     mtime: []const u8,
+    /// Under an absent directory of its repository.
+    absent: bool = false,
 };
 
 pub const Rendition = struct {
@@ -688,6 +839,7 @@ pub const Detail = struct {
 pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?Detail {
     var d: Detail = .{ .key = key };
     var found = false;
+    const absent = try Absences.load(replica, arena);
     {
         const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = 'aliases' AND length(value) > 0 AND (field = ?1 OR value = CAST(?1 AS BLOB))");
         defer s.finalize();
@@ -735,11 +887,13 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
         var parts = std.mem.splitScalar(u8, value, '\t');
         const path = parts.first();
         const size = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
+        const repository = field["held:".len..];
         try item.renditions.items[item.renditions.items.len - 1].holdings.append(arena, .{
-            .repository = try arena.dupe(u8, field["held:".len..]),
+            .repository = try arena.dupe(u8, repository),
             .path = try arena.dupe(u8, path),
             .size = size,
             .mtime = try arena.dupe(u8, parts.next() orelse ""),
+            .absent = absent.has(repository, value),
         });
     }
     if (!found) return null;
@@ -1011,7 +1165,7 @@ test "year reasons" {
     try testing.expect(yearReason(1995, 1975) == null);
 }
 
-test "a crawl that finds nothing leaves a repository's copies as they were" {
+test "an unplugged directory is absent, its copies kept; a deleted one's go" {
     const io = std.testing.io;
     const gpa = std.testing.allocator;
     var arena_state = std.heap.ArenaAllocator.init(gpa);
@@ -1022,25 +1176,76 @@ test "a crawl that finds nothing leaves a repository's copies as they were" {
     var r = try Replica.open(gpa, ":memory:", founder, .from(@splat(1)));
     defer r.close();
 
-    // A repository of one movie, served without an INDEX, so listings stay live.
+    // Two drives' mount points, served without an INDEX, so listings stay live.
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    try tmp.dir.writeFile(io, .{ .sub_path = "Alien (1979).mp4", .data = "x" });
+    try tmp.dir.createDirPath(io, "a");
+    try tmp.dir.createDirPath(io, "b");
+    try tmp.dir.writeFile(io, .{ .sub_path = "a/Alien (1979).mp4", .data = "x" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "b/Brazil (1985).mp4", .data = "x" });
     const root = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = root, .index = false }} } };
     try server.start();
     defer server.stop();
-    const repo_url = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port});
-    _ = try addRepository(&r, 1000, repo_url, .{});
+    _ = try addRepository(&r, 1000, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
     const repo = (try repositories(&r, arena))[0];
     var client: std.http.Client = .{ .allocator = gpa, .io = io };
     defer client.deinit();
+    const t = std.testing;
+    // Each crawl reads every listing afresh: within one second, a reused
+    // one would look unchanged.
+    const Fresh = struct {
+        fn crawl(rr: *Replica, io_: Io, a: std.mem.Allocator, c: *std.http.Client, wall: u64, rp: Repository) !CrawlStats {
+            try rr.removeLocal(try snapshotKey(a, rp.id));
+            return crawlRepository(rr, io_, a, c, wall, rp, 1);
+        }
+    };
 
-    _ = try crawlRepository(&r, io, arena, &client, 2000, repo, 1);
-    try std.testing.expectEqual(@as(i64, 1), try copies(&r, arena, repo));
-    try tmp.dir.deleteFile(io, "Alien (1979).mp4");
-    try std.testing.expectError(error.NothingFound, crawlRepository(&r, io, arena, &client, 3000, repo, 1));
-    try std.testing.expectEqual(@as(i64, 1), try copies(&r, arena, repo));
+    _ = try Fresh.crawl(&r, io, arena, &client, 2000, repo);
+    try t.expectEqual(@as(i64, 2), try copies(&r, arena, repo));
+    // b unplugged: its mount point lists empty. One marker; its copy kept.
+    try tmp.dir.deleteFile(io, "b/Brazil (1985).mp4");
+    var stats = (try Fresh.crawl(&r, io, arena, &client, 3000, repo)).ingest;
+    try t.expectEqual(@as(usize, 1), stats.absent);
+    try t.expectEqual(@as(usize, 0), stats.holdings_removed);
+    try t.expectEqual(@as(i64, 2), try copies(&r, arena, repo));
+    var gone = try absences(&r, arena, &repo.id);
+    try t.expectEqual(@as(usize, 1), gone.len);
+    try t.expectEqualStrings("b", gone[0].dir);
+    try t.expectEqual(@as(u64, 3000), gone[0].since_ms);
+    const shown = (try detail(&r, arena, "t/m/brazil/1985")).?;
+    try t.expect(shown.items.items[0].renditions.items[0].holdings.items[0].absent);
+    // Plugged back in: the marker goes, and nothing else changes.
+    try tmp.dir.writeFile(io, .{ .sub_path = "b/Brazil (1985).mp4", .data = "x" });
+    stats = (try Fresh.crawl(&r, io, arena, &client, 4000, repo)).ingest;
+    try t.expectEqual(@as(usize, 0), stats.absent);
+    try t.expectEqual(@as(usize, 0), stats.holdings_added + stats.holdings_changed);
+    try t.expectEqual(@as(usize, 0), (try absences(&r, arena, &repo.id)).len);
+    // Deleted, b leaves its parent's listing, and its copy goes.
+    try tmp.dir.deleteFile(io, "b/Brazil (1985).mp4");
+    try tmp.dir.deleteDir(io, "b");
+    stats = (try Fresh.crawl(&r, io, arena, &client, 5000, repo)).ingest;
+    try t.expectEqual(@as(usize, 1), stats.holdings_removed);
+    try t.expectEqual(@as(i64, 1), try copies(&r, arena, repo));
+    // The whole repository listing nothing is the root absent.
+    try tmp.dir.deleteFile(io, "a/Alien (1979).mp4");
+    stats = (try Fresh.crawl(&r, io, arena, &client, 6000, repo)).ingest;
+    gone = try absences(&r, arena, &repo.id);
+    try t.expectEqual(@as(usize, 1), gone.len);
+    try t.expectEqualStrings("", gone[0].dir);
+    try t.expectEqual(@as(i64, 1), try copies(&r, arena, repo));
+    // A year on, it's as if deleted.
+    stats = (try Fresh.crawl(&r, io, arena, &client, 6000 + absent_expiry_ms, repo)).ingest;
+    try t.expectEqual(@as(usize, 1), stats.holdings_removed);
+    try t.expectEqual(@as(usize, 0), (try absences(&r, arena, &repo.id)).len);
+    // Forgotten by hand, too.
+    try tmp.dir.writeFile(io, .{ .sub_path = "a/Alien (1979).mp4", .data = "x" });
+    _ = try Fresh.crawl(&r, io, arena, &client, 7000 + absent_expiry_ms, repo);
+    try tmp.dir.deleteFile(io, "a/Alien (1979).mp4");
+    _ = try Fresh.crawl(&r, io, arena, &client, 8000 + absent_expiry_ms, repo);
+    try t.expectEqual(@as(usize, 1), try forgetAbsent(&r, arena, 9000 + absent_expiry_ms, repo, "/"));
+    try t.expectEqual(@as(i64, 0), try copies(&r, arena, repo));
+    try t.expectEqual(@as(usize, 0), (try absences(&r, arena, &repo.id)).len);
 }
 
 test "state: repositories, aliases, playheads, and members can be listed, set, and removed" {

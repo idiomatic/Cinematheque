@@ -30,6 +30,9 @@ struct Tile: Codable, Identifiable, Hashable {
     let elapsed: Int
     let runtime: Int
     let started: Bool
+    /// Every copy it has is on a drive that isn't there (an absent
+    /// directory of its repository's): shown dimmed.
+    var absent = false
 
     var id: String { season.map { "\(key)#\($0)" } ?? key }
     var isSeries: Bool { kind == "series" }
@@ -43,6 +46,8 @@ struct TitleDetail: Codable {
         let url: String
         let size: Int
         let repository: String
+        /// On a drive that isn't there: tried last.
+        var absent = false
     }
 
     struct Rendition: Codable, Hashable {
@@ -87,11 +92,23 @@ struct TitleDetail: Codable {
 }
 
 struct Repository: Codable, Identifiable, Hashable {
+    /// A directory of it that held files and lists none now (an unplugged
+    /// drive's mount point): relative to it, empty for the whole of it, and
+    /// when it was noticed, in milliseconds since the epoch.
+    struct Absence: Codable, Hashable {
+        let dir: String
+        let since: Double
+
+        var name: String { dir.isEmpty ? "All of it" : dir }
+        var date: Date { Date(timeIntervalSince1970: since / 1000) }
+    }
+
     let id: String
     let url: String
     let rendition: String
     let skip: String
     let copies: Int
+    var absent: [Absence] = []
 
     /// Its server and folders, as a person reads them: "art › Movies ›
     /// 2160p".
@@ -301,6 +318,10 @@ final class Library {
         guard !trimmed.isEmpty, let user = status?.user else { return }
         check { cq_name($0, key, user, trimmed) }
     }
+
+    /// Forgets a repository's absent directory, as if it were deleted: its
+    /// copies go, for every device.
+    func forgetAbsent(_ repository: String, _ dir: String) { check { cq_forget_absent($0, repository, dir) } }
 
     /// Removes another of this user's devices from the library: its later
     /// writes are refused, and it's served no more.

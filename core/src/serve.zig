@@ -46,16 +46,43 @@ pub const Options = struct {
 const Context = struct {
     io: Io,
     gpa: std.mem.Allocator,
-    mounts: []const Served,
+    mounts: []Served,
     handler: ?Handler,
 };
+
+/// How old an `INDEX` may be before a request for it rebuilds it, so the
+/// drives plugged in or unplugged since show.
+const index_max_age_ms = 60 * 1000;
 
 const Served = struct {
     prefix: []const u8,
     root: Io.Dir,
-    index: ?[]const u8,
-    index_etag: []const u8,
+    /// Its `INDEX`, if it has one (allocated by the server's `gpa`), its
+    /// ETag, and when it was built; held while built or sent.
+    index: ?[]u8,
+    index_etag: [18]u8 = undefined,
+    index_built_ms: i64 = 0,
+    index_mutex: Io.Mutex = .init,
+
+    /// Builds its `INDEX` afresh, if it has one and it's stale.
+    fn freshen(m: *Served, io: Io, gpa: std.mem.Allocator, now_ms: i64) !void {
+        const old = m.index orelse return;
+        if (now_ms - m.index_built_ms < index_max_age_ms) return;
+        const index = try buildIndex(io, gpa, m.root);
+        gpa.free(old);
+        m.setIndex(index, now_ms);
+    }
+
+    fn setIndex(m: *Served, index: []u8, now_ms: i64) void {
+        m.index = index;
+        m.index_built_ms = now_ms;
+        _ = std.fmt.bufPrint(&m.index_etag, "\"{x:0>16}\"", .{std.hash.Wyhash.hash(0, index)}) catch unreachable;
+    }
 };
+
+fn nowMs(io: Io) i64 {
+    return @intCast(Io.Timestamp.now(io, .awake).toMilliseconds());
+}
 
 extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
 
@@ -101,16 +128,15 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
     const arena = arena_state.allocator();
     const mounts = try arena.alloc(Served, options.mounts.len);
     var opened: usize = 0;
-    defer for (mounts[0..opened]) |m| m.root.close(io);
+    defer for (mounts[0..opened]) |m| {
+        m.root.close(io);
+        if (m.index) |index| gpa.free(index);
+    };
     for (options.mounts, mounts) |m, *out| {
         const root = try Io.Dir.cwd().openDir(io, m.path, .{ .iterate = true });
-        out.* = .{ .prefix = std.mem.trim(u8, m.prefix, "/"), .root = root, .index = null, .index_etag = "" };
+        out.* = .{ .prefix = std.mem.trim(u8, m.prefix, "/"), .root = root, .index = null };
         opened += 1;
-        if (m.index) {
-            const index = try buildIndex(io, arena, root);
-            out.index = index;
-            out.index_etag = try std.fmt.allocPrint(arena, "\"{x}\"", .{std.hash.Wyhash.hash(0, index)});
-        }
+        if (m.index) out.setIndex(try buildIndex(io, gpa, root), nowMs(io));
     }
     const ctx: Context = .{
         .io = io,
@@ -191,7 +217,7 @@ fn respond(ctx: *const Context, request: *http.Server.Request) !void {
     while (segments.next()) |s| if (std.mem.eql(u8, s, "..")) return request.respond("", .{ .status = .forbidden });
 
     // The mount, and the path within it.
-    const found: struct { mount: *const Served, within: []const u8 } = for (ctx.mounts) |*m| {
+    const found: struct { mount: *Served, within: []const u8 } = for (ctx.mounts) |*m| {
         if (m.prefix.len == 0) break .{ .mount = m, .within = path };
         if (path.len > m.prefix.len and std.mem.eql(u8, path[1 .. 1 + m.prefix.len], m.prefix) and (path.len == 1 + m.prefix.len or path[1 + m.prefix.len] == '/'))
             break .{ .mount = m, .within = path[1 + m.prefix.len ..] };
@@ -199,14 +225,17 @@ fn respond(ctx: *const Context, request: *http.Server.Request) !void {
     const mount = found.mount;
     const within = if (found.within.len == 0) "/" else found.within;
 
-    if (std.mem.eql(u8, within, "/INDEX")) if (mount.index) |index| {
-        if (header(request, "if-none-match")) |tag| if (std.mem.eql(u8, tag, mount.index_etag))
-            return request.respond("", .{ .status = .not_modified, .extra_headers = &.{.{ .name = "etag", .value = mount.index_etag }} });
-        return request.respond(index, .{ .extra_headers = &.{
+    if (std.mem.eql(u8, within, "/INDEX") and mount.index != null) {
+        try mount.index_mutex.lock(ctx.io);
+        defer mount.index_mutex.unlock(ctx.io);
+        try mount.freshen(ctx.io, ctx.gpa, nowMs(ctx.io));
+        if (header(request, "if-none-match")) |tag| if (std.mem.eql(u8, tag, &mount.index_etag))
+            return request.respond("", .{ .status = .not_modified, .extra_headers = &.{.{ .name = "etag", .value = &mount.index_etag }} });
+        return request.respond(mount.index.?, .{ .extra_headers = &.{
             .{ .name = "content-type", .value = "text/plain; charset=utf-8" },
-            .{ .name = "etag", .value = mount.index_etag },
+            .{ .name = "etag", .value = &mount.index_etag },
         } });
-    };
+    }
 
     const rel = std.mem.trim(u8, within, "/");
     const stat = mount.root.statFile(ctx.io, if (rel.len == 0) "." else rel, .{}) catch
@@ -374,13 +403,19 @@ fn appendRfc3339(gpa: std.mem.Allocator, out: *std.ArrayList(u8), t: Io.Timestam
     });
 }
 
-/// Lists every file as `path<TAB>size<TAB>mtime` (Unix seconds), one per line.
+/// Lists every file as `path<TAB>size<TAB>mtime` (Unix seconds), one per
+/// line, and every directory as `path/`, so an empty one (an unplugged
+/// drive's mount point) shows it's still there.
 fn buildIndex(io: Io, gpa: std.mem.Allocator, root: Io.Dir) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
     var walker = try root.walk(gpa);
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
+        if (entry.kind == .directory) {
+            try out.print(gpa, "{s}/\n", .{entry.path});
+            continue;
+        }
         if (entry.kind != .file) continue;
         const stat = try entry.dir.statFile(io, entry.basename, .{});
         try out.print(gpa, "{s}\t{d}\t{d}\n", .{ entry.path, stat.size, @divTrunc(stat.mtime.nanoseconds, std.time.ns_per_s) });

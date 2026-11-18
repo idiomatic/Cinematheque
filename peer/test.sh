@@ -21,8 +21,9 @@ b2=(--home $work/b2)
 c=(--home $work/c)
 peer_pid=
 b_pid=
+d_pid=
 cleanup() {
-    kill ${peer_pid:-} ${b_pid:-} 2> /dev/null || true
+    kill ${peer_pid:-} ${b_pid:-} ${d_pid:-} 2> /dev/null || true
 }
 trap cleanup EXIT
 digest() { $peer "$@" library show | awk '/^digest/ { print $2 }' }
@@ -44,7 +45,7 @@ $peer $a library create
 $peer $a serve --port 8191 --media $work/media > $work/a.log 2>&1 &
 peer_pid=$!
 sleep 1
-file=$(curl -sf http://127.0.0.1:8191/INDEX | head -1 | cut -f1 | sed 's|^\./||; s| |%20|g')
+file=$(curl -sf http://127.0.0.1:8191/INDEX | awk -F'\t' 'NF > 1 { print $1; exit }' | sed 's|^\./||; s| |%20|g')
 [[ $(curl -s -r 0-0 -o /dev/null -w "%{http_code}" "http://127.0.0.1:8191/$file") == 206 ]] || { echo "FAIL: no byte ranges from $file"; exit 1; }
 $peer $a repo add http://127.0.0.1:8191/
 $peer $a crawl
@@ -104,6 +105,38 @@ kill $c1_pid $c2_pid
 p1=$(grep -o "on port [0-9]*" $work/c1.log)
 p2=$(grep -o "on port [0-9]*" $work/c2.log)
 [[ -n $p1 && -n $p2 && $p1 != $p2 ]] || { echo "FAIL: no fallback port ($p1, $p2)"; exit 1; }
+
+# Two drives' mount points under served media: one unplugged is absent (one
+# marker), its copy kept, even over a restart; plugged back in, the marker
+# goes; forgotten, its copy goes.
+d=(--home $work/d)
+mkdir -p $work/drives/archive0001 $work/drives/archive0002
+cp "$work/media/$(cd $work/media && find . -name '*.mkv' | head -1)" "$work/drives/archive0001/Archive Movie (2001).mkv"
+cp "$work/media/$(cd $work/media && find . -name '*.mkv' | head -1)" "$work/drives/archive0002/Other Movie (2002).mkv"
+$peer $d library create
+drives() {
+    kill ${d_pid:-} 2> /dev/null || true
+    $peer $d serve --port 8194 --media $work/drives > $work/d.log 2>&1 &
+    d_pid=$!
+    sleep 1
+}
+drives
+$peer $d repo add http://127.0.0.1:8194/
+$peer $d crawl > /dev/null
+rm "$work/drives/archive0001/Archive Movie (2001).mkv"
+drives
+$peer $d crawl | grep -q "1 directories absent" || { echo "FAIL: an unplugged drive wasn't absent"; exit 1; }
+$peer $d repo show http://127.0.0.1:8194/ | grep -q "copies     2" || { echo "FAIL: an unplugged drive's copy went"; exit 1; }
+$peer $d repo show http://127.0.0.1:8194/ | grep -q "absent     /archive0001" || { echo "FAIL: repo show"; exit 1; }
+cp "$work/media/$(cd $work/media && find . -name '*.mkv' | head -1)" "$work/drives/archive0001/Archive Movie (2001).mkv"
+drives
+$peer $d crawl | grep -q "0 directories absent" || { echo "FAIL: a drive back stayed absent"; exit 1; }
+rm "$work/drives/archive0001/Archive Movie (2001).mkv"
+drives
+$peer $d crawl > /dev/null
+$peer $d repo forget http://127.0.0.1:8194/ /archive0001
+$peer $d repo show http://127.0.0.1:8194/ | grep -q "copies     1" || { echo "FAIL: repo forget"; exit 1; }
+kill $d_pid
 
 $peer $c peer add http://127.0.0.1:8191
 $peer $c peer list | grep -q "8191/sync  added" || { echo "FAIL: peer add"; exit 1; }

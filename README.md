@@ -29,7 +29,7 @@ If your server doesn't list directories, put a file named `INDEX` in the served 
 find . -type f ! -name INDEX > INDEX
 ```
 
-and remake it whenever the files change. It works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to catalog a large repository: one request instead of one per folder.
+and remake it whenever the files change. Cinematheque's own server writes one, with each directory too (ending in `/`), so a drive's mount point that's empty, the drive unplugged, shows it's still there: its videos stay in the library, dimmed, rather than going, until it's back, a year passes, or you forget it in Settings › Sources. It works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to catalog a large repository: one request instead of one per folder.
 
 Crawling a repository reads its listings, recognizes titles from file and folder names, and records each file as a rendition. Later crawls are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title.
 

@@ -127,6 +127,8 @@ pub fn repo(peer: *Peer, c: Command) !void {
         try peer.out.print("repo       {s}\nurl        {s}\nrendition  \"{s}\"\nskip       \"{s}\"\ncopies     {d}\n", .{
             rp.id, rp.url, rp.layout.rendition, rp.layout.skip, try lib.copies(&r, peer.arena, rp),
         });
+        for (try lib.absences(&r, peer.arena, &rp.id)) |a|
+            try peer.out.print("absent     /{s}, since {d} days ago\n", .{ a.dir, (peer.now() -| a.since_ms) / (24 * 60 * 60 * 1000) });
     } else if (c.is("add", 1, settings)) {
         var r = try peer.open();
         defer r.close();
@@ -142,6 +144,12 @@ pub fn repo(peer: *Peer, c: Command) !void {
         defer r.close();
         const rp = try lib.setRepository(&r, peer.arena, peer.now(), c.rest[0], c.args.get("--rendition"), c.args.get("--skip"));
         try peer.out.print("{s}  rendition: \"{s}\", skip: \"{s}\"; crawl to apply\n", .{ rp.id, rp.layout.rendition, rp.layout.skip });
+    } else if (c.is("forget", 2, &.{})) {
+        var r = try peer.open();
+        defer r.close();
+        const rp = try lib.findRepository(&r, peer.arena, c.rest[0]);
+        const n = try lib.forgetAbsent(&r, peer.arena, peer.now(), rp, c.rest[1]);
+        try peer.out.print("forgot /{s} and its {d} copies\n", .{ std.mem.trim(u8, c.rest[1], "/"), n });
     } else if (c.is("remove", 1, &.{})) {
         var r = try peer.open();
         defer r.close();
@@ -318,9 +326,9 @@ fn crawlRepositories(peer: *Peer, workers: usize, only: ?[]const u8) !void {
     for (repos) |rp| {
         const s = try lib.crawlRepository(&r, peer.io, peer.arena, &client, peer.now(), rp, workers);
         const i = s.ingest;
-        try peer.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; holdings {d} added, {d} changed, {d} removed; {d} duplicates; {d} ms in all\n", .{
-            rp.url,         s.crawl.requests,  s.crawl.skipped,     s.crawl_ms,         i.files,      i.skipped, i.extras, i.unparsed,
-            i.titles_added, i.holdings_added, i.holdings_changed, i.holdings_removed, i.duplicates, s.total_ms,
+        try peer.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; holdings {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories absent; {d} ms in all\n", .{
+            rp.url,         s.crawl.requests, s.crawl.skipped,    s.crawl_ms,         i.files,      i.skipped, i.extras,   i.unparsed,
+            i.titles_added, i.holdings_added, i.holdings_changed, i.holdings_removed, i.duplicates, i.absent,  s.total_ms,
         });
         if (i.duplicate_example) |e| try peer.out.print("  e.g., {s}\n", .{e});
         try peer.out.flush();

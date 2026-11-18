@@ -161,7 +161,7 @@ Any other `GET` or `HEAD`, on a peer serving media: the command-line peer's `--m
 
 * **Files:** 200 with `Content-Type` (`video/mp4` for `.mp4` and `.m4v`, `video/x-matroska` for `.mkv`, else `application/octet-stream`), `Accept-Ranges: bytes`, and an `ETag` of the modification time and size, in hex (`"<mtime>-<size>"`). A single `Range` (`bytes=a-b`, `bytes=a-`, or `bytes=-n`) is answered with 206 and `Content-Range`; several ranges, or one past the end, with 416 and `Content-Range: bytes */<size>`. An `If-Range` that isn't the current `ETag` gets the whole file.
 * **Directories:** without a trailing slash, 301 to the path with one. With `Accept: application/json`, a listing in Caddy's form: an array of `name`, `size`, `url` (`./` and the percent-encoded name, `/` after a directory's), `mod_time` (RFC 3339, UTC), and `is_dir`; otherwise an HTML `<pre>` of links. Names beginning with `.` are left out.
-* **`INDEX`,** at the root of the command-line peer's media (the apps' folders have none, since they change while served): `text/plain`, a line per file of its path, size, and modification time (Unix seconds), tab-separated, built when the server starts; with an `ETag`, so `If-None-Match` gets 304.
+* **`INDEX`,** at the root of the command-line peer's media (the apps' folders have none, since they change while served): `text/plain`, a line per file of its path, size, and modification time (Unix seconds), tab-separated, and per directory of its path and `/`, so an empty one (an unplugged drive's mount point) shows it's still there; built when the server starts, and again on a request once it's a minute old; with an `ETag`, so `If-None-Match` gets 304.
 
 ## Keys and fields
 
@@ -173,7 +173,7 @@ The library ([library.zig](core/src/library.zig), [art.zig](core/src/art.zig)) w
 | `.../v/<edition or ->`, `.../e/s03e17`, `.../e/s00-<title>`, `.../p/<n>` | An item's `edition`, `season`, `episode`, `title`, `description`, `duration` (ms) | Crawls and describing |
 | `.../r/<rendition>` | `held:<repository>`: path, size, and modification time, tab-separated, or empty once gone | Crawls |
 | `u/<path>` | `held:<repository>`, as above, for files that didn't parse | Crawls |
-| `r/<repository>` | `url`, `rendition`, `skip` | Adding or changing a repository |
+| `r/<repository>` | `url`, `rendition`, `skip`; `absent:<directory>` (relative to it, empty for the whole of it), when a directory that held files was found empty (an unplugged drive's mount point), in ms, or empty once it's back, deleted, forgotten, or a year on | Adding or changing a repository; crawls; forgetting |
 | `aliases` | `<title key>`: the title key it's an alias of, or empty | Review |
 | `n/<hex>` | `name`; for a device, `user` (its user's key, hex) | Naming |
 | `p/<user hex>/<item key>` | `position`, `duration` (ms; empty in the first 10 seconds), `watched` (`1`, `0`, or empty) | Playing, by hand (private) |

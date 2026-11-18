@@ -70,7 +70,9 @@ enum Playback {
     static func copies(_ item: TitleDetail.Item, rendition: String?) -> [TitleDetail.Copy] {
         let chosen = item.renditions.first { $0.label == rendition } ?? item.renditions.first
         guard let chosen else { return [] }
-        return chosen.copies + item.renditions.filter { $0.label != chosen.label }.flatMap(\.copies)
+        let all = chosen.copies + item.renditions.filter { $0.label != chosen.label }.flatMap(\.copies)
+        // Those on a drive that isn't there, last.
+        return all.filter { !$0.absent } + all.filter(\.absent)
     }
 
     static func name(_ item: TitleDetail.Item, in detail: TitleDetail) -> String {

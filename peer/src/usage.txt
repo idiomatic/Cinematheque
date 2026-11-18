@@ -44,6 +44,11 @@ REPO is a repo's ID or URL.
                                (default ",")
   repo set REPO [--rendition NAME] [--skip PREFIX]
                                change a repo's settings; crawl to apply
+  repo forget REPO DIR         forget a directory the repo shows as absent
+                               (one that held files and lists none, as an
+                               unplugged drive's mount point does), as if
+                               it were deleted: its copies go, for every
+                               peer (they do on their own after a year)
   repo remove REPO             remove a repo and the copies it held, for
                                every peer
 
