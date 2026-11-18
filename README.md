@@ -10,7 +10,7 @@ Every device keeps its own copy of the catalog: the titles, their episodes and v
 
 * **Library:** the shared catalog of titles (movies and series), their episodes and versions, and where each file is.
 * **Repository:** anywhere your videos are served over HTTP. Cinematheque never changes a repository's files; it only reads its listings.
-* **Rendition:** one encoding of a title (e.g., 720p H.264, or 4K HEVC). The same rendition may sit in several repositories, and players use whichever is reachable.
+* **Rendition:** one encoding of a title (e.g., 720p H.264, or 4K HEVC). The same rendition may sit in several repositories; when one copy doesn't load (on a peer that's asleep, say), players try the next.
 * **Peer:** a device that keeps a copy of the library's catalog (not of its videos). Peers sync directly with each other; there is no server in the middle.
 * **Founder and members:** whoever creates a library founds it, and members add others. The founder can hand the library over to a successor; members can remove others, but not the founder.
 

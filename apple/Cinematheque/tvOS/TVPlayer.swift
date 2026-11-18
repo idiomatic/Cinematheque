@@ -168,7 +168,7 @@ struct TVPlayer: UIViewControllerRepresentable {
 
     /// Each queued item's description (an episode's, else its title's).
     private static func descriptions(_ request: PlayRequest, _ library: Library) -> [String: String] {
-        let first = PlayRequest.Entry(url: request.url, item: request.item, title: request.title)
+        let first = request.first
         var out: [String: String] = [:]
         var details: [String: TitleDetail] = [:]
         for entry in [first] + request.queue {

@@ -2,11 +2,14 @@ import Foundation
 
 /// What to play: a copy's URL, the item it's a copy of (for its playhead),
 /// where to start, and what to play after it (e.g., the rest of a season).
+/// Each comes with the item's other copies, to play if one doesn't load.
 struct PlayRequest: Codable, Hashable {
     struct Entry: Codable, Hashable {
-        let url: URL
+        var url: URL
         let item: String
         let title: String
+        /// The item's other copies, in the order to try them.
+        var alternates: [URL] = []
     }
 
     let url: URL
@@ -14,6 +17,10 @@ struct PlayRequest: Codable, Hashable {
     let start: Double
     var title: String = ""
     var queue: [Entry] = []
+    var alternates: [URL] = []
+
+    /// The first entry, the one `url` plays.
+    var first: Entry { Entry(url: url, item: item, title: title, alternates: alternates) }
 }
 
 /// What to play next, and the queue after it.
@@ -47,19 +54,23 @@ enum Playback {
     /// `overFromStart`, then the rest in order.
     static func request(_ detail: TitleDetail, items: [TitleDetail.Item], from index: Int, rendition: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
         let queue = items[index...].compactMap { item -> PlayRequest.Entry? in
-            guard let copy = copy(item, rendition: rendition), let url = URL(string: copy.url) else { return nil }
-            return .init(url: url, item: "\(detail.key)/\(item.key)", title: name(item, in: detail))
+            let urls = copies(item, rendition: rendition).compactMap { URL(string: $0.url) }
+            guard let url = urls.first else { return nil }
+            return .init(url: url, item: "\(detail.key)/\(item.key)", title: name(item, in: detail), alternates: Array(urls.dropFirst()))
         }
         guard let first = queue.first else { return nil }
         let item = items[index]
-        return PlayRequest(url: first.url, item: first.item, start: item.watched || overFromStart ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()))
+        return PlayRequest(url: first.url, item: first.item, start: item.watched || overFromStart ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()), alternates: first.alternates)
     }
 
-    /// The copy to play: of the chosen rendition if the item has one, else
-    /// its first.
-    static func copy(_ item: TitleDetail.Item, rendition: String?) -> TitleDetail.Copy? {
+    /// The copies to try, in order: the chosen rendition's (if the item has
+    /// it, else its first rendition's), then its other renditions', so one
+    /// on a peer that's asleep, or a drive that's unplugged, gives way to
+    /// another.
+    static func copies(_ item: TitleDetail.Item, rendition: String?) -> [TitleDetail.Copy] {
         let chosen = item.renditions.first { $0.label == rendition } ?? item.renditions.first
-        return chosen?.copies.first
+        guard let chosen else { return [] }
+        return chosen.copies + item.renditions.filter { $0.label != chosen.label }.flatMap(\.copies)
     }
 
     static func name(_ item: TitleDetail.Item, in detail: TitleDetail) -> String {

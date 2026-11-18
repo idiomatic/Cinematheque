@@ -16,8 +16,10 @@ final class PlaybackSession {
     /// Called once the queue's last item has played to its end.
     var onFinished: (() -> Void)?
     /// The queue's last player item.
-    private let last: ObjectIdentifier?
+    private var last: ObjectIdentifier?
     private let library: Library
+    /// Describes each player item, as `init` was given.
+    private let describe: (AVPlayerItem, PlayRequest.Entry) -> Void
     private let start: Double
     /// Each queued player item's item key and title.
     private var entries: [ObjectIdentifier: PlayRequest.Entry] = [:]
@@ -32,12 +34,13 @@ final class PlaybackSession {
 
     /// `prepare` may describe each player item, e.g., with metadata for a
     /// system player's info panel.
-    init(request: PlayRequest, library: Library, prepare: (AVPlayerItem, PlayRequest.Entry) -> Void = { _, _ in }) {
+    init(request: PlayRequest, library: Library, prepare: @escaping (AVPlayerItem, PlayRequest.Entry) -> Void = { _, _ in }) {
         self.library = library
+        describe = prepare
         start = request.start
         item = request.item
         var entries: [ObjectIdentifier: PlayRequest.Entry] = [:]
-        let all = [PlayRequest.Entry(url: request.url, item: request.item, title: request.title)] + request.queue
+        let all = [request.first] + request.queue
         let items = all.map { entry in
             let playerItem = AVPlayerItem(url: entry.url)
             prepare(playerItem, entry)
@@ -56,12 +59,39 @@ final class PlaybackSession {
     /// `Platform.replay` before it): loaded, sought, and buffered
     /// (prerolled), so it plays at once.
     func prepare() async {
-        guard let first = player.currentItem else { return }
-        while first.status == .unknown, !closed { try? await Task.sleep(for: .milliseconds(20)) }
+        guard let current = player.currentItem, let first = await loaded(current) else { return }
         guard first.status == .readyToPlay, !closed else { return }
         if start > 0 { await player.seek(to: CMTime(seconds: max(0, start - Platform.replay), preferredTimescale: 600)) }
         guard !closed else { return }
         _ = await player.preroll(atRate: 1)
+    }
+
+    /// Waits for `playerItem` to load. If it fails (its repository asleep,
+    /// say, or its drive unplugged), puts the item's next copy in its place,
+    /// until one loads or none is left; returns the one that loaded, if any.
+    private func loaded(_ playerItem: AVPlayerItem) async -> AVPlayerItem? {
+        var trying = playerItem
+        while true {
+            while trying.status == .unknown, !closed { try? await Task.sleep(for: .milliseconds(20)) }
+            if closed { return nil }
+            if trying.status == .readyToPlay { return trying }
+            let id = ObjectIdentifier(trying)
+            guard var entry = entries[id], !entry.alternates.isEmpty else { return nil }
+            entry.url = entry.alternates.removeFirst()
+            let replacement = AVPlayerItem(url: entry.url)
+            describe(replacement, entry)
+            entries[id] = nil
+            entries[ObjectIdentifier(replacement)] = entry
+            if last == id { last = ObjectIdentifier(replacement) }
+            // The player may have dropped the failed item from its queue
+            // already, so the queue is rebuilt: the replacement where it was,
+            // or first, then the rest.
+            var queue = player.items()
+            if let index = queue.firstIndex(of: trying) { queue[index] = replacement } else { queue.insert(replacement, at: 0) }
+            player.removeAllItems()
+            for queued in queue { player.insert(queued, after: nil) }
+            trying = replacement
+        }
     }
 
     /// Starts as the players do: warming up, paused (`prepare`), for at
@@ -88,6 +118,10 @@ final class PlaybackSession {
                 guard let self, let id, let entry = self.entries[id] else { return }
                 self.item = entry.item
                 self.onItem?(entry)
+                // A queued item that doesn't load gives way to another copy.
+                if let playing = player.currentItem, playing.status != .readyToPlay {
+                    Task { await self.loaded(playing) }
+                }
             }
         }
         periodic = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 10, preferredTimescale: 1), queue: .main) { [weak self] time in
