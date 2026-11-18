@@ -315,12 +315,13 @@ private struct SourcesPane: View {
             Table(library.repositories, selection: $selection) {
                 TableColumn("Source") { repo in
                     if let folder = library.folder(of: repo) {
+                        let missing = library.missingFolders.contains(folder.prefix)
                         Label {
-                            Text(folder.name) + Text("  on this Mac").foregroundStyle(.secondary)
+                            Text(folder.name) + Text(missing ? "  not found on this Mac" : "  on this Mac").foregroundStyle(.secondary)
                         } icon: {
-                            Image(systemName: "folder")
+                            Image(systemName: missing ? "folder.badge.questionmark" : "folder")
                         }
-                        .help(folder.path)
+                        .help(missing ? "\(folder.path) isn't there (on a drive that's unplugged?), so it isn't shared; it will be once it's back." : folder.path)
                     } else {
                         Label(repo.displayName, systemImage: "server.rack")
                             .lineLimit(1)

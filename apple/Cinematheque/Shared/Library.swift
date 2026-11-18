@@ -380,6 +380,24 @@ final class Library {
 
     /// This device's folders served as repositories, for this library.
     private(set) var folders: [Folder] = []
+    /// Folders not there when serving last started (on a drive unplugged,
+    /// say), by prefix: the rest are served, and these once they're back.
+    private(set) var missingFolders: Set<String> = []
+
+    /// Folders that aren't there now.
+    private var absentFolders: Set<String> {
+        Set(folders.filter { folder in
+            var directory: ObjCBool = false
+            return !FileManager.default.fileExists(atPath: folder.path, isDirectory: &directory) || !directory.boolValue
+        }.map(\.prefix))
+    }
+
+    /// Serves again if a folder has come back, or gone, since serving
+    /// started.
+    private func checkFolders() {
+        guard servingPort != nil, absentFolders != missingFolders else { return }
+        serve()
+    }
 
     private var foldersKey: String { "folders-" + (status?.library ?? "") }
 
@@ -440,7 +458,9 @@ final class Library {
         guard let handle, hasLibrary else { return }
         if folders.isEmpty { loadFolders() }
         let defaults = UserDefaults.standard
-        let mounts = folders.map { ["prefix": $0.prefix, "path": $0.path] }
+        // A folder that isn't there would keep the server from starting.
+        missingFolders = absentFolders
+        let mounts = folders.filter { !missingFolders.contains($0.prefix) }.map { ["prefix": $0.prefix, "path": $0.path] }
         let json = String(decoding: (try? JSONSerialization.data(withJSONObject: mounts)) ?? Data("[]".utf8), as: UTF8.self)
         let port = cq_serve(handle.pointer, Int32(defaults.integer(forKey: "servingPort")), json)
         if port < 0 {
@@ -543,7 +563,10 @@ final class Library {
             try? await Task.sleep(for: .seconds(1))
             tick += 1
             notePushed()
-            if tick % 5 == 0 { noteServed() }
+            if tick % 5 == 0 {
+                noteServed()
+                checkFolders()
+            }
             if Date.now.timeIntervalSince(lastSync) >= 60 { await syncQuietly() }
         }
     }
