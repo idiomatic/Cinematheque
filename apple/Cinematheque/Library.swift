@@ -128,6 +128,15 @@ final class Library {
     private var refreshedAtLaunch = false
     /// What a long operation is doing, if one is running.
     private(set) var activity: String?
+    /// How far it has come, from the core, while one runs.
+    private(set) var progress: Progress?
+
+    struct Progress: Codable, Equatable {
+        /// `crawling`, `describing`, or `syncing`.
+        let phase: String?
+        let done: Int
+        let total: Int
+    }
     /// Counts changes, so views showing details can refresh.
     private(set) var revision = 0
 
@@ -264,13 +273,19 @@ final class Library {
     private func long(_ what: String, _ body: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async -> String? {
         guard let handle, activity == nil else { return nil }
         activity = what
-        // Show what the operation commits as it commits it: titles once
-        // crawled, covers as they're found.
+        // Show what the operation commits as it commits it (titles once
+        // crawled, covers as they're found), reloading at most each second,
+        // and how far it has come, twice a second.
         let watcher = Task { [weak self] in
             var seen = cq_data_version(handle.pointer)
+            var tick = 0
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .milliseconds(500))
                 guard let self, !Task.isCancelled else { return }
+                let progress = self.decode(Progress.self) { cq_progress($0) }
+                if progress != self.progress { self.progress = progress }
+                tick += 1
+                guard tick % 2 == 0 else { continue }
                 let now = cq_data_version(handle.pointer)
                 if now != seen {
                     seen = now
@@ -278,7 +293,10 @@ final class Library {
                 }
             }
         }
-        defer { watcher.cancel() }
+        defer {
+            watcher.cancel()
+            progress = nil
+        }
         let failure: String? = await Task.detached {
             guard let text = body(handle.pointer) else { return String(cString: cq_error()) }
             defer { cq_free(text) }

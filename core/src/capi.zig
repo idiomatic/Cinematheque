@@ -39,6 +39,8 @@ const Library = struct {
     writer: Io.Mutex = .init,
     /// Titles to describe first while a crawl runs, such as those on screen.
     priority: art.Priority = .{},
+    /// How far the long operation running has come.
+    progress: Progress = .{},
 
     fn io(lib: *Library) Io {
         return lib.threaded.io();
@@ -157,6 +159,49 @@ const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers:
 const SyncJson = struct { url: []const u8, new: usize, @"error": ?[]const u8 };
 const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64 };
 const StatusJson = struct { user: []const u8, library: ?[]const u8, founder: ?[]const u8, members: usize };
+
+/// How far a long operation has come, in steps of its phase (repositories
+/// crawled, movies and seasons described, peers synced); read from any
+/// thread.
+const Progress = struct {
+    phase: std.atomic.Value(Phase) = .init(.idle),
+    done: std.atomic.Value(u32) = .init(0),
+    total: std.atomic.Value(u32) = .init(0),
+
+    const Phase = enum(u8) { idle, crawling, describing, syncing };
+
+    fn start(p: *Progress, phase: Phase, total: usize) void {
+        p.done.store(0, .monotonic);
+        p.total.store(@intCast(total), .monotonic);
+        p.phase.store(phase, .release);
+    }
+
+    fn step(p: *Progress) void {
+        _ = p.done.fetchAdd(1, .monotonic);
+    }
+
+    fn finish(p: *Progress) void {
+        p.phase.store(.idle, .release);
+    }
+};
+
+const ProgressJson = struct { phase: ?[]const u8, done: u32, total: u32 };
+
+/// How far the long operation running has come: a JSON object with `phase`
+/// (`crawling`, `describing`, `syncing`, or null when none runs), and
+/// `done` and `total` steps of it. Any thread.
+export fn cq_progress(lib: *Library) ?[*:0]u8 {
+    return json(lib, progress, .{});
+}
+
+fn progress(lib: *Library, _: std.mem.Allocator) !ProgressJson {
+    const phase = lib.progress.phase.load(.acquire);
+    return .{
+        .phase = if (phase == .idle) null else @tagName(phase),
+        .done = lib.progress.done.load(.monotonic),
+        .total = lib.progress.total.load(.monotonic),
+    };
+}
 
 // Identity and membership.
 
@@ -330,7 +375,10 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
     const list = try library.repositories(&r, arena);
     const out = try arena.alloc(CrawlJson, list.len);
     var crawled: std.ArrayList(art.Crawled) = .empty;
+    lib.progress.start(.crawling, list.len);
+    defer lib.progress.finish();
     for (list, out) |rp, *o| {
+        defer lib.progress.step();
         try lib.writer.lock(lib.io());
         defer lib.writer.unlock(lib.io());
         try r.refresh();
@@ -342,10 +390,12 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
         try crawled.append(arena, .{ .repo = rp, .entries = s.entries });
     }
     const plan = try art.plan(&r, arena, crawled.items);
+    lib.progress.start(.describing, plan.jobs.len);
     _ = try art.run(lib.io(), &r, arena, &client, lib.now(), plan.jobs, .{
         .workers = 16,
         .priority = &lib.priority,
         .writer = &lib.writer,
+        .done = &lib.progress.done,
     });
     return out;
 }
@@ -376,6 +426,9 @@ export fn cq_sync(lib: *Library, target: ?[*:0]const u8) ?[*:0]u8 {
 }
 
 fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]const SyncJson {
+    // Peers are counted once they're found.
+    lib.progress.start(.syncing, 0);
+    defer lib.progress.finish();
     try lib.writer.lock(lib.io());
     defer lib.writer.unlock(lib.io());
     var r = try connection(lib, arena);
@@ -396,7 +449,9 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]cons
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     const out = try arena.alloc(SyncJson, urls.items.len);
+    lib.progress.start(.syncing, urls.items.len);
     for (urls.items, out) |u, *o| {
+        defer lib.progress.step();
         const stats = sync.pull(arena, &client, &r, u, lib.now()) catch |err| {
             o.* = .{ .url = u, .new = 0, .@"error" = @errorName(err) };
             continue;

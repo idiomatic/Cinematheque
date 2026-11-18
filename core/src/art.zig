@@ -351,6 +351,8 @@ pub const RunOptions = struct {
     priority: ?*Priority = null,
     /// Held while writing, if other connections write as this device too.
     writer: ?*Io.Mutex = null,
+    /// Counts the jobs done, for another thread to read.
+    done: ?*std.atomic.Value(u32) = null,
     /// How many movies and seasons to describe between commits, at most,
     /// and how long, so what's found shows as it's found.
     batch: usize = 24,
@@ -456,6 +458,7 @@ const Runner = struct {
         r.stats.thumbs += stats.thumbs;
         r.stats.described += stats.described;
         r.stats.failed += stats.failed;
+        if (r.options.done) |d| _ = d.fetchAdd(1, .monotonic);
         r.batched += 1;
         const elapsed = r.last_flush.durationTo(Io.Timestamp.now(r.io, .awake)).toMilliseconds();
         if (r.batched >= r.options.batch or elapsed >= r.options.batch_ms) try r.flush();

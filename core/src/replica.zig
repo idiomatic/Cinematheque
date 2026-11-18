@@ -45,6 +45,8 @@ const schema =
     \\  field TEXT NOT NULL,
     \\  PRIMARY KEY (key, field)
     \\) WITHOUT ROWID;
+    \\-- The version vector: per device (interned), the highest sequence
+    \\-- number this replica covers, sent with sync requests.
     \\CREATE TABLE IF NOT EXISTS vv (
     \\  device INTEGER PRIMARY KEY,
     \\  seq INTEGER NOT NULL

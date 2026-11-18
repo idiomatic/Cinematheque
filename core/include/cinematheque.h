@@ -53,6 +53,11 @@ int cq_describe(cq_library *library, const char *item_key);
 int cq_prioritize(cq_library *library, const char *title_keys_json);
 long long cq_data_version(cq_library *library);
 
+// How far the long operation running has come: a JSON object with
+// "phase" ("crawling", "describing", "syncing", or null), and "done" and
+// "total" steps of it. Any thread.
+char *cq_progress(cq_library *library);
+
 // Browsing: the grid's tiles, with their covers' byte ranges, and one
 // title, with its metadata and each copy's playable URL.
 char *cq_tiles(cq_library *library);

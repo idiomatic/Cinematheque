@@ -22,6 +22,8 @@ struct LibraryView: View {
     @State private var inspecting = true
     /// Each shelf's scroll position, to return to.
     @State private var positions = ScrollMemory()
+    @State private var nearBottom = false
+    @State private var gridHeight: CGFloat = 0
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -35,7 +37,6 @@ struct LibraryView: View {
                 browser
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { ProblemBar() }
         .task { await library.refreshAtLaunch() }
     }
 
@@ -51,8 +52,13 @@ struct LibraryView: View {
             CoverGrid(tiles: shown, selection: $selection, shelf: shelf ?? .movies, search: search, positions: positions)
                 .id(shelf)
                 .navigationTitle(shelf?.rawValue ?? "Cinematheque")
-                // What a long operation is doing, while it runs.
-                .navigationSubtitle(library.activity.map { $0 + "…" } ?? "\(shown.count) \(shown.count == 1 ? "title" : "titles")")
+                .overlay(alignment: .bottom) { StatusBar(counts: counts, hovering: nearBottom) }
+                // Pointing near the bottom brings back a faded status bar.
+                .onContinuousHover { phase in
+                    let near = if case .active(let point) = phase { point.y > gridHeight - StatusBar.height * 1.5 } else { false }
+                    if near != nearBottom { nearBottom = near }
+                }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { _, height in gridHeight = height }
                 .inspector(isPresented: $inspecting) {
                     Group {
                         if let tile = library.tiles.first(where: { $0.id == selection }) {
@@ -88,14 +94,35 @@ struct LibraryView: View {
     }
 
     private var shown: [Tile] {
+        onShelf.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+    }
+
+    private var onShelf: [Tile] {
         library.tiles.filter { tile in
-            let onShelf = switch shelf ?? .movies {
+            switch shelf ?? .movies {
             case .movies: !tile.isSeries
             case .series: tile.isSeries
             case .watchlist: library.watchlist.contains(tile.key)
             }
-            return onShelf && (search.isEmpty || tile.name.localizedCaseInsensitiveContains(search))
         }
+    }
+
+    /// "4,000 movies", "312 series, 1,212 seasons", or with a search, "12
+    /// of 4,000 movies match “zoo”".
+    private var counts: String {
+        let all = onShelf
+        let titles = Set(all.map(\.key)).count
+        let noun = switch shelf ?? .movies {
+        case .movies: titles == 1 ? "movie" : "movies"
+        case .series: "series"
+        case .watchlist: titles == 1 ? "title" : "titles"
+        }
+        if !search.isEmpty {
+            let matching = Set(shown.map(\.key)).count
+            return "\(matching.formatted()) of \(titles.formatted()) \(noun) match “\(search)”"
+        }
+        if shelf == .series { return "\(titles.formatted()) series, \(all.count.formatted()) seasons" }
+        return "\(titles.formatted()) \(noun)"
     }
 }
 
@@ -160,6 +187,8 @@ struct CoverGrid: View {
             .padding(20)
         }
         .scrollPosition($position)
+        // The last row clears the status bar floating over the grid.
+        .contentMargins(.bottom, StatusBar.height, for: .scrollContent)
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { _, _ in
             if let top = anchor.top { position.scrollTo(id: top, anchor: .top) }
         }
@@ -301,6 +330,82 @@ struct ProblemBar: View {
                 .padding(.vertical, 8)
             }
             .background(.bar)
+        }
+    }
+}
+
+/// Along the bottom of the grid, over it: the shelf's counts, what a long
+/// operation is doing and how far it has come, or what went wrong. It fades
+/// out a few seconds after it last changed, unless something is running or
+/// wrong, or the pointer is near it; floating, so fading moves nothing.
+struct StatusBar: View {
+    let counts: String
+    let hovering: Bool
+    @Environment(Library.self) private var library
+    @State private var fresh = true
+
+    static let height: CGFloat = 30
+
+    private var sticky: Bool { library.problem != nil || library.activity != nil || hovering }
+    private var visible: Bool { fresh || sticky }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 8) {
+                if let problem = library.problem {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+                    Text(problem).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                    Button("Dismiss", systemImage: "xmark") { library.problem = nil }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                } else {
+                    Text(counts).lineLimit(1).truncationMode(.tail)
+                }
+                Spacer(minLength: 12)
+                if let activity = library.activity {
+                    Text(Self.describe(activity, library.progress))
+                        .lineLimit(1)
+                        .monospacedDigit()
+                        .layoutPriority(1)
+                    if let p = library.progress, p.total > 0 {
+                        ProgressView(value: Double(min(p.done, p.total)), total: Double(p.total))
+                            .progressViewStyle(.linear)
+                            .frame(width: 100)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .frame(height: Self.height - 1)
+        }
+        .background(.bar)
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+        .animation(.easeInOut(duration: 0.6), value: visible)
+        // Shown afresh whenever it changes, then faded after a while.
+        .task(id: "\(counts)|\(library.problem ?? "")|\(sticky)") {
+            fresh = true
+            guard !sticky else { return }
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { fresh = false }
+        }
+    }
+
+    /// "Crawling 3 of 6 repositories", "Covers 1,240 of 5,000" (covers and
+    /// details found), "Syncing with 1 of 2 peers", or what's running.
+    static func describe(_ activity: String, _ p: Library.Progress?) -> String {
+        guard let p, let phase = p.phase else { return activity + "…" }
+        let done = min(p.done + (phase == "describing" ? 0 : 1), p.total).formatted()
+        let total = p.total.formatted()
+        return switch phase {
+        case "crawling": "Crawling \(done) of \(total) \(p.total == 1 ? "repository" : "repositories")…"
+        case "describing": p.total == 0 ? "Covers…" : "Covers \(p.done.formatted()) of \(total)"
+        case "syncing": p.total == 0 ? "Looking for peers…" : "Syncing with \(done) of \(total) \(p.total == 1 ? "peer" : "peers")…"
+        default: activity + "…"
         }
     }
 }
