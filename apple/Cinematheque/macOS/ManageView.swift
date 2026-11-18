@@ -99,11 +99,10 @@ private struct SourcesPane: View {
                 editing = library.repositories.first { $0.id == ids.first }
             }
             HStack {
-                Menu("Add", systemImage: "plus") {
-                    Button("Folder on This Mac…") { chooseFolder() }
-                    Button("Network Address…") { adding = true }
-                }
-                .fixedSize()
+                Button("Add Folder…", systemImage: "folder.badge.plus") { chooseFolder() }
+                    .help("Add a folder on this Mac")
+                Button("Add Server…", systemImage: "server.rack") { adding = true }
+                    .help("Add a server on your network, such as a NAS, by its address")
                 Button("Remove", systemImage: "minus") {
                     if let repo = library.repositories.first(where: { $0.id == selection }) { remove(repo) }
                 }
