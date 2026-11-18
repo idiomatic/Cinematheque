@@ -23,6 +23,9 @@ struct CinemathequeApp: App {
                     .environment(library)
             }
         }
+        // A player isn't reopened at launch, playing on its own (and, with
+        // a debug launch option, beside another).
+        .restorationBehavior(.disabled)
         Settings {
             ManageView()
                 .environment(library)

@@ -136,7 +136,7 @@ open "$(xcodebuild -scheme Cinematheque -configuration Release \
 
 It uses the same home as the command-line peer, so either can manage the library. Serving, so others can sync from this Mac, and the background agent still take the command-line peer.
 
-From the command line, `playhead list` shows what you're partway through or have watched, `playhead set` records it, and `playhead remove` forgets it.
+Stopping within the first 10 seconds forgets where you were, so going back to the start sticks. From the command line, `playhead list` shows what you're partway through or have watched, `playhead set` records it, and `playhead remove` forgets it.
 
 ## Sharing a library
 

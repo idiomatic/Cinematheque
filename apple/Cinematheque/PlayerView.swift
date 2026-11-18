@@ -39,16 +39,32 @@ private struct Player: NSViewRepresentable {
 
     @MainActor
     final class Coordinator {
+        let library: Library
         var observer: Any?
         var ended: NSObjectProtocol?
         var current: NSKeyValueObservation?
+        var status: NSKeyValueObservation?
         /// Each queued player item's item key and title.
         var entries: [ObjectIdentifier: PlayRequest.Entry] = [:]
         /// The item playing.
         var item = ""
+        /// Whether playing has begun, before which a pause isn't a stop.
+        var started = false
+
+        init(library: Library) { self.library = library }
+
+        /// Saves the playhead where the player stopped; the core deletes it
+        /// if that's within the first 10 seconds, so rewinding to the start
+        /// sticks.
+        func stopped(_ player: AVPlayer) {
+            guard started, let current = player.currentItem else { return }
+            library.setPlayhead(item, position: player.currentTime().seconds, duration: current.duration.seconds)
+            // The grid's progress bars and watched marks.
+            library.reload()
+        }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(library: library) }
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
@@ -81,11 +97,21 @@ private struct Player: NSViewRepresentable {
                 title.wrappedValue = entry.title
             }
         }
-        // Save the playhead every 10 seconds of playing.
+        // Save the playhead every 10 seconds of playing, but not within the
+        // first 10 seconds, which (before a resume's seek lands) would
+        // delete it; only stopping there does.
         coordinator.observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 10, preferredTimescale: 1), queue: .main) { [weak player] time in
             MainActor.assumeIsolated {
-                guard let player, player.rate != 0, let duration = player.currentItem?.duration.seconds else { return }
+                guard let player, player.rate != 0, time.seconds >= 10, let duration = player.currentItem?.duration.seconds else { return }
                 library.setPlayhead(coordinator.item, position: time.seconds, duration: duration)
+            }
+        }
+        // And where it's paused.
+        coordinator.status = player.observe(\.timeControlStatus, options: [.new]) { player, _ in
+            let status = player.timeControlStatus
+            MainActor.assumeIsolated {
+                if status == .playing { coordinator.started = true }
+                if status == .paused { coordinator.stopped(player) }
             }
         }
         // Mark each item watched at its end.
@@ -94,6 +120,7 @@ private struct Player: NSViewRepresentable {
             MainActor.assumeIsolated {
                 guard let ended, let entry = coordinator.entries[ended] else { return }
                 library.setWatched(entry.item, true)
+                library.reload()
             }
         }
         return view
@@ -106,6 +133,9 @@ private struct Player: NSViewRepresentable {
         if let observer = coordinator.observer { player.removeTimeObserver(observer) }
         if let ended = coordinator.ended { NotificationCenter.default.removeObserver(ended) }
         coordinator.current?.invalidate()
+        coordinator.status?.invalidate()
+        // Closing the window stops it where it is.
+        if player.rate != 0 { coordinator.stopped(player) }
         player.pause()
     }
 }

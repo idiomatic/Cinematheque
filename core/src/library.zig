@@ -573,6 +573,9 @@ pub const Item = struct {
     fields: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
 };
 
+/// Positions before this aren't kept as playheads.
+pub const kept_after_ms = 10_000;
+
 pub const Playhead = struct {
     position_ms: u64 = 0,
     duration_ms: u64 = 0,
@@ -585,9 +588,13 @@ fn playheadKey(replica: *Replica, arena: std.mem.Allocator, item_key: []const u8
 
 /// Records how far this user has played an item (its full key, e.g.,
 /// `t/m/alien/1979/v/-`). Reaching the last 5% marks it watched, since end
-/// credits aren't known yet.
+/// credits aren't known yet; a position in the first 10 seconds isn't kept,
+/// clearing any earlier one (but not the watched mark), so the item plays
+/// from the start.
 pub fn setPlayhead(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8, position_ms: u64, duration_ms: u64) !void {
     const key = try playheadKey(replica, arena, item_key);
+    if (position_ms < kept_after_ms)
+        return replica.writePrivate(wall_ms, key, &.{ .{ "position", "" }, .{ "duration", "" } });
     const position = try std.fmt.allocPrint(arena, "{d}", .{position_ms});
     const duration = try std.fmt.allocPrint(arena, "{d}", .{duration_ms});
     if (duration_ms > 0 and position_ms * 100 >= duration_ms * 95)
@@ -1025,6 +1032,9 @@ test "state: repositories, aliases, playheads, and members can be listed, set, a
     try std.testing.expectEqualStrings("t/m/network-effect/2020/v/-", one[0].item);
     try std.testing.expectEqual(@as(u64, 60_000), one[0].playhead.position_ms);
     try std.testing.expectEqual(@as(usize, 0), (try playheads(&r, arena, "t/m/network")).len);
+    // Back within the first 10 seconds: the playhead isn't kept.
+    try setPlayhead(&r, arena, 6500, "t/m/network-effect/2020/v/-", 9_000, 6_000_000);
+    try std.testing.expectEqual(@as(usize, 0), (try playheads(&r, arena, "t/m/network-effect/2020")).len);
     try removePlayhead(&r, arena, 7000, "t/m/network-effect/2020/v/-");
     try std.testing.expectEqual(@as(usize, 1), (try playheads(&r, arena, null)).len);
 

@@ -12,7 +12,13 @@ enum Launch {
     /// The item that URL is a copy of, from `CINEMATHEQUE_ITEM`.
     static var item: String? { ProcessInfo.processInfo.environment["CINEMATHEQUE_ITEM"] }
 
-    /// A URL to play first, from `CINEMATHEQUE_PLAY`.
-    static var play: URL? { ProcessInfo.processInfo.environment["CINEMATHEQUE_PLAY"].flatMap(URL.init(string:)) }
+    /// A URL to play first, from `CINEMATHEQUE_PLAY`, once a launch: the
+    /// library view can appear twice before its player window opens.
+    static var play: URL? {
+        guard !played else { return nil }
+        played = true
+        return ProcessInfo.processInfo.environment["CINEMATHEQUE_PLAY"].flatMap(URL.init(string:))
+    }
+    private static var played = false
 }
 #endif
