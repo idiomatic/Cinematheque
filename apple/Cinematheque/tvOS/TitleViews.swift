@@ -57,7 +57,7 @@ struct MovieView: View {
             if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, rendition: detail.rendition(for: detail.items)) }
             #endif
         }
-        .fullScreenCover(item: $playing) { TVPlayer(request: $0).ignoresSafeArea() }
+        .modifier(PlaysFullScreen(request: $playing))
     }
 }
 
@@ -148,7 +148,7 @@ struct SeriesView: View {
             let ordered = seasons.filter { $0.season != 0 } + seasons.filter { $0.season == 0 }
             if season == nil { season = (ordered.first { !$0.watched } ?? ordered.first)?.season }
         }
-        .fullScreenCover(item: $playing) { TVPlayer(request: $0).ignoresSafeArea() }
+        .modifier(PlaysFullScreen(request: $playing))
     }
 }
 

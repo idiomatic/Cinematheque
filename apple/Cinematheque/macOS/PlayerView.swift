@@ -29,11 +29,14 @@ struct WindowPlayer: View {
     @State private var showsBack = false
     @State private var onBack = false
     @State private var lastMove = Date.distantPast
+    @State private var curtain = Curtain()
 
     var body: some View {
-        Player(request: request, library: library, title: $title, finished: close) {
-            lastMove = .now
-            showsBack = true
+        FadingIn(curtain: curtain) {
+            Player(request: request, library: library, title: $title, finished: leave, curtain: curtain) {
+                lastMove = .now
+                showsBack = true
+            }
         }
             .ignoresSafeArea()
             .task(id: lastMove) {
@@ -43,7 +46,7 @@ struct WindowPlayer: View {
             .overlay(alignment: .topLeading) {
                 // On a material, to show over any picture; still there,
                 // unseen, for Escape.
-                Button(action: close) {
+                Button(action: leave) {
                     Label("Back", systemImage: "chevron.backward")
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
@@ -60,7 +63,12 @@ struct WindowPlayer: View {
             }
             .background(HidesToolbar())
             .navigationTitle(title.isEmpty ? request.title : title)
-            .background(.black)
+    }
+
+    /// Leaves playback, its picture fading to black as its sound falls,
+    /// then for the library.
+    private func leave() {
+        curtain.lower(then: close)
     }
 }
 
@@ -104,9 +112,12 @@ struct PlayerView: View {
     let request: PlayRequest
     @Environment(Library.self) private var library
     @State private var title = ""
+    @State private var curtain = Curtain()
 
     var body: some View {
-        Player(request: request, library: library, title: $title)
+        FadingIn(fadesToBlack: false, curtain: curtain) {
+            Player(request: request, library: library, title: $title, curtain: curtain)
+        }
             .frame(minWidth: 640, minHeight: 360)
             .navigationTitle(title.isEmpty ? (request.url.deletingPathExtension().lastPathComponent.removingPercentEncoding ?? "Player") : title)
             .onAppear { title = request.title }
@@ -192,6 +203,8 @@ private struct Player: NSViewRepresentable {
     let library: Library
     @Binding var title: String
     var finished: (() -> Void)? = nil
+    /// Raised once it plays, warmed up.
+    let curtain: Curtain
     var moved: (() -> Void)? = nil
 
     @MainActor
@@ -212,7 +225,9 @@ private struct Player: NSViewRepresentable {
         session.onItem = { title.wrappedValue = $0.title }
         session.onFinished = finished
         view.player = session.player
-        session.play()
+        curtain.session = session
+        let curtain = curtain
+        Task { await session.begin(); curtain.raise() }
         context.coordinator.session = session
         return view
     }

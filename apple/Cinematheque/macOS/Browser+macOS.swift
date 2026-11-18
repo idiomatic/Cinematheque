@@ -25,8 +25,10 @@ struct Browser: View {
         ZStack {
             browser
             if let playing {
-                WindowPlayer(request: playing) { self.playing = nil }
+                // Its black fading away, to the library.
+                WindowPlayer(request: playing) { withAnimation(.easeOut(duration: Platform.fade)) { self.playing = nil } }
                     .id(playing)
+                    .transition(.opacity)
             }
         }
         .environment(\.play, PlayAction(inWindow: { playing = $0 }, newWindow: { openWindow(value: $0) }))

@@ -29,6 +29,14 @@ enum Platform {
         #endif
     }
 
+    /// How long each of playback's fades takes, in seconds: its picture to
+    /// black and back, and its sound to silence and back.
+    static let fade = 0.5
+
+    /// How much resuming replays, in seconds: its fade from black starts
+    /// this much before where playing was left, as its fade to black ended.
+    static let replay = 4.0
+
     /// This device's name until one's set: the computer's, or the Apple
     /// TV's as set in its settings.
     static var deviceName: String {

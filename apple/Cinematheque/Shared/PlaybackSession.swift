@@ -49,9 +49,38 @@ final class PlaybackSession {
         player = AVQueuePlayer(items: items)
     }
 
-    /// Starts playing, at the request's start, and keeping playheads.
+    /// Once closed, it doesn't start.
+    private var closed = false
+
+    /// Readies the first item, paused, at the request's start (resuming,
+    /// `Platform.replay` before it): loaded, sought, and buffered
+    /// (prerolled), so it plays at once.
+    func prepare() async {
+        guard let first = player.currentItem else { return }
+        while first.status == .unknown, !closed { try? await Task.sleep(for: .milliseconds(20)) }
+        guard first.status == .readyToPlay, !closed else { return }
+        if start > 0 { await player.seek(to: CMTime(seconds: max(0, start - Platform.replay), preferredTimescale: 600)) }
+        guard !closed else { return }
+        _ = await player.preroll(atRate: 1)
+    }
+
+    /// Starts as the players do: warming up, paused (`prepare`), for at
+    /// least `fade` (as the screen fades to black), then playing, its sound
+    /// rising as the picture fades in. Returns once playing, to fade to the
+    /// picture.
+    func begin(fade: Duration = .seconds(Platform.fade)) async {
+        let clock = ContinuousClock()
+        let faded = clock.now + fade
+        await prepare()
+        try? await Task.sleep(until: faded, clock: clock)
+        guard !closed else { return }
+        // Silent until its curtain rises.
+        player.volume = 0
+        play()
+    }
+
+    /// Plays, from where it's readied (`prepare`), keeping playheads.
     func play() {
-        if start > 0 { player.seek(to: CMTime(seconds: start, preferredTimescale: 600)) }
         player.play()
         current = player.observe(\.currentItem, options: [.new]) { [weak self] player, _ in
             let id = player.currentItem.map(ObjectIdentifier.init)
@@ -86,8 +115,22 @@ final class PlaybackSession {
         }
     }
 
+    /// Takes the sound from where it is to `volume` (1, full; 0, silent)
+    /// over `duration`, as the picture fades in or out.
+    func ramp(to volume: Float, over duration: Duration) {
+        let from = player.volume
+        Task { [player] in
+            let steps = 24
+            for step in 1...steps {
+                try? await Task.sleep(for: duration / steps)
+                player.volume = from + (volume - from) * Float(step) / Float(steps)
+            }
+        }
+    }
+
     /// Stops where it is, as when its window closes.
     func close() {
+        closed = true
         if let periodic { player.removeTimeObserver(periodic) }
         if let ended { NotificationCenter.default.removeObserver(ended) }
         current?.invalidate()
