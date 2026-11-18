@@ -44,7 +44,7 @@ struct SetupView: View {
                 }
                 GroupBox("Another of your devices") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("To be yourself here, with your playheads and watchlist, first paste your secret from a device you already use (Settings › This Device there), then join.")
+                        Text("To be yourself here, with your playheads and watchlist, first paste your secret from a device you already use (in Settings › People & Devices there, under Add a Device), then join.")
                             .foregroundStyle(.secondary)
                         HStack {
                             SecureField("Your secret", text: $secret)

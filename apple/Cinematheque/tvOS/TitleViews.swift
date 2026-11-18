@@ -48,7 +48,7 @@ struct MovieView: View {
         .task(id: library.revision) {
             detail = library.detail(tile.key)
             #if DEBUG
-            if TVLaunch.play, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, rendition: TVRendition.best(detail.items.first)) }
+            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, rendition: TVRendition.best(detail.items.first)) }
             #endif
         }
         .fullScreenCover(item: $playing) { TVPlayer(request: $0).ignoresSafeArea() }

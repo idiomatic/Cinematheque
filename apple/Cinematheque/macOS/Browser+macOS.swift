@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The library as a grid of covers: movies, and series by season, filtered
 /// by shelf and search, beside an inspector for the one selected.
-struct LibraryView: View {
+struct Browser: View {
     enum Shelf: String, CaseIterable, Identifiable {
         case movies = "Movies", series = "Series", watchlist = "Watchlist"
         var id: Self { self }
@@ -28,24 +28,6 @@ struct LibraryView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        @Bindable var library = library
-        Group {
-            if library.status == nil {
-                ContentUnavailableView("No Peer Home", systemImage: "exclamationmark.triangle", description: Text(library.problem ?? ""))
-            } else if !library.hasLibrary {
-                SetupView()
-            } else {
-                browser
-            }
-        }
-        .task {
-            // This Mac's name, and the account's first name, until set.
-            let first = NSFullUserName().split(separator: " ").first.map(String.init)
-            await library.startAtLaunch(device: Host.current().localizedName ?? "Mac", user: first)
-        }
-    }
-
-    private var browser: some View {
         NavigationSplitView {
             List(Shelf.allCases, selection: $shelf) { shelf in
                 Label(shelf.rawValue, systemImage: shelf.symbol)
@@ -87,7 +69,7 @@ struct LibraryView: View {
         #if DEBUG
         .onAppear {
             if let id = Launch.selection { selection = id }
-            if let url = Launch.play { openWindow(value: PlayRequest(url: url, item: Launch.item ?? "", start: 0)) }
+            if let url = Launch.play.flatMap(URL.init(string:)) { openWindow(value: PlayRequest(url: url, item: Launch.item ?? "", start: 0)) }
         }
         #endif
     }
@@ -138,13 +120,13 @@ struct LibraryView: View {
 /// grid's width would move). Not observed, so scrolling doesn't redraw the
 /// view that holds it.
 final class ScrollMemory {
-    var tops: [LibraryView.Shelf: String] = [:]
+    var tops: [Browser.Shelf: String] = [:]
 }
 
 struct CoverGrid: View {
     let tiles: [Tile]
     @Binding var selection: Tile.ID?
-    let shelf: LibraryView.Shelf
+    let shelf: Browser.Shelf
     let search: String
     let positions: ScrollMemory
     @State private var position = ScrollPosition(edge: .top)
@@ -219,7 +201,7 @@ struct CoverGrid: View {
         }
         .overlay {
             if tiles.isEmpty {
-                ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text("Add repositories and crawl them in Settings."))
+                ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text("Add sources of videos in Settings."))
             }
         }
     }

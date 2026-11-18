@@ -4,7 +4,7 @@ import SwiftUI
 /// Linking this Apple TV to its user and joining their library, by the
 /// user's secret and the founder's key, typed (an iPhone's keyboard can type
 /// for the remote). Pairing by six digits shown on both screens is to come.
-struct TVSetupView: View {
+struct SetupView: View {
     @Environment(Library.self) private var library
     @State private var secret = ""
     @State private var founder = ""

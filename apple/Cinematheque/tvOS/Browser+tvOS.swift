@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The tab bar: Home, Movies, Series, Watchlist, and Search, each a
 /// navigation stack opening titles' detail pages.
-struct Shelves: View {
+struct Browser: View {
     enum Shelf: String, Hashable {
         case home, movies, series, watchlist, search
     }
@@ -20,10 +20,10 @@ struct Shelves: View {
                 Stack { PosterGrid(tiles: library.tiles.filter { !$0.isSeries }) }
             }
             Tab("Series", systemImage: "tv", value: .series) {
-                Stack { PosterGrid(tiles: Shelves.series(library.tiles)) }
+                Stack { PosterGrid(tiles: Browser.series(library.tiles)) }
             }
             Tab("Watchlist", systemImage: "star", value: .watchlist) {
-                Stack { PosterGrid(tiles: Shelves.titles(library.tiles.filter { library.watchlist.contains($0.key) }), empty: "Titles you add to your watchlist show here.") }
+                Stack { PosterGrid(tiles: Browser.titles(library.tiles.filter { library.watchlist.contains($0.key) }), empty: "Titles you add to your watchlist show here.") }
             }
             Tab(value: .search, role: .search) {
                 Stack { SearchView() }
@@ -31,7 +31,7 @@ struct Shelves: View {
         }
         .overlay(alignment: .bottomTrailing) { Activity() }
         #if DEBUG
-        .onAppear { if let tab = TVLaunch.tab { shelf = tab } }
+        .onAppear { if let tab = Launch.tab.flatMap(Shelf.init(rawValue:)) { shelf = tab } }
         #endif
     }
 
@@ -63,7 +63,7 @@ private struct Stack<Content: View>: View {
         }
         #if DEBUG
         .onAppear {
-            if let key = TVLaunch.select, let tile = library.tiles.first(where: { $0.key == key }) { path = [tile] }
+            if let key = Launch.selectedTitle, let tile = library.tiles.first(where: { $0.key == key }) { path = [tile] }
         }
         #endif
     }
@@ -77,7 +77,7 @@ private struct HomeView: View {
     var body: some View {
         let tiles = library.tiles
         let going = tiles.filter { !$0.watched && $0.progress > 0 }
-        let listed = Shelves.titles(tiles.filter { library.watchlist.contains($0.key) })
+        let listed = Browser.titles(tiles.filter { library.watchlist.contains($0.key) })
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 50) {
                 if going.isEmpty && listed.isEmpty {
@@ -113,7 +113,7 @@ private struct Row: View {
 /// Covers in a grid, six to a row.
 struct PosterGrid: View {
     let tiles: [Tile]
-    var empty = "Add repositories, then refresh, on your Mac."
+    var empty = "Add sources of videos in Cinematheque on your Mac."
 
     var body: some View {
         ScrollView {
@@ -166,7 +166,7 @@ private struct SearchView: View {
     @State private var text = ""
 
     var body: some View {
-        let found = text.isEmpty ? [] : Shelves.titles(library.tiles.filter { $0.name.localizedCaseInsensitiveContains(text) })
+        let found = text.isEmpty ? [] : Browser.titles(library.tiles.filter { $0.name.localizedCaseInsensitiveContains(text) })
         PosterGrid(tiles: found, empty: text.isEmpty ? "Search for a movie or series." : "No titles match “\(text)”.")
             .searchable(text: $text)
     }
