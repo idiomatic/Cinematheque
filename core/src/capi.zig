@@ -112,6 +112,8 @@ fn open(peer_home: ?[*:0]const u8) !*Library {
     lib.store = try store_.Store.open(lib.io(), gpa, arena, dir);
     _ = lib.store.founder(arena) catch return lib;
     lib.replica = try lib.store.openReplica(arena);
+    // One an older build certified wrongly is accepted by others again.
+    try lib.replica.?.recertify(lib.now());
     return lib;
 }
 

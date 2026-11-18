@@ -169,6 +169,10 @@ pub const Replica = struct {
     pending: std.ArrayList(Hash) = .empty,
     pending_first: u64 = 0,
     batching: bool = false,
+    /// Whether this connection has checked the device's own certificates,
+    /// its stream's and its private stream's, before writing on them.
+    checked_certificate: bool = false,
+    checked_private_certificate: bool = false,
     /// Whether any fields await `repair`, so merges needn't check otherwise.
     repairing: bool = false,
     select_winner: sqlite.Stmt,
@@ -247,9 +251,55 @@ pub const Replica = struct {
         return value;
     }
 
-    fn certify(replica: *Replica) anyerror!void {
+    /// Writes this device's certificate, at `wall_ms`, so a fresh one wins
+    /// over one that didn't verify.
+    fn certify(replica: *Replica, wall_ms: u64) anyerror!void {
         var key: [66]u8 = undefined;
-        try replica.write(0, certKey(&key, replica.device()), "user", &try replica.certificate(false));
+        try replica.write(wall_ms, certKey(&key, replica.device()), "user", &try replica.certificate(false));
+    }
+
+    /// A device's first write is its certificate; one that doesn't verify
+    /// (or none) is written afresh, checked once a connection.
+    fn checkCertificate(replica: *Replica, wall_ms: u64) !void {
+        if (replica.checked_certificate) return;
+        replica.checked_certificate = true;
+        if (!try replica.ownCertified(false)) try replica.certify(wall_ms);
+    }
+
+    /// Rewrites this device's certificates that it holds but that don't
+    /// verify, as when it opens, so other devices take its stream again
+    /// without waiting for it to write. One it doesn't hold waits for its
+    /// first write: a device whose replica was lost must learn where its
+    /// numbering left off before it writes.
+    pub fn recertify(replica: *Replica, wall_ms: u64) !void {
+        var key: [66]u8 = undefined;
+        if (try replica.holds(certKey(&key, replica.device()), "user") and !try replica.ownCertified(false)) {
+            replica.checked_certificate = true;
+            try replica.certify(wall_ms);
+        }
+        const private = replica.private_pair.public_key.toBytes();
+        if (try replica.holds(certKey(&key, private), "private") and !try replica.ownCertified(true)) {
+            replica.checked_private_certificate = true;
+            try replica.write(wall_ms, certKey(&key, private), "private", &try replica.certificate(true));
+        }
+    }
+
+    fn holds(replica: *Replica, key: []const u8, field: []const u8) !bool {
+        const s = replica.select_winner;
+        defer s.reset();
+        try s.bindText(1, key);
+        try s.bindText(2, field);
+        return try s.step();
+    }
+
+    /// Whether this device's own certificate, or its private stream's, as
+    /// held, is valid for this library and names its user. Its own writes
+    /// pass without one, so only others would notice one that isn't, by
+    /// refusing every write on the stream (as an older build's may be).
+    fn ownCertified(replica: *Replica, private: bool) !bool {
+        const key = if (private) replica.private_pair.public_key.toBytes() else replica.device();
+        const c = try replica.certified(key, &.{}) orelse return false;
+        return c.private == private and std.mem.eql(u8, &c.user, &replica.userKey());
     }
 
     pub fn userKey(replica: *const Replica) Device {
@@ -263,9 +313,14 @@ pub const Replica = struct {
         if (!std.mem.startsWith(u8, key, "p/") or !std.mem.startsWith(u8, key[2..], &hex) or key.len < 67 or key[66] != '/')
             return error.NotPrivate;
         try replica.flush();
-        if (replica.private_seq == 0) {
-            var cert_key: [66]u8 = undefined;
-            try replica.write(wall_ms, certKey(&cert_key, replica.private_pair.public_key.toBytes()), "private", &try replica.certificate(true));
+        // The private stream's certificate travels on the device's own.
+        try replica.checkCertificate(wall_ms);
+        if (!replica.checked_private_certificate) {
+            replica.checked_private_certificate = true;
+            if (!try replica.ownCertified(true)) {
+                var cert_key: [66]u8 = undefined;
+                try replica.write(wall_ms, certKey(&cert_key, replica.private_pair.public_key.toBytes()), "private", &try replica.certificate(true));
+            }
         }
         var leaves: std.ArrayList(Hash) = .empty;
         defer leaves.deinit(replica.gpa);
@@ -636,10 +691,8 @@ pub const Replica = struct {
     }
 
     fn writeOp(replica: *Replica, kind: op_.Kind, wall_ms: u64, key: []const u8, field: []const u8, value: []const u8) !void {
-        if (replica.seq == 0) {
-            var own_key: [66]u8 = undefined;
-            if (!std.mem.eql(u8, key, certKey(&own_key, replica.device()))) try replica.certify();
-        }
+        var own_key: [66]u8 = undefined;
+        if (!std.mem.eql(u8, key, certKey(&own_key, replica.device()))) try replica.checkCertificate(wall_ms);
         replica.seq += 1;
         const op: Op = .{
             .library = replica.library,
@@ -1530,6 +1583,40 @@ test "batches from devices of users who aren't members are rejected, then accept
     const accepted = try p.sync(1, 2);
     try testing.expectEqual(@as(usize, 0), accepted.rejected);
     try testing.expectEqualStrings("Unadded", try p.value(1, "t/00001", "name"));
+}
+
+test "a device whose certificate doesn't verify writes a fresh one, and its whole stream is accepted" {
+    var p: Peers = undefined;
+    try p.init();
+    defer p.deinit();
+    const c = &p.replicas[2];
+
+    // c's stream starts with a certificate signed for another library.
+    var key: [66]u8 = undefined;
+    const sig = try c.user.sign(&certMessage(libraryId(@splat(9)), c.device(), false), null);
+    try c.write(0, certKey(&key, c.device()), "user", &(c.userKey() ++ sig.toBytes()));
+    c.checked_certificate = true; // As an older build would, c doesn't check.
+    try c.write(1000, "t/00001", "name", "Metropolis");
+    try testing.expect((try p.sync(1, 2)).rejected > 0);
+    try testing.expectError(error.Missing, p.value(1, "t/00001", "name"));
+
+    // Opened again, c rewrites the certificate before writing anything.
+    c.checked_certificate = false;
+    c.hlc = .{};
+    try c.recertify(1500);
+    try testing.expectEqual(@as(usize, 0), (try p.sync(1, 2)).rejected);
+    try testing.expectEqualStrings("Metropolis", try p.value(1, "t/00001", "name"));
+
+    // And again: it checks, and certifies afresh,
+    // even when it writes only private data.
+    c.checked_certificate = false;
+    c.hlc = .{};
+    try c.writePrivate(2000, try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/x/2000/v/-", .{std.fmt.bytesToHex(c.userKey(), .lower)}), &.{.{ "position", "60000" }});
+    try c.write(2000, "t/00002", "name", "Nosferatu");
+    const stats = try p.sync(1, 2);
+    try testing.expectEqual(@as(usize, 0), stats.rejected);
+    try testing.expectEqualStrings("Metropolis", try p.value(1, "t/00001", "name"));
+    try testing.expectEqualStrings("Nosferatu", try p.value(1, "t/00002", "name"));
 }
 
 test "an invitation later in the same response admits earlier batches" {
