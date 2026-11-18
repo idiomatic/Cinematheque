@@ -3,38 +3,251 @@ import AppKit
 import SwiftUI
 import SystemConfiguration
 
-/// Settings: the names others see, sharing, where videos come from, and the
-/// people and devices that share the library; keys and addresses are kept
-/// under Advanced.
+/// Settings: the people who share the library, your devices (this Mac's
+/// sharing among them), named in place, and where videos come from;
+/// addresses are kept under Advanced.
 struct ManageView: View {
     var body: some View {
         TabView {
-            Tab("General", systemImage: "gearshape") { GeneralPane() }
+            Tab("People", systemImage: "person.2") { PeoplePane() }
+            Tab("Devices", systemImage: "laptopcomputer.and.iphone") { DevicesPane() }
             Tab("Sources", systemImage: "externaldrive.connected.to.line.below") { SourcesPane() }
-            Tab("People & Devices", systemImage: "person.2") { PeoplePane() }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { ProblemBar() }
         .frame(width: 640, height: 480)
     }
 }
 
-// General.
+// People and devices.
 
-private struct GeneralPane: View {
+/// A new device nearby offering to pair, to be another of yours or a new
+/// member's: the code it shows, entered here, pairs it (and adds its user,
+/// if joining), and `paired` moves it on.
+private struct PairRow: View {
+    let peer: Peer
+    let paired: (Peer) -> Void
     @Environment(Library.self) private var library
-    @State private var userName = ""
-    @State private var deviceName = ""
-    @State private var sharing = true
+    @State private var code = ""
+    @State private var pairing = false
+    @State private var failure: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label(peer.deviceName ?? "A new device", systemImage: peer.joining ? "person.crop.circle.badge.plus" : "appletv")
+                Text(peer.joining ? "wants to join" : "wants to pair").foregroundStyle(.secondary)
+                Spacer()
+                TextField("Code", text: $code, prompt: Text("Code"))
+                    .labelsHidden()
+                    .font(.body.monospacedDigit())
+                    .frame(width: 90)
+                    .onSubmit(pair)
+                Button(peer.joining ? "Add" : "Pair", action: pair)
+                    .disabled(digits.count != 6 || pairing)
+            }
+            if let failure {
+                Text(failure).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var digits: String { code.filter(\.isNumber) }
+
+    private func pair() {
+        guard digits.count == 6, !pairing else { return }
+        pairing = true
+        Task {
+            let (joined, why) = await library.pair(peer, code: digits)
+            failure = why
+            pairing = false
+            // Out of New Devices, and into Your Devices (or People).
+            if let joined {
+                withAnimation {
+                    library.welcome(joined, from: peer)
+                    paired(peer)
+                }
+            }
+        }
+    }
+}
+
+/// One of your devices, its name editable here: an Apple TV can't learn
+/// the name it's given in its settings, so it names itself "Apple TV".
+private struct DeviceRow: View {
+    let device: Device
+    @Environment(Library.self) private var library
+    @State private var name = ""
+
+    var body: some View {
+        HStack {
+            Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
+            TextField("Name", text: $name)
+                .labelsHidden()
+                .textFieldStyle(.plain)
+                .onSubmit(rename)
+            if device.you {
+                Text("This Mac").foregroundStyle(.secondary)
+            } else {
+                RemoveButton(help: "Remove it from your devices: what it changes from now on is refused, and it isn't synced with. It still knows your secret, so it could be paired again.") {
+                    withAnimation { library.removeDevice(device.key) }
+                }
+            }
+        }
+        .help("Rename it for everyone in the library")
+        .onAppear { name = device.name }
+        .onChange(of: device.name) { name = device.name }
+        // A name typed but not submitted is kept on leaving the pane.
+        .onDisappear { if name != device.name { rename() } }
+    }
+
+    /// This Mac's name is advertised too, so it's set as this device's;
+    /// another's, under this user.
+    private func rename() {
+        if device.you { library.setName(.device, name) } else { library.renameDevice(device.key, name) }
+    }
+}
+
+/// A member of the library; you, by a name editable here.
+private struct MemberRow: View {
+    let member: Member
+    @Environment(Library.self) private var library
+    @State private var name = ""
+
+    var body: some View {
+        HStack {
+            Image(systemName: "person.crop.circle").foregroundStyle(.secondary)
+            if member.you {
+                TextField("Your name", text: $name, prompt: Text("Your name"))
+                    .labelsHidden()
+                    .textFieldStyle(.plain)
+                    .fixedSize()
+                    .onSubmit { library.setName(.user, name) }
+                    .help("Rename yourself for everyone in the library")
+                Text("You").foregroundStyle(.secondary)
+            } else {
+                Text(member.name ?? "Someone")
+            }
+            Spacer()
+            if member.founder {
+                Text("Founder").foregroundStyle(.secondary)
+            } else if !member.you {
+                RemoveButton(help: "Remove them from the library: what they change from now on is refused") {
+                    library.setMember(member.key, false)
+                }
+            }
+        }
+        .onAppear { name = member.name ?? "" }
+        .onChange(of: member.name) { name = member.name ?? "" }
+        .onDisappear { if member.you, name != (member.name ?? "") { library.setName(.user, name) } }
+    }
+}
+
+/// Removing a row's member, device, or address: a symbol, explained by its
+/// help.
+private struct RemoveButton: View {
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button("Remove", systemImage: "minus.circle", role: .destructive, action: action)
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help(help)
+    }
+}
+
+/// A footer for the section above it that can't have one, as a collapsible
+/// section can't: a section of its own, empty but for the footer.
+private struct Footer: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Section {
+        } footer: {
+            Text(text)
+        }
+    }
+}
+
+/// While looking for new devices nearby, and none is found yet.
+private struct Looking: View {
+    var body: some View {
+        HStack {
+            ProgressView().controlSize(.small)
+            Text("Looking for new devices nearby…").foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Who's nearby, often, so a new device shows soon after it offers to
+/// pair.
+private struct Nearby: ViewModifier {
+    @Environment(Library.self) private var library
+    @Binding var peers: [Peer]
+
+    func body(content: Content) -> some View {
+        content.task {
+            while !Task.isCancelled {
+                peers = await library.peers()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+}
+
+private struct PeoplePane: View {
+    @Environment(Library.self) private var library
+    @State private var nearby: [Peer] = []
 
     var body: some View {
         Form {
             Section {
-                TextField("Your name", text: $userName)
-                    .onSubmit { library.setName(.user, userName) }
-                TextField("This Mac's name", text: $deviceName)
-                    .onSubmit { library.setName(.device, deviceName) }
+                ForEach(library.members) { member in MemberRow(member: member) }
+                ForEach(waiting) { peer in
+                    HStack {
+                        Label((peer.personName ?? "Someone") + "’s " + (peer.deviceName ?? "device"), systemImage: "person.crop.circle.badge.questionmark")
+                        Text("wants to join").foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Add") {
+                            if let user = peer.user { library.setMember(user, true) }
+                        }
+                    }
+                }
+            } header: {
+                Text("People")
             } footer: {
-                Text("Everyone who shares the library sees these names.")
+                Text("Everyone who shares the library sees your name. To add someone, they choose Join Someone's Library on their device, which shows a code: enter it in Devices, under New Devices.")
+            }
+        }
+        .formStyle(.grouped)
+        .modifier(Nearby(peers: $nearby))
+    }
+
+    /// Devices of this library nearby whose users aren't members yet.
+    /// (New devices offering to pair have no library yet.)
+    private var waiting: [Peer] {
+        var seen: Set<String> = []
+        return nearby.filter { $0.ours && !$0.member && !$0.added && $0.user != nil && seen.insert($0.user!).inserted }
+    }
+}
+
+private struct DevicesPane: View {
+    @Environment(Library.self) private var library
+    @State private var nearby: [Peer] = []
+    @State private var sharing = true
+    @State private var advanced = false
+    @State private var address = ""
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(library.devices) { device in DeviceRow(device: device) }
+            } header: {
+                Text("Your Devices")
+            } footer: {
+                Text("Everyone who shares the library sees your devices' names.")
             }
             Section {
                 Toggle("Share this library on your network", isOn: $sharing)
@@ -44,18 +257,46 @@ private struct GeneralPane: View {
                     ? "Your other devices, and the people who share the library, get your changes (such as where you are in what you're watching) from this Mac, and can play videos from its folders, while Cinematheque is open."
                     : "Your changes reach your other devices only when this Mac syncs with them.")
             }
+            Section {
+                ForEach(nearby.filter { $0.pairing != nil }) { peer in
+                    PairRow(peer: peer) { done in nearby.removeAll { $0.id == done.id } }
+                }
+                if !nearby.contains(where: { $0.pairing != nil }) { Looking() }
+            } header: {
+                Text("New Devices")
+            } footer: {
+                Text("To add another of your devices, choose I Use Cinematheque on Another Device on it; to add someone, they choose Join Someone's Library on theirs. Either shows a code: enter it here, beside its name.")
+            }
+            Section("Advanced", isExpanded: $advanced) {
+                ForEach(nearby.filter(\.added)) { peer in
+                    HStack {
+                        Text(peer.url).lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        RemoveButton(help: "Stop reaching it by this address") {
+                            library.setPeer(peer.url, false)
+                            Task { nearby = await library.peers() }
+                        }
+                    }
+                }
+                HStack {
+                    Text("Address")
+                    TextField("Address", text: $address, prompt: Text("http://hal.example.com:8008"))
+                        .labelsHidden()
+                    Button("Add") {
+                        library.setPeer(address, true)
+                        address = ""
+                        Task { nearby = await library.peers() }
+                    }
+                    .disabled(URL(string: address)?.scheme?.hasPrefix("http") != true)
+                }
+            }
+            if advanced {
+                Footer("Devices off your network, such as one behind another router (NAT), can be reached by address.")
+            }
         }
         .formStyle(.grouped)
-        .onAppear {
-            userName = library.userName ?? ""
-            deviceName = library.deviceName ?? ""
-            sharing = library.sharing
-        }
-        // Names typed but not submitted are kept on leaving the pane.
-        .onDisappear {
-            if userName != (library.userName ?? "") { library.setName(.user, userName) }
-            if deviceName != (library.deviceName ?? "") { library.setName(.device, deviceName) }
-        }
+        .modifier(Nearby(peers: $nearby))
+        .onAppear { sharing = library.sharing }
     }
 }
 
@@ -89,6 +330,7 @@ private struct SourcesPane: View {
                 }
                 TableColumn("Videos") { Text($0.copies.formatted()).monospacedDigit() }
                     .width(70)
+                    .alignment(.trailing)
             }
             .contextMenu(forSelectionType: Repository.ID.self) { ids in
                 if let repo = library.repositories.first(where: { $0.id == ids.first }) {
@@ -171,10 +413,12 @@ private struct SourceSheet: View {
             }
             Section("Advanced", isExpanded: $advanced) {
                 TextField("Rendition", text: $rendition, prompt: Text("From file names"))
-                Text("Name its rendition (e.g., 4K HDR) only if its files' names don't show it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextField("Skip names starting with", text: $skip)
+            }
+            if advanced {
+                Footer("Name its rendition (e.g., 4K HDR) only if its files' names don't show it.")
+                Section {
+                    TextField("Skip names starting with", text: $skip)
+                }
             }
         }
         .formStyle(.grouped)
@@ -201,188 +445,6 @@ private struct SourceSheet: View {
                 advanced = !rendition.isEmpty || skip != ","
             }
         }
-    }
-}
-
-// People and devices.
-
-/// A new device nearby offering to pair, to be another of yours or a new
-/// member's: the code it shows, entered here, pairs it (and adds its user,
-/// if joining), and `paired` moves it on.
-private struct PairRow: View {
-    let peer: Peer
-    let paired: (Peer) -> Void
-    @Environment(Library.self) private var library
-    @State private var code = ""
-    @State private var pairing = false
-    @State private var failure: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Label(peer.device.flatMap { $0.isEmpty ? nil : $0 } ?? "A new device", systemImage: peer.joining ? "person.crop.circle.badge.plus" : "appletv")
-                Text(peer.joining ? "wants to join" : "wants to pair").foregroundStyle(.secondary)
-                Spacer()
-                TextField("Code", text: $code, prompt: Text("Code"))
-                    .labelsHidden()
-                    .font(.body.monospacedDigit())
-                    .frame(width: 90)
-                    .onSubmit(pair)
-                Button(peer.joining ? "Add" : "Pair", action: pair)
-                    .disabled(digits.count != 6 || pairing)
-            }
-            if let failure {
-                Text(failure).font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var digits: String { code.filter(\.isNumber) }
-
-    private func pair() {
-        guard digits.count == 6, !pairing else { return }
-        pairing = true
-        Task {
-            let (joined, why) = await library.pair(peer, code: digits)
-            failure = why
-            pairing = false
-            // Out of New Devices, and into Your Devices (or People).
-            if let joined {
-                withAnimation {
-                    library.welcome(joined, from: peer)
-                    paired(peer)
-                }
-            }
-        }
-    }
-}
-
-/// One of your devices, its name editable here: an Apple TV can't learn
-/// the name it's given in its settings, so it names itself "Apple TV".
-private struct DeviceRow: View {
-    let device: Device
-    @Environment(Library.self) private var library
-    @State private var name = ""
-
-    var body: some View {
-        HStack {
-            Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
-            TextField("Name", text: $name)
-                .labelsHidden()
-                .textFieldStyle(.plain)
-                .onSubmit { library.renameDevice(device.key, name) }
-            if device.you {
-                Text("This Mac").foregroundStyle(.secondary)
-            } else {
-                Button("Remove", role: .destructive) { withAnimation { library.removeDevice(device.key) } }
-                    .buttonStyle(.borderless)
-                    .help("Remove it from your devices: what it changes from now on is refused, and it isn't synced with. It still knows your secret, so it could be paired again.")
-            }
-        }
-        .help("Rename it for everyone in the library")
-        .onAppear { name = device.name }
-        .onChange(of: device.name) { name = device.name }
-    }
-}
-
-/// While looking for new devices nearby, and none is found yet.
-private struct Looking: View {
-    var body: some View {
-        HStack {
-            ProgressView().controlSize(.small)
-            Text("Looking for new devices nearby…").foregroundStyle(.secondary)
-        }
-    }
-}
-
-private struct PeoplePane: View {
-    @Environment(Library.self) private var library
-    @State private var nearby: [Peer] = []
-    @State private var advanced = false
-    @State private var address = ""
-
-    var body: some View {
-        Form {
-            Section("People") {
-                ForEach(library.members) { member in
-                    HStack {
-                        Label(member.name ?? "Someone", systemImage: "person.crop.circle")
-                        if member.you { Text("You").foregroundStyle(.secondary) }
-                        Spacer()
-                        if member.founder {
-                            Text("Founder").foregroundStyle(.secondary)
-                        } else {
-                            Button("Remove", role: .destructive) { library.setMember(member.key, false) }
-                                .buttonStyle(.borderless)
-                        }
-                    }
-                }
-                ForEach(waiting) { peer in
-                    HStack {
-                        Label((peer.person.flatMap { $0.isEmpty ? nil : $0 } ?? "Someone") + "’s " + (peer.device.flatMap { $0.isEmpty ? nil : $0 } ?? "device"), systemImage: "person.crop.circle.badge.questionmark")
-                        Text("wants to join").foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Add") {
-                            if let user = peer.user { library.setMember(user, true) }
-                        }
-                    }
-                }
-            }
-            Section("Your Devices") {
-                ForEach(library.devices) { device in DeviceRow(device: device) }
-            }
-            Section {
-                ForEach(nearby.filter { $0.pairing != nil }) { peer in
-                    PairRow(peer: peer) { done in nearby.removeAll { $0.id == done.id } }
-                }
-                if !nearby.contains(where: { $0.pairing != nil }) { Looking() }
-            } header: {
-                Text("New Devices")
-            } footer: {
-                Text("To add another of your devices, choose I Use Cinematheque on Another Device on it; to add someone, they choose Join Someone's Library on theirs. Either shows a code: enter it here, beside its name.")
-            }
-            Section("Advanced", isExpanded: $advanced) {
-                Text("Devices off your network, such as one behind another router (NAT), can be reached by address.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(nearby.filter(\.added)) { peer in
-                    HStack {
-                        Text(peer.url).lineLimit(1).truncationMode(.middle)
-                        Spacer()
-                        Button("Remove", role: .destructive) {
-                            library.setPeer(peer.url, false)
-                            Task { nearby = await library.peers() }
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
-                HStack {
-                    TextField("Address", text: $address, prompt: Text("http://hal.example.com:8008"))
-                    Button("Add") {
-                        library.setPeer(address, true)
-                        address = ""
-                        Task { nearby = await library.peers() }
-                    }
-                    .disabled(URL(string: address)?.scheme?.hasPrefix("http") != true)
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .task {
-            // Who's nearby, often, so a new device shows soon after it
-            // offers to pair.
-            while !Task.isCancelled {
-                nearby = await library.peers()
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
-    }
-
-    /// Devices of this library nearby whose users aren't members yet.
-    /// (New devices offering to pair have no library yet.)
-    private var waiting: [Peer] {
-        var seen: Set<String> = []
-        return nearby.filter { $0.ours && !$0.member && !$0.added && $0.user != nil && seen.insert($0.user!).inserted }
     }
 }
 #endif

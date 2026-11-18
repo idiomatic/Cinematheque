@@ -138,6 +138,9 @@ struct Peer: Codable, Identifiable, Hashable {
     var id: String { url }
     var linking: Bool { pairing == "link" }
     var joining: Bool { pairing == "join" }
+    /// Its device's and person's names, if they advertise any.
+    var deviceName: String? { device.flatMap { $0.isEmpty ? nil : $0 } }
+    var personName: String? { person.flatMap { $0.isEmpty ? nil : $0 } }
 }
 
 /// A device just paired: its user's key and its own.
@@ -281,7 +284,7 @@ final class Library {
         guard let handle else { return (nil, "The library isn't open.") }
         let url = peer.url
         let join: Int32 = peer.joining ? 1 : 0
-        let name = peer.device.flatMap { $0.isEmpty ? nil : $0 } ?? "The device"
+        let name = peer.deviceName ?? "The device"
         let (paired, failure): (Paired?, String?) = await Task.detached {
             guard let text = cq_pair(handle.pointer, url, join, code) else { return (nil, String(cString: cq_error())) }
             defer { cq_free(text) }
@@ -369,10 +372,6 @@ final class Library {
         check { cq_set_name($0, which.rawValue, trimmed) }
         if servingPort != nil { serve() }
     }
-
-    /// This user's name, and this device's.
-    var userName: String? { members.first(where: \.you)?.name }
-    var deviceName: String? { devices.first(where: \.you)?.name }
 
     /// Peers found nearby (listening for 2 seconds) and added by address.
     func peers() async -> [Peer] {
