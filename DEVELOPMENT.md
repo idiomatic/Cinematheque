@@ -38,6 +38,7 @@ Open:
 * **Pairing:** a user links a new player by QR code, or by typing a code, instead of copying the user's secret.
 * **Partial replicas:** tvOS players have only purgeable cache storage, so they may be thin, holding part of a library fetched on demand (the core's thin fetches) and its facet bitmaps.
 * **Repair:** range-based set reconciliation, if catching up by version vectors proves insufficient.
+* **Compaction:** emptied fields stay as tombstones, so a peer that missed the emptying can't revive an older value, and they grow with churn: in a reference library, 40,000 emptied holdings (from removed repositories, and keys that parser fixes changed) outnumbered 20,000 live ones, 28% of all winners. Drop a tombstone once every member device's version vector covers it, which needs peers to share the vectors they've seen of others; a device not heard from in long enough could be set aside, at the cost of its stale writes being refused.
 
 Open:
 

@@ -45,9 +45,9 @@ const schema =
     \\  field TEXT NOT NULL,
     \\  PRIMARY KEY (key, field)
     \\) WITHOUT ROWID;
-    \\-- The version vector: per device (interned), the highest sequence
-    \\-- number this replica covers, sent with sync requests.
-    \\CREATE TABLE IF NOT EXISTS vv (
+    \\-- Per device (interned), the highest sequence number this replica
+    \\-- covers, sent with sync requests.
+    \\CREATE TABLE IF NOT EXISTS version_vector (
     \\  device INTEGER PRIMARY KEY,
     \\  seq INTEGER NOT NULL
     \\);
@@ -173,17 +173,28 @@ pub const Replica = struct {
     repairing: bool = false,
     select_winner: sqlite.Stmt,
     upsert_winner: sqlite.Stmt,
-    select_vv: sqlite.Stmt,
-    upsert_vv: sqlite.Stmt,
+    select_version: sqlite.Stmt,
+    upsert_version: sqlite.Stmt,
     insert_device: sqlite.Stmt,
     insert_batch: sqlite.Stmt,
 
     /// Opens a replica of the library `founder` created, as the device and
     /// user `identity` gives. A device writes its certificate with its first
     /// write, so devices that only read never need one.
+    /// Renames tables from replicas made before their names changed (`vv`
+    /// became `version_vector`). Another process opening the replica may
+    /// rename one first.
+    fn renameOldTables(db: sqlite.Db) !void {
+        if (try db.scalar("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'vv'") == 0) return;
+        db.exec("ALTER TABLE vv RENAME TO version_vector") catch |err| {
+            if (try db.scalar("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'vv'") != 0) return err;
+        };
+    }
+
     pub fn open(gpa: std.mem.Allocator, path: [:0]const u8, founder: Device, identity: Identity) !Replica {
         const db = try sqlite.Db.open(path);
         errdefer db.close();
+        try renameOldTables(db);
         try db.exec(schema);
         var replica: Replica = .{
             .gpa = gpa,
@@ -203,9 +214,9 @@ pub const Replica = struct {
                 \\  kind = excluded.kind, hlc = excluded.hlc, device = excluded.device,
                 \\  seq = excluded.seq, value = excluded.value
             ),
-            .select_vv = try db.prepare("SELECT seq FROM vv WHERE device = ?1"),
-            .upsert_vv = try db.prepare(
-                \\INSERT INTO vv VALUES (?1, ?2)
+            .select_version = try db.prepare("SELECT seq FROM version_vector WHERE device = ?1"),
+            .upsert_version = try db.prepare(
+                \\INSERT INTO version_vector VALUES (?1, ?2)
                 \\ON CONFLICT (device) DO UPDATE SET seq = max(seq, excluded.seq)
             ),
             .insert_device = try db.prepare("INSERT INTO devices (key) VALUES (?1) RETURNING id"),
@@ -490,8 +501,8 @@ pub const Replica = struct {
 
     pub fn close(replica: *Replica) void {
         for ([_]sqlite.Stmt{
-            replica.select_winner, replica.upsert_winner, replica.select_vv,
-            replica.upsert_vv,     replica.insert_device, replica.insert_batch,
+            replica.select_winner, replica.upsert_winner, replica.select_version,
+            replica.upsert_version,     replica.insert_device, replica.insert_batch,
         }) |s| s.finalize();
         replica.db.close();
         replica.keys.deinit(replica.gpa);
@@ -779,14 +790,14 @@ pub const Replica = struct {
 
     /// The highest sequence number of device `id` that this replica covers.
     fn seen(replica: *Replica, id: i64) !u64 {
-        const s = replica.select_vv;
+        const s = replica.select_version;
         defer s.reset();
         try s.bindInt(1, id);
         return if (try s.step()) @intCast(s.int(0)) else 0;
     }
 
     fn advance(replica: *Replica, id: i64, seq: u64) !void {
-        const u = replica.upsert_vv;
+        const u = replica.upsert_version;
         defer u.reset();
         try u.bindInt(1, id);
         try u.bindInt(2, @intCast(seq));
@@ -807,7 +818,7 @@ pub const Replica = struct {
         var entries: std.ArrayList(Entry) = .empty;
         // Most recently learned devices first, which puts a relayed device's
         // batches ahead of the invitation that admits it, as can happen.
-        const s = try replica.db.prepare("SELECT device, seq FROM vv ORDER BY device DESC");
+        const s = try replica.db.prepare("SELECT device, seq FROM version_vector ORDER BY device DESC");
         defer s.finalize();
         while (try s.step()) {
             try entries.append(arena, .{ .device = replica.keys.items[@intCast(s.int(0) - 1)], .seq = @intCast(s.int(1)) });
