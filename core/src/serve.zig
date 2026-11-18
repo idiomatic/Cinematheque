@@ -337,6 +337,9 @@ fn sendFile(ctx: *const Context, request: *http.Server.Request, root: Io.Dir, re
         var file_reader = file.reader(io, &file_buf);
         try file_reader.seekTo(start);
         _ = try body.writer.sendFileAll(&file_reader, .limited64(len));
+    } else {
+        // No body for HEAD (copy racing's question), yet its length stands.
+        body.state = .{ .content_length = 0 };
     }
     try body.end();
 }
