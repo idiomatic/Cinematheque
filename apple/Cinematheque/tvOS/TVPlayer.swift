@@ -67,28 +67,4 @@ struct TVPlayer: UIViewControllerRepresentable {
         return [item(.commonIdentifierTitle, title)] + (description.map { [item(.commonIdentifierDescription, $0)] } ?? [])
     }
 }
-
-/// Which rendition an Apple TV plays: one in a format it plays (MP4, not
-/// MKV or ISO), at the most its display shows (2160p on a 4K display, else
-/// up to 1080p).
-enum TVRendition {
-    static func best(_ item: TitleDetail.Item?) -> String? {
-        guard let item else { return nil }
-        let playable = item.renditions.filter { r in r.copies.contains { playable($0.url) } }
-        let limit = UIScreen.main.nativeBounds.height >= 2160 ? 2160 : 1080
-        return playable.max { a, b in score(a.label, limit) < score(b.label, limit) }?.label
-    }
-
-    private static func playable(_ url: String) -> Bool {
-        let ext = (URL(string: url)?.pathExtension ?? "").lowercased()
-        return ["mp4", "m4v", "mov"].contains(ext)
-    }
-
-    /// The highest resolution up to the limit, then those above it, least
-    /// first; a label without one ranks low.
-    private static func score(_ label: String, _ limit: Int) -> Int {
-        guard let match = label.firstMatch(of: /(\d{3,4})p/), let height = Int(match.1) else { return 0 }
-        return height <= limit ? 10_000 + height : 10_000 - height
-    }
-}
 #endif

@@ -39,6 +39,15 @@ enum Platform {
         #endif
     }
 
+    /// The tallest display's height in pixels, for the rendition to play.
+    @MainActor static var displayHeight: CGFloat {
+        #if os(macOS)
+        NSScreen.screens.map { $0.frame.height * $0.backingScaleFactor }.max() ?? 1080
+        #else
+        UIScreen.main.nativeBounds.height
+        #endif
+    }
+
     /// The user's name until one's set: the account's first name on a Mac;
     /// none on an Apple TV, which has no account's name to offer.
     static var userName: String? {

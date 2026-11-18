@@ -19,10 +19,10 @@ struct MovieView: View {
             VStack(alignment: .leading, spacing: 30) {
                 Text(tile.name).font(.title)
                 if let detail {
-                    Text(Facts.line(detail, item: detail.items.first)).foregroundStyle(.secondary)
+                    Text(detail.facts(season: nil)).foregroundStyle(.secondary)
                     HStack(spacing: 30) {
-                        Button(Facts.playLabel(detail.items.first), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: nil, rendition: TVRendition.best(detail.items.first))
+                        Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
+                            playing = Playback.next(in: detail, season: nil, rendition: detail.rendition(for: detail.items))
                         }
                         Marks(detail: detail, items: detail.items)
                     }
@@ -31,12 +31,12 @@ struct MovieView: View {
                             Text("Versions").font(.headline)
                             ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
                                 Button(item.versionName, systemImage: item.watched ? "checkmark.circle.fill" : "play.circle") {
-                                    playing = Playback.request(detail, items: [item], from: 0, rendition: TVRendition.best(item))
+                                    playing = Playback.request(detail, items: [item], from: 0, rendition: detail.rendition(for: [item]))
                                 }
                             }
                         }
                     }
-                    if let description = detail.fields["description"] ?? detail.items.first?.fields["description"] {
+                    if let description = detail.summary {
                         Text(description).lineLimit(8)
                     }
                 }
@@ -48,7 +48,7 @@ struct MovieView: View {
         .task(id: library.revision) {
             detail = library.detail(tile.key)
             #if DEBUG
-            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, rendition: TVRendition.best(detail.items.first)) }
+            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, rendition: detail.rendition(for: detail.items)) }
             #endif
         }
         .fullScreenCover(item: $playing) { TVPlayer(request: $0).ignoresSafeArea() }
@@ -104,8 +104,8 @@ struct SeriesView: View {
                 if let detail, let tile {
                     let items = Playback.items(detail, season: tile.season)
                     HStack(spacing: 30) {
-                        Button(Facts.playLabel(items.first { !$0.watched } ?? items.first), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: tile.season, rendition: TVRendition.best(items.first))
+                        Button(Playback.playLabel(Playback.nextItem(detail, season: tile.season)), systemImage: "play.fill") {
+                            playing = Playback.next(in: detail, season: tile.season, rendition: detail.rendition(for: items))
                         }
                         Marks(detail: detail, items: items)
                     }
@@ -115,7 +115,7 @@ struct SeriesView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                             Button {
-                                playing = Playback.request(detail, items: items, from: index, rendition: TVRendition.best(item))
+                                playing = Playback.request(detail, items: items, from: index, rendition: detail.rendition(for: items))
                             } label: {
                                 Episode(item: item)
                             }
@@ -147,35 +147,14 @@ private struct Episode: View {
 
     var body: some View {
         HStack(spacing: 24) {
-            Image(systemName: item.watched ? "checkmark.circle.fill" : (item.position > 0 ? "circle.lefthalf.filled" : "circle"))
-            let number = item.episode?.number ?? 0
-            let title = item.fields["title"] ?? (number == 0 ? "Special" : "Episode \(number)")
-            Text(number == 0 ? title : "\(number). \(title)")
+            Image(systemName: item.progressSymbol)
+            Text(item.episodeName)
             Spacer()
-            if let runtime = item.fields["duration"].flatMap(Int.init).flatMap(Facts.runtime) {
+            if let runtime = item.runtime {
                 Text(runtime).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// The watchlist and watched marks, for a movie or a season.
-private struct Marks: View {
-    let detail: TitleDetail
-    let items: [TitleDetail.Item]
-    @Environment(Library.self) private var library
-
-    var body: some View {
-        let listed = library.watchlist.contains(detail.key)
-        let watched = !items.isEmpty && items.allSatisfy(\.watched)
-        Button(listed ? "On Watchlist" : "Watchlist", systemImage: listed ? "star.fill" : "star") {
-            library.setWatchlisted(detail.key, !listed)
-        }
-        Button(watched ? "Watched" : "Mark Watched", systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
-            for item in items { library.setWatched("\(detail.key)/\(item.key)", !watched) }
-            library.reload()
-        }
     }
 }
 
@@ -188,30 +167,6 @@ private struct Backdrop: View {
             .blur(radius: 60)
             .opacity(0.35)
             .ignoresSafeArea()
-    }
-}
-
-enum Facts {
-    /// "2013 · Action · 1h 49m".
-    static func line(_ detail: TitleDetail, item: TitleDetail.Item?) -> String {
-        [
-            detail.year.map(String.init),
-            detail.fields["genre"],
-            item?.fields["duration"].flatMap(Int.init).flatMap(runtime),
-        ].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    /// "Play", or "Resume" partway through.
-    static func playLabel(_ item: TitleDetail.Item?) -> String {
-        guard let item, !item.watched, item.position > 0 else { return "Play" }
-        if let e = item.episode, e.number > 0 { return "Resume Episode \(e.number)" }
-        return "Resume"
-    }
-
-    static func runtime(_ ms: Int) -> String? {
-        guard ms > 0 else { return nil }
-        let minutes = ms / 60_000
-        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
     }
 }
 #endif

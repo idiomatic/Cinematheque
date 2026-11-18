@@ -62,8 +62,9 @@ private struct Stack<Content: View>: View {
                 }
         }
         #if DEBUG
-        .onAppear {
-            if let key = Launch.selectedTitle, let tile = library.tiles.first(where: { $0.key == key }) { path = [tile] }
+        // Once the title has arrived (a first launch's sync brings it).
+        .task(id: library.tiles.isEmpty) {
+            if path.isEmpty, let key = Launch.selectedTitle, let tile = library.tiles.first(where: { $0.key == key }) { path = [tile] }
         }
         #endif
     }

@@ -239,17 +239,22 @@ final class Library {
 
     func setMember(_ key: String, _ add: Bool) { check { cq_member($0, key, add ? 1 : 0) } }
 
-    /// Once a launch, if there's a library: names this device and user if
-    /// they have no names yet (`defaults`: e.g., the computer's name and the
-    /// account's first name), serves it, then refreshes (peers may bring
-    /// its repositories to a device that has none yet).
+    /// Once a launch, if there's a library: serves it, syncs, names this
+    /// device and user if they have no names yet (e.g., the computer's name
+    /// and the account's first name), then crawls (peers may bring its
+    /// repositories to a device that has none yet).
     func startAtLaunch(device: String, user: String? = nil) async {
         guard !refreshedAtLaunch, hasLibrary else { return }
         refreshedAtLaunch = true
+        if sharing { serve() }
+        // Syncing before writing anything: a device whose replica was lost
+        // (as tvOS may purge one) learns its own writes back, and so where
+        // its numbering left off, before it writes again.
+        let synced = await long("Syncing") { cq_sync($0, nil) }
         if !devices.contains(where: \.you), !device.isEmpty { setName(.device, device) }
         if let user, !user.isEmpty, members.first(where: \.you)?.name == nil { setName(.user, user) }
-        if sharing { serve() }
-        await refresh()
+        let crawled = await long("Crawling") { cq_crawl($0) }
+        report(.refresh, synced ?? crawled)
     }
 
     // Names and peers.

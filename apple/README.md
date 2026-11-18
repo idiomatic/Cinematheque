@@ -34,6 +34,7 @@ Shared:
 * [ArtCache.swift](Cinematheque/Shared/ArtCache.swift): covers fetched by range request, scaled with ImageIO off the main thread (480 pixels for tiles, 1,200 for larger covers), and kept in memory and on disk (the app's caches, `com.rbrian.cinematheque/covers`); until one loads, its placeholder, rendered by the core from its ThumbHash and scaled up, or without one, a color of its own with its title. A cover replaces its placeholder at once (a fade, tried at 3, 0.3, and 0.1 seconds, wasn't worth it); one in memory shows from the start, so scrolling back shows no placeholder.
 * [Playback.swift](Cinematheque/Shared/Playback.swift): what to play (`PlayRequest`), and the queue: a movie, or a season's next unwatched episode and the rest after it.
 * [PlaybackSession.swift](Cinematheque/Shared/PlaybackSession.swift): playing a queue in an `AVQueuePlayer`, streaming by byte ranges, saving the playhead every 10 seconds (but not within the first 10, where a resume's seek may not have landed) and where it's paused or closed (so stopping within the first 10 seconds deletes it), reloading tiles' progress when it stops, and at each item's end, marking it watched; each player wraps it in its platform's view.
+* [TitlePresentation.swift](Cinematheque/Shared/TitlePresentation.swift): how titles and items read on every platform (facts, runtimes, episode names, Play and Resume labels), the rendition to play (`RenditionChoice`: the best format the player plays, up to its display's resolution), and `Marks`, the watchlist and watched buttons.
 * [CinemathequeApp.swift](Cinematheque/Shared/CinemathequeApp.swift): the app, for both platforms: its library, opened from the platform's home; the root view, showing no home, setting up, or browsing, and at launch and once set up, naming this device and user, serving, and refreshing; and on macOS, player windows, Settings, and Refresh Library (⌘R), which syncs, then crawls.
 * [Platform.swift](Cinematheque/Shared/Platform.swift): what differs by platform outside the interface: the home (on tvOS, with its seeds kept in the Keychain), and the device's and user's default names.
 * [Launch.swift](Cinematheque/Shared/Launch.swift), in debug builds only: launch options for driving the app unattended (see [AGENTS.md](../AGENTS.md)).
@@ -52,7 +53,7 @@ Apple TV:
 * [SetupView+tvOS.swift](Cinematheque/tvOS/SetupView+tvOS.swift): `SetupView`: linking and joining by the user's secret and the founder's key.
 * [Browser+tvOS.swift](Cinematheque/tvOS/Browser+tvOS.swift): `Browser`: the tab bar, Home's rows, the poster grid, search, and what a refresh is doing.
 * [TitleViews.swift](Cinematheque/tvOS/TitleViews.swift): a movie's page and a series', with their marks and episodes.
-* [TVPlayer.swift](Cinematheque/tvOS/TVPlayer.swift): the playback session full screen in `AVPlayerViewController`, with titles and descriptions for its info panel; and which rendition an Apple TV plays.
+* [TVPlayer.swift](Cinematheque/tvOS/TVPlayer.swift): the playback session full screen in `AVPlayerViewController`, with titles and descriptions for its info panel.
 
 ## Checking the interface
 

@@ -404,7 +404,12 @@ pub const Replica = struct {
     /// Refuses private data written by anyone but its user's private stream,
     /// and anything else a private stream writes.
     fn checkPrivate(replica: *Replica, device_key: Device, ops: []const Op, refused: *std.StaticBitSet(merkle.max_leaves)) !void {
-        const c = try replica.certified(device_key, ops);
+        // This device's own private stream is its user's, certificate or
+        // not: a replica rebuilt from peers (e.g., after tvOS purged it) may
+        // get the stream's batches before the public one carrying its
+        // certificate.
+        const own = std.mem.eql(u8, &device_key, &replica.private_pair.public_key.toBytes());
+        const c: ?Certified = if (own) .{ .user = replica.userKey(), .private = true } else try replica.certified(device_key, ops);
         for (ops, 0..) |op, i| {
             const is_private = std.mem.startsWith(u8, op.key, "p/");
             if (c != null and c.?.private) {
@@ -1703,6 +1708,28 @@ test "private data written by anyone but its user's private stream is refused" {
     try testing.expectEqual(@as(usize, 1), stats.refused);
     // And writePrivate takes only this user's keys.
     try testing.expectError(error.NotPrivate, c.writePrivate(1000, key, &.{.{ "position", "1" }}));
+}
+
+test "a device that lost its replica gets its own private data back" {
+    var p: Peers = undefined;
+    try p.init();
+    defer p.deinit();
+    const b = &p.replicas[1];
+    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.userKey(), .lower)});
+    try b.write(1000, "t/m/alien/1979", "name", "Alien");
+    try b.writePrivate(2000, key, &.{.{ "position", "1234" }});
+    // b2 is b's device again, with its replica lost (as tvOS may purge
+    // one), rebuilt from a peer of its user's.
+    var b2 = try Replica.open(testing.allocator, ":memory:", try testUser(1), .{ .device = @splat(2), .user = Identity.from(@splat(2)).user });
+    defer b2.close();
+    try testing.expectEqualSlices(u8, &b.device(), &b2.device());
+    const stats = try replica_sync(p.arena_state.allocator(), &b2, b);
+    try testing.expectEqual(@as(usize, 0), stats.refused);
+    const s = try b2.db.prepare("SELECT value FROM winners WHERE key = ?1 AND field = 'position'");
+    defer s.finalize();
+    try s.bindText(1, key);
+    try testing.expect(try s.step());
+    try testing.expectEqualStrings("1234", s.blob(0));
 }
 
 test "a device whose first write is private is still certified" {
