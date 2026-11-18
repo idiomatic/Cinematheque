@@ -349,7 +349,7 @@ final class Library {
         // Syncing before writing anything: a device whose replica was lost
         // (as tvOS may purge one) learns its own writes back, and so where
         // its numbering left off, before it writes again.
-        let synced = await long("Syncing") { cq_sync($0, nil) }
+        let synced = await long("Syncing", results: noteReceived) { cq_sync($0, nil) }
         if !devices.contains(where: \.you), !device.isEmpty { setName(.device, device) }
         if let user, !user.isEmpty, members.first(where: \.you)?.name == nil { setName(.user, user) }
         let crawled = await long("Crawling") { cq_crawl($0) }
@@ -500,14 +500,130 @@ final class Library {
     /// peers have crawled and described arrives first, so crawling then
     /// finds little to do.
     func refresh() async {
-        let synced = await long("Syncing") { cq_sync($0, nil) }
+        let synced = await long("Syncing", results: noteReceived) { cq_sync($0, nil) }
         let crawled = await long("Crawling") { cq_crawl($0) }
         report(.refresh, synced ?? crawled)
     }
 
     func crawl() async { report(.refresh, await long("Crawling") { cq_crawl($0) }) }
 
-    func sync(_ url: String? = nil) async { report(.refresh, await long("Syncing") { cq_sync($0, url) }) }
+    func sync(_ url: String? = nil) async { report(.refresh, await long("Syncing", results: noteReceived) { cq_sync($0, url) }) }
+
+    // Keeping in sync while running, and saying so.
+
+    /// An exchange with peers: how many operations, with whom, and when.
+    struct Exchange: Equatable {
+        let count: Int
+        let peer: String
+        let at: Date
+    }
+
+    /// What last came in from peers, and what last went out to one.
+    private(set) var received: Exchange?
+    private(set) var sent: Exchange?
+    private var syncingQuietly = false
+
+    /// One line telling of the last exchange each way, for diagnosis:
+    /// "Received 3 changes from firefly 1m ago · Sent 12 changes to Den
+    /// just now", counting operations (a field's write each).
+    var syncLine: String {
+        let when = RelativeDateTimeFormatter()
+        when.unitsStyle = .abbreviated
+        func ago(_ date: Date) -> String { Date.now.timeIntervalSince(date) < 5 ? "just now" : when.localizedString(for: date, relativeTo: .now) }
+        var parts: [String] = []
+        func changes(_ n: Int) -> String { n == 1 ? "1 change" : "\(n.formatted()) changes" }
+        if let r = received { parts.append((r.count == 0 ? "Nothing new from \(r.peer)" : "Received \(changes(r.count)) from \(r.peer)") + " " + ago(r.at)) }
+        if let s = sent { parts.append((s.count == 0 ? "Nothing new to \(s.peer)" : "Sent \(changes(s.count)) to \(s.peer)") + " " + ago(s.at)) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// When this device last synced, from which the next quiet sync waits
+    /// a minute.
+    private var lastSync = Date.distantPast
+    /// The last nudge from a peer acted on (`cq_nudged`); one that came
+    /// before (at launch, or while busy) is acted on once it can be.
+    private var lastNudge: UInt64 = 0
+    /// Syncing after a change, once changes stop for a moment.
+    private var afterChange: Task<Void, Never>?
+
+    /// While the app runs: syncs quietly a minute after it last synced (as
+    /// when it comes to the front), and at once when a peer nudges it, so
+    /// what other devices change (playheads, the watchlist) arrives without
+    /// a refresh; and notes each sync served to a peer.
+    func keepInSync() async {
+        var tick = 0
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(1))
+            tick += 1
+            if tick % 5 == 0 { noteServed() }
+            let nudged = handle.map { cq_nudged($0.pointer) } ?? 0
+            if nudged != lastNudge {
+                if await syncQuietly() { lastNudge = nudged }
+            } else if Date.now.timeIntervalSince(lastSync) >= 60 {
+                await syncQuietly()
+            }
+        }
+    }
+
+    /// After a change of this user's (leaving playback, the watchlist, a
+    /// watched mark), once changes stop for a second: syncs, then nudges
+    /// every peer to pull it from here, rather than waiting a minute.
+    func changed() {
+        afterChange?.cancel()
+        afterChange = Task {
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, let handle, hasLibrary else { return }
+            await syncQuietly()
+            _ = await Task.detached { cq_nudge(handle.pointer) }.value
+        }
+    }
+
+    /// Syncs with every peer, without showing it as an activity, unless
+    /// something else is running; returns whether it did.
+    @discardableResult
+    func syncQuietly() async -> Bool {
+        guard let handle, hasLibrary, activity == nil, !syncingQuietly else { return false }
+        syncingQuietly = true
+        defer { syncingQuietly = false }
+        lastSync = .now
+        let data: Data? = await Task.detached {
+            guard let text = cq_sync(handle.pointer, nil) else { return nil }
+            defer { cq_free(text) }
+            return Data(bytes: text, count: strlen(text))
+        }.value
+        if let data { noteReceived(data) }
+        reload()
+        return true
+    }
+
+    private func noteReceived(_ data: Data) {
+        struct Result: Decodable {
+            let url: String
+            let name: String?
+            let new: Int
+            let error: String?
+        }
+        lastSync = .now
+        guard let results = try? JSONDecoder().decode([Result].self, from: data) else { return }
+        let reached = results.filter { $0.error == nil }
+        guard let most = reached.max(by: { $0.new < $1.new }) else { return }
+        let host = URL(string: most.url)?.host().map { $0.hasSuffix(".local") ? String($0.dropLast(6)) : $0 }
+        let peer = most.name ?? host ?? most.url
+        received = Exchange(count: reached.reduce(0) { $0 + $1.new }, peer: peer, at: .now)
+    }
+
+    private func noteServed() {
+        struct Served: Decodable {
+            let device: String
+            let name: String?
+            let operations: Int
+            let at: Double
+        }
+        guard hasLibrary, let served = decode(Served?.self, { cq_served($0) }) ?? nil else { return }
+        let at = Date(timeIntervalSince1970: served.at / 1000)
+        guard sent?.at != at else { return }
+        sent = Exchange(count: served.operations, peer: served.name ?? String(served.device.prefix(8)), at: at)
+    }
 
     /// Reads an item's metadata from its file, in the background.
     func describe(_ itemKey: String) async {
@@ -546,11 +662,13 @@ final class Library {
         for item in items { check(reload: false) { cq_remove_playhead($0, "\(detail.key)/\(item.key)") } }
         revision += 1
         reload()
+        changed()
     }
 
     func setWatched(_ item: String, _ watched: Bool) {
         check(reload: false) { cq_set_watched($0, item, watched ? 1 : 0) }
         revision += 1
+        changed()
     }
 
     /// What's on the watchlist: a movie, by its title's key, or a season,
@@ -562,6 +680,7 @@ final class Library {
     func setWatchlisted(_ key: String, _ on: Bool) {
         check(reload: false) { cq_set_watchlisted($0, key, on ? 1 : 0) }
         watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
+        changed()
     }
 
     /// Puts each season of a series listed whole (as the watchlist once
@@ -609,7 +728,7 @@ final class Library {
 
     /// Runs a long operation off the main thread; returns why it failed, if
     /// it did.
-    private func long(_ what: String, _ body: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async -> String? {
+    private func long(_ what: String, results: ((Data) -> Void)? = nil, _ body: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async -> String? {
         guard let handle, activity == nil else { return nil }
         activity = what
         // Show what the operation commits as it commits it (titles once
@@ -636,14 +755,15 @@ final class Library {
             watcher.cancel()
             progress = nil
         }
-        let failure: String? = await Task.detached {
-            guard let text = body(handle.pointer) else { return String(cString: cq_error()) }
+        let (failure, data): (String?, Data?) = await Task.detached {
+            guard let text = body(handle.pointer) else { return (String(cString: cq_error()), nil) }
             defer { cq_free(text) }
             let data = Data(bytes: text, count: strlen(text))
             let results = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
             let failed = results.compactMap { r in (r["error"] as? String).map { (url: r["url"] as? String ?? "", error: $0) } }
-            return Library.describe(failed, what)
+            return (Library.describe(failed, what), data)
         }.value
+        if let data { results?(data) }
         activity = nil
         reload()
         return failure

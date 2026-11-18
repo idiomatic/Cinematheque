@@ -169,8 +169,21 @@ private struct SearchView: View {
 /// What a refresh is doing, or what went wrong, in a corner.
 private struct Activity: View {
     @Environment(Library.self) private var library
+    /// Whether to show the last exchange with peers, for a while after it.
+    @State private var showsExchange = false
 
     var body: some View {
+        content
+            .task(id: "\(library.received?.at ?? .distantPast)|\(library.sent?.at ?? .distantPast)") {
+                guard library.received != nil || library.sent != nil else { return }
+                showsExchange = true
+                try? await Task.sleep(for: .seconds(6))
+                if !Task.isCancelled { showsExchange = false }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let activity = library.activity {
             HStack(spacing: 16) {
                 ProgressView()
@@ -180,6 +193,11 @@ private struct Activity: View {
             .padding(24)
         } else if let problem = library.problem {
             Label(problem, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(24)
+        } else if showsExchange {
+            Label(library.syncLine, systemImage: "arrow.triangle.2.circlepath")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(24)

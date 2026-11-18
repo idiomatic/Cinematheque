@@ -56,6 +56,15 @@ int cq_repo_remove(cq_library *library, const char *repo);
 // metadata from its file.
 char *cq_crawl(cq_library *library);
 char *cq_sync(cq_library *library, const char *url);
+// The last sync this peer served, while serving: which device asked, and
+// how many operations it was sent.
+char *cq_served(cq_library *library);
+// Long: asks every peer this one syncs with to pull from it soon, as after
+// a change of its own.
+int cq_nudge(cq_library *library);
+// When a peer last nudged this one, in milliseconds since the epoch, or 0.
+// Any thread.
+unsigned long long cq_nudged(cq_library *library);
 int cq_describe(cq_library *library, const char *item_key);
 
 // While a crawl describes, which titles to take first (a JSON array of

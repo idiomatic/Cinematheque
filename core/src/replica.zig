@@ -1025,7 +1025,8 @@ const Row = struct { seq: u64, hlc: u64, kind: op_.Kind, key: []const u8, field:
 
 /// `reader` is the user the response is for: other users' private streams
 /// (and their places in the version vector) are left out.
-pub fn writeSync(src: *Replica, arena: std.mem.Allocator, wanted: VersionVector, reader: Device, w: *std.Io.Writer) !void {
+pub fn writeSync(src: *Replica, arena: std.mem.Allocator, wanted: VersionVector, reader: Device, w: *std.Io.Writer) !usize {
+    var sent: usize = 0;
     var have: std.AutoHashMapUnmanaged(Device, u64) = .empty;
     for (wanted) |entry| try have.put(arena, entry.device, entry.seq);
     var leaves: std.ArrayList(Hash) = .empty;
@@ -1060,6 +1061,7 @@ pub fn writeSync(src: *Replica, arena: std.mem.Allocator, wanted: VersionVector,
             if (!more) break;
             if (batch == null) batch = try src.loadBatch(id, seq, &leaves);
             const ra = row_arena_state.allocator();
+            sent += 1;
             try rows.append(src.gpa, .{
                 .kind = @enumFromInt(s.int(0)),
                 .key = try ra.dupe(u8, s.blob(1)),
@@ -1076,6 +1078,7 @@ pub fn writeSync(src: *Replica, arena: std.mem.Allocator, wanted: VersionVector,
         try w.writeInt(u64, entry.seq, .little);
     }
     try w.writeByte('E');
+    return sent;
 }
 
 fn writeBatch(w: *std.Io.Writer, batch: *const Batch, rows: []const Row) !void {
@@ -1225,7 +1228,7 @@ pub fn sync(arena: std.mem.Allocator, dst: *Replica, src: *Replica) !Stats {
     const wanted = try readVector(arena, &request_reader);
 
     var response: std.Io.Writer.Allocating = .init(arena);
-    try writeSync(src, arena, wanted, dst.userKey(), &response.writer);
+    _ = try writeSync(src, arena, wanted, dst.userKey(), &response.writer);
     var response_reader: std.Io.Reader = .fixed(response.written());
     var stats = try readSync(dst, &response_reader);
     stats.wire_bytes = request.written().len + response.written().len;

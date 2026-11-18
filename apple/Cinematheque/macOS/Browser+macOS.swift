@@ -334,7 +334,8 @@ struct StatusBar: View {
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
                 } else {
-                    Text(counts).lineLimit(1).truncationMode(.tail)
+                    // Whole, before the line of exchanges, which shortens instead.
+                    Text(counts).lineLimit(1).fixedSize()
                 }
                 Spacer(minLength: 12)
                 if let activity = library.activity {
@@ -349,6 +350,13 @@ struct StatusBar: View {
                     } else {
                         ProgressView().controlSize(.small)
                     }
+                } else if library.problem == nil {
+                    // The last exchange with peers each way, for diagnosis
+                    // (making way for a problem, which matters more).
+                    Text(library.syncLine)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .layoutPriority(1)
                 }
             }
             .font(.callout)
@@ -361,7 +369,7 @@ struct StatusBar: View {
         .allowsHitTesting(visible)
         .animation(.easeInOut(duration: 0.6), value: visible)
         // Shown afresh whenever it changes, then faded after a while.
-        .task(id: "\(counts)|\(library.problem ?? "")|\(sticky)") {
+        .task(id: "\(counts)|\(library.problem ?? "")|\(sticky)|\(library.received?.at ?? .distantPast)|\(library.sent?.at ?? .distantPast)") {
             fresh = true
             guard !sticky else { return }
             try? await Task.sleep(for: .seconds(3))

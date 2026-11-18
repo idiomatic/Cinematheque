@@ -145,5 +145,7 @@ final class PlaybackSession {
         library.setPlayhead(item, position: player.currentTime().seconds, duration: playing.duration.seconds)
         // Tiles' progress bars and watched marks.
         library.reload()
+        // Pausing or leaving: other devices hear of it now.
+        library.changed()
     }
 }

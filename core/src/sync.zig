@@ -27,6 +27,14 @@ pub const Source = struct {
     path: [:0]const u8,
     founder: [32]u8,
     identity: replica_.Identity,
+    /// Told of each sync served: the device that asked, and how many
+    /// operations it was sent (for apps to show).
+    served: ?*const fn (context: ?*anyopaque, device: [32]u8, operations: usize) void = null,
+    served_context: ?*anyopaque = null,
+    /// Told of each nudge: a peer that changed something, asking to be
+    /// pulled from (`POST /nudge`, which carries nothing, so it's only ever
+    /// a hint to sync with the peers this one already knows).
+    nudged: ?*const fn (context: ?*anyopaque) void = null,
 
     pub fn handler(source: *Source) serve_.Handler {
         return .{ .context = source, .function = respond };
@@ -71,8 +79,14 @@ pub fn readRequest(arena: std.mem.Allocator, library: [16]u8, body: []const u8, 
 }
 
 fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool {
-    if (request.head.method != .POST or !std.mem.eql(u8, request.head.target, "/sync")) return false;
+    if (request.head.method != .POST) return false;
     const source: *Source = @ptrCast(@alignCast(context.?));
+    if (std.mem.eql(u8, request.head.target, "/nudge")) {
+        if (source.nudged) |f| f(source.served_context);
+        try request.respond("", .{ .status = .no_content });
+        return true;
+    }
+    if (!std.mem.eql(u8, request.head.target, "/sync")) return false;
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -101,13 +115,29 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     } });
     const window = try arena.alloc(u8, flate.max_window_len);
     var gz = try flate.Compress.init(&response.writer, window, .gzip, .fastest);
-    try replica_.writeSync(&src, arena, checked[0].vector, reader, &gz.writer);
+    const sent = try replica_.writeSync(&src, arena, checked[0].vector, reader, &gz.writer);
     try gz.finish();
     try response.end();
+    if (source.served) |f| f(source.served_context, checked[0].device, sent);
     return true;
 }
 
 /// Pulls from the peer at `url` (e.g., `http://perihelion.local:8008/sync`).
+/// Asks the peer whose sync URL this is to pull from this one soon.
+pub fn nudge(client: *http.Client, sync_url: []const u8) !void {
+    var buf: [512]u8 = undefined;
+    const base = if (std.mem.endsWith(u8, sync_url, "/sync")) sync_url[0 .. sync_url.len - "/sync".len] else std.mem.trimEnd(u8, sync_url, "/");
+    const url = try std.fmt.bufPrint(&buf, "{s}/nudge", .{base});
+    var request = try client.request(.POST, try std.Uri.parse(url), .{ .keep_alive = false });
+    defer request.deinit();
+    request.transfer_encoding = .{ .content_length = 0 };
+    var sending = try request.sendBodyUnflushed(&.{});
+    try sending.end();
+    try request.connection.?.flush();
+    const response = try request.receiveHead(&.{});
+    if (response.head.status != .no_content) return error.Refused;
+}
+
 pub fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !replica_.Stats {
     const body = try writeRequest(arena, dst, now_ms);
     var request = try client.request(.POST, try std.Uri.parse(url), .{

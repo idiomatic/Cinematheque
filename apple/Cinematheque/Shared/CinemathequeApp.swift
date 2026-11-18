@@ -51,6 +51,7 @@ struct CinemathequeApp: App {
 /// served and refreshed (by syncing, then crawling) once a launch.
 struct RootView: View {
     @Environment(Library.self) private var library
+    @Environment(\.scenePhase) private var phase
 
     var body: some View {
         Group {
@@ -66,6 +67,12 @@ struct RootView: View {
         .task(id: library.hasLibrary) {
             Platform.keep()
             await library.startAtLaunch(device: Platform.deviceName, user: Platform.userName)
+            await library.keepInSync()
+        }
+        // Back at the front (as an Apple TV app returns from the home screen,
+        // never relaunched), what other devices changed meanwhile.
+        .onChange(of: phase) {
+            if phase == .active { Task { await library.syncQuietly() } }
         }
     }
 }
