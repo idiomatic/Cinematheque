@@ -607,6 +607,9 @@ pub const Replica = struct {
 
     fn deviceId(replica: *Replica, key: Device) !i64 {
         if (replica.ids.get(key)) |id| return id;
+        // Another connection (a server's, taking a push) may have added it.
+        try replica.internAdded();
+        if (replica.ids.get(key)) |id| return id;
         const id = blk: {
             const s = replica.insert_device;
             defer s.reset();
