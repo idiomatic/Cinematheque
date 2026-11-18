@@ -86,7 +86,7 @@ struct SeriesView: View {
                                 Color.clear
                                     .aspectRatio(1, contentMode: .fit)
                                     .frame(width: 220)
-                                    .overlay { CoverImage(cover: s.cover, thumb: s.thumb, title: s.seasonName ?? "") }
+                                    .overlay { CoverImage(cover: s.cover, thumb: s.thumb, title: s.seasonName ?? "", fit: true) }
                                     .overlay(alignment: .bottom) {
                                         Text(s.seasonName ?? "")
                                             .font(.caption)

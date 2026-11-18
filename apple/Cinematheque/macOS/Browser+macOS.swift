@@ -246,7 +246,7 @@ struct TileView: View {
         VStack(alignment: .leading, spacing: 6) {
             Color.clear
                 .aspectRatio(aspect, contentMode: .fit)
-                .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.seasonName ?? tile.name) }
+                .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.seasonName ?? tile.name, fit: tile.isSeries) }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)

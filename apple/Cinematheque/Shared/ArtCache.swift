@@ -9,7 +9,7 @@ import SwiftUI
 actor ArtCache {
     static let shared = ArtCache()
 
-    enum Size: Int {
+    enum Size: Int, CaseIterable {
         /// A grid tile's, at 2x.
         case tile = 480
         /// The inspector's.
@@ -58,6 +58,25 @@ actor ArtCache {
         loading[name] = nil
         if let image { memory.setObject(CGImageBox(image), forKey: name as NSString) }
         return image
+    }
+
+    /// Deletes the cached copies, at every size, on disk and in memory, of
+    /// those of `covers` that aren't square.
+    func purgeNonSquare(_ covers: [Cover]) {
+        for cover in covers {
+            for size in Size.allCases {
+                let name = Self.name(cover, size)
+                let file = directory.appending(path: name + ".jpg")
+                // Its dimensions, from its header, without decoding it.
+                guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+                      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                      let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                      let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                      width != height else { continue }
+                try? FileManager.default.removeItem(at: file)
+                memory.removeObject(forKey: name as NSString)
+            }
+        }
     }
 
     private static func name(_ cover: Cover, _ size: Size) -> String {
@@ -112,27 +131,33 @@ enum Placeholder {
 
 /// A cover, or until it's loaded, its placeholder: a blurred likeness from
 /// its ThumbHash, or without one, a color of its own with its title; in a
-/// fixed frame, so the grid never waits on an image.
+/// fixed frame, so the grid never waits on an image. A cover fills its
+/// frame, cropped, unless `fit`, then it's whole and centered in it (e.g.,
+/// a season's cover of another shape in a square).
 struct CoverImage: View {
     let cover: Cover?
     let thumb: String?
     let title: String
     let size: ArtCache.Size
+    let fit: Bool
     /// The cover, once loaded: from memory at once when the view is made,
     /// so scrolling back shows no placeholder, else when it arrives.
     @State private var image: CGImage?
 
-    init(cover: Cover?, thumb: String? = nil, title: String, size: ArtCache.Size = .tile) {
+    init(cover: Cover?, thumb: String? = nil, title: String, size: ArtCache.Size = .tile, fit: Bool = false) {
         self.cover = cover
         self.thumb = thumb
         self.title = title
         self.size = size
+        self.fit = fit
         _image = State(initialValue: cover.flatMap { ArtCache.shared.cached($0, size) })
     }
 
     var body: some View {
         ZStack {
-            if let image {
+            if let image, fit {
+                Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
+            } else if let image {
                 Self.filling(Image(decorative: image, scale: 1).resizable())
             } else {
                 placeholder

@@ -252,6 +252,13 @@ final class Library {
     func startAtLaunch(device: String, user: String? = nil) async {
         guard !refreshedAtLaunch, hasLibrary else { return }
         refreshedAtLaunch = true
+        // Once a device: cached series and season covers that aren't
+        // square, from before seasons' covers were fit whole, go.
+        let purged = "Purged non-square season covers"
+        if !UserDefaults.standard.bool(forKey: purged) {
+            await ArtCache.shared.purgeNonSquare(tiles.filter(\.isSeries).compactMap(\.cover))
+            UserDefaults.standard.set(true, forKey: purged)
+        }
         if sharing { serve() }
         // Syncing before writing anything: a device whose replica was lost
         // (as tvOS may purge one) learns its own writes back, and so where
