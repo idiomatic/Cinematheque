@@ -6,7 +6,7 @@ The prototypes the [core](../core/README.md) grew from, and their measurements, 
 |---|---|---|
 | [CRDT](#crdt) | The replica: signed operations in SQLite, sync, membership, thin fetches | 409,500 operations (100,000 renditions): 1.1 s to build, 1.1 s to sync cold, in memory or over HTTP, 24.5 MB on the wire (4.0 MB with Zig's gzip, 2.4 MB with zstd), 56 MB on disk; one series fetched thin in 3 ms and 51 KB. Signing each operation instead of each batch took 17 s, and verifying 21 s. |
 | [Repository](#repository) | Crawling listings, the repository server, re-crawls | 100,000 files: one `INDEX` request, 8 ms; JSON or HTML from Cinematheque's server, 8,503 requests, 0.2 s; rclone 1.5 s; Python 3.3 s (and no byte ranges); Apache 9–18 s. At a 4 ms round trip, 31 s with one worker, 0.9 s with 32. An unchanged re-crawl took 503 requests instead of 8,503, and every one of 800 changes was found. A real Caddy NAS over Wi-Fi: 20,000 files in 0.24 s with 32 workers. |
-| [Naming](#naming) | The filename parser | 100,000 paths in 80 ms; on a real library of 40,000 videos, 77 left for review once compact episode codes were read. |
+| [Naming](#naming) | The filename parser | 100,000 paths in 80 ms; on a real library of tens of thousands of videos, under 0.2% left for review once compact episode codes were read. |
 | [Discovery](#discovery) | DNS-SD from Zig | Bonjour on macOS and Avahi on Linux, which found each other. |
 | [browse](browse/README.md) | Facet intersections | A four-facet query and its refinement menu over 4,500 titles: 13 ms in SQLite, 43 µs with 105 KB of bitmaps. |
 | [transcoder](transcoder/README.md) | Remux-first transcoding over HTTP | 60-second remuxes in 0.1–0.4 s, converting DTS and SubRip; an MPEG-2 re-encode in 8.5 s; AVFoundation plays every output, but not MKV, nor HEVC tagged `hev1`. |
@@ -77,16 +77,16 @@ Across a network, with the server on Linux (Alpine 3.24 in a VM, cross-compiled 
 
 The incremental snapshot after the changes was identical to a full crawl's. Diffing it against the first took 26 ms and found all 800 true changes: 600 moves (500 renames and the files of 100 moved folders), 100 deletions, and 100 additions, none ambiguous. With one worker, this server's JSON crawl took 0.74 s, and with 4, 0.23 s.
 
-A real repository: a Caddy server on a NAS, over Wi-Fi (about 5 ms round trip), crawled by JSON, read-only. Its layout puts the rendition (a HandBrake preset's name) directly under `Movies` and `TV Shows`, and only four renditions were crawled: 40,000 videos, tens of TB, in 790 directories.
+A real repository: a Caddy server on a NAS, over Wi-Fi (about 5 ms round trip), crawled by JSON, read-only, with a folder per rendition: tens of thousands of videos in several hundred directories.
 
 | Crawl | Requests | Time |
 |---|---|---|
-| One rendition of TV, 20,000 files, 1 worker | 424 | 2.6 s |
+| One rendition of TV, about 20,000 files, 1 worker | 424 | 2.6 s |
 | The same, 8 workers | 424 | 0.43 s |
 | The same, 32 workers | 424 | 0.24 s |
 | The same, incremental, unchanged | 2 (422 directories reused) | 46 ms |
 
-Every range probe answered 206. Caddy's JSON gives sizes and modification times to the nanosecond, ends directories' names with a slash (the crawler first mis-encoded it), and paginates only on request. The repository keeps housekeeping folders and files whose names start with a comma, which crawls should skip. 18 of 40,000 files shared an exact size with another.
+Every range probe answered 206. Caddy's JSON gives sizes and modification times to the nanosecond, ends directories' names with a slash (the crawler first mis-encoded it), and paginates only on request. The repository keeps housekeeping folders and files whose names start with a comma, which crawls should skip. Fewer than 0.05% of files shared an exact size with another.
 
 * **`INDEX` wins by orders of magnitude:** one request, sizes and times included, and an unchanged library costs one 304. Gzipped, it's 11 bytes per file. Repositories that run Cinematheque code should always publish one.
 * **Static servers vary 70-fold** on the same tree. Apache's fancy index spends 0.64 s on one 4,000-entry directory, so on a consumer NAS a full crawl could take minutes. Re-crawls that reuse unchanged leaf directories cut requests 17-fold here, but need listings with times: JSON, or the minute-precision dates Apache and nginx print beside each link, which the crawler doesn't yet read.
@@ -107,11 +107,11 @@ Grew into the core's [naming](../core/src/naming.zig) and its [tests](../core/sr
 * Over the repository experiment's 100,000 paths: 80 ms (0.8 µs a path), finding 4,000 distinct movies and 96,000 episodes of 500 series, every one with a year.
 * The first run merged 118 movies whose titles held a year-like number ("Movie 1950 (1950)" became "Movie"); taking only the last year fixed it.
 
-A real library: the 40,000 videos of four renditions on the repository experiment's NAS, named `Movies/<rendition>/Title (Year)[ - Edition].m4v` and `TV Shows/<rendition>/Show/Show 317 Episode Title.m4v`.
+A real library: the videos on the repository experiment's NAS, movies named `Title (Year)[ - Edition].m4v` and episodes `Show/Show 317 Episode Title.m4v`, under a folder per rendition.
 
-* The first run took nearly every episode for a movie: this library uses Kodi's compact episode code (`317` for season 3, episode 17; `1213` for 12 and 13), which the parser didn't read. It now reads one right after the series' title from the enclosing folder, compared on letters and digits only, past punctuation and a repeated year ("Show (2020) 101"), even when it looks like a year ("South Park 1908" is season 19); a folder note like "(from DVD)" no longer cuts the title short.
-* After that, 77 files (0.18%) didn't parse: specials with no code or with code `100` or `300`, camera files named only by number, and episodes filed in another series' folder, which the title mismatch exposed.
-* All 7,000 movies parsed with years, 226 with editions; they're 4,000 titles, 2,000 of them in two or more renditions. The 40,000 episodes are 20,000 episodes of 370 series, 10,000 of them in two or more renditions.
+* The first run took nearly every episode for a movie: these episodes use Kodi's compact episode code (`317` for season 3, episode 17; `1213` for 12 and 13), which the parser didn't read. It now reads one right after the series' title from the enclosing folder, compared on letters and digits only, past punctuation and a repeated year ("Show (2020) 101"), even when it looks like a year ("South Park 1908" is season 19); a folder note like "(from DVD)" no longer cuts the title short.
+* After that, under 0.2% of files didn't parse: specials with no code or with code `100` or `300`, camera files named only by number, and episodes filed in another series' folder, which the title mismatch exposed.
+* Every movie parsed with a year, a few percent with editions; more than half the titles, and of the episodes, were in two or more renditions.
 * 0.6 µs a path, as before.
 
 Findings:

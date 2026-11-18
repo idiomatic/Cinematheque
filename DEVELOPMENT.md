@@ -38,7 +38,7 @@ Open:
 * **Pairing:** by address in the apps, for a new device off the network (it would show its address with its code, as the command-line peer prints its port); a QR code carrying the code, for a phone app.
 * **Partial replicas:** tvOS players have only purgeable cache storage, so they may be thin, holding part of a library fetched on demand (by a title's prefix, with shared proofs, as repair fetches fields; a prefix fetch was built and dropped unused after commit `ae9f1d6`) and its facet bitmaps, if rebuilding a whole replica after a purge (see [Apple TV player](#apple-tv-player)) proves too slow.
 * **Repair:** range-based set reconciliation, if catching up by version vectors proves insufficient.
-* **Compaction:** emptied fields stay as tombstones, so a peer that missed the emptying can't revive an older value, and they grow with churn: in a reference library, 40,000 emptied holdings (from removed repositories, and keys that parser fixes changed) outnumbered 20,000 live ones, 28% of all winners. Drop a tombstone once every member device's version vector covers it, which needs peers to share the vectors they've seen of others; a device not heard from in long enough could be set aside, at the cost of its stale writes being refused.
+* **Compaction:** emptied fields stay as tombstones, so a peer that missed the emptying can't revive an older value, and they grow with churn: in a reference library, emptied holdings (from removed repositories, and keys that parser fixes changed) outnumbered live ones, over a quarter of all winners. Drop a tombstone once every member device's version vector covers it, which needs peers to share the vectors they've seen of others; a device not heard from in long enough could be set aside, at the cost of its stale writes being refused.
 
 Open:
 
@@ -60,9 +60,9 @@ Open:
 * **Platforms:** iOS and iPadOS; Linux and Windows; a web player for low-capacity hosts (e.g., a Raspberry Pi); later Wayland.
 * **Browsing:** by intersections of facets (e.g., new releases, thrillers or mysteries, starring A-listers, English audio), along the title hierarchy, since set-top remotes make typing slow and a library runs to thousands of titles. Full peers query facets in SQLite; thin players hold a bitmap per small facet's value, and posting lists for people.
 * **Cover art, still to come** (what's built is in [AGENTS.md](AGENTS.md)):
-  * **PNG placeholders:** PNG covers (7 of 5,000 in a reference library) have none; `std.compress.flate` would decode them.
+  * **PNG placeholders:** PNG covers (a fraction of a percent, in a reference library) have none; `std.compress.flate` would decode them.
   * **Thumbnails from peers:** desktop peers make thumbnails (about 300×450, 20 KB) and serve them by hash (`/art/<hash>/<size>`), so players with no peer near scale originals only as a fallback; and prefetching two screens ahead.
-  * **Scale:** on a Mac with 4,000 movies, flicking scrolls smoothly, and jumping with the scroll bar loads the covers in view in about half a second; at 6,000 and on iOS and tvOS, fall back to AppKit's and UIKit's collection views if SwiftUI's lazy grids drop frames.
+  * **Scale:** on a Mac with over 4,000 movies, flicking scrolls smoothly, and jumping with the scroll bar loads the covers in view in about half a second; at 6,000 and on iOS and tvOS, fall back to AppKit's and UIKit's collection views if SwiftUI's lazy grids drop frames.
   * **Thumbnail caches** (open): their size per platform (all of them on a Mac, about 120 MB; a budget on iPhone and iPad; purgeable storage on tvOS), and how Linux and Windows decode and scale images.
   * **Other sources:** the outside-metadata provider's art, and covers in Matroska files.
 * **Who's watching:** set-top players are often shared, laptops and handhelds seldom; a shared player holds each of its users' private data, and hides it while several users are watching.

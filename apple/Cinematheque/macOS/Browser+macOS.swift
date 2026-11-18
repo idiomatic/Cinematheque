@@ -380,7 +380,7 @@ struct StatusBar: View {
         }
     }
 
-    /// "Crawling 3 of 6 repositories", "Covers 1,240 of 5,000" (covers and
+    /// "Crawling 3 of 6 repositories", "Covers 1,200 of 5,000" (covers and
     /// details found), "Syncing with 1 of 2 peers", or what's running.
     static func describe(_ activity: String, _ p: Library.Progress?) -> String {
         guard let p, let phase = p.phase else { return activity + "…" }

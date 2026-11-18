@@ -45,7 +45,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// "4,000 movies", "312 series, 1,212 seasons", or with a search, "12
+    /// "4,000 movies", "300 series, 1,200 seasons", or with a search, "12
     /// of 4,000 movies match “zoo”".
     @MainActor func counts(in library: Library, search: String = "") -> String {
         let all = tiles(in: library)
