@@ -19,6 +19,7 @@ const store_ = @import("store.zig");
 const sync = @import("sync.zig");
 const discover = @import("discover.zig");
 const Host = @import("host.zig").Host;
+const race = @import("race.zig");
 const serve_ = @import("serve.zig");
 const pair = @import("pair.zig");
 const replica_ = @import("replica.zig");
@@ -52,6 +53,8 @@ const Library = struct {
     /// (`cq_received`), from the server's task.
     served: Heard = .{},
     received: Heard = .{},
+    /// Servers whose copies didn't answer lately (`cq_race`).
+    racing: race.Memory = .{},
 
     fn onServed(context: ?*anyopaque, device: [32]u8, operations: usize) void {
         const lib: *Library = @ptrCast(@alignCast(context.?));
@@ -138,6 +141,7 @@ export fn cq_close(lib: ?*Library) void {
     stopPairing(l);
     if (l.replica) |*r| r.close();
     l.priority.deinit();
+    l.racing.deinit(gpa);
     l.arena_state.deinit();
     l.threaded.deinit();
     gpa.destroy(l);
@@ -661,6 +665,26 @@ fn repos(lib: *Library, arena: std.mem.Allocator) ![]const RepoJson {
         },
     };
     return out;
+}
+
+/// Long (up to `race.timeout_ms`), on any thread: copy racing. Takes a JSON
+/// array of an item's copies' URLs, in the order a player would try them,
+/// and returns them in the order to try: those whose servers answer, at
+/// once and briefly, first; a server that didn't lately, last (see
+/// race.zig).
+export fn cq_race(lib: *Library, urls_json: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, raceCopies, .{std.mem.span(urls_json)});
+}
+
+fn raceCopies(lib: *Library, arena: std.mem.Allocator, urls_json: []const u8) ![]const []const u8 {
+    const urls = try std.json.parseFromSliceLeaky([]const []const u8, arena, urls_json, .{ .allocate = .alloc_always });
+    return race.order(lib.io(), gpa, arena, &lib.racing, urls, lib.now());
+}
+
+/// Notes that a copy didn't load, so its server is raced last for a while.
+/// Any thread.
+export fn cq_race_lost(lib: *Library, url: [*:0]const u8) void {
+    lib.racing.lost(lib.io(), gpa, std.mem.span(url), lib.now()) catch {};
 }
 
 /// Forgets an absent directory of a repository (by ID or URL), as if it

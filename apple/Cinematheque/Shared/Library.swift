@@ -319,6 +319,26 @@ final class Library {
         check { cq_name($0, key, user, trimmed) }
     }
 
+    /// Copy racing (see the core's race.zig): `urls`, an item's copies, in
+    /// the order to try them, those whose servers answer first; off the
+    /// main thread, for up to 1.5 seconds.
+    func race(_ urls: [URL]) async -> [URL] {
+        guard urls.count > 1, let handle, let json = try? JSONEncoder().encode(urls.map(\.absoluteString)) else { return urls }
+        let text = String(decoding: json, as: UTF8.self)
+        let ordered: [String]? = await Task.detached {
+            guard let out = cq_race(handle.pointer, text) else { return nil }
+            defer { cq_free(out) }
+            return try? JSONDecoder().decode([String].self, from: Data(bytes: out, count: strlen(out)))
+        }.value
+        return ordered?.compactMap(URL.init(string:)) ?? urls
+    }
+
+    /// Notes a copy that didn't load, so its server is raced last a while.
+    func raceLost(_ url: URL) {
+        guard let handle else { return }
+        cq_race_lost(handle.pointer, url.absoluteString)
+    }
+
     /// Forgets a repository's absent directory, as if it were deleted: its
     /// copies go, for every device.
     func forgetAbsent(_ repository: String, _ dir: String) { check { cq_forget_absent($0, repository, dir) } }

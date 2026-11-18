@@ -59,11 +59,27 @@ final class PlaybackSession {
     /// `Platform.replay` before it): loaded, sought, and buffered
     /// (prerolled), so it plays at once.
     func prepare() async {
-        guard let current = player.currentItem, let first = await loaded(current) else { return }
+        guard let current = player.currentItem, let first = await loaded(await prefer(current)) else { return }
         guard first.status == .readyToPlay, !closed else { return }
         if start > 0 { await player.seek(to: CMTime(seconds: max(0, start - Platform.replay), preferredTimescale: 600)) }
         guard !closed else { return }
         _ = await player.preroll(atRate: 1)
+    }
+
+    /// Puts the copy of `playerItem`'s item whose server answers first
+    /// (copy racing, `Library.race`) in its place, if that's another copy; returns
+    /// the one to play.
+    private func prefer(_ playerItem: AVPlayerItem) async -> AVPlayerItem {
+        guard var entry = entries[ObjectIdentifier(playerItem)], !entry.alternates.isEmpty else { return playerItem }
+        let ordered = await library.race([entry.url] + entry.alternates)
+        guard !closed, let first = ordered.first, entries[ObjectIdentifier(playerItem)] != nil else { return playerItem }
+        entry.alternates = Array(ordered.dropFirst())
+        guard first != entry.url else {
+            entries[ObjectIdentifier(playerItem)] = entry
+            return playerItem
+        }
+        entry.url = first
+        return replace(playerItem, with: entry)
     }
 
     /// Waits for `playerItem` to load. If it fails (its repository asleep,
@@ -75,23 +91,34 @@ final class PlaybackSession {
             while trying.status == .unknown, !closed { try? await Task.sleep(for: .milliseconds(20)) }
             if closed { return nil }
             if trying.status == .readyToPlay { return trying }
-            let id = ObjectIdentifier(trying)
-            guard var entry = entries[id], !entry.alternates.isEmpty else { return nil }
+            guard var entry = entries[ObjectIdentifier(trying)] else { return nil }
+            library.raceLost(entry.url)
+            guard !entry.alternates.isEmpty else { return nil }
             entry.url = entry.alternates.removeFirst()
-            let replacement = AVPlayerItem(url: entry.url)
-            describe(replacement, entry)
-            entries[id] = nil
-            entries[ObjectIdentifier(replacement)] = entry
-            if last == id { last = ObjectIdentifier(replacement) }
-            // The player may have dropped the failed item from its queue
-            // already, so the queue is rebuilt: the replacement where it was,
-            // or first, then the rest.
-            var queue = player.items()
-            if let index = queue.firstIndex(of: trying) { queue[index] = replacement } else { queue.insert(replacement, at: 0) }
-            player.removeAllItems()
-            for queued in queue { player.insert(queued, after: nil) }
-            trying = replacement
+            trying = replace(trying, with: entry)
         }
+    }
+
+    /// Puts a player item for `entry` (another copy of `old`'s item) where
+    /// `old` is in the queue; returns it.
+    private func replace(_ old: AVPlayerItem, with entry: PlayRequest.Entry) -> AVPlayerItem {
+        let replacement = AVPlayerItem(url: entry.url)
+        describe(replacement, entry)
+        let id = ObjectIdentifier(old)
+        entries[id] = nil
+        entries[ObjectIdentifier(replacement)] = entry
+        if last == id { last = ObjectIdentifier(replacement) }
+        if player.items().contains(old) {
+            player.insert(replacement, after: old)
+            player.remove(old)
+        } else {
+            // The player dropped it already, as it does a failed item: the
+            // replacement goes first.
+            let rest = player.items()
+            player.removeAllItems()
+            for queued in [replacement] + rest { player.insert(queued, after: nil) }
+        }
+        return replacement
     }
 
     /// Starts as the players do: warming up, paused (`prepare`), for at
@@ -112,6 +139,11 @@ final class PlaybackSession {
     /// Plays, from where it's readied (`prepare`), keeping playheads.
     func play() {
         player.play()
+        // The rest of the queue, each from the copy whose server answers
+        // first, before it comes up.
+        Task {
+            for queued in player.items().dropFirst() where !closed { _ = await prefer(queued) }
+        }
         current = player.observe(\.currentItem, options: [.new]) { [weak self] player, _ in
             let id = player.currentItem.map(ObjectIdentifier.init)
             MainActor.assumeIsolated {

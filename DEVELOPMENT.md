@@ -56,6 +56,7 @@ Open:
 
 ## Players
 
+* **Windows:** the core's server binds with POSIX calls (`listen` in serve.zig, for `SO_REUSEADDR` alone), which need a Winsock path or `Io`'s networking before Windows builds.
 * **Platforms:** iOS and iPadOS; Linux and Windows; a web player for low-capacity hosts (e.g., a Raspberry Pi); later Wayland.
 * **Browsing:** by intersections of facets (e.g., new releases, thrillers or mysteries, starring A-listers, English audio), along the title hierarchy, since set-top remotes make typing slow and a library runs to thousands of titles. Full peers query facets in SQLite; thin players hold a bitmap per small facet's value, and posting lists for people.
 * **Cover art, still to come** (what's built is in [AGENTS.md](AGENTS.md)):

@@ -16,6 +16,7 @@ pub const thumbhash = @import("thumbhash.zig");
 pub const store = @import("store.zig");
 pub const pair = @import("pair.zig");
 pub const host = @import("host.zig");
+pub const race = @import("race.zig");
 
 test {
     _ = replica;
@@ -34,6 +35,7 @@ test {
     _ = store;
     _ = pair;
     _ = host;
+    _ = race;
     _ = @import("merkle.zig");
     _ = @import("hlc.zig");
     _ = @import("op.zig");

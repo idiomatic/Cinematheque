@@ -49,6 +49,11 @@ int cq_repo_set(cq_library *library, const char *repo, const char *rendition, co
 int cq_repo_remove(cq_library *library, const char *repo);
 // Forgets an absent directory of a repository, as if deleted.
 int cq_forget_absent(cq_library *library, const char *repo, const char *dir);
+// Long (up to 1.5 s), any thread: copy racing. A JSON array of an item's
+// copies' URLs in, in the order to try them out: those whose servers answer
+// first. cq_race_lost notes a copy that didn't load.
+char *cq_race(cq_library *library, const char *urls_json);
+void cq_race_lost(cq_library *library, const char *url);
 
 // Long: crawling every repository and describing what's new (committing
 // as it goes, so reload when cq_data_version changes), syncing with a peer (or,
