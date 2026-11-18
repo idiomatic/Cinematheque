@@ -1,3 +1,4 @@
+#if os(macOS)
 #if DEBUG
 import Foundation
 
@@ -21,4 +22,5 @@ enum Launch {
     }
     private static var played = false
 }
+#endif
 #endif

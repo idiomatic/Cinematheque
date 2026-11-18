@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// A tile's details: a larger cover, its metadata, playing it, and its
@@ -246,3 +247,4 @@ private struct EpisodeRow: View {
         }
     }
 }
+#endif

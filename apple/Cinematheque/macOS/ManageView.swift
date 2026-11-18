@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import SwiftUI
 import SystemConfiguration
@@ -309,3 +310,4 @@ private struct PeoplePane: View {
         return nearby.filter { $0.ours && !$0.member && !$0.added && $0.user != nil && seen.insert($0.user!).inserted }
     }
 }
+#endif

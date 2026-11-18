@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// The library as a grid of covers: movies, and series by season, filtered
@@ -423,3 +424,4 @@ struct StatusBar: View {
         }
     }
 }
+#endif

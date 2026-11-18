@@ -1,3 +1,4 @@
+#if os(tvOS)
 import Foundation
 import Security
 
@@ -56,3 +57,4 @@ enum Keys {
         SecItemAdd(q as CFDictionary, nil)
     }
 }
+#endif

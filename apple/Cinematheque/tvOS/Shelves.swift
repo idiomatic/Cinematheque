@@ -1,3 +1,4 @@
+#if os(tvOS)
 import SwiftUI
 
 /// The tab bar: Home, Movies, Series, Watchlist, and Search, each a
@@ -191,3 +192,4 @@ private struct Activity: View {
         }
     }
 }
+#endif

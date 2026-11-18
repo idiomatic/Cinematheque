@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// The first run: creating a library, joining one, or linking this device
@@ -86,3 +87,4 @@ struct KeyField: View {
         }
     }
 }
+#endif

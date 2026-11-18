@@ -1,3 +1,4 @@
+#if os(tvOS)
 import SwiftUI
 import UIKit
 
@@ -79,4 +80,5 @@ enum TVLaunch {
         Keys.save()
     }
 }
+#endif
 #endif

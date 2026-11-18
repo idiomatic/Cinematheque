@@ -1,3 +1,4 @@
+#if os(tvOS)
 import AVKit
 import SwiftUI
 import UIKit
@@ -90,3 +91,4 @@ enum TVRendition {
         return height <= limit ? 10_000 + height : 10_000 - height
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if os(tvOS)
 import SwiftUI
 
 /// A movie's page: its cover over a blurred backdrop of it, Play or Resume,
@@ -213,3 +214,4 @@ enum Facts {
         return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
     }
 }
+#endif

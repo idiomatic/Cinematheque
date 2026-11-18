@@ -1,3 +1,4 @@
+#if os(tvOS)
 import SwiftUI
 
 /// Linking this Apple TV to its user and joining their library, by the
@@ -31,3 +32,4 @@ struct TVSetupView: View {
         .padding(80)
     }
 }
+#endif

@@ -6,6 +6,8 @@
 	<string>com.rbrian.cinematheque</string>
 	<key>CFBundleName</key>
 	<string>Cinematheque</string>
+	<key>CFBundleDisplayName</key>
+	<string>Cinematheque</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Repositories are often plain HTTP on the local network. -->
@@ -13,6 +15,10 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Cinematheque plays videos from repositories on your network.</string>
+	<string>Cinematheque plays videos from repositories on your network, and syncs with your other devices there.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_cinematheque._tcp</string>
+	</array>
 </dict>
 </plist>

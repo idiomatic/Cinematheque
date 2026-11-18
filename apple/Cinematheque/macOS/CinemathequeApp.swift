@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 @main
@@ -32,3 +33,4 @@ struct CinemathequeApp: App {
         }
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if os(macOS)
 import AVKit
 import SwiftUI
 
@@ -48,3 +49,4 @@ private struct Player: NSViewRepresentable {
         coordinator.session?.close()
     }
 }
+#endif
