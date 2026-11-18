@@ -4,17 +4,8 @@ import SwiftUI
 /// The library as a grid of covers: movies, and series by season, filtered
 /// by shelf and search, beside an inspector for the one selected.
 struct Browser: View {
-    enum Shelf: String, CaseIterable, Identifiable {
-        case movies = "Movies", series = "Series", watchlist = "Watchlist"
-        var id: Self { self }
-        var symbol: String {
-            switch self {
-            case .movies: "film"
-            case .series: "tv"
-            case .watchlist: "star"
-            }
-        }
-    }
+    /// The shelves in the sidebar.
+    static let shelves: [Shelf] = [.movies, .series, .watchlist]
 
     @Environment(Library.self) private var library
     @State private var shelf: Shelf? = .movies
@@ -29,8 +20,8 @@ struct Browser: View {
 
     var body: some View {
         NavigationSplitView {
-            List(Shelf.allCases, selection: $shelf) { shelf in
-                Label(shelf.rawValue, systemImage: shelf.symbol)
+            List(Self.shelves, selection: $shelf) { shelf in
+                Label(shelf.title, systemImage: shelf.symbol)
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
         } detail: {
@@ -38,7 +29,7 @@ struct Browser: View {
             // shorter shelf shows nothing until scrolled.
             CoverGrid(tiles: shown, selection: $selection, shelf: shelf ?? .movies, search: search, positions: positions)
                 .id(shelf)
-                .navigationTitle(shelf?.rawValue ?? "Cinematheque")
+                .navigationTitle(shelf?.title ?? "Cinematheque")
                 .overlay(alignment: .bottom) { StatusBar(counts: counts, hovering: nearBottom) }
                 // Pointing near the bottom brings back a faded status bar.
                 .onContinuousHover { phase in
@@ -80,37 +71,9 @@ struct Browser: View {
             .help(inspecting ? "Hide the inspector" : "Show the inspector")
     }
 
-    private var shown: [Tile] {
-        onShelf.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
-    }
+    private var shown: [Tile] { (shelf ?? .movies).tiles(in: library, search: search) }
 
-    private var onShelf: [Tile] {
-        library.tiles.filter { tile in
-            switch shelf ?? .movies {
-            case .movies: !tile.isSeries
-            case .series: tile.isSeries
-            case .watchlist: library.watchlist.contains(tile.key)
-            }
-        }
-    }
-
-    /// "4,000 movies", "312 series, 1,212 seasons", or with a search, "12
-    /// of 4,000 movies match “zoo”".
-    private var counts: String {
-        let all = onShelf
-        let titles = Set(all.map(\.key)).count
-        let noun = switch shelf ?? .movies {
-        case .movies: titles == 1 ? "movie" : "movies"
-        case .series: "series"
-        case .watchlist: titles == 1 ? "title" : "titles"
-        }
-        if !search.isEmpty {
-            let matching = Set(shown.map(\.key)).count
-            return "\(matching.formatted()) of \(titles.formatted()) \(noun) match “\(search)”"
-        }
-        if shelf == .series { return "\(titles.formatted()) series, \(all.count.formatted()) seasons" }
-        return "\(titles.formatted()) \(noun)"
-    }
+    private var counts: String { (shelf ?? .movies).counts(in: library, search: search) }
 }
 
 /// Tiles of fixed size, laid out lazily: movies' covers 2:3, and each
@@ -120,13 +83,13 @@ struct Browser: View {
 /// grid's width would move). Not observed, so scrolling doesn't redraw the
 /// view that holds it.
 final class ScrollMemory {
-    var tops: [Browser.Shelf: String] = [:]
+    var tops: [Shelf: String] = [:]
 }
 
 struct CoverGrid: View {
     let tiles: [Tile]
     @Binding var selection: Tile.ID?
-    let shelf: Browser.Shelf
+    let shelf: Shelf
     let search: String
     let positions: ScrollMemory
     @State private var position = ScrollPosition(edge: .top)
@@ -201,7 +164,7 @@ struct CoverGrid: View {
         }
         .overlay {
             if tiles.isEmpty {
-                ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text("Add sources of videos in Settings."))
+                ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(shelf == .watchlist ? shelf.empty : "Add sources of videos in Settings."))
             }
         }
     }

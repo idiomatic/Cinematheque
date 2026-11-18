@@ -4,47 +4,39 @@ import SwiftUI
 /// The tab bar: Home, Movies, Series, Watchlist, and Search, each a
 /// navigation stack opening titles' detail pages.
 struct Browser: View {
-    enum Shelf: String, Hashable {
-        case home, movies, series, watchlist, search
+    /// A tab: a shelf, or search.
+    enum Tab: Hashable {
+        case shelf(Shelf), search
     }
 
     @Environment(Library.self) private var library
-    @State private var shelf: Shelf = .home
+    @State private var tab: Tab = .shelf(.home)
 
     var body: some View {
-        TabView(selection: $shelf) {
-            Tab("Home", systemImage: "house", value: .home) {
-                Stack { HomeView() }
+        TabView(selection: $tab) {
+            ForEach(Shelf.allCases) { shelf in
+                SwiftUI.Tab(shelf.title, systemImage: shelf.symbol, value: Tab.shelf(shelf)) {
+                    Stack {
+                        if shelf == .home {
+                            HomeView()
+                        } else {
+                            // A page per series (its seasons are there), so a
+                            // cover per title.
+                            PosterGrid(tiles: shelf.tiles(in: library).oneEach, empty: shelf.empty)
+                        }
+                    }
+                }
             }
-            Tab("Movies", systemImage: "film", value: .movies) {
-                Stack { PosterGrid(tiles: library.tiles.filter { !$0.isSeries }) }
-            }
-            Tab("Series", systemImage: "tv", value: .series) {
-                Stack { PosterGrid(tiles: Browser.series(library.tiles)) }
-            }
-            Tab("Watchlist", systemImage: "star", value: .watchlist) {
-                Stack { PosterGrid(tiles: Browser.titles(library.tiles.filter { library.watchlist.contains($0.key) }), empty: "Titles you add to your watchlist show here.") }
-            }
-            Tab(value: .search, role: .search) {
+            SwiftUI.Tab(value: Tab.search, role: .search) {
                 Stack { SearchView() }
             }
         }
         .overlay(alignment: .bottomTrailing) { Activity() }
         #if DEBUG
-        .onAppear { if let tab = Launch.tab.flatMap(Shelf.init(rawValue:)) { shelf = tab } }
+        .onAppear {
+            if let name = Launch.tab { tab = name == "search" ? .search : Shelf(rawValue: name).map(Tab.shelf) ?? tab }
+        }
         #endif
-    }
-
-    /// One tile per series (its first season's, which carries the series'
-    /// cover if the season has none), named for the series.
-    static func series(_ tiles: [Tile]) -> [Tile] {
-        titles(tiles.filter(\.isSeries))
-    }
-
-    /// One tile per title: a movie's, or a series' first season's.
-    static func titles(_ tiles: [Tile]) -> [Tile] {
-        var seen: Set<String> = []
-        return tiles.filter { seen.insert($0.key).inserted }
     }
 }
 
@@ -76,13 +68,12 @@ private struct HomeView: View {
     @Environment(Library.self) private var library
 
     var body: some View {
-        let tiles = library.tiles
-        let going = tiles.filter { !$0.watched && $0.progress > 0 }
-        let listed = Browser.titles(tiles.filter { library.watchlist.contains($0.key) })
+        let going = Shelf.home.tiles(in: library)
+        let listed = Shelf.watchlist.tiles(in: library).oneEach
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 50) {
                 if going.isEmpty && listed.isEmpty {
-                    ContentUnavailableView("Nothing in Progress", systemImage: "play.rectangle", description: Text("What you're watching, and your watchlist, show here."))
+                    ContentUnavailableView("Nothing in Progress", systemImage: "play.rectangle", description: Text(Shelf.home.empty))
                         .frame(maxWidth: .infinity)
                 }
                 if !going.isEmpty { Row(title: "Continue Watching", tiles: going) }
@@ -114,7 +105,7 @@ private struct Row: View {
 /// Covers in a grid, six to a row.
 struct PosterGrid: View {
     let tiles: [Tile]
-    var empty = "Add sources of videos in Cinematheque on your Mac."
+    var empty = Shelf.movies.empty
 
     var body: some View {
         ScrollView {
@@ -167,7 +158,8 @@ private struct SearchView: View {
     @State private var text = ""
 
     var body: some View {
-        let found = text.isEmpty ? [] : Browser.titles(library.tiles.filter { $0.name.localizedCaseInsensitiveContains(text) })
+        // Every shelf's titles but Home's, which are among them.
+        let found = text.isEmpty ? [] : (Shelf.movies.tiles(in: library, search: text) + Shelf.series.tiles(in: library, search: text)).oneEach
         PosterGrid(tiles: found, empty: text.isEmpty ? "Search for a movie or series." : "No titles match “\(text)”.")
             .searchable(text: $text)
     }
