@@ -9,6 +9,7 @@ struct ManageView: View {
             Tab("Members", systemImage: "person.2") { MembersPane() }
             Tab("This Device", systemImage: "laptopcomputer") { DevicePane() }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { ProblemBar() }
         .frame(width: 640, height: 440)
     }
 }

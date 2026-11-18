@@ -120,7 +120,12 @@ final class Library {
     private(set) var watchlist: Set<String> = []
     private(set) var repositories: [Repository] = []
     private(set) var members: [Member] = []
-    var error: String?
+    /// What last went wrong, shown modelessly (`ProblemBar`) until the
+    /// next action of its kind succeeds or it's dismissed; never an alert.
+    var problem: String?
+    private enum Kind { case refresh, change, read }
+    private var problemKind: Kind?
+    private var refreshedAtLaunch = false
     /// What a long operation is doing, if one is running.
     private(set) var activity: String?
     /// Counts changes, so views showing details can refresh.
@@ -131,7 +136,7 @@ final class Library {
     /// Opens the peer's home: `CINEMATHEQUE_HOME`, or the default.
     init() {
         guard let pointer = cq_open(nil) else {
-            error = "Couldn't open the peer's home (\(String(cString: cq_error())))."
+            problem = "Couldn't open the peer's home (\(String(cString: cq_error())))."
             return
         }
         handle = Handle(pointer: pointer)
@@ -178,15 +183,23 @@ final class Library {
 
     func setMember(_ key: String, _ add: Bool) { check { cq_member($0, key, add ? 1 : 0) } }
 
-    /// Crawls every repository, then syncs with peers found or added.
-    func refresh() async {
-        await long("Crawling") { cq_crawl($0) }
-        await long("Syncing") { cq_sync($0, nil) }
+    /// Refreshes once a launch, if there's anything to crawl.
+    func refreshAtLaunch() async {
+        guard !refreshedAtLaunch, hasLibrary, !repositories.isEmpty else { return }
+        refreshedAtLaunch = true
+        await refresh()
     }
 
-    func crawl() async { await long("Crawling") { cq_crawl($0) } }
+    /// Crawls every repository, then syncs with peers found or added.
+    func refresh() async {
+        let crawled = await long("Crawling") { cq_crawl($0) }
+        let synced = await long("Syncing") { cq_sync($0, nil) }
+        report(.refresh, crawled ?? synced)
+    }
 
-    func sync(_ url: String? = nil) async { await long("Syncing") { cq_sync($0, url) } }
+    func crawl() async { report(.refresh, await long("Crawling") { cq_crawl($0) }) }
+
+    func sync(_ url: String? = nil) async { report(.refresh, await long("Syncing") { cq_sync($0, url) }) }
 
     /// Reads an item's metadata from its file, in the background.
     func describe(_ itemKey: String) async {
@@ -223,8 +236,33 @@ final class Library {
 
     // Calling the core.
 
-    private func long(_ what: String, _ body: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async {
-        guard let handle, activity == nil else { return }
+    /// A long operation's failures in a sentence: the first, by its
+    /// server's name and the error in words, and how many more there were.
+    nonisolated static func describe(_ failed: [(url: String, error: String)], _ what: String) -> String? {
+        guard let first = failed.first else { return nil }
+        let host = URL(string: first.url)?.host() ?? first.url
+        // "ConnectionRefused" to "connection refused".
+        let reason = first.error.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.lowercased()
+        let others = failed.count - 1
+        let more = others == 0 ? "" : " (and \(others) more)"
+        return "\(what) failed for \(host)\(more): \(reason)."
+    }
+
+    /// Shows a problem, or with none, clears one of the same kind.
+    private func report(_ kind: Kind, _ failure: String?) {
+        if let failure {
+            problem = failure
+            problemKind = kind
+        } else if problemKind == kind {
+            problem = nil
+            problemKind = nil
+        }
+    }
+
+    /// Runs a long operation off the main thread; returns why it failed, if
+    /// it did.
+    private func long(_ what: String, _ body: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async -> String? {
+        guard let handle, activity == nil else { return nil }
         activity = what
         // Show what the operation commits as it commits it: titles once
         // crawled, covers as they're found.
@@ -244,21 +282,23 @@ final class Library {
         let failure: String? = await Task.detached {
             guard let text = body(handle.pointer) else { return String(cString: cq_error()) }
             defer { cq_free(text) }
-            // Report the first failure among the results, if any.
             let data = Data(bytes: text, count: strlen(text))
             let results = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
-            return results.compactMap { r in (r["error"] as? String).map { "\(r["url"] ?? ""): \($0)" } }.first
+            let failed = results.compactMap { r in (r["error"] as? String).map { (url: r["url"] as? String ?? "", error: $0) } }
+            return Library.describe(failed, what)
         }.value
         activity = nil
-        if let failure { error = failure }
         reload()
+        return failure
     }
 
     private func check(reload again: Bool = true, _ body: (OpaquePointer) -> Int32) {
         guard let handle else { return }
         if body(handle.pointer) != 0 {
             let reason = String(cString: cq_error())
-            error = reason == "Busy" ? "Wait until \(activity?.lowercased() ?? "the library") finishes." : reason
+            report(.change, reason == "Busy" ? "Couldn't change the library while \(activity?.lowercased() ?? "it's busy"); try again when it's done." : reason)
+        } else {
+            report(.change, nil)
         }
         if again { reload() }
     }
@@ -266,7 +306,7 @@ final class Library {
     private func decode<T: Decodable>(_ type: T.Type, _ body: (OpaquePointer) -> UnsafeMutablePointer<CChar>?) -> T? {
         guard let handle else { return nil }
         guard let text = body(handle.pointer) else {
-            error = String(cString: cq_error())
+            report(.read, String(cString: cq_error()))
             return nil
         }
         defer { cq_free(text) }

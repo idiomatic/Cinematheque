@@ -28,18 +28,15 @@ struct LibraryView: View {
         @Bindable var library = library
         Group {
             if library.status == nil {
-                ContentUnavailableView("No Peer Home", systemImage: "exclamationmark.triangle", description: Text(library.error ?? ""))
+                ContentUnavailableView("No Peer Home", systemImage: "exclamationmark.triangle", description: Text(library.problem ?? ""))
             } else if !library.hasLibrary {
                 SetupView()
             } else {
                 browser
             }
         }
-        .alert("Cinematheque", isPresented: Binding(get: { library.error != nil }, set: { if !$0 { library.error = nil } })) {
-            Button("OK") { library.error = nil }
-        } message: {
-            Text(library.error ?? "")
-        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { ProblemBar() }
+        .task { await library.refreshAtLaunch() }
     }
 
     private var browser: some View {
@@ -124,9 +121,17 @@ struct CoverGrid: View {
     @State private var restored = false
     @Environment(Library.self) private var library
     @Environment(\.openWindow) private var openWindow
-    /// Tiles on screen or near it (the lazy grid's), whose titles a crawl
-    /// describes first.
+    /// Tiles at least half on screen, whose titles a crawl describes first,
+    /// and the first of which the grid keeps in place.
     @State private var visible: Set<Tile.ID> = []
+    /// The title at the top, kept there when the grid's width changes (as
+    /// when the inspector opens or closes) and its rows reflow.
+    @State private var anchor = Anchor()
+
+    /// Not observed, so recording it doesn't redraw the grid.
+    final class Anchor {
+        var top: String?
+    }
 
     private struct Group: Identifiable {
         let key: String
@@ -155,6 +160,9 @@ struct CoverGrid: View {
             .padding(20)
         }
         .scrollPosition($position)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { _, _ in
+            if let top = anchor.top { position.scrollTo(id: top, anchor: .top) }
+        }
         .task {
             // After the first layout, which ignores scrolling.
             await Task.yield()
@@ -170,8 +178,10 @@ struct CoverGrid: View {
             // series' season.
             guard !Task.isCancelled else { return }
             library.prioritize(Set(visible.map { String($0.split(separator: "#")[0]) }))
+            let top = tiles.first { visible.contains($0.id) }?.key
+            anchor.top = top
             // The shelf's whole grid, not a search's results.
-            if restored, search.isEmpty { positions.tops[shelf] = tiles.first { visible.contains($0.id) }?.key }
+            if restored, search.isEmpty { positions.tops[shelf] = top }
         }
         .overlay {
             if tiles.isEmpty {
@@ -185,7 +195,11 @@ struct CoverGrid: View {
             ForEach(tiles) { tile in
                 // Selecting at once, not after the double-click interval.
                 TileView(tile: tile, aspect: aspect, selected: selection == tile.id)
-                    .onAppear { visible.insert(tile.id) }
+                    .onScrollVisibilityChange(threshold: 0.5) { shown in
+                        if shown { visible.insert(tile.id) } else { visible.remove(tile.id) }
+                    }
+                    // A lazy grid drops a tile it scrolls far past without
+                    // saying it's no longer visible.
                     .onDisappear { visible.remove(tile.id) }
                     .onTapGesture { selection = tile.id }
                     .simultaneousGesture(TapGesture(count: 2).onEnded { play(tile) })
@@ -261,3 +275,32 @@ struct TileView: View {
     }
 }
 
+
+/// What last went wrong, along the bottom of a window, until dismissed or
+/// the next action of its kind succeeds: modeless, never an alert.
+struct ProblemBar: View {
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        if let problem = library.problem {
+            VStack(spacing: 0) {
+                Divider()
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.yellow)
+                    Text(problem)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button("Dismiss", systemImage: "xmark") { library.problem = nil }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                }
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .background(.bar)
+        }
+    }
+}
