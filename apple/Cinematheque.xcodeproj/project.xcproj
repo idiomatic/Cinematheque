@@ -65,8 +65,8 @@
         "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]": "AppIcon",
         "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
         "CODE_SIGN_IDENTITY[sdk=macosx*]": "-",
-        "CODE_SIGN_STYLE[sdk=macosx*]": "Manual",
         "CODE_SIGN_STYLE[sdk=appletv*]": "Automatic",
+        "CODE_SIGN_STYLE[sdk=macosx*]": "Manual",
         "COMBINE_HIDPI_IMAGES[sdk=macosx*]": "YES",
         "CURRENT_PROJECT_VERSION": "1",
         "DEAD_CODE_STRIPPING": "YES",
@@ -78,13 +78,13 @@
         "INFOPLIST_FILE": "Cinematheque/Info.plist",
         "INFOPLIST_KEY_LSApplicationCategoryType[sdk=macosx*]": "public.app-category.entertainment",
         "INFOPLIST_KEY_UILaunchScreen_Generation[sdk=appletv*]": "YES",
-        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": [
-          "$(inherited)",
-          "@executable_path/../Frameworks",
-        ],
         "LD_RUNPATH_SEARCH_PATHS[sdk=appletv*]": [
           "$(inherited)",
           "@executable_path/Frameworks",
+        ],
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": [
+          "$(inherited)",
+          "@executable_path/../Frameworks",
         ],
         "LIBRARY_SEARCH_PATHS": "$(DERIVED_FILE_DIR)/core/lib",
         "MARKETING_VERSION": "0.1",

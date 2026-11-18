@@ -70,6 +70,12 @@ pub const Store = struct {
         return (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(s.identity.user)).public_key.toBytes();
     }
 
+    /// Whether this device acts as another device's user (`link`), rather
+    /// than the one its own seed derives.
+    pub fn linked(s: *const Store) bool {
+        return !std.mem.eql(u8, &s.identity.user, &replica_.Identity.from(s.identity.device).user);
+    }
+
     /// This device's key.
     pub fn device(s: *const Store) ![32]u8 {
         return (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(s.identity.device)).public_key.toBytes();

@@ -164,7 +164,7 @@ const PeerJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
 const SyncJson = struct { url: []const u8, new: usize, @"error": ?[]const u8 };
 const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64 };
-const StatusJson = struct { user: []const u8, library: ?[]const u8, founder: ?[]const u8, members: usize };
+const StatusJson = struct { user: []const u8, linked: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
 
 /// How far a long operation has come, in steps of its phase (repositories
 /// crawled, movies and seasons described, peers synced); read from any
@@ -324,7 +324,8 @@ fn stopServing(lib: *Library) void {
 
 // Identity and membership.
 
-/// This peer, as JSON: `user` (its user's key), `library` (the library's ID,
+/// This peer, as JSON: `user` (its user's key), `linked` (acting as the
+/// user of another of the user's devices), `library` (the library's ID,
 /// or null if it has none yet), `founder`, and `members` (how many).
 export fn cq_status(lib: *Library) ?[*:0]u8 {
     return json(lib, getStatus, .{});
@@ -332,9 +333,11 @@ export fn cq_status(lib: *Library) ?[*:0]u8 {
 
 fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
     const user = try arena.dupe(u8, &std.fmt.bytesToHex(try lib.store.user(), .lower));
-    const r = lib.main() catch return .{ .user = user, .library = null, .founder = null, .members = 0 };
+    const linked = lib.store.linked();
+    const r = lib.main() catch return .{ .user = user, .linked = linked, .library = null, .founder = null, .members = 0 };
     return .{
         .user = user,
+        .linked = linked,
         .library = try arena.dupe(u8, &std.fmt.bytesToHex(r.library, .lower)),
         .founder = try arena.dupe(u8, &std.fmt.bytesToHex(r.founder, .lower)),
         .members = (try r.members(arena)).len,

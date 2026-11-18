@@ -144,6 +144,8 @@ struct Folder: Codable, Identifiable, Hashable {
 
 struct Status: Codable {
     let user: String
+    /// Acting as the user of another of the user's devices.
+    let linked: Bool
     let library: String?
     let founder: String?
     let members: Int
@@ -186,6 +188,7 @@ final class Library {
     private(set) var revision = 0
 
     var hasLibrary: Bool { status?.library != nil }
+    var linked: Bool { status?.linked ?? false }
 
     /// Opens the peer's home: `home`, else `CINEMATHEQUE_HOME`, else the
     /// platform's default (see the core's `defaultHome`).
