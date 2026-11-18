@@ -52,19 +52,7 @@ struct InspectorView: View {
         let next = Playback.nextItem(detail, season: tile.season)
         let renditions = Array(Set(items.flatMap { $0.renditions.map(\.label) })).sorted()
         VStack(alignment: .leading, spacing: 10) {
-            // Going back leads, as on a player's timeline: a season from its
-            // first episode.
             HStack {
-                if tile.season != nil {
-                    Button {
-                        if let request = Playback.request(detail, items: items, from: 0, rendition: rendition) { play(request) }
-                    } label: {
-                        Label("From Start", systemImage: "backward.end.fill")
-                            .labelStyle(.iconOnly)
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Play the season from its first episode")
-                }
                 Button {
                     if let request = Playback.next(in: detail, season: tile.season, rendition: rendition) { play(request) }
                 } label: {
@@ -130,7 +118,21 @@ struct InspectorView: View {
     private func episodes(_ detail: TitleDetail) -> some View {
         let items = Playback.items(detail, season: tile.season)
         return VStack(alignment: .leading, spacing: 0) {
-            Text("Episodes").font(.headline).padding(.bottom, 6)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Episodes").font(.headline)
+                Spacer()
+                // Beside the list it starts, and only where Play wouldn't
+                // start there anyway.
+                if Playback.nextIndex(items) != 0 {
+                    Button("Play from First Episode") {
+                        if let request = Playback.request(detail, items: items, from: 0, rendition: rendition) { play(request) }
+                    }
+                    .buttonStyle(.link)
+                    .controlSize(.small)
+                    .help("Play the season from its first episode, the rest queued")
+                }
+            }
+            .padding(.bottom, 6)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 EpisodeRow(item: item, detail: detail) {
                     if let request = Playback.request(detail, items: items, from: index, rendition: rendition) { play(request) }
