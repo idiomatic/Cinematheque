@@ -111,7 +111,7 @@ pub fn serve(p: *Peer, c: Command) !void {
 /// `member pair CODE`), taking the library.
 pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
     if (p.store.founder(p.arena)) |_| return error.LibraryExists else |_| {}
-    var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .kind = kind, .user = try p.user() };
+    var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .kind = kind, .user = try p.user(), .device = try p.store.device() };
     const Listening = struct {
         name: [:0]const u8,
         txt: []const u8,

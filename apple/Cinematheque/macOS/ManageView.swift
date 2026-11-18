@@ -208,30 +208,28 @@ private struct SourceSheet: View {
 
 /// A new device nearby offering to pair, to be another of yours or a new
 /// member's: the code it shows, entered here, pairs it (and adds its user,
-/// if joining).
+/// if joining), and `paired` moves it on.
 private struct PairRow: View {
     let peer: Peer
+    let paired: (Peer) -> Void
     @Environment(Library.self) private var library
     @State private var code = ""
     @State private var pairing = false
-    @State private var paired = false
     @State private var failure: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Label(peer.device.flatMap { $0.isEmpty ? nil : $0 } ?? "A new device", systemImage: peer.joining ? "person.crop.circle.badge.plus" : "appletv")
-                Text(paired ? (peer.joining ? "Added" : "Paired") : (peer.joining ? "wants to join" : "wants to pair")).foregroundStyle(.secondary)
+                Text(peer.joining ? "wants to join" : "wants to pair").foregroundStyle(.secondary)
                 Spacer()
-                if !paired {
-                    TextField("Code", text: $code, prompt: Text("Code"))
-                        .labelsHidden()
-                        .font(.body.monospacedDigit())
-                        .frame(width: 90)
-                        .onSubmit(pair)
-                    Button(peer.joining ? "Add" : "Pair", action: pair)
-                        .disabled(digits.count != 6 || pairing)
-                }
+                TextField("Code", text: $code, prompt: Text("Code"))
+                    .labelsHidden()
+                    .font(.body.monospacedDigit())
+                    .frame(width: 90)
+                    .onSubmit(pair)
+                Button(peer.joining ? "Add" : "Pair", action: pair)
+                    .disabled(digits.count != 6 || pairing)
             }
             if let failure {
                 Text(failure).font(.caption).foregroundStyle(.secondary)
@@ -245,10 +243,39 @@ private struct PairRow: View {
         guard digits.count == 6, !pairing else { return }
         pairing = true
         Task {
-            failure = await library.pair(peer, code: digits)
-            paired = failure == nil
+            let (joined, why) = await library.pair(peer, code: digits)
+            failure = why
             pairing = false
+            // Out of New Devices, and into Your Devices (or People).
+            if let joined {
+                withAnimation {
+                    library.welcome(joined, from: peer)
+                    paired(peer)
+                }
+            }
         }
+    }
+}
+
+/// One of your devices, its name editable here: an Apple TV can't learn
+/// the name it's given in its settings, so it names itself "Apple TV".
+private struct DeviceRow: View {
+    let device: Device
+    @Environment(Library.self) private var library
+    @State private var name = ""
+
+    var body: some View {
+        HStack {
+            Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
+            TextField("Name", text: $name)
+                .labelsHidden()
+                .textFieldStyle(.plain)
+                .onSubmit { library.renameDevice(device.key, name) }
+            if device.you { Text("This Mac").foregroundStyle(.secondary) }
+        }
+        .help("Rename it for everyone in the library")
+        .onAppear { name = device.name }
+        .onChange(of: device.name) { name = device.name }
     }
 }
 
@@ -296,15 +323,12 @@ private struct PeoplePane: View {
                 }
             }
             Section("Your Devices") {
-                ForEach(library.devices) { device in
-                    HStack {
-                        Label(device.name, systemImage: "desktopcomputer")
-                        if device.you { Text("This Mac").foregroundStyle(.secondary) }
-                    }
-                }
+                ForEach(library.devices) { device in DeviceRow(device: device) }
             }
             Section {
-                ForEach(nearby.filter { $0.pairing != nil }) { peer in PairRow(peer: peer) }
+                ForEach(nearby.filter { $0.pairing != nil }) { peer in
+                    PairRow(peer: peer) { done in nearby.removeAll { $0.id == done.id } }
+                }
                 if !nearby.contains(where: { $0.pairing != nil }) { Looking() }
             } header: {
                 Text("New Devices")

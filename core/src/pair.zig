@@ -2,8 +2,9 @@
 //! device shows a 6-digit code, and the other, given it, sends the library's
 //! founder's key, and to link one of its user's own devices, the user's
 //! secret too, sealed with a key only a device that knows the code can
-//! derive; the new device answers with its user's key, sealed the same way,
-//! so a new member's can be added at once. CPace (draft-irtf-cfrg-cpace), over
+//! derive; the new device answers with its user's key and its own, sealed
+//! the same way, so a new member's can be added, and the device named, at
+//! once. CPace (draft-irtf-cfrg-cpace), over
 //! ristretto255 and SHA-512, makes the code worth one guess per attempt (an
 //! eavesdropper learns nothing to guess it by offline), and the new device
 //! stops pairing after a few wrong ones.
@@ -11,7 +12,7 @@
 //! Over HTTP, at `/pair` on the new device: `GET` starts an attempt,
 //! answering its session ID and the new device's share; `POST` answers it
 //! with the session ID, the other device's share, and the sealed secrets,
-//! and is answered with the new device's sealed user key. What the offer is
+//! and is answered with the new device's sealed user and device keys. What the offer is
 //! for (`Kind`) goes into the key, so it can't be changed on the way.
 
 const std = @import("std");
@@ -40,7 +41,10 @@ const sid_length = 16;
 const challenge_length = sid_length + 32;
 const sealed_length = 64 + Aead.tag_length;
 const answer_length = sid_length + 32 + sealed_length;
-const reply_length = 32 + Aead.tag_length;
+const reply_length = 64 + Aead.tag_length;
+
+/// Who the new device is, as its reply says.
+pub const Joined = struct { user: [32]u8, device: [32]u8 };
 
 /// A random code of 6 digits.
 pub fn newCode(io: Io) Code {
@@ -122,17 +126,17 @@ fn open(key: [32]u8, sealed: *const [sealed_length]u8) !Secrets {
 
 const reply_ad = "Cinematheque pairing reply";
 
-fn sealReply(key: [32]u8, user: [32]u8) [reply_length]u8 {
+fn sealReply(key: [32]u8, joined: Joined) [reply_length]u8 {
     var out: [reply_length]u8 = undefined;
-    Aead.encrypt(out[0..32], out[32..], &user, reply_ad, nonceOne(), key);
+    Aead.encrypt(out[0..64], out[64..], &(joined.user ++ joined.device), reply_ad, nonceOne(), key);
     return out;
 }
 
-fn openReply(key: [32]u8, sealed: []const u8) ![32]u8 {
+fn openReply(key: [32]u8, sealed: []const u8) !Joined {
     if (sealed.len != reply_length) return error.Malformed;
-    var user: [32]u8 = undefined;
-    Aead.decrypt(&user, sealed[0..32], sealed[32..][0..Aead.tag_length].*, reply_ad, nonceOne(), key) catch return error.BadReply;
-    return user;
+    var plain: [64]u8 = undefined;
+    Aead.decrypt(&plain, sealed[0..64], sealed[64..][0..Aead.tag_length].*, reply_ad, nonceOne(), key) catch return error.BadReply;
+    return .{ .user = plain[0..32].*, .device = plain[32..].* };
 }
 
 fn nonceOne() [Aead.nonce_length]u8 {
@@ -146,8 +150,9 @@ fn nonceOne() [Aead.nonce_length]u8 {
 pub const Offer = struct {
     code: Code,
     kind: Kind,
-    /// This device's user's key, to answer with.
+    /// This device's user's key, and its own, to answer with.
     user: [32]u8,
+    device: [32]u8,
     mutex: Io.Mutex = .init,
     /// The attempt under way: its session, and this device's share.
     attempt: ?struct { sid: [sid_length]u8, share: Share } = null,
@@ -177,7 +182,7 @@ pub const Offer = struct {
 
     /// Takes the other device's answer to the attempt under way: its share
     /// and the sealed secrets, which open only if it had the code. Returns
-    /// the reply: this device's user's key, sealed.
+    /// the reply: this device's user's key and its own, sealed.
     pub fn answer(o: *Offer, io: Io, body: []const u8) ![reply_length]u8 {
         if (body.len != answer_length) return error.Malformed;
         try o.mutex.lock(io);
@@ -195,7 +200,7 @@ pub const Offer = struct {
             o.failures += 1;
             return error.WrongCode;
         };
-        return sealReply(key, o.user);
+        return sealReply(key, .{ .user = o.user, .device = o.device });
     }
 
     pub fn handler(o: *Offer) serve_.Handler {
@@ -235,8 +240,8 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
 
 /// Sends `secrets` to the new device at `url` (its `/pair`), offering for
 /// `kind`, given the code it shows (when joining, the user's secret isn't
-/// sent). Returns the new device's user's key.
-pub fn send(io: Io, arena: std.mem.Allocator, client: *http.Client, url: []const u8, kind: Kind, code: []const u8, secrets: Secrets) ![32]u8 {
+/// sent). Returns the new device's keys, its user's and its own.
+pub fn send(io: Io, arena: std.mem.Allocator, client: *http.Client, url: []const u8, kind: Kind, code: []const u8, secrets: Secrets) !Joined {
     if (!isCode(code)) return error.WrongCode;
     const uri = try std.Uri.parse(url);
     const challenge = blk: {
@@ -288,7 +293,7 @@ fn answerFor(io: Io, challenge: [challenge_length]u8, kind: Kind, code: []const 
 test "the right code pairs, and the reply carries the new user; wrong ones count" {
     const io = std.testing.io;
     const secrets: Secrets = .{ .user = @splat(7), .founder = @splat(9) };
-    var offer: Offer = .{ .code = "042917".*, .kind = .link, .user = @splat(3) };
+    var offer: Offer = .{ .code = "042917".*, .kind = .link, .user = @splat(3), .device = @splat(4) };
 
     for (0..max_failures - 1) |_| {
         const c = try offer.challenge(io);
@@ -304,7 +309,7 @@ test "the right code pairs, and the reply carries the new user; wrong ones count
     const c = try offer.challenge(io);
     const right, const key = try answerFor(io, c, .link, "042917", secrets);
     const reply = try offer.answer(io, &right);
-    try std.testing.expectEqual(@as([32]u8, @splat(3)), try openReply(key, &reply));
+    try std.testing.expectEqualDeep(Joined{ .user = @splat(3), .device = @splat(4) }, try openReply(key, &reply));
     const got, const closed = offer.outcome(io);
     try std.testing.expectEqualDeep(secrets, got.?);
     try std.testing.expect(!closed);
@@ -313,7 +318,7 @@ test "the right code pairs, and the reply carries the new user; wrong ones count
 
 test "an offer to join isn't taken as one to link" {
     const io = std.testing.io;
-    var offer: Offer = .{ .code = "123456".*, .kind = .join, .user = @splat(3) };
+    var offer: Offer = .{ .code = "123456".*, .kind = .join, .user = @splat(3), .device = @splat(4) };
     const c = try offer.challenge(io);
     const linking, _ = try answerFor(io, c, .link, "123456", .{ .user = @splat(7), .founder = @splat(9) });
     try std.testing.expectError(error.WrongCode, offer.answer(io, &linking));
@@ -321,7 +326,7 @@ test "an offer to join isn't taken as one to link" {
 
 test "too many wrong codes close it" {
     const io = std.testing.io;
-    var offer: Offer = .{ .code = "111111".*, .kind = .link, .user = @splat(3) };
+    var offer: Offer = .{ .code = "111111".*, .kind = .link, .user = @splat(3), .device = @splat(4) };
     for (0..max_failures) |_| {
         const c = try offer.challenge(io);
         const wrong, _ = try answerFor(io, c, .link, "222222", .{ .user = @splat(1), .founder = @splat(2) });

@@ -31,26 +31,39 @@ pub fn user(peer: *Peer, c: Command) !void {
 }
 
 /// Pairs the new device showing the code `c.rest[0]` (found nearby, or at
-/// `c.rest[1]`), offering for `kind`; returns its user's key.
+/// `c.rest[1]`), offering for `kind`, and names it as it advertised itself;
+/// returns its user's key.
 fn pairWith(peer: *Peer, c: Command, kind: core.pair.Kind) ![32]u8 {
-    const url = if (c.rest.len == 2) c.rest[1] else try offering(peer, kind);
+    const new: Offering = if (c.rest.len == 2) .{ .url = c.rest[1], .name = "" } else try offering(peer, kind);
     var client: std.http.Client = .{ .allocator = peer.gpa, .io = peer.io };
     defer client.deinit();
-    const theirs = try core.pair.send(peer.io, peer.arena, &client, url, kind, c.rest[0], .{
+    const joined = try core.pair.send(peer.io, peer.arena, &client, new.url, kind, c.rest[0], .{
         .user = peer.store.identity.user,
         .founder = try peer.store.founder(peer.arena),
     });
-    try peer.out.print("paired {s}\n", .{url});
-    return theirs;
+    // A linked device acts as this user from now on, not as the one it had.
+    const acting = if (kind == .link) try peer.user() else joined.user;
+    if (new.name.len > 0) {
+        var r = try peer.open();
+        defer r.close();
+        try lib.setName(&r, peer.arena, peer.now(), joined.device, new.name, acting);
+    }
+    try peer.out.print("paired {s}\n", .{new.url});
+    return acting;
 }
 
+const Offering = struct { url: []const u8, name: []const u8 };
+
 /// The one new device nearby offering to pair for `kind`.
-fn offering(peer: *Peer, kind: core.pair.Kind) ![]const u8 {
-    var found: ?[]const u8 = null;
+fn offering(peer: *Peer, kind: core.pair.Kind) !Offering {
+    var found: ?Offering = null;
     for (try core.discover.browse(peer.io, peer.arena, 2000)) |s| {
         if (s.host.len == 0 or !std.mem.eql(u8, s.get("pair") orelse "", @tagName(kind))) continue;
         if (found != null) return error.SeveralOffering;
-        found = try std.fmt.allocPrint(peer.arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse core.pair.path });
+        found = .{
+            .url = try std.fmt.allocPrint(peer.arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse core.pair.path }),
+            .name = s.get("name") orelse "",
+        };
     }
     return found orelse error.NoneOffering;
 }

@@ -168,6 +168,7 @@ const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, y
 const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
 const PeerJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const u8, user: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
 const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
+const PairedJson = struct { user: []const u8, device: []const u8 };
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
 const SyncJson = struct { url: []const u8, new: usize, @"error": ?[]const u8 };
 const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, started: bool };
@@ -425,7 +426,7 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, kind: pa
     stopPairing(lib);
     const p = try gpa.create(Pairing);
     errdefer gpa.destroy(p);
-    p.offer = .{ .code = pair.newCode(lib.io()), .kind = kind, .user = try lib.store.user() };
+    p.offer = .{ .code = pair.newCode(lib.io()), .kind = kind, .user = try lib.store.user(), .device = try lib.store.device() };
     const s = try gpa.create(Serving);
     errdefer gpa.destroy(s);
     s.* = .{ .arena = .init(gpa), .io = lib.io(), .source = undefined, .mounts = &.{}, .name = "", .txt = "", .default_port = 0 };
@@ -488,18 +489,25 @@ fn stopPairing(lib: *Library) void {
 /// `cq_peers`, offering to `link` or to `join`, as `join` says), given the
 /// code it shows: sends it the library's founder's key, and if linking,
 /// this user's secret, which it takes only if the code is right. Returns
-/// its user's key, as a JSON string, for a new member's to be added (by
-/// `cq_member`). Fails with `WrongCode`, or `Closed` once it stopped.
+/// its keys, as JSON: `user` (this user's, once linked; else a new
+/// member's, to be added by `cq_member`) and `device` (to name it by, with
+/// `cq_name`). Fails with
+/// `WrongCode`, or `Closed` once it stopped.
 export fn cq_pair(lib: *Library, url: [*:0]const u8, join: c_int, code: [*:0]const u8) ?[*:0]u8 {
     return json(lib, pairWith, .{ std.mem.span(url), if (join != 0) pair.Kind.join else pair.Kind.link, std.mem.span(code) });
 }
 
-fn pairWith(lib: *Library, arena: std.mem.Allocator, url: []const u8, kind: pair.Kind, code: []const u8) ![]const u8 {
+fn pairWith(lib: *Library, arena: std.mem.Allocator, url: []const u8, kind: pair.Kind, code: []const u8) !PairedJson {
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     const digits = std.mem.trim(u8, code, " \n");
-    const user = try pair.send(lib.io(), arena, &client, url, kind, digits, .{ .user = lib.store.identity.user, .founder = try lib.store.founder(arena) });
-    return arena.dupe(u8, &std.fmt.bytesToHex(user, .lower));
+    const joined = try pair.send(lib.io(), arena, &client, url, kind, digits, .{ .user = lib.store.identity.user, .founder = try lib.store.founder(arena) });
+    // A linked device acts as this user from now on, not as the one it had.
+    const user = if (kind == .link) try lib.store.user() else joined.user;
+    return .{
+        .user = try arena.dupe(u8, &std.fmt.bytesToHex(user, .lower)),
+        .device = try arena.dupe(u8, &std.fmt.bytesToHex(joined.device, .lower)),
+    };
 }
 
 /// The members, as a JSON array of objects with `key`, `name` (null if
@@ -554,6 +562,18 @@ fn setName(lib: *Library, arena: std.mem.Allocator, which: []const u8, name: []c
         try library.setName(r, arena, lib.now(), try lib.store.device(), name, try lib.store.user())
     else
         return error.Usage;
+}
+
+/// Names another device, `device`, as its user's, `user` (as one just
+/// paired, until it names itself); any member may.
+export fn cq_name(lib: *Library, device: [*:0]const u8, user: [*:0]const u8, name: [*:0]const u8) c_int {
+    return status(lib, nameDevice, .{ std.mem.span(device), std.mem.span(user), std.mem.span(name) });
+}
+
+fn nameDevice(lib: *Library, arena: std.mem.Allocator, device: []const u8, user: []const u8, name: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    try library.setName(try lib.main(), arena, lib.now(), try store_.parseKey(device), name, try store_.parseKey(user));
 }
 
 /// This user's devices that have names, as a JSON array of objects with

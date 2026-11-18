@@ -34,7 +34,8 @@ int cq_found(cq_library *library, const char *founder);
 // whether it's paired (taking the library, and if linking, the user's
 // secret) or closed (too many wrong codes). On a member's device, long,
 // pairing the one offering at url (a pairing peer's) given its code, which
-// returns its user's key, to add a new member by.
+// returns its keys (user, to add a new member by, and device, to name it
+// by with cq_name).
 char *cq_pair_offer(cq_library *library, const char *name, int join);
 char *cq_pair_check(cq_library *library);
 void cq_pair_stop(cq_library *library);
@@ -100,6 +101,7 @@ void cq_stop_serving(cq_library *library);
 // listens for 2 seconds) and added by address, with their names, whether
 // they're of this library and their users members; and adding (nonzero
 // add) or removing a peer by address, on this device only.
+int cq_name(cq_library *library, const char *device_key, const char *user_key, const char *name);
 int cq_set_name(cq_library *library, const char *which, const char *name);
 char *cq_devices(cq_library *library);
 char *cq_peers(cq_library *library);

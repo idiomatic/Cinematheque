@@ -140,6 +140,12 @@ struct Peer: Codable, Identifiable, Hashable {
     var joining: Bool { pairing == "join" }
 }
 
+/// A device just paired: its user's key and its own.
+nonisolated struct Paired: Decodable {
+    let user: String
+    let device: String
+}
+
 /// A folder on this device, served as a repository at `prefix`.
 struct Folder: Codable, Identifiable, Hashable {
     let prefix: String
@@ -268,29 +274,43 @@ final class Library {
     }
 
     /// Pairs the new device `peer`, given the code it shows: sends it the
-    /// library, and to link it, this user's secret; or if it's joining,
-    /// adds its user as a member. Returns what went wrong, in words, if
-    /// anything did.
-    func pair(_ peer: Peer, code: String) async -> String? {
-        guard let handle else { return "The library isn't open." }
+    /// library, and to link it, this user's secret. Returns who it is
+    /// (for `welcome`), or what went wrong, in words.
+    func pair(_ peer: Peer, code: String) async -> (Paired?, String?) {
+        guard let handle else { return (nil, "The library isn't open.") }
         let url = peer.url
         let join: Int32 = peer.joining ? 1 : 0
         let name = peer.device.flatMap { $0.isEmpty ? nil : $0 } ?? "The device"
-        // The new member's user, or why it failed.
-        let (user, failure): (String?, String?) = await Task.detached {
+        let (paired, failure): (Paired?, String?) = await Task.detached {
             guard let text = cq_pair(handle.pointer, url, join, code) else { return (nil, String(cString: cq_error())) }
             defer { cq_free(text) }
-            return (try? JSONDecoder().decode(String.self, from: Data(bytes: text, count: strlen(text))), nil)
+            return (try? JSONDecoder().decode(Paired.self, from: Data(bytes: text, count: strlen(text))), nil)
         }.value
-        if let failure {
-            switch failure {
-            case "WrongCode": return "That isn't the code \(name) shows. Check it, and try again."
-            case "Closed": return "\(name) stopped pairing after too many wrong codes. On it, show a new code."
-            default: return "Couldn't pair with \(name): \(failure)."
-            }
+        guard let failure else { return (paired, nil) }
+        switch failure {
+        case "WrongCode": return (nil, "That isn't the code \(name) shows. Check it, and try again.")
+        case "Closed": return (nil, "\(name) stopped pairing after too many wrong codes. On it, show a new code.")
+        default: return (nil, "Couldn't pair with \(name): \(failure).")
         }
-        if peer.joining, let user { setMember(user, true) }
-        return nil
+    }
+
+    /// Renames another of this user's devices (or this one), for every
+    /// peer: as when its platform won't tell it its own name.
+    func renameDevice(_ key: String, _ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let user = status?.user else { return }
+        check { cq_name($0, key, user, trimmed) }
+    }
+
+    /// Takes in a device just paired: names it as it advertised itself
+    /// (until it names itself), so it's among its user's devices at once,
+    /// and if it's joining, adds its user as a member.
+    func welcome(_ paired: Paired, from peer: Peer) {
+        if let name = peer.device, !name.isEmpty {
+            check(reload: false) { cq_name($0, paired.device, paired.user, name) }
+        }
+        if peer.joining { check(reload: false) { cq_member($0, paired.user, 1) } }
+        reload()
     }
 
     // Managing.
