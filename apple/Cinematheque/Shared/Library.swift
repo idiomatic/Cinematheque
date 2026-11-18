@@ -222,6 +222,7 @@ final class Library {
             ($0.name.localizedStandardCompare($1.name), $0.year ?? 0, $0.season ?? 0) < (.orderedSame, $1.year ?? 0, $1.season ?? 0)
         }
         watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
+        listSeasonsOfSeries()
         repositories = decode([Repository].self) { cq_repos($0) } ?? []
         members = decode([Member].self) { cq_members($0) } ?? []
         devices = decode([Device].self) { cq_devices($0) } ?? []
@@ -549,8 +550,26 @@ final class Library {
         revision += 1
     }
 
-    func setWatchlisted(_ title: String, _ on: Bool) {
-        check(reload: false) { cq_set_watchlisted($0, title, on ? 1 : 0) }
+    /// What's on the watchlist: a movie, by its title's key, or a season,
+    /// by its tile's (`<title key>#<season>`), each on its own.
+    static func watchlistKey(_ title: String, season: Int?) -> String {
+        season.map { "\(title)#\($0)" } ?? title
+    }
+
+    func setWatchlisted(_ key: String, _ on: Bool) {
+        check(reload: false) { cq_set_watchlisted($0, key, on ? 1 : 0) }
+        watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
+    }
+
+    /// Puts each season of a series listed whole (as the watchlist once
+    /// listed series) on the watchlist on its own, in its place.
+    private func listSeasonsOfSeries() {
+        let series = watchlist.filter { key in tiles.contains { $0.isSeries && $0.key == key } }
+        guard !series.isEmpty else { return }
+        for key in series {
+            for tile in tiles where tile.key == key { check(reload: false) { cq_set_watchlisted($0, tile.id, 1) } }
+            check(reload: false) { cq_set_watchlisted($0, key, 0) }
+        }
         watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
     }
 

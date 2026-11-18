@@ -112,13 +112,16 @@ extension Library {
 struct Marks: View {
     let detail: TitleDetail
     let items: [TitleDetail.Item]
+    /// The season they're of, which is on the watchlist on its own.
+    var season: Int? = nil
     @Environment(Library.self) private var library
 
     var body: some View {
-        let listed = library.watchlist.contains(detail.key)
+        let key = Library.watchlistKey(detail.key, season: season)
+        let listed = library.watchlist.contains(key)
         let watched = !items.isEmpty && items.allSatisfy(\.watched)
         Button(listed ? "On Watchlist" : "Watchlist", systemImage: listed ? "star.fill" : "star") {
-            library.setWatchlisted(detail.key, !listed)
+            library.setWatchlisted(key, !listed)
         }
         .help(listed ? "Remove from your watchlist" : "Add to your watchlist")
         // A status that pressing toggles: it shows whether it's watched.

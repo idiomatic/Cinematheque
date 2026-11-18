@@ -991,7 +991,8 @@ fn removePlayhead(lib: *Library, arena: std.mem.Allocator, item_key: []const u8)
     try library.removePlayhead(r.replica, arena, lib.now(), item_key);
 }
 
-/// The titles on this user's watchlist, as a JSON array of title keys.
+/// What's on this user's watchlist, as a JSON array of keys: a movie's
+/// title key, or a season's tile (`<title key>#<season>`).
 export fn cq_watchlist(lib: *Library) ?[*:0]u8 {
     return json(lib, getWatchlist, .{});
 }
@@ -1000,7 +1001,8 @@ fn getWatchlist(lib: *Library, arena: std.mem.Allocator) ![]const []const u8 {
     return art.watchlist(try lib.main(), arena);
 }
 
-/// Adds a title to this user's watchlist (nonzero `on`), or removes it.
+/// Adds a movie or a season (as `cq_watchlist` keys them) to this user's
+/// watchlist (nonzero `on`), or removes it.
 export fn cq_set_watchlisted(lib: *Library, title_key: [*:0]const u8, on: c_int) c_int {
     return status(lib, setWatchlisted, .{ std.mem.span(title_key), on != 0 });
 }

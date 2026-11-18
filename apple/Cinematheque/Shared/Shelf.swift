@@ -38,7 +38,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
             case .home: !tile.watched && tile.started
             case .movies: !tile.isSeries
             case .series: tile.isSeries
-            case .watchlist: library.watchlist.contains(tile.key)
+            case .watchlist: library.watchlist.contains(tile.id)
             case .played: tile.played
             }
             return on && (search.isEmpty || tile.name.localizedCaseInsensitiveContains(search))

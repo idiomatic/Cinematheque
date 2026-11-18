@@ -119,7 +119,7 @@ struct SeriesView: View {
                         Button(Playback.playLabel(Playback.nextItem(detail, season: tile.season)), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: tile.season, rendition: detail.rendition(for: items))
                         }
-                        Marks(detail: detail, items: items)
+                        Marks(detail: detail, items: items, season: tile.season)
                     }
                     if let description = detail.fields["description"] {
                         Text(description).lineLimit(4).foregroundStyle(.secondary)

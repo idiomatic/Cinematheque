@@ -109,7 +109,7 @@ struct InspectorView: View {
 
     private func lists(_ detail: TitleDetail, items: [TitleDetail.Item]) -> some View {
             HStack {
-                Marks(detail: detail, items: items)
+                Marks(detail: detail, items: items, season: tile.season)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
