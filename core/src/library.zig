@@ -295,6 +295,13 @@ pub fn crawlRepository(replica: *Replica, io: Io, arena: std.mem.Allocator, clie
         .entries = &entries,
     });
     const crawled = Io.Timestamp.now(io, .awake);
+    // A repository that held files but lists none (a NAS serving an
+    // unplugged drive's empty mount point, say) is left as it was, rather
+    // than emptied for every peer; removing it is how to say it's gone.
+    const files = for (entries.items) |e| {
+        if (!e.is_dir) break true;
+    } else false;
+    if (!files and try copies(replica, arena, repo) > 0) return error.NothingFound;
     const stats = try ingest(replica, arena, wall_ms, repo, entries.items);
     var saved: Io.Writer.Allocating = .init(arena);
     try crawl.Snapshot.save(entries.items, &saved.writer);
@@ -1002,6 +1009,38 @@ test "year reasons" {
     try testing.expectEqualStrings("year off by one", yearReason(1999, 2000).?);
     try testing.expectEqualStrings("year digits transposed", yearReason(1995, 1959).?);
     try testing.expect(yearReason(1995, 1975) == null);
+}
+
+test "a crawl that finds nothing leaves a repository's copies as they were" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const replica_ = @import("replica.zig");
+    const founder = (try replica_.userKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, ":memory:", founder, .from(@splat(1)));
+    defer r.close();
+
+    // A repository of one movie, served without an INDEX, so listings stay live.
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(io, .{ .sub_path = "Alien (1979).mp4", .data = "x" });
+    const root = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = root, .index = false }} } };
+    try server.start();
+    defer server.stop();
+    const repo_url = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port});
+    _ = try addRepository(&r, 1000, repo_url, .{});
+    const repo = (try repositories(&r, arena))[0];
+    var client: std.http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+
+    _ = try crawlRepository(&r, io, arena, &client, 2000, repo, 1);
+    try std.testing.expectEqual(@as(i64, 1), try copies(&r, arena, repo));
+    try tmp.dir.deleteFile(io, "Alien (1979).mp4");
+    try std.testing.expectError(error.NothingFound, crawlRepository(&r, io, arena, &client, 3000, repo, 1));
+    try std.testing.expectEqual(@as(i64, 1), try copies(&r, arena, repo));
 }
 
 test "state: repositories, aliases, playheads, and members can be listed, set, and removed" {
