@@ -438,7 +438,7 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]cons
         try urls.append(arena, if (std.mem.endsWith(u8, t, "/sync")) t else try std.mem.concat(arena, u8, &.{ std.mem.trimEnd(u8, t, "/"), "/sync" }));
     } else {
         const mine = std.fmt.bytesToHex(r.library, .lower);
-        const own = try std.fmt.allocPrint(arena, "cinematheque-{s}", .{std.fmt.bytesToHex(try lib.store.user(), .lower)[0..8]});
+        const own = try lib.store.serviceName(arena);
         for (try discover.browse(lib.io(), arena, 2000)) |s| {
             if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
             if (!std.mem.eql(u8, s.get("library") orelse "", &mine)) continue;

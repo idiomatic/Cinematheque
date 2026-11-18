@@ -55,7 +55,7 @@ Open:
 
 ## Players
 
-* **Platforms:** iOS, iPadOS, and tvOS; Linux and Windows; a web player for low-capacity hosts (e.g., a Raspberry Pi); later Wayland.
+* **Platforms:** iOS and iPadOS; Linux and Windows; a web player for low-capacity hosts (e.g., a Raspberry Pi); later Wayland.
 * **Browsing:** by intersections of facets (e.g., new releases, thrillers or mysteries, starring A-listers, English audio), along the title hierarchy, since set-top remotes make typing slow and a library runs to thousands of titles. Full peers query facets in SQLite; thin players hold a bitmap per small facet's value, and posting lists for people.
 * **Cover art, still to come** (what's built is in [AGENTS.md](AGENTS.md)):
   * **PNG placeholders:** PNG covers (7 of 5,000 in a reference library) have none; `std.compress.flate` would decode them.
@@ -73,22 +73,14 @@ Open:
 
 ## Apple TV player
 
-Designed, not built; for the reference Apple TV 4K (3rd generation), tvOS 18 or later, tried first in the tvOS simulator.
+What's built is in [AGENTS.md](AGENTS.md); still to come:
 
-* **Core:** the same C interface, built by the app's build phase for tvOS and its simulator, as for macOS.
-* **Storage:** tvOS keeps only 500 KB of an app's own data (user defaults), and the Keychain; its caches may be purged while it isn't running. The device's and user's seeds go in the Keychain; the replica (about 37 MB for 5,400 movies and seasons) and covers go in the caches, and a purged replica is rebuilt by syncing in full at the next launch.
-* **Peers:** it syncs with peers found by DNS-SD, then crawls the repositories itself (as every peer refreshes), so it works with no other peer on, and rebuilds a purged replica from the repositories in under a minute (about 40 seconds for 5,400 movies and seasons); what it can't get without a peer is the user's playheads and watchlist from their other devices. It streams from repositories, and doesn't serve.
+* **Serving:** its playheads and watchlist reach the user's other devices only if they can pull from it, so it should serve sync while it runs (as the Mac app should).
 * **Linking,** without typing a 64-digit secret: the TV advertises itself; the Mac app lists it in Settings (This Device), both derive a key by X25519 and show the same six digits, and once they're confirmed on the Mac, it sends the user's seed, encrypted; the library's founder key comes the same way.
-* **Navigation:** a tab bar of Home, Movies, Series, Watchlist, and Search.
-  * **Home:** rows of Continue Watching (playheads in progress, and seasons' next episodes), the watchlist, and recently added titles.
-  * **Movies:** a grid of covers with an alphabetical jump and filters by decade and genre (facets), since 4,000 covers are a long way by remote.
-  * **Series:** covers of series, each opening on its seasons and episodes.
-  * **Search:** SwiftUI's search, by keyboard or dictation.
-* **Detail:** full screen, its cover (or placeholder) as backdrop: Play or Resume, versions and renditions, the description, and a season's episodes.
-* **Playing:** `AVPlayerViewController`, with title, description, and cover in its info panel, proposing the next episode at an episode's end; playheads as on the Mac.
-* **Renditions:** the best it plays: MP4s (not MKV or ISO), 4K HDR on a 4K HDR display, else HD.
-* **Users:** one linked user at first; later, tvOS's profiles as library users (Who's watching, under Players).
-* **Later:** a Top Shelf of Continue Watching.
+* **Movies:** an alphabetical jump, and filters by decade and genre (facets), since 4,000 covers are a long way by remote; Home's recently added titles.
+* **Purges:** check that a purged replica comes back by syncing and crawling, with the seeds from the Keychain.
+* **Users:** tvOS's profiles as library users (Who's watching, under Players).
+* **Later:** a Top Shelf of Continue Watching; covers as artwork in the player's info panel.
 
 ## Transcoder
 

@@ -93,9 +93,8 @@ pub fn serve(p: *Peer, c: Command) !void {
     });
 }
 
-/// The name this peer advertises: its user's, shortened.
 fn serviceName(p: *Peer) ![]const u8 {
-    return std.fmt.allocPrint(p.arena, "cinematheque-{s}", .{std.fmt.bytesToHex(try p.user(), .lower)[0..8]});
+    return p.store.serviceName(p.arena);
 }
 
 /// Pulls from the peer at `target`, or else from every peer of this

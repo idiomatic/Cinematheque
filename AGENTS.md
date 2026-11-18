@@ -8,7 +8,7 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 
 * [core](core/README.md): the Zig library, and a static library with a C interface ([cinematheque.h](core/include/cinematheque.h), a Swift module by its [module map](core/include/module.modulemap)) whose results are JSON. Its functions belong to one thread but for long ones (crawling, syncing, describing), each on a connection of its own; only one connection writes as the device at a time, and the main one catches up (`Replica.refresh`) before acting. Long operations commit as they go; `cq_data_version` changes when they have, `cq_progress` tells how far one has come (its phase, and steps done of how many), and `cq_prioritize` names titles (e.g., those on screen) for a crawl to describe first.
 * [peer](peer/README.md): the command-line desktop peer, `cinematheque`, for macOS and Linux.
-* [apple](apple/README.md): the Apple players, in SwiftUI; so far a macOS player (macOS 15 or later), bundled as `Cinematheque.app` (`com.rbrian.cinematheque`) by its Xcode project (Xcode 27's `project.xcproj` format), whose build phase builds the core for each architecture and links it into one object exporting only the C interface, so the compiler runtime Zig bundles can't clash with Xcode's.
+* [apple](apple/README.md): the Apple players, in SwiftUI: a macOS player (macOS 15 or later) and an Apple TV player (tvOS 18 or later), both `com.rbrian.cinematheque`, sharing their model, cover cache, and playback session, by one Xcode project (Xcode 27's `project.xcproj` format), whose build phase builds the core for the platform and each architecture and links it into one object exporting only the C interface, so the compiler runtime Zig bundles can't clash with Xcode's.
 * [experiments](experiments/README.md): the prototypes the components grew from, kept for reference.
 
 ## Peers
@@ -56,7 +56,7 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 * **Listings:** a crawl reads an `INDEX` if there is one (a path per line, as `find . -type f ! -name INDEX > INDEX` writes them, optionally followed by tab-separated size and modification time), else JSON listings (Caddy's or nginx's), else HTML, reading only links' targets.
 * **Crawls:** breadth-first with concurrent workers (16 by default), reusing a previous crawl's listing of any directory with only files whose modification time hasn't changed, then bringing the repository's holdings in line with what was found.
 * **Serving:** `serve` listens on the port given, else on 8008 or, if that's taken, any free port, and advertises the port it got. It binds with `SO_REUSEADDR` alone, never `SO_REUSEPORT`, so no two processes share a port. It answers `/sync`, and optionally serves a media directory: files with single byte ranges, `If-Range`, and `mtime-size` ETags; listings as JSON (Caddy's form, on `Accept: application/json`) or HTML; and an `INDEX` with sizes and times.
-* **Discovery:** peers advertise `_cinematheque._tcp` by DNS-SD (Bonjour on macOS, Avahi's compatibility library on Linux), with the library's ID and the sync path in the TXT record.
+* **Discovery:** peers advertise `_cinematheque._tcp` by DNS-SD (Bonjour on Apple platforms, Avahi's compatibility library on Linux), named for the device's key (`cinematheque-` and its first 8 hex digits), so a user's devices are told apart and a peer skips only itself, with the library's ID and the sync path in the TXT record.
 
 ## Peer
 
@@ -79,12 +79,22 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 * The project follows Xcode's recommended settings but for script sandboxing (the core's build phase), the App Sandbox (the home it shares with the peer), the hardened runtime (until signing for distribution), and its macOS 15 minimum. A developer's signing settings stay in an ignored `Local.xcconfig`.
 * The bundle's `Info.plist` allows plain HTTP on the local network. Debug builds take launch options for driving them unattended (`CINEMATHEQUE_SELECT`, a tile, e.g. `t/s/firefly/-#1`; `CINEMATHEQUE_PLAY`; and `CINEMATHEQUE_ITEM`).
 
+## Apple TV player
+
+* **Home:** in the caches (the core's default on tvOS), the only place tvOS lets an app keep files, which it may purge; the seeds (`identity`, `user`, `library`) are kept in the Keychain too, and put back at launch, so a purge loses only what syncing and crawling rebuild.
+* **Setup:** linking the device and joining the library by typing the user's secret and the founder's key (an iPhone's keyboard can type for the remote).
+* **Refreshing:** at launch, syncing with peers found by DNS-SD, then crawling the repositories itself.
+* **Shelves:** a tab bar of Home (Continue Watching, then the watchlist), Movies, Series (a cover per series), Watchlist, and Search; covers six to a row, as cards, with progress and watched marks.
+* **Pages:** a movie's, over a blurred backdrop of its cover: Play or Resume, the watchlist and watched marks, versions, and its description; a series': its seasons (the first not watched through, specials last, outlined), Play for the season's next episode, and its episodes, described as the season's shown.
+* **Playing:** full screen in `AVPlayerViewController`, its info panel showing each item's title and description, on the playback session the Mac's player uses, so playheads follow the same rules; the rendition is the best it plays: MP4, MOV, or M4V (not MKV or ISO), up to 2160p on a 4K display, else up to 1080p.
+* Debug builds take launch options for driving the simulator unattended (by `simctl launch`, each prefixed `SIMCTL_CHILD_`): `CINEMATHEQUE_SECRET` and `CINEMATHEQUE_FOUNDER` (to link and join), `CINEMATHEQUE_TAB` (`movies`, `series`, ...), `CINEMATHEQUE_SELECT` (a title key whose page to open), and `CINEMATHEQUE_PLAY` (play it).
+
 ## Implementation
 
 * Zig 0.17+ for the core and the peer, with no dependencies beyond the system's SQLite and DNS-SD.
 * SwiftUI for Apple players.
 * SQLite for each peer's replica.
-* Tests: the core's unit tests (`zig build test`), [peer/test.sh](peer/test.sh) (two peers and more, end to end), and screenshots of the player in a macOS VM (terrarium's `macos-27.2-quiet`).
+* Tests: the core's unit tests (`zig build test`), [peer/test.sh](peer/test.sh) (two peers and more, end to end), screenshots of the macOS player in a macOS VM (terrarium's `macos-27.2-quiet`), and of the Apple TV player in the tvOS simulator (an Apple TV 4K, 3rd generation).
 
 ## Scale
 

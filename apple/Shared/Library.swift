@@ -142,9 +142,10 @@ final class Library {
 
     var hasLibrary: Bool { status?.library != nil }
 
-    /// Opens the peer's home: `CINEMATHEQUE_HOME`, or the default.
-    init() {
-        guard let pointer = cq_open(nil) else {
+    /// Opens the peer's home: `home`, else `CINEMATHEQUE_HOME`, else the
+    /// platform's default (see the core's `defaultHome`).
+    init(home: String? = nil) {
+        guard let pointer = cq_open(home) else {
             problem = "Couldn't open the peer's home (\(String(cString: cq_error())))."
             return
         }
@@ -192,9 +193,10 @@ final class Library {
 
     func setMember(_ key: String, _ add: Bool) { check { cq_member($0, key, add ? 1 : 0) } }
 
-    /// Refreshes once a launch, if there's anything to crawl.
+    /// Refreshes once a launch, if there's a library: peers may bring its
+    /// repositories to a device that has none yet.
     func refreshAtLaunch() async {
-        guard !refreshedAtLaunch, hasLibrary, !repositories.isEmpty else { return }
+        guard !refreshedAtLaunch, hasLibrary else { return }
         refreshedAtLaunch = true
         await refresh()
     }
@@ -217,6 +219,17 @@ final class Library {
         guard let handle else { return }
         let ok = await Task.detached { cq_describe(handle.pointer, itemKey) == 0 }.value
         if ok { revision += 1 }
+    }
+
+    /// Reads a season's episodes' metadata (titles, descriptions,
+    /// durations), one at a time, where not yet read: a crawl reads only a
+    /// season's first episode.
+    func describeEpisodes(of key: String, season: Int) async {
+        guard let detail = detail(key) else { return }
+        for item in Playback.items(detail, season: season) where item.fields["duration"] == nil {
+            if Task.isCancelled { return }
+            await describe("\(detail.key)/\(item.key)")
+        }
     }
 
     // This user's.

@@ -8,11 +8,15 @@ const Io = std.Io;
 const replica_ = @import("replica.zig");
 const Replica = replica_.Replica;
 
-/// A peer's home unless told otherwise: in Application Support on macOS,
-/// and in the XDG data directory elsewhere.
+/// A peer's home unless told otherwise: in Application Support on macOS
+/// and iOS; in the caches on tvOS, the only place its apps may keep files
+/// (which it may purge); and in the XDG data directory elsewhere.
 pub fn defaultHome(arena: std.mem.Allocator, home: []const u8, xdg_data_home: ?[]const u8) ![]const u8 {
-    if (@import("builtin").os.tag == .macos)
-        return std.fmt.allocPrint(arena, "{s}/Library/Application Support/Cinematheque", .{home});
+    switch (@import("builtin").os.tag) {
+        .macos, .ios => return std.fmt.allocPrint(arena, "{s}/Library/Application Support/Cinematheque", .{home}),
+        .tvos => return std.fmt.allocPrint(arena, "{s}/Library/Caches/Cinematheque", .{home}),
+        else => {},
+    }
     if (xdg_data_home) |data| if (data.len > 0)
         return std.fmt.allocPrint(arena, "{s}/cinematheque", .{data});
     return std.fmt.allocPrint(arena, "{s}/.local/share/cinematheque", .{home});
@@ -64,6 +68,18 @@ pub const Store = struct {
 
     pub fn user(s: *const Store) ![32]u8 {
         return (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(s.identity.user)).public_key.toBytes();
+    }
+
+    /// This device's key.
+    pub fn device(s: *const Store) ![32]u8 {
+        return (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(s.identity.device)).public_key.toBytes();
+    }
+
+    /// The name this peer advertises by DNS-SD, and knows itself by when
+    /// browsing: its device's key, shortened, so a user's devices are told
+    /// apart.
+    pub fn serviceName(s: *const Store, arena: std.mem.Allocator) ![]u8 {
+        return std.fmt.allocPrint(arena, "cinematheque-{s}", .{std.fmt.bytesToHex(try s.device(), .lower)[0..8]});
     }
 
     pub fn founder(s: *const Store, arena: std.mem.Allocator) ![32]u8 {
