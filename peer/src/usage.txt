@@ -8,19 +8,14 @@ unless --home or $CINEMATHEQUE_HOME names another directory.
 
 NOUN -h (or NOUN alone) shows only that noun's commands.
 
-USER and FOUNDER are user keys, as user show prints them; TITLE and
+USER is a user's key, as user show and member list print them; TITLE and
 ITEM are title and item keys, as title list and title show print them;
 REPO is a repo's ID or URL.
 
-  user show                    print this user's key, which a member gives
-                               to member add to admit this user
-  user secret                  print this user's secret, to link another
-                               of the user's devices; keep it private
-  user link SECRET             act as the user whose secret it is, on a
-                               new device, before library create or join
-  user pair                    on a new device, show a code, and wait
-                               for another of the user's devices to pair
-                               this one with it
+  user show                    print this user's key
+  user pair                    on a new device, show a code (and the port
+                               it listens on), and wait for another of the
+                               user's devices to pair this one with it
   user pair CODE [URL]         pair the new device showing CODE (found
                                nearby, or at URL), sending it this user's
                                secret and the library's founder
@@ -28,15 +23,14 @@ REPO is a repo's ID or URL.
   library show                 print the library's ID, founder, member
                                count, and digest
   library create               create a library, founded by this user
-  library join FOUNDER         open the library that user founded
-  library join                 on a new device, show a code, and wait for
-                               a member's device to let this user join
-                               with it (member pair)
+  library join                 on a new device, show a code (and the port
+                               it listens on), and wait for a member's
+                               device to let this user join with it
+                               (member pair)
   library handover USER [--leave]
                                hand the library over to a member
 
   member list                  list members
-  member add USER              admit a user
   member pair CODE [URL]       admit the user of the new device showing
                                CODE (found nearby, or at URL), sending it
                                the library's founder

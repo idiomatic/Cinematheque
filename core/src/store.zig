@@ -47,14 +47,8 @@ pub const Store = struct {
         return .{ .io = io, .gpa = gpa, .dir = dir, .identity = identity };
     }
 
-    /// The user's seed, to link another device as this user. It's a secret:
-    /// whoever has it acts as this user.
-    pub fn userSecret(s: *const Store) [64]u8 {
-        return std.fmt.bytesToHex(s.identity.user, .lower);
-    }
-
-    /// Makes this device act as the user whose secret `hex` is, before it
-    /// opens or joins a library.
+    /// Makes this device act as the user whose secret `hex` is (as pairing
+    /// sends it), before it opens or joins a library.
     pub fn link(s: *Store, arena: std.mem.Allocator, hex: []const u8) !void {
         if (Io.Dir.cwd().access(s.io, try path(arena, s.dir, "replica.db"), .{})) |_| return error.AlreadyInUse else |_| {}
         const secret = try parseKey(hex);

@@ -6,9 +6,6 @@ struct CinemathequeApp: App {
 
     init() {
         let home = Platform.prepareHome()
-        #if DEBUG
-        Launch.link(home: home)
-        #endif
         _library = State(initialValue: Library(home: home))
     }
 

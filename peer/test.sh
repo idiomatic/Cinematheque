@@ -1,8 +1,9 @@
 #!/bin/zsh
 # Peer test: peer A founds a library, serves a generated repository as
-# media, and crawls it; peer B joins, is invited, syncs, and must match A exactly; a
-# change on A reaches B through discovery; a peer that isn't a member is
-# refused; and B's playhead reaches B's other device, B2, only directly.
+# media, and crawls it; peer B pairs to join, syncs, and must match A
+# exactly; a change on A reaches B through discovery; C, paired then
+# removed, is refused; and B's playhead reaches B's other device, B2
+# (paired to be B's), only directly.
 set -eu
 here=${0:A:h}
 work=${1:-/tmp/cinematheque-peer-test}
@@ -25,6 +26,19 @@ cleanup() {
 }
 trap cleanup EXIT
 digest() { $peer "$@" library show | awk '/^digest/ { print $2 }' }
+# Pairs a new device ($1, a home) offering by $2 (`user pair` or `library
+# join`) with a member's ($3), which sends the code by $4 (`user pair` or
+# `member pair`), at the port the offer prints.
+pair() {
+    local log=$work/pair.log
+    $peer --home $1 ${=2} > $log 2>&1 &
+    local offer_pid=$!
+    for _ in {1..100}; do grep -q "on port" $log && break; sleep 0.1; done
+    local code=$(grep -o '[0-9]\{6\}$' $log)
+    local port=$(grep -o 'on port [0-9]*' $log | grep -o '[0-9]*$')
+    $peer --home $3 ${=4} $code http://127.0.0.1:$port/pair
+    wait $offer_pid
+}
 
 $peer $a library create
 $peer $a serve --port 8191 --media $work/media > $work/a.log 2>&1 &
@@ -35,8 +49,7 @@ file=$(curl -sf http://127.0.0.1:8191/INDEX | head -1 | cut -f1 | sed 's|^\./||;
 $peer $a repo add http://127.0.0.1:8191/
 $peer $a crawl
 
-$peer $b library join $($peer $a user show)
-$peer $a member add $($peer $b user show)
+pair $work/b "library join" $work/a "member pair"
 $peer $b sync http://127.0.0.1:8191
 [[ $(digest $a) == $(digest $b) ]] || { echo "FAIL: B differs from A after sync"; exit 1; }
 
@@ -50,12 +63,12 @@ $peer $b sync http://127.0.0.1:8191
 $peer $b alias list | grep -q . && { echo "FAIL: alias remove"; exit 1; }
 [[ $($peer $b member list | wc -l) -eq 2 ]] || { echo "FAIL: member list"; exit 1; }
 
-$peer $c library join $($peer $a user show)
-$peer $c sync http://127.0.0.1:8191 | grep -q NotAMember || { echo "FAIL: a non-member was served"; exit 1; }
+pair $work/c "library join" $work/a "member pair"
+$peer $a member remove $($peer $c user show)
+$peer $c sync http://127.0.0.1:8191 | grep -q NotAMember || { echo "FAIL: a removed member was served"; exit 1; }
 
 item=t/m/movie-0003/1923/v/-
-$peer $b2 user link $($peer $b user secret)
-$peer $b2 library join $($peer $a user show)
+pair $work/b2 "user pair" $work/b "user pair"
 $peer $b playhead set $item 600 6000
 $peer $b serve --port 8192 > $work/b.log 2>&1 &
 b_pid=$!

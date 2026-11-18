@@ -18,11 +18,6 @@ fn hex(key: [32]u8) [64]u8 {
 pub fn user(peer: *Peer, c: Command) !void {
     if (c.is("show", 0, &.{})) {
         try peer.out.print("{s}\n", .{hex(try peer.user())});
-    } else if (c.is("secret", 0, &.{})) {
-        try peer.out.print("{s}\n", .{peer.store.userSecret()});
-    } else if (c.is("link", 1, &.{})) {
-        try peer.store.link(peer.arena, c.rest[0]);
-        try peer.out.print("this device now acts as user {s}\n", .{hex(try peer.user())});
     } else if (c.is("pair", 0, &.{})) {
         try network.offerPairing(peer, .link);
     } else if (c.is("pair", 1, &.{}) or c.is("pair", 2, &.{})) {
@@ -80,15 +75,11 @@ pub fn library(peer: *Peer, c: Command) !void {
         });
     } else if (c.is("join", 0, &.{})) {
         try network.offerPairing(peer, .join);
-    } else if (c.is("create", 0, &.{}) or c.is("join", 1, &.{})) {
-        const founder = if (c.rest.len == 0) try peer.user() else try parseKey(c.rest[0]);
-        try peer.store.setFounder(peer.arena, founder);
+    } else if (c.is("create", 0, &.{})) {
+        try peer.store.setFounder(peer.arena, try peer.user());
         var r = try peer.open();
         defer r.close();
-        if (c.rest.len == 0)
-            try peer.out.print("created library {s}\n", .{std.fmt.bytesToHex(r.library, .lower)})
-        else
-            try peer.out.print("joined library {s}; a member must add {s}\n", .{ std.fmt.bytesToHex(r.library, .lower), hex(try peer.user()) });
+        try peer.out.print("created library {s}\n", .{std.fmt.bytesToHex(r.library, .lower)});
     } else if (c.is("handover", 1, &.{"--leave"})) {
         var r = try peer.open();
         defer r.close();
@@ -108,11 +99,6 @@ pub fn member(peer: *Peer, c: Command) !void {
             if (std.mem.eql(u8, &m, &me)) try peer.out.print("  you", .{});
             try peer.out.print("\n", .{});
         }
-    } else if (c.is("add", 1, &.{})) {
-        var r = try peer.open();
-        defer r.close();
-        try r.addMember(peer.now(), try parseKey(c.rest[0]));
-        try peer.out.print("added {s}\n", .{c.rest[0]});
     } else if (c.is("pair", 1, &.{}) or c.is("pair", 2, &.{})) {
         const joining = try pairWith(peer, c, .join);
         var r = try peer.open();

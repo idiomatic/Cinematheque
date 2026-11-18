@@ -51,6 +51,9 @@ struct OfferedCode: View {
         .frame(maxWidth: .infinity)
         .task(id: offers) {
             state = library.offerPairing(join: join)
+            #if DEBUG
+            Launch.note(code: state?.code)
+            #endif
             // Until paired or stopped.
             while !Task.isCancelled, state?.code != nil {
                 try? await Task.sleep(for: .seconds(1))
@@ -88,7 +91,7 @@ private struct SetupForm: View {
             Section {
                 Button("Create Library") {
                     joining = nil
-                    library.found(nil)
+                    library.found()
                 }
             } header: {
                 Text("Start a library")
@@ -110,6 +113,12 @@ private struct SetupForm: View {
         .formStyle(.grouped)
         .frame(maxWidth: 640)
         .frame(maxWidth: .infinity)
+        #if DEBUG
+        // `CINEMATHEQUE_TAB` names a step, as on tvOS: an offer to show.
+        .onAppear {
+            if joining == nil, let step = Launch.tab { joining = step == "joinOther" ? true : step == "link" ? false : nil }
+        }
+        #endif
     }
 }
 #endif

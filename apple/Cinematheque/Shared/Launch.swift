@@ -8,20 +8,17 @@ import Foundation
 enum Launch {
     private static var env: [String: String] { ProcessInfo.processInfo.environment }
 
-    /// `CINEMATHEQUE_SECRET` and `CINEMATHEQUE_FOUNDER`: link this device to
-    /// the user whose secret it is, and join the founder's library, before
-    /// the library opens, if it has none.
-    static func link(home: String?) {
-        guard let secret = env["CINEMATHEQUE_SECRET"], let founder = env["CINEMATHEQUE_FOUNDER"] else { return }
-        let library = Library(home: home)
-        guard !library.hasLibrary else { return }
-        library.link(secret)
-        library.found(founder)
-        Platform.keep()
+    /// `CINEMATHEQUE_CODE_FILE`: a file to write each pairing code this
+    /// device offers to, so a test can send it (`user pair CODE` or
+    /// `member pair CODE` from another device).
+    static func note(code: String?) {
+        guard let path = env["CINEMATHEQUE_CODE_FILE"], let code else { return }
+        try? Data((code + "\n").utf8).write(to: URL(filePath: path))
     }
 
     /// `CINEMATHEQUE_TAB`: a shelf to start on (`movies`, `series`, ...;
-    /// tvOS).
+    /// tvOS), or in setup, a step (`link` or `joinOther`), offering its code
+    /// (both platforms).
     static var tab: String? { env["CINEMATHEQUE_TAB"] }
 
     /// `CINEMATHEQUE_SELECT`: a tile to select (macOS) or whose title's

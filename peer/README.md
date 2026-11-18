@@ -56,16 +56,16 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `m
 
 ### Users and libraries
 
-* `user show` prints this user's key. `user secret` prints the user's seed, and `user link SECRET` makes this device act as that user. Linking must come before `library create` or `join`, since a device's library and certificates are its user's; once the home has a replica, it fails (`AlreadyInUse`).
-* `user pair`, on a new device without a library, prints a 6-digit code and waits. Meanwhile it serves `/pair` on a free port and advertises itself (`pair=link`, named by `$HOST`). `user pair CODE` on one of the user's devices finds it nearby, or at the URL given, and sends it the user's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its user.
-* `library create` founds a library with this user as founder, and prints its ID. `library join FOUNDER` opens the library that user founded and prints this user's key, which a member must add with `member add`. `library join` alone pairs instead: it offers a code, as `user pair` does, for a member's `member pair CODE`.
+* `user show` prints this user's key, as `member remove` and `library handover` take it.
+* `user pair`, on a new device without a library, prints a 6-digit code, and the port it listens on, and waits. Meanwhile it serves `/pair` on that port and advertises itself (`pair=link`, named by `$HOST`). `user pair CODE` on one of the user's devices finds it nearby, or at the URL given, and sends it the user's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its user.
+* `library create` founds a library with this user as founder, and prints its ID. `library join` offers a code, as `user pair` does, for a member's `member pair CODE`. Pairing is the only way to join or link, so the user's seed is never shown.
 * `library show` prints the library's ID, founder, member count, and digest. The digest is a hash of every field's winning value, so two peers that have synced fully print the same one.
 * `library handover USER` makes a member the founder; this user stays a member unless `--leave`. Only the founder may.
 
 ### Members
 
 * `member list` prints the members' keys, marking the founder and you.
-* `member add USER` admits a user. `member pair CODE [URL]` admits the user of a new device offering to join, and sends it the library's founder.
+* `member pair CODE [URL]` admits the user of a new device offering to join, and sends it the library's founder.
 * `member remove USER` removes a member, except the founder. Their devices' writes up to what this peer has seen stand; later ones are refused everywhere.
 
 ### Repositories and crawling
@@ -138,19 +138,13 @@ cinematheque member pair CODE
 cinematheque sync
 ```
 
-Without DNS-SD between them (across networks), pass the new device's pairing URL after the code, or join by hand:
+Without DNS-SD between them (across networks), pass the new device's pairing URL after the code: the port it prints, at `/pair`, on an address the sender can reach.
 
 ```sh
-# someone else's device: join by the founder's key,
-cinematheque library join FOUNDER_KEY
-cinematheque user show            # and give a member this key
-# on a member's device
-cinematheque member add NEW_USER_KEY
-
-# another of your devices: act as you, then join
-cinematheque user secret          # on a device you use
-cinematheque user link SECRET     # on the new one
-cinematheque library join FOUNDER_KEY
+# on art: prints a code, and "listening for it on port 49152"
+cinematheque library join
+# on hal
+cinematheque member pair CODE http://art.example.net:49152/pair
 ```
 
 Then sync from a peer by URL, and add it, so later syncs and refreshes reach it too:
@@ -175,7 +169,7 @@ What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 * [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync` and `pullAll`, which find peers by DNS-SD and in `local` (`peer:URL`); `peer`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
 * [agent.zig](src/agent.zig): the launch agents' property lists, installed and removed by `launchctl bootstrap` and `bootout`.
 * [usage.txt](src/usage.txt): the commands and the help.
-* [test.sh](test.sh): the end-to-end test. Peers on one computer, each with a home of its own, found a library and serve a generated repository as media. They crawl, join by key, and sync until their digests match, and the test checks that a non-member is refused and that playheads travel only between the user's devices. Pairing isn't covered yet.
+* [test.sh](test.sh): the end-to-end test. Peers on one computer, each with a home of its own, found a library and serve a generated repository as media. They crawl, pair (to join, and to link one to another's user) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that playheads travel only between the user's devices.
 * [test/gen.zig](test/gen.zig): the test repository's generator (`gen DIR [DIVISOR]`): a media tree at the library's full scale, or a fraction of it, named as Plex and Jellyfin expect, of sparse files that take no disk space.
 
 The library itself, from parsing names to syncing, is the [core](../core/README.md)'s; how its operations work is in [ARCHITECTURE.md](../ARCHITECTURE.md).

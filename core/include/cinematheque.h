@@ -24,10 +24,8 @@ void cq_close(cq_library *library);
 
 // Identity and membership.
 char *cq_status(cq_library *library);
-char *cq_secret(cq_library *library);
-int cq_link(cq_library *library, const char *secret);
-// Creates a library (founder NULL), or joins the one founder founded.
-int cq_found(cq_library *library, const char *founder);
+// Creates a library, founded by this user; joining one is by pairing.
+int cq_found(cq_library *library);
 // Pairing: on a new device, before it has a library, offering to pair
 // (serving and advertising as name), to link it to a member's user or (join
 // nonzero) to join as a new member, with a code to show; and checking

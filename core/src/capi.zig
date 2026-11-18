@@ -391,39 +391,21 @@ fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
     };
 }
 
-/// This user's secret, which links another of the user's devices, as a
-/// JSON string.
-export fn cq_secret(lib: *Library) ?[*:0]u8 {
-    return json(lib, getSecret, .{});
+/// Creates a library, founded by this user. (Joining one is by pairing.)
+export fn cq_found(lib: *Library) c_int {
+    return status(lib, found, .{});
 }
 
-fn getSecret(lib: *Library, arena: std.mem.Allocator) ![]const u8 {
-    return arena.dupe(u8, &lib.store.userSecret());
+fn found(lib: *Library, arena: std.mem.Allocator) !void {
+    try openFounded(lib, arena, try lib.store.user());
 }
 
-/// Makes this device act as the user whose secret it is, before it has a
-/// library.
-export fn cq_link(lib: *Library, secret: [*:0]const u8) c_int {
-    return status(lib, link, .{std.mem.span(secret)});
-}
-
-fn link(lib: *Library, arena: std.mem.Allocator, secret: []const u8) !void {
-    if (lib.replica != null) return error.LibraryExists;
-    try lib.store.link(arena, secret);
-}
-
-/// Creates a library, founded by this user (`founder` null), or joins the
-/// one `founder` founded.
-export fn cq_found(lib: *Library, founder: ?[*:0]const u8) c_int {
-    return status(lib, found, .{span(founder)});
-}
-
-fn found(lib: *Library, arena: std.mem.Allocator, founder: ?[]const u8) !void {
+/// Opens the library `founder` founded, as this device's.
+fn openFounded(lib: *Library, arena: std.mem.Allocator, founder: [32]u8) !void {
     if (lib.replica != null) return error.LibraryExists;
     // Once it has a library, it no longer offers to pair.
     stopPairing(lib);
-    const key = if (founder) |f| try store_.parseKey(std.mem.trim(u8, f, " \n")) else try lib.store.user();
-    try lib.store.setFounder(arena, key);
+    try lib.store.setFounder(arena, founder);
     lib.replica = try lib.store.openReplica(lib.arena_state.allocator());
 }
 
@@ -485,7 +467,7 @@ fn pairCheck(lib: *Library, arena: std.mem.Allocator) !PairJson {
         const kind = p.offer.kind;
         stopPairing(lib);
         if (kind == .link) try lib.store.link(arena, &std.fmt.bytesToHex(secrets.user, .lower));
-        try found(lib, arena, &std.fmt.bytesToHex(secrets.founder, .lower));
+        try openFounded(lib, arena, secrets.founder);
         return .{ .code = null, .paired = true, .closed = false };
     }
     if (closed) {

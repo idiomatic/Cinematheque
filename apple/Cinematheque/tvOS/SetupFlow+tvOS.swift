@@ -26,7 +26,7 @@ struct SetupFlow: View {
                 VStack(spacing: 24) {
                     NavigationLink(value: Step.link) { Choice("I Use Cinematheque on Another Device") }
                     NavigationLink(value: Step.joinOther) { Choice("Join Someone's Library") }
-                    Button { library.found(nil) } label: { Choice("Start a New Library") }
+                    Button { library.found() } label: { Choice("Start a New Library") }
                 }
             }
             .frame(maxWidth: 1200)

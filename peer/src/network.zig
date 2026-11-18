@@ -104,6 +104,9 @@ pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
         name: [:0]const u8,
         txt: []const u8,
         advertisement: ?core.discover.Advertisement = null,
+        /// The port it got, once listening, for the main task to print.
+        port: std.atomic.Value(u16) = .init(0),
+        stop: std.atomic.Value(bool) = .init(false),
 
         fn onListen(context: ?*anyopaque, got: u16) void {
             const l: *@This() = @ptrCast(@alignCast(context.?));
@@ -111,6 +114,7 @@ pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
                 std.log.warn("not advertised: {t}", .{err});
                 break :blk null;
             };
+            l.port.store(got, .release);
         }
     };
     var listening: Listening = .{
@@ -128,12 +132,23 @@ pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
         .handler = offer.handler(),
         .on_listen = Listening.onListen,
         .on_listen_context = &listening,
+        .stop = &listening.stop,
     } });
-    defer _ = serving.cancel(p.io) catch {};
+    defer {
+        listening.stop.store(true, .release);
+        core.serve.wake(listening.port.load(.acquire));
+        _ = serving.cancel(p.io) catch {};
+    }
+    for (0..1000) |_| {
+        if (listening.port.load(.acquire) != 0) break;
+        try p.io.sleep(.fromMilliseconds(10), .awake);
+    } else return error.NotListening;
     try p.out.print("{s} {s}\n", .{ switch (kind) {
         .link => "on another of your devices, pair this one with the code",
         .join => "on a member's device, let this one join with the code",
     }, offer.code });
+    // For a device that can't find this one nearby, as `pair CODE URL`.
+    try p.out.print("listening for it on port {d}, at /pair\n", .{listening.port.load(.acquire)});
     try p.out.flush();
     while (true) {
         try p.io.sleep(.fromSeconds(1), .awake);

@@ -238,11 +238,8 @@ final class Library {
 
     // Setting up.
 
-    /// Creates a library (`founder` nil), or joins the one `founder` founded.
-    func found(_ founder: String?) { check { cq_found($0, founder) } }
-
-    /// Acts as the user whose secret it is, before creating or joining.
-    func link(_ secret: String) { check { cq_link($0, secret) } }
+    /// Creates a library, founded by this user; joining one is by pairing.
+    func found() { check { cq_found($0) } }
 
     // Pairing a new device, by a code it shows, with a member's: to be
     // another of that user's devices, or a new member's.
