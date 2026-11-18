@@ -94,6 +94,17 @@ pub const Store = struct {
         try Io.Dir.cwd().writeFile(s.io, .{ .sub_path = file, .data = &std.fmt.bytesToHex(key, .lower) });
     }
 
+    /// Forgets the library and this device's identity, its seeds and its
+    /// replica, as a device removed from its library does to pair afresh as
+    /// a new device; a new identity is made when the home is next opened.
+    pub fn forget(s: *const Store, arena: std.mem.Allocator) !void {
+        for ([_][]const u8{ "replica.db", "replica.db-wal", "replica.db-shm", "library", "user", "identity" }) |name|
+            Io.Dir.cwd().deleteFile(s.io, try path(arena, s.dir, name)) catch |err| switch (err) {
+                error.FileNotFound => {},
+                else => |e| return e,
+            };
+    }
+
     pub fn replicaPath(s: *const Store, arena: std.mem.Allocator) ![:0]u8 {
         return std.fmt.allocPrintSentinel(arena, "{s}/replica.db", .{s.dir}, 0);
     }

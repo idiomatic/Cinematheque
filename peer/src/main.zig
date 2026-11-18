@@ -125,6 +125,7 @@ const nouns = [_]Noun{
     .{ .name = "title", .run = commands.title },
     .{ .name = "alias", .run = commands.alias },
     .{ .name = "playhead", .run = commands.playhead },
+    .{ .name = "device", .run = commands.device },
     .{ .name = "peer", .run = network.peer },
     .{ .name = "agent", .run = commands.agent },
 };

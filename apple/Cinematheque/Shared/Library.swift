@@ -255,6 +255,25 @@ final class Library {
 
     // Setting up.
 
+    /// Why this device last left a library, for setup to say: removed, by a
+    /// peer (as a sync was told, signed), from its library.
+    private(set) var removedBy: String?
+
+    /// Leaves the library, as a device removed from it must: forgets it and
+    /// this device's identity, so setup can pair it again as a new device.
+    func leave(removedBy peer: String) {
+        guard let handle, cq_leave(handle.pointer) == 0 else {
+            report(.refresh, "Couldn't leave the library: \(String(cString: cq_error())).")
+            return
+        }
+        Platform.forget()
+        removedBy = peer
+        servingPort = nil
+        refreshedAtLaunch = false
+        problem = nil
+        reload()
+    }
+
     /// Creates a library, founded by this user; joining one is by pairing.
     func found() { check { cq_found($0) } }
 
@@ -384,8 +403,12 @@ final class Library {
         // (as tvOS may purge one) learns its own writes back, and so where
         // its numbering left off, before it writes again.
         let synced = await long("Syncing", results: noteReceived) { cq_sync($0, nil) }
-        if !devices.contains(where: \.you), !device.isEmpty { setName(.device, device) }
-        if let user, !user.isEmpty, members.first(where: \.you)?.name == nil { setName(.user, user) }
+        var named = false
+        if !devices.contains(where: \.you), !device.isEmpty { setName(.device, device); named = true }
+        if let user, !user.isEmpty, members.first(where: \.you)?.name == nil { setName(.user, user); named = true }
+        // Naming itself is a new device's first write, with its certificate:
+        // its peers hear of it now, not a minute on.
+        if named { changed() }
         let crawled = await long("Crawling") { cq_crawl($0) }
         report(.refresh, synced ?? crawled)
     }
@@ -657,6 +680,10 @@ final class Library {
         }
         lastSync = .now
         guard let results = try? JSONDecoder().decode([Result].self, from: data) else { return }
+        if let peer = results.first(where: { $0.error == "Removed" }) {
+            leave(removedBy: peer.peer)
+            return
+        }
         let reached = results.filter { $0.error == nil }
         guard let most = reached.max(by: { $0.new < $1.new }) else { return }
         received = Exchange(count: reached.reduce(0) { $0 + $1.new }, peer: most.peer, at: .now)

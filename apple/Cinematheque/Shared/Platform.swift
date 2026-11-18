@@ -29,6 +29,13 @@ enum Platform {
         #endif
     }
 
+    /// Forgets what `keep` kept, as a device removed from its library does.
+    static func forget() {
+        #if os(tvOS)
+        Keys.clear()
+        #endif
+    }
+
     /// How long each of playback's fades takes, in seconds: its picture to
     /// black and back, and its sound to silence and back.
     static let fade = 0.5

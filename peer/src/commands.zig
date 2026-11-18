@@ -80,6 +80,10 @@ pub fn library(peer: *Peer, c: Command) !void {
         var r = try peer.open();
         defer r.close();
         try peer.out.print("created library {s}\n", .{std.fmt.bytesToHex(r.library, .lower)});
+    } else if (c.is("leave", 0, &.{})) {
+        // As a device removed from the library must, to pair again.
+        try peer.store.forget(peer.arena);
+        try peer.out.print("left the library; this device will pair again as a new one\n", .{});
     } else if (c.is("handover", 1, &.{"--leave"})) {
         var r = try peer.open();
         defer r.close();
@@ -109,6 +113,28 @@ pub fn member(peer: *Peer, c: Command) !void {
         var r = try peer.open();
         defer r.close();
         try r.removeMember(peer.now(), try parseKey(c.rest[0]));
+        try peer.out.print("removed {s}\n", .{c.rest[0]});
+    } else return error.Usage;
+}
+
+/// This user's devices, by name; removing one cuts it off (see
+/// `Replica.revokeDevice`).
+pub fn device(peer: *Peer, c: Command) !void {
+    if (c.is("list", 0, &.{})) {
+        var r = try peer.open();
+        defer r.close();
+        const this = try peer.store.device();
+        const named = try lib.names(&r, peer.arena);
+        // Every device certified for this user, named or not.
+        for (try r.devicesOf(peer.arena, try peer.user())) |d| {
+            if (try r.revoked(d) != null) continue;
+            const key = hex(d);
+            try peer.out.print("{s}  {s}{s}\n", .{ key, lib.nameOf(named, &key) orelse "(unnamed)", if (std.mem.eql(u8, &d, &this)) "  this device" else "" });
+        }
+    } else if (c.is("remove", 1, &.{})) {
+        var r = try peer.open();
+        defer r.close();
+        try r.revokeDevice(peer.now(), try parseKey(c.rest[0]));
         try peer.out.print("removed {s}\n", .{c.rest[0]});
     } else return error.Usage;
 }

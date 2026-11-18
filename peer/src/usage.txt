@@ -10,7 +10,8 @@ NOUN -h (or NOUN alone) shows only that noun's commands.
 
 USER is a user's key, as user show and member list print them; TITLE and
 ITEM are title and item keys, as title list and title show print them;
-REPO is a repo's ID or URL.
+REPO is a repo's ID or URL; DEVICE, a device's key, as device list
+prints it.
 
   user show                    print this user's key
   user pair                    on a new device, show a code (and the port
@@ -27,6 +28,9 @@ REPO is a repo's ID or URL.
                                it listens on), and wait for a member's
                                device to let this user join with it
                                (member pair)
+  library leave                forget the library and this device's
+                               identity, as a device removed from it must,
+                               to pair again as a new device
   library handover USER [--leave]
                                hand the library over to a member
 
@@ -35,6 +39,11 @@ REPO is a repo's ID or URL.
                                CODE (found nearby, or at URL), sending it
                                the library's founder
   member remove USER           remove a member
+
+  device list                  list this user's devices, by name
+  device remove DEVICE         remove one of this user's other devices:
+                               what it writes from now on is refused, and
+                               it's told so when it next syncs
 
   repo list                    list repos
   repo show REPO               show a repo

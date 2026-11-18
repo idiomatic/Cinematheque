@@ -26,6 +26,9 @@ void cq_close(cq_library *library);
 char *cq_status(cq_library *library);
 // Creates a library, founded by this user; joining one is by pairing.
 int cq_found(cq_library *library);
+// Leaves the library, as a device removed from it does (a sync's error is
+// "Removed"), forgetting it and this device's identity, to pair afresh.
+int cq_leave(cq_library *library);
 // Pairing: on a new device, before it has a library, offering to pair
 // (serving and advertising as name), to link it to a member's user or (join
 // nonzero) to join as a new member, with a code to show; and checking

@@ -477,7 +477,7 @@ pub const Replica = struct {
     }
 
     /// Devices certified for `user`, by the certificates held.
-    fn devicesOf(replica: *Replica, arena: std.mem.Allocator, user: Device) ![]Device {
+    pub fn devicesOf(replica: *Replica, arena: std.mem.Allocator, user: Device) ![]Device {
         var out: std.ArrayList(Device) = .empty;
         const s = try replica.db.prepare("SELECT key, value FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'user'");
         defer s.finalize();

@@ -66,6 +66,7 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `m
 
 * `member list` prints the members' keys, marking the founder and you.
 * `member pair CODE [URL]` admits the user of a new device offering to join, and sends it the library's founder.
+* `device list` prints this user's devices (named or not), and `device remove DEVICE` removes one: its later writes are refused, and when it next syncs it's told so, signed, and prints that it should `library leave`, which forgets the library and its identity so it can pair again as a new device.
 * `member remove USER` removes a member, except the founder. Their devices' writes up to what this peer has seen stand; later ones are refused everywhere.
 
 ### Repositories and crawling
@@ -159,7 +160,7 @@ cinematheque peer add http://hal.example.net:8008
 
 What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 
-* The peer can't name users or devices, or remove a device; the apps do both, and the names reach the peer by sync.
+* The peer can't name users or devices; the apps do, and the names reach the peer by sync.
 * There's no Windows build yet.
 
 ## Sources

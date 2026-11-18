@@ -122,6 +122,18 @@ test "sync URLs" {
 pub const push_type = "application/x-cinematheque-push";
 const device_header = "x-cinematheque-device";
 const certificate_header = "x-cinematheque-certificate";
+const signature_header = "x-cinematheque-signature";
+
+/// What a peer signs, refusing a removed device, so the device can trust
+/// the news: the library, the device refused, and its request's time.
+fn removedMessage(library: [16]u8, device: [32]u8, time_ms: u64) [20 + 16 + 32 + 8]u8 {
+    var out: [20 + 16 + 32 + 8]u8 = undefined;
+    out[0..20].* = "cinematheque removed".*;
+    out[20..36].* = library;
+    out[36..68].* = device;
+    std.mem.writeInt(u64, out[68..76], time_ms, .little);
+    return out;
+}
 
 /// How far a request's time may be from the server's.
 const freshness_ms = 10 * 60 * 1000;
@@ -212,7 +224,20 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         return true;
     };
     const reader = checked[1];
-    if (!try src.isMemberUser(reader) or try src.revoked(checked[0].device) != null) {
+    // A removed device is told so, signed, so it can leave and pair afresh.
+    if (try src.revoked(checked[0].device) != null) {
+        const device_hex = std.fmt.bytesToHex(src.device(), .lower);
+        const certificate_hex = std.fmt.bytesToHex(try src.certificate(false), .lower);
+        const sig = try src.key_pair.sign(&removedMessage(src.library, checked[0].device, checked[0].time_ms), null);
+        const signature_hex = std.fmt.bytesToHex(sig.toBytes(), .lower);
+        try request.respond("removed\n", .{ .status = .forbidden, .extra_headers = &.{
+            .{ .name = device_header, .value = &device_hex },
+            .{ .name = certificate_header, .value = &certificate_hex },
+            .{ .name = signature_header, .value = &signature_hex },
+        } });
+        return true;
+    }
+    if (!try src.isMemberUser(reader)) {
         try request.respond("not a member\n", .{ .status = .forbidden });
         return true;
     }
@@ -275,6 +300,51 @@ pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, u
 
 const Pulled = struct { stats: replica_.Stats, user: ?[32]u8 };
 
+/// Who a peer's response says answered: its device key, certificate, and
+/// (refusing a removed device) signature, as headers give them.
+const Named = struct {
+    device: ?[32]u8 = null,
+    certificate: ?[96]u8 = null,
+    signature: ?[64]u8 = null,
+
+    fn of(head: http.Client.Response.Head) Named {
+        var n: Named = .{};
+        var headers = head.iterateHeaders();
+        while (headers.next()) |h| {
+            if (std.ascii.eqlIgnoreCase(h.name, device_header)) n.device = hex(32, h.value) //
+            else if (std.ascii.eqlIgnoreCase(h.name, certificate_header)) n.certificate = hex(96, h.value) //
+            else if (std.ascii.eqlIgnoreCase(h.name, signature_header)) n.signature = hex(64, h.value);
+        }
+        return n;
+    }
+
+    fn hex(comptime n: usize, text: []const u8) ?[n]u8 {
+        var out: [n]u8 = undefined;
+        _ = std.fmt.hexToBytes(&out, text) catch return null;
+        return out;
+    }
+
+    /// The user its certificate names, if it verifies.
+    fn user(n: Named, library: [16]u8) ?[32]u8 {
+        return replica_.verifyCertificate(library, n.device orelse return null, false, n.certificate orelse return null);
+    }
+};
+
+/// Whether a refusal says, believably, that `dst`'s device was removed:
+/// signed, over this request, by a device that a member certified and that
+/// `dst` doesn't know to be removed itself. (A member could say so falsely,
+/// but a member could remove it truly.)
+fn removed(dst: *Replica, peer: Named, time_ms: u64) !bool {
+    const device = peer.device orelse return false;
+    const signature = peer.signature orelse return false;
+    const user = peer.user(dst.library) orelse return false;
+    if (std.mem.eql(u8, &device, &dst.device())) return false;
+    if (!try dst.isMemberUser(user) or try dst.revoked(device) != null) return false;
+    const key = Ed25519.PublicKey.fromBytes(device) catch return false;
+    Ed25519.Signature.fromBytes(signature).verify(&removedMessage(dst.library, dst.device(), time_ms), key) catch return false;
+    return true;
+}
+
 /// Pulls from the peer at `url`, collecting its vector into `theirs`, and
 /// the user its certificate names, if it sent one that verifies.
 fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64, theirs: *std.ArrayList(replica_.Entry)) !Pulled {
@@ -289,29 +359,14 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
     try sending.end();
     try request.connection.?.flush();
     var response = try request.receiveHead(&.{});
+    const peer = Named.of(response.head);
     switch (response.head.status) {
         .ok => {},
-        .forbidden => return error.NotAMember,
+        .forbidden => return if (try removed(dst, peer, now_ms)) error.Removed else error.NotAMember,
         .bad_request => return error.Refused,
         else => return error.BadStatus,
     }
-    var device: ?[32]u8 = null;
-    var certificate: ?[96]u8 = null;
-    var headers = response.head.iterateHeaders();
-    while (headers.next()) |h| {
-        if (std.ascii.eqlIgnoreCase(h.name, device_header)) {
-            var d: [32]u8 = undefined;
-            if (std.fmt.hexToBytes(&d, h.value)) |_| {
-                device = d;
-            } else |_| {}
-        } else if (std.ascii.eqlIgnoreCase(h.name, certificate_header)) {
-            var c: [96]u8 = undefined;
-            if (std.fmt.hexToBytes(&c, h.value)) |_| {
-                certificate = c;
-            } else |_| {}
-        }
-    }
-    const user = if (device != null and certificate != null) replica_.verifyCertificate(dst.library, device.?, false, certificate.?) else null;
+    const user = peer.user(dst.library);
     var transfer: [64 * 1024]u8 = undefined;
     var decompress: http.Decompress = undefined;
     const window = try arena.alloc(u8, flate.max_window_len);
@@ -365,4 +420,39 @@ test "requests are checked" {
     try std.testing.expectError(error.BadCertificate, readRequest(arena, @splat(9), body, 1_000_000));
     body[40] ^= 1;
     try std.testing.expectError(error.BadSignature, readRequest(arena, r.library, body, 1_000_000));
+}
+
+test "a removed device is told so, believably, and can tell" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const dir = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    // Two devices of one user, the founder.
+    const user_seed: [32]u8 = @splat(7);
+    const founder = (try Ed25519.KeyPair.generateDeterministic(user_seed)).public_key.toBytes();
+    const a_identity: replica_.Identity = .{ .device = @splat(1), .user = user_seed };
+    const a_path = try std.fmt.allocPrintSentinel(arena, "{s}/a.db", .{dir}, 0);
+    var a = try Replica.open(gpa, io, a_path, founder, a_identity);
+    defer a.close();
+    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), founder, .{ .device = @splat(2), .user = user_seed });
+    defer b.close();
+    try a.write(1000, "t/00001", "name", "Alien");
+    try b.write(1000, "t/00002", "name", "Brazil");
+
+    var source: Source = .{ .path = a_path, .founder = founder, .identity = a_identity };
+    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .handler = source.handler() } };
+    try server.start();
+    defer server.stop();
+    const url = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/sync", .{server.port});
+    var client: http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    const now: u64 = @intCast(Io.Timestamp.now(io, .real).toMilliseconds());
+
+    _ = try exchange(arena, &client, &b, url, now);
+    try a.revokeDevice(now, b.device());
+    try std.testing.expectError(error.Removed, exchange(arena, &client, &b, url, now + 1));
 }

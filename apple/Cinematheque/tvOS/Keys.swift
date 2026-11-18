@@ -33,6 +33,12 @@ enum Keys {
         }
     }
 
+    /// Forgets the seeds, so a device removed from its library pairs afresh,
+    /// with a new identity, rather than restoring the one refused.
+    static func clear() {
+        for name in files { SecItemDelete(query(name) as CFDictionary) }
+    }
+
     private static func query(_ name: String) -> [CFString: Any] {
         [
             kSecClass: kSecClassGenericPassword,

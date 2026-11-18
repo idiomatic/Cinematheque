@@ -22,6 +22,10 @@ struct SetupFlow: View {
                         .font(.headline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                    if let peer = library.removedBy {
+                        Label("This Apple TV was removed from its library (as \(peer) said). Pair it again to use the library.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.headline)
+                    }
                 }
                 VStack(spacing: 24) {
                     NavigationLink(value: Step.link) { Choice("I Use Cinematheque on Another Device") }

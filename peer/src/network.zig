@@ -120,6 +120,7 @@ pub fn syncAll(p: *Peer, target: ?[]const u8) !void {
         const start = Io.Timestamp.now(p.io, .awake);
         const exchanged = core.sync.exchange(p.arena, &client, &r, u, p.now()) catch |err| {
             try p.out.print("{s}: {t}\n", .{ u, err });
+            if (err == error.Removed) try p.out.print("this device was removed from the library; `library leave`, then pair again\n", .{});
             continue;
         };
         const stats = exchanged.stats;

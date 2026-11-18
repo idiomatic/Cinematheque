@@ -358,6 +358,27 @@ fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
     };
 }
 
+/// Leaves the library, as a device removed from it does (a sync's result
+/// `error` is `Removed`): stops serving and pairing, and forgets the
+/// library and this device's identity, seeds and replica alike, so it can
+/// pair again as a new device.
+export fn cq_leave(lib: *Library) c_int {
+    return status(lib, leave, .{});
+}
+
+fn leave(lib: *Library, arena: std.mem.Allocator) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    stopServing(lib);
+    stopPairing(lib);
+    if (lib.replica) |*r| r.close();
+    lib.replica = null;
+    try lib.store.forget(arena);
+    lib.store = try store_.Store.open(lib.io(), gpa, lib.arena_state.allocator(), lib.store.dir);
+    lib.served = .{};
+    lib.received = .{};
+}
+
 /// Creates a library, founded by this user. (Joining one is by pairing.)
 export fn cq_found(lib: *Library) c_int {
     return status(lib, found, .{});

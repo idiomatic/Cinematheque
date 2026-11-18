@@ -89,6 +89,14 @@ $peer $b2 sync http://127.0.0.1:8192
 $peer $b2 show ${item%/v/-} | grep " at " || { echo "FAIL: B2 didn't get B's playhead from B"; exit 1; }
 $peer $b2 playhead remove $item
 $peer $b2 playhead list | grep -q . && { echo "FAIL: playhead remove"; exit 1; }
+# B removes B2, which is told so, signed, when it next syncs; it leaves,
+# and could pair again as a new device.
+$peer $b2 sync http://127.0.0.1:8192 > /dev/null
+b2_device=$($peer $b device list | grep -v "this device" | awk '{ print $1 }' | head -1)
+$peer $b device remove $b2_device
+$peer $b2 sync http://127.0.0.1:8192 | grep -q Removed || { echo "FAIL: a removed device wasn't told"; exit 1; }
+$peer $b2 library leave
+$peer $b2 library show 2>&1 | grep -q NoLibrary || { echo "FAIL: library leave"; exit 1; }
 
 repo=$($peer $a repo list | cut -d" " -f1)
 $peer $a repo set $repo --rendition "Test 720p"

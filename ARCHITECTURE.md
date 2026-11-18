@@ -144,7 +144,7 @@ Answers:
   * `E`: the end.
   With it, two headers name the peer: `x-cinematheque-device`, its device key, and `x-cinematheque-certificate`, its certificate, each in hex.
 * **400,** the error's name as text: `Malformed`, `BadSignature`, `BadCertificate` (one that doesn't verify for this library), or `Stale` (a time more than ten minutes from the peer's).
-* **403,** `not a member`: the certificate's user isn't a member, or the device was removed.
+* **403,** `not a member`: the certificate's user isn't a member. Or `removed`, for a device that was removed, with `x-cinematheque-device` and `x-cinematheque-certificate` as above and `x-cinematheque-signature`, the peer's signature (hex) over `cinematheque removed`, the library ID, the asking device's key, and its request's time (u64): proof enough, from a member's device, for the device to leave.
 
 A push is a `POST /sync` with `Content-Type: application/x-cinematheque-push`: the request's length (u32) and a request, as above (its vector unused), then frames, as a response's, gzipped. It's answered with 204, once applied, or 400 or 403 as above. A peer too old to take pushes reads the whole body as a request, and refuses it as `BadSignature`.
 
