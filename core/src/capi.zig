@@ -171,7 +171,7 @@ const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
 const PairedJson = struct { user: []const u8, device: []const u8 };
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
 const SyncJson = struct { url: []const u8, new: usize, @"error": ?[]const u8 };
-const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, started: bool };
+const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool };
 const StatusJson = struct { user: []const u8, linked: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
 
 /// How far a long operation has come, in steps of its phase (repositories
@@ -843,7 +843,8 @@ fn describeItem(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !
 /// null), and `cover` (null, or `url`, `offset`, `length`, and `stamp`, a
 /// byte range to fetch, and what changes when it does), `thumb` (null, or
 /// the cover's placeholder, a ThumbHash in base64, for `cq_thumbhash`), and
-/// this user's `watched` (every item) and `progress` (0 to 1).
+/// this user's `watched` (every item), `progress` (0 to 1, by running time),
+/// `elapsed` and `runtime` (milliseconds played, of how many), and `started`.
 export fn cq_tiles(lib: *Library) ?[*:0]u8 {
     return json(lib, tiles, .{});
 }
@@ -864,6 +865,8 @@ fn tiles(lib: *Library, arena: std.mem.Allocator) ![]const TileJson {
         .thumb = t.thumb,
         .watched = t.watched,
         .progress = t.progress,
+        .elapsed = t.played,
+        .runtime = t.total,
         .started = t.started,
     };
     return out;

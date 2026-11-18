@@ -22,7 +22,7 @@ struct Browser: View {
                         } else {
                             // A page per series (its seasons are there), so a
                             // cover per title.
-                            PosterGrid(tiles: shelf.tiles(in: library).oneEach, empty: shelf.empty)
+                            PosterGrid(tiles: library.perTitle(shelf.tiles(in: library)), empty: shelf.empty)
                         }
                     }
                 }
@@ -69,7 +69,7 @@ private struct HomeView: View {
 
     var body: some View {
         let going = Shelf.home.tiles(in: library)
-        let listed = Shelf.watchlist.tiles(in: library).oneEach
+        let listed = library.perTitle(Shelf.watchlist.tiles(in: library))
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 50) {
                 if going.isEmpty && listed.isEmpty {
@@ -160,7 +160,7 @@ private struct SearchView: View {
 
     var body: some View {
         // Every shelf's titles but Home's, which are among them.
-        let found = text.isEmpty ? [] : (Shelf.movies.tiles(in: library, search: text) + Shelf.series.tiles(in: library, search: text)).oneEach
+        let found = text.isEmpty ? [] : library.perTitle(Shelf.movies.tiles(in: library, search: text) + Shelf.series.tiles(in: library, search: text))
         PosterGrid(tiles: found, empty: text.isEmpty ? "Search for a movie or series." : "No titles match “\(text)”.")
             .searchable(text: $text)
     }

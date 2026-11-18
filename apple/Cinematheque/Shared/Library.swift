@@ -21,11 +21,14 @@ struct Tile: Codable, Identifiable, Hashable {
     let cover: Cover?
     /// The cover's placeholder, a ThumbHash in base64.
     let thumb: String?
-    /// This user's: every item watched, how far along (0 to 1: a season's,
-    /// the share of its episodes watched), and whether any item has a
-    /// playhead.
+    /// This user's: every item watched; how far along (0 to 1), by running
+    /// time: how many milliseconds have `elapsed` (watched items whole,
+    /// those partway to their positions) of the `runtime`; and whether any
+    /// item has a playhead.
     let watched: Bool
     let progress: Double
+    let elapsed: Int
+    let runtime: Int
     let started: Bool
 
     var id: String { season.map { "\(key)#\($0)" } ?? key }

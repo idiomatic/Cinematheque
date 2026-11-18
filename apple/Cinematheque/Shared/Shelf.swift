@@ -76,6 +76,26 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
 }
 
 extension Library {
+    /// One tile per title, as the Apple TV shows them: a series' standing
+    /// for the whole series, with its progress over every season's
+    /// running time, and watched once every season is.
+    func perTitle(_ tiles: [Tile]) -> [Tile] {
+        tiles.oneEach.map { tile in
+            guard tile.isSeries else { return tile }
+            let seasons = self.tiles.filter { $0.key == tile.key }
+            let elapsed = seasons.reduce(0) { $0 + $1.elapsed }
+            let runtime = seasons.reduce(0) { $0 + $1.runtime }
+            return Tile(
+                key: tile.key, name: tile.name, year: tile.year, kind: tile.kind, season: tile.season,
+                cover: tile.cover, thumb: tile.thumb,
+                watched: seasons.allSatisfy(\.watched),
+                progress: runtime > 0 ? Double(elapsed) / Double(runtime) : 0,
+                elapsed: elapsed, runtime: runtime,
+                started: seasons.contains(where: \.started)
+            )
+        }
+    }
+
     /// Whether a tile is on the watchlist; with `anySeason`, a series'
     /// tile standing for the whole series is if any of its seasons is.
     func isListed(_ tile: Tile, anySeason: Bool = false) -> Bool {

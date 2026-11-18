@@ -583,12 +583,16 @@ pub const Tile = struct {
     cover: ?Cover = null,
     /// The cover's placeholder, a ThumbHash in base64.
     thumb: ?[]const u8 = null,
-    /// This user's: whether every item is watched, and how far along it
-    /// is (a movie's position, or the share of a season's episodes watched),
-    /// and whether any item has a playhead (e.g., an episode begun, which a
-    /// season's progress doesn't count).
+    /// This user's: whether every item is watched; how much of its running
+    /// time has been played, in milliseconds (each watched item whole, so
+    /// one stopped in its last 5% counts in full, and each item partway to
+    /// its position), of how much (`total`, an item of unknown length
+    /// taking the average of those known), and the share (`progress`); and
+    /// whether any item has a playhead.
     watched: bool = false,
     progress: f64 = 0,
+    played: u64 = 0,
+    total: u64 = 0,
     started: bool = false,
 };
 
@@ -622,13 +626,23 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     }
     var heads: std.StringHashMapUnmanaged(library.Playhead) = .empty;
     for (try library.playheads(replica, arena, null)) |h| try heads.put(arena, h.item, h.playhead);
+    // Items' lengths, as their files' metadata gives them.
+    var durations: std.StringHashMapUnmanaged(u64) = .empty;
+    {
+        const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = 'duration' AND key LIKE 't/%' AND length(value) > 0");
+        defer s.finalize();
+        while (try s.step()) {
+            const ms = std.fmt.parseInt(u64, s.blob(1), 10) catch continue;
+            if (ms > 0) try durations.put(arena, try arena.dupe(u8, s.blob(0)), ms);
+        }
+    }
     for (try library.titles(replica, arena)) |t| {
         if (t.renditions == 0 or t.alias != null) continue;
         const own = coverOf(try library.fieldValue(replica, arena, t.key, "art"));
         const own_thumb = if (own != null) thumbOf(try library.fieldValue(replica, arena, t.key, "thumb")) else null;
         if (t.kind != 's') {
             var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb };
-            progress(&tile, &items, &heads, try std.fmt.allocPrint(arena, "{s}#0", .{t.key}));
+            progress(&tile, &items, &heads, &durations, try std.fmt.allocPrint(arena, "{s}#0", .{t.key}));
             try out.append(arena, tile);
             continue;
         }
@@ -638,26 +652,45 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
             const field = try std.fmt.allocPrint(arena, "art:s{d:0>2}", .{n});
             const cover = coverOf(try library.fieldValue(replica, arena, t.key, field));
             var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try library.fieldValue(replica, arena, t.key, try thumbField(arena, field))) else own_thumb };
-            progress(&tile, &items, &heads, try std.fmt.allocPrint(arena, "{s}#{d}", .{ t.key, n }));
+            progress(&tile, &items, &heads, &durations, try std.fmt.allocPrint(arena, "{s}#{d}", .{ t.key, n }));
             try out.append(arena, tile);
         }
     }
     return out.items;
 }
 
-fn progress(tile: *Tile, items: anytype, heads: anytype, id: []const u8) void {
+fn progress(tile: *Tile, items: anytype, heads: anytype, durations: anytype, id: []const u8) void {
     const list = (items.get(id) orelse return).items;
+    // An item of unknown length takes the average of those known (else half
+    // an hour, an episode's usual length).
+    var known_ms: u64 = 0;
+    var known: u64 = 0;
+    for (list) |item| if (itemLength(item, heads, durations)) |ms| {
+        known_ms += ms;
+        known += 1;
+    };
+    const average = if (known > 0) known_ms / known else 30 * 60 * 1000;
     var watched: usize = 0;
-    for (list) |item| if (heads.get(item)) |h| {
+    for (list) |item| {
+        const ms = itemLength(item, heads, durations) orelse average;
+        tile.total += ms;
+        const h = heads.get(item) orelse continue;
         tile.started = true;
-        if (h.watched) watched += 1;
-    };
+        if (h.watched) {
+            watched += 1;
+            tile.played += ms;
+        } else if (h.duration_ms > 0) {
+            tile.played += ms * @min(h.position_ms, h.duration_ms) / h.duration_ms;
+        }
+    }
     tile.watched = list.len > 0 and watched == list.len;
-    if (tile.season != null or list.len != 1) {
-        tile.progress = @as(f64, @floatFromInt(watched)) / @as(f64, @floatFromInt(list.len));
-    } else if (heads.get(list[0])) |h| if (!h.watched and h.duration_ms > 0) {
-        tile.progress = @as(f64, @floatFromInt(h.position_ms)) / @as(f64, @floatFromInt(h.duration_ms));
-    };
+    if (tile.total > 0) tile.progress = @as(f64, @floatFromInt(tile.played)) / @as(f64, @floatFromInt(tile.total));
+}
+
+/// An item's length: its playhead's, else its file's metadata's, if known.
+fn itemLength(item: []const u8, heads: anytype, durations: anytype) ?u64 {
+    if (heads.get(item)) |h| if (h.duration_ms > 0) return h.duration_ms;
+    return durations.get(item);
 }
 
 fn thumbOf(value: ?[]const u8) ?[]const u8 {
@@ -718,10 +751,22 @@ test "covers round-trip, and a season without one takes its series'" {
     const after = try tiles(&r, arena);
     try std.testing.expect(after[0].watched and after[0].progress == 1 and after[0].started);
     try std.testing.expect(!after[1].watched and after[1].progress == 0 and !after[1].started);
-    // An episode begun starts its season, though none is watched.
+    // An episode begun starts its season, and counts to its position.
     try library.setPlayhead(&r, arena, 3, "t/s/firefly/-/e/s02e01", 600_000, 2_400_000);
     const begun = try tiles(&r, arena);
-    try std.testing.expect(!begun[1].watched and begun[1].progress == 0 and begun[1].started);
+    try std.testing.expect(!begun[1].watched and begun[1].progress == 0.25 and begun[1].started);
+    try std.testing.expectEqual(@as(u64, 600_000), begun[1].played);
+
+    // By time, not by episode: a short episode watched, and a long one,
+    // of known length, a quarter played.
+    try r.write(4, "t/s/firefly/-/e/s01e02/r/-", "held:0123456789abcdef", "Firefly/Firefly 102.m4v\t1\t-");
+    try r.write(4, "t/s/firefly/-/e/s01e01", "duration", "1200000");
+    try r.write(4, "t/s/firefly/-/e/s01e02", "duration", "3600000");
+    try library.setPlayhead(&r, arena, 5, "t/s/firefly/-/e/s01e02", 900_000, 3_600_000);
+    const timed = try tiles(&r, arena);
+    try std.testing.expectEqual(@as(u64, 1_200_000 + 900_000), timed[0].played);
+    try std.testing.expectEqual(@as(u64, 4_800_000), timed[0].total);
+    try std.testing.expect(!timed[0].watched);
 
     try setWatchlisted(&r, arena, 2, "t/s/firefly/-", true);
     try std.testing.expectEqual(@as(usize, 1), (try watchlist(&r, arena)).len);
