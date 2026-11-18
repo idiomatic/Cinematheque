@@ -9,7 +9,7 @@ zig build --release=fast
 ./zig-out/bin/browse [database path]     # default /tmp/cinematheque-browse.db
 ```
 
-It uses the SQLite bindings of the [CRDT experiment](../crdt/README.md).
+It uses the [core](../../core/README.md)'s SQLite bindings ([sqlite.zig](../../core/src/sqlite.zig)), which grew from the [CRDT experiment](../README.md#crdt)'s.
 
 ## Design
 

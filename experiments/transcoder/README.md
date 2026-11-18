@@ -23,7 +23,7 @@ Needs `ffmpeg`, `ffprobe`, and `HandBrakeCLI` on the path, and the [peer](../../
 
 ## Results
 
-Apple M2, macOS 27.2, ffmpeg 9.0.2, HandBrakeCLI 1.11.2, inputs served over loopback by [the repository server](../repository/README.md):
+Apple M2, macOS 27.2, ffmpeg 9.0.2, HandBrakeCLI 1.11.2, inputs served over loopback by [the repository experiment's server](../README.md#repository):
 
 | Input | Plan | Time | Output | AVFoundation |
 |---|---|---|---|---|

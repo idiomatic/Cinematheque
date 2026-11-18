@@ -8,7 +8,6 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 * **Command-line peer:** commands to name the user and the device, so command-line peers show by name rather than as someone's device, and to remove a device; `serve` pulling when nudged, as the apps do; and pairing in [test.sh](peer/test.sh).
 * **Settings:** when each device was last seen.
 * **Linux:** running the peer itself there (its experiments ran in a VM).
-* **Experiments:** merge the READMEs of experiments whose code is gone (crdt, naming, discovery, repository) into [experiments/README.md](experiments/README.md), keeping their methods and results.
 * **Known issues:**
   * macOS's Local Network privacy blocks the peer from the LAN (`HostUnreachable`) when run as a launch agent or started by another app, so `agent add`'s agents can't reach a NAS; Terminal and SSH sessions and system daemons are exempt (TN3179). The fix is to run it from a signed app bundle whose `Info.plist` says why it needs the local network, so macOS can ask once (the Mac app serves only while it runs). Until then, a test peer runs in Terminal.
 
