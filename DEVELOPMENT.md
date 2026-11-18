@@ -36,7 +36,7 @@ Open:
 
 ## Sync
 
-* **Pairing:** a new Mac pairing in setup by a code it shows, as the Apple TV does (the Mac's setup form still takes the secret); a QR code carrying the code, for a phone app.
+* **Pairing:** by address, for a new device off the network (it would show its address with its code); a QR code carrying the code, for a phone app.
 * **Partial replicas:** tvOS players have only purgeable cache storage, so they may be thin, holding part of a library fetched on demand (the core's thin fetches) and its facet bitmaps, if rebuilding a whole replica after a purge (see [Apple TV player](#apple-tv-player)) proves too slow.
 * **Repair:** range-based set reconciliation, if catching up by version vectors proves insufficient.
 * **Compaction:** emptied fields stay as tombstones, so a peer that missed the emptying can't revive an older value, and they grow with churn: in a reference library, 40,000 emptied holdings (from removed repositories, and keys that parser fixes changed) outnumbered 20,000 live ones, 28% of all winners. Drop a tombstone once every member device's version vector covers it, which needs peers to share the vectors they've seen of others; a device not heard from in long enough could be set aside, at the cost of its stale writes being refused.

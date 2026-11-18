@@ -164,7 +164,7 @@ fn span(text: ?[*:0]const u8) ?[]const u8 {
 const CoverJson = struct { url: []const u8, offset: u64, length: u64, stamp: []const u8 };
 const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
 const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
-const PeerJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const u8, user: ?[]const u8, ours: bool, member: bool, added: bool, pairing: bool };
+const PeerJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const u8, user: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
 const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
 const SyncJson = struct { url: []const u8, new: usize, @"error": ?[]const u8 };
@@ -392,33 +392,38 @@ export fn cq_found(lib: *Library, founder: ?[*:0]const u8) c_int {
 
 fn found(lib: *Library, arena: std.mem.Allocator, founder: ?[]const u8) !void {
     if (lib.replica != null) return error.LibraryExists;
+    // Once it has a library, it no longer offers to pair.
+    stopPairing(lib);
     const key = if (founder) |f| try store_.parseKey(std.mem.trim(u8, f, " \n")) else try lib.store.user();
     try lib.store.setFounder(arena, key);
     lib.replica = try lib.store.openReplica(lib.arena_state.allocator());
 }
 
-// Pairing: a new device shows a code, and another of its user's, given it,
-// sends it the user's secret and the library's founder's key (see pair.zig).
+// Pairing: a new device shows a code, and a member's, given it, sends it
+// the library's founder's key, and to link another of its user's devices,
+// the user's secret too (see pair.zig).
 
 const Pairing = struct {
     offer: pair.Offer,
     serving: *Serving,
 };
 
-/// On a new device, before it has a library: offers to pair, serving and
-/// advertising by DNS-SD (as `name`, for the other device to show) until
-/// paired or `cq_pair_stop`. Returns its state, as `cq_pair_check` does,
-/// with a new code. Offering again starts over, with another code.
-export fn cq_pair_offer(lib: *Library, name: [*:0]const u8) ?[*:0]u8 {
-    return json(lib, pairOffer, .{std.mem.span(name)});
+/// On a new device, before it has a library: offers to pair, to be another
+/// of a member's user's devices (`join` zero), or to join as a new member,
+/// serving and advertising by DNS-SD (as `name`, for the other device to
+/// show) until paired or `cq_pair_stop`. Returns its state, as
+/// `cq_pair_check` does, with a new code. Offering again starts over, with
+/// another code.
+export fn cq_pair_offer(lib: *Library, name: [*:0]const u8, join: c_int) ?[*:0]u8 {
+    return json(lib, pairOffer, .{ std.mem.span(name), if (join != 0) pair.Kind.join else pair.Kind.link });
 }
 
-fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8) !PairJson {
+fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, kind: pair.Kind) !PairJson {
     if (lib.replica != null) return error.LibraryExists;
     stopPairing(lib);
     const p = try gpa.create(Pairing);
     errdefer gpa.destroy(p);
-    p.offer = .{ .code = pair.newCode(lib.io()) };
+    p.offer = .{ .code = pair.newCode(lib.io()), .kind = kind, .user = try lib.store.user() };
     const s = try gpa.create(Serving);
     errdefer gpa.destroy(s);
     s.* = .{ .arena = .init(gpa), .io = lib.io(), .source = undefined, .mounts = &.{}, .name = "", .txt = "", .default_port = 0 };
@@ -426,7 +431,7 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8) !PairJso
     const a = s.arena.allocator();
     s.name = try std.fmt.allocPrintSentinel(a, "{s}", .{try lib.store.serviceName(arena)}, 0);
     s.txt = try discover.txtRecord(a, &.{
-        .{ "pair", "1" },
+        .{ "pair", @tagName(kind) },
         .{ "path", pair.path },
         .{ "name", name[0..@min(name.len, 200)] },
     });
@@ -438,9 +443,9 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8) !PairJso
 }
 
 /// On a new device offering to pair: its state, as JSON: `code` (to show,
-/// while it offers), `paired` (it has the user's secret and the library,
-/// and has stopped offering), and `closed` (it stopped, after too many
-/// wrong codes; offer again for a new one).
+/// while it offers), `paired` (it has the library, and if linking, its
+/// user, and has stopped offering), and `closed` (it stopped, after too
+/// many wrong codes; offer again for a new one).
 export fn cq_pair_check(lib: *Library) ?[*:0]u8 {
     return json(lib, pairCheck, .{});
 }
@@ -449,8 +454,9 @@ fn pairCheck(lib: *Library, arena: std.mem.Allocator) !PairJson {
     const p = lib.pairing orelse return .{ .code = null, .paired = lib.replica != null, .closed = lib.replica == null };
     const received, const closed = p.offer.outcome(lib.io());
     if (received) |secrets| {
+        const kind = p.offer.kind;
         stopPairing(lib);
-        try lib.store.link(arena, &std.fmt.bytesToHex(secrets.user, .lower));
+        if (kind == .link) try lib.store.link(arena, &std.fmt.bytesToHex(secrets.user, .lower));
         try found(lib, arena, &std.fmt.bytesToHex(secrets.founder, .lower));
         return .{ .code = null, .paired = true, .closed = false };
     }
@@ -477,18 +483,21 @@ fn stopPairing(lib: *Library) void {
 }
 
 /// Long: pairs the new device offering at `url` (a `pairing` peer's, from
-/// `cq_peers`) with this user, given the code it shows: sends it this
-/// user's secret and the library's founder's key, which it takes only if
-/// the code is right. Fails with `WrongCode`, or `Closed` once it stopped.
-export fn cq_pair(lib: *Library, url: [*:0]const u8, code: [*:0]const u8) c_int {
-    return status(lib, pairWith, .{ std.mem.span(url), std.mem.span(code) });
+/// `cq_peers`, offering to `link` or to `join`, as `join` says), given the
+/// code it shows: sends it the library's founder's key, and if linking,
+/// this user's secret, which it takes only if the code is right. Returns
+/// its user's key, as a JSON string, for a new member's to be added (by
+/// `cq_member`). Fails with `WrongCode`, or `Closed` once it stopped.
+export fn cq_pair(lib: *Library, url: [*:0]const u8, join: c_int, code: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, pairWith, .{ std.mem.span(url), if (join != 0) pair.Kind.join else pair.Kind.link, std.mem.span(code) });
 }
 
-fn pairWith(lib: *Library, arena: std.mem.Allocator, url: []const u8, code: []const u8) !void {
+fn pairWith(lib: *Library, arena: std.mem.Allocator, url: []const u8, kind: pair.Kind, code: []const u8) ![]const u8 {
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     const digits = std.mem.trim(u8, code, " \n");
-    try pair.send(lib.io(), arena, &client, url, digits, .{ .user = lib.store.identity.user, .founder = try lib.store.founder(arena) });
+    const user = try pair.send(lib.io(), arena, &client, url, kind, digits, .{ .user = lib.store.identity.user, .founder = try lib.store.founder(arena) });
+    return arena.dupe(u8, &std.fmt.bytesToHex(user, .lower));
 }
 
 /// The members, as a JSON array of objects with `key`, `name` (null if
@@ -566,7 +575,8 @@ fn devices(lib: *Library, arena: std.mem.Allocator) ![]const DeviceJson {
 /// array of objects with `url` (to sync with, or for one `pairing`, to pair
 /// with), `device` and `person` (their names, if advertised), `user` (key),
 /// `ours` (of this library), `member` (its user is one), `added`, and
-/// `pairing` (a new device offering to pair, by `cq_pair`).
+/// `pairing` (for a new device offering to pair, by `cq_pair`, what for:
+/// `link`, to be another of this user's, or `join`, a new member's).
 export fn cq_peers(lib: *Library) ?[*:0]u8 {
     return json(lib, peers, .{});
 }
@@ -592,11 +602,11 @@ fn peers(lib: *Library, arena: std.mem.Allocator) ![]const PeerJson {
             .ours = std.mem.eql(u8, s.get("library") orelse "", &mine),
             .member = is_member,
             .added = false,
-            .pairing = s.get("pair") != null,
+            .pairing = s.get("pair"),
         });
     }
     for (try r.localKeys(arena, "peer:")) |k|
-        try out.append(arena, .{ .url = k["peer:".len..], .device = null, .person = null, .user = null, .ours = true, .member = true, .added = true, .pairing = false });
+        try out.append(arena, .{ .url = k["peer:".len..], .device = null, .person = null, .user = null, .ours = true, .member = true, .added = true, .pairing = null });
     return out.items;
 }
 

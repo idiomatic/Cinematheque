@@ -12,17 +12,59 @@ struct SetupView: View {
         SetupForm()
         #endif
     }
+}
 
-    static func isKey(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).count == 64
+/// A new device's offer to pair, until paired (the app then leaves setup):
+/// its code, to enter on a member's device, and waiting; or, after too many
+/// wrong codes, asking for a new one. Linking (`join` false) brings this
+/// device its user and the library; joining, the library, and membership.
+struct OfferedCode: View {
+    let join: Bool
+    var size: CGFloat = 140
+    @Environment(Library.self) private var library
+    @State private var state: Library.Pairing?
+    /// Counts offers, each with a new code.
+    @State private var offers = 0
+
+    var body: some View {
+        VStack(spacing: size / 4) {
+            if let code = state?.code {
+                // In two groups of three, to read at a distance.
+                Text(code.prefix(3) + " " + code.suffix(3))
+                    .font(.system(size: size, weight: .semibold, design: .rounded).monospacedDigit())
+                    .padding(.horizontal, size * 0.4)
+                    .padding(.vertical, size / 7)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: size / 6))
+                HStack {
+                    ProgressView()
+                        #if os(macOS)
+                        .controlSize(.small)
+                        #endif
+                    Text(join ? "Waiting to be let in…" : "Waiting for your other device…")
+                        .foregroundStyle(.secondary)
+                }
+            } else if state?.closed == true {
+                Text("That was too many wrong codes.").foregroundStyle(.secondary)
+                Button("Show a New Code") { offers += 1 }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .task(id: offers) {
+            state = library.offerPairing(join: join)
+            // Until paired or stopped.
+            while !Task.isCancelled, state?.code != nil {
+                try? await Task.sleep(for: .seconds(1))
+                if let checked = library.checkPairing() { state = checked }
+            }
+        }
     }
 }
 
 #if !os(tvOS)
 private struct SetupForm: View {
     @Environment(Library.self) private var library
-    @State private var secret = ""
-    @State private var founder = ""
+    /// The offer showing its code, if any: to join (true) or to link.
+    @State private var joining: Bool?
 
     var body: some View {
         Form {
@@ -33,74 +75,41 @@ private struct SetupForm: View {
                 Text("Welcome to Cinematheque").font(.largeTitle.weight(.semibold))
             }
             Section {
-                if linked {
-                    Label("This device is linked to you.", systemImage: "checkmark.circle.fill")
+                if joining == false {
+                    OfferedCode(join: false, size: 44)
                 } else {
-                    SecureField("Your secret", text: $secret)
-                    Button("Link") {
-                        library.link(secret.trimmingCharacters(in: .whitespacesAndNewlines))
-                        secret = ""
-                    }
-                    .disabled(!SetupView.isKey(secret))
+                    Button("Pair with Your Other Device") { joining = false }
                 }
             } header: {
                 Text("Another of your devices?")
             } footer: {
-                Text("To be yourself here, with your playheads and watchlist, enter your secret from a device you already use (in Cinematheque's Settings there, under People & Devices › Add a Device).")
+                Text("This Mac shows a code. On a device where you use Cinematheque, enter it in Settings › People & Devices, under New Devices, to be yourself here, with your playheads and watchlist.")
             }
             Section {
-                Button("Create Library") { library.found(nil) }
+                Button("Create Library") {
+                    joining = nil
+                    library.found(nil)
+                }
             } header: {
                 Text("Start a library")
             } footer: {
                 Text("You'll found it, and can add the people you share it with.")
             }
             Section {
-                TextField("Founder's key", text: $founder)
-                Button("Join") { library.found(founder.trimmingCharacters(in: .whitespacesAndNewlines)) }
-                    .disabled(!SetupView.isKey(founder))
-                if !linked {
-                    LabeledContent("Your key") { KeyField(key: library.status?.user ?? "") }
+                if joining == true {
+                    OfferedCode(join: true, size: 44)
+                } else {
+                    Button("Ask to Join") { joining = true }
                 }
             } header: {
-                Text("Join a library")
+                Text("Join someone's library")
             } footer: {
-                Text(linked
-                    ? "Enter its founder's key, shown in Settings › People & Devices › Add a Device on your other device."
-                    : "Enter its founder's key; then a member adds you, by your key.")
+                Text("This Mac shows a code. Someone who shares the library enters it in Cinematheque's Settings › People & Devices, under New Devices, to let you in.")
             }
         }
         .formStyle(.grouped)
         .frame(maxWidth: 640)
         .frame(maxWidth: .infinity)
     }
-
-    /// Whether this device acts as a user other than its own (linked).
-    private var linked: Bool { library.linked }
 }
 #endif
-
-/// A key, selectable, with a button to copy it where there's a pasteboard.
-struct KeyField: View {
-    let key: String
-
-    var body: some View {
-        HStack {
-            Text(key)
-                .font(.caption.monospaced())
-                #if os(macOS)
-                .textSelection(.enabled)
-                #endif
-                .lineLimit(1)
-                .truncationMode(.middle)
-            #if os(macOS)
-            Button("Copy", systemImage: "doc.on.doc") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(key, forType: .string)
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            #endif
-        }
-    }
-}

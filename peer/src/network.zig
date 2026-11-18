@@ -105,11 +105,13 @@ pub fn serve(p: *Peer, c: Command) !void {
 }
 
 /// On a new device, before it has a library: shows a code, and offers to
-/// pair (serving and advertising) until another of the user's devices
-/// pairs it, with `user pair CODE`; then takes that user, and the library.
-pub fn offerPairing(p: *Peer) !void {
+/// pair (serving and advertising) until a member's device pairs it: to be
+/// another of that user's (`kind` link, paired by `user pair CODE`), taking
+/// that user and the library, or to join as a new member (paired by
+/// `member pair CODE`), taking the library.
+pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
     if (p.store.founder(p.arena)) |_| return error.LibraryExists else |_| {}
-    var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io) };
+    var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .kind = kind, .user = try p.user() };
     const Listening = struct {
         name: [:0]const u8,
         txt: []const u8,
@@ -126,7 +128,7 @@ pub fn offerPairing(p: *Peer) !void {
     var listening: Listening = .{
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
         .txt = try core.discover.txtRecord(p.arena, &.{
-            .{ "pair", "1" },
+            .{ "pair", @tagName(kind) },
             .{ "path", core.pair.path },
             .{ "name", p.environ.get("HOST") orelse "" },
         }),
@@ -140,15 +142,18 @@ pub fn offerPairing(p: *Peer) !void {
         .on_listen_context = &listening,
     } });
     defer _ = serving.cancel(p.io) catch {};
-    try p.out.print("on another of your devices, pair this one with the code {s}\n", .{offer.code});
+    try p.out.print("{s} {s}\n", .{ switch (kind) {
+        .link => "on another of your devices, pair this one with the code",
+        .join => "on a member's device, let this one join with the code",
+    }, offer.code });
     try p.out.flush();
     while (true) {
         try p.io.sleep(.fromSeconds(1), .awake);
         const received, const closed = offer.outcome(p.io);
         if (received) |secrets| {
-            try p.store.link(p.arena, &std.fmt.bytesToHex(secrets.user, .lower));
+            if (kind == .link) try p.store.link(p.arena, &std.fmt.bytesToHex(secrets.user, .lower));
             try p.store.setFounder(p.arena, secrets.founder);
-            try p.out.print("paired: this device now acts as user {s}, in the library {s} founded\n", .{ std.fmt.bytesToHex(try p.user(), .lower), std.fmt.bytesToHex(secrets.founder, .lower) });
+            try p.out.print("paired: this device acts as user {s}, in the library {s} founded\n", .{ std.fmt.bytesToHex(try p.user(), .lower), std.fmt.bytesToHex(secrets.founder, .lower) });
             return;
         }
         if (closed) return error.TooManyWrongCodes;

@@ -132,9 +132,12 @@ struct Peer: Codable, Identifiable, Hashable {
     /// Its user is a member.
     let member: Bool
     let added: Bool
-    /// A new device offering to pair (`url` is where to pair it).
-    let pairing: Bool
+    /// For a new device offering to pair (`url` is where to pair it), what
+    /// for: `link`, to be another of this user's, or `join`, a new member's.
+    let pairing: String?
     var id: String { url }
+    var linking: Bool { pairing == "link" }
+    var joining: Bool { pairing == "join" }
 }
 
 /// A folder on this device, served as a repository at `prefix`.
@@ -223,7 +226,6 @@ final class Library {
         decode(TitleDetail.self) { cq_title($0, key) }
     }
 
-    var secret: String? { decode(String.self) { cq_secret($0) } }
 
     // Setting up.
 
@@ -233,7 +235,8 @@ final class Library {
     /// Acts as the user whose secret it is, before creating or joining.
     func link(_ secret: String) { check { cq_link($0, secret) } }
 
-    // Pairing a new device with another of this user's by a code it shows.
+    // Pairing a new device, by a code it shows, with a member's: to be
+    // another of that user's devices, or a new member's.
 
     /// A new device's offer: the code to show, and whether it's paired (it
     /// has the library) or stopped, after too many wrong codes.
@@ -243,12 +246,13 @@ final class Library {
         let closed: Bool
     }
 
-    /// On this device, before it has a library: offers to pair, with a new
+    /// On this device, before it has a library: offers to pair, to be
+    /// another of a member's devices or (`join`) a new member's, with a new
     /// code.
-    func offerPairing() -> Pairing? {
+    func offerPairing(join: Bool) -> Pairing? {
         // As setup leaves, once paired, its screen may ask once more.
         guard !hasLibrary else { return nil }
-        return decode(Pairing.self) { cq_pair_offer($0, Platform.deviceName) }
+        return decode(Pairing.self) { cq_pair_offer($0, Platform.deviceName, join ? 1 : 0) }
     }
 
     /// The offer's state; once paired, this device has its user and library.
@@ -263,23 +267,30 @@ final class Library {
         if let handle { cq_pair_stop(handle.pointer) }
     }
 
-    /// Pairs the new device `peer` offers, given the code it shows, sending
-    /// it this user's secret and the library. Returns what went wrong, in
-    /// words, if anything did.
+    /// Pairs the new device `peer`, given the code it shows: sends it the
+    /// library, and to link it, this user's secret; or if it's joining,
+    /// adds its user as a member. Returns what went wrong, in words, if
+    /// anything did.
     func pair(_ peer: Peer, code: String) async -> String? {
         guard let handle else { return "The library isn't open." }
         let url = peer.url
+        let join: Int32 = peer.joining ? 1 : 0
         let name = peer.device.flatMap { $0.isEmpty ? nil : $0 } ?? "The device"
-        let failure: String? = await Task.detached {
-            cq_pair(handle.pointer, url, code) == 0 ? nil : String(cString: cq_error())
+        // The new member's user, or why it failed.
+        let (user, failure): (String?, String?) = await Task.detached {
+            guard let text = cq_pair(handle.pointer, url, join, code) else { return (nil, String(cString: cq_error())) }
+            defer { cq_free(text) }
+            return (try? JSONDecoder().decode(String.self, from: Data(bytes: text, count: strlen(text))), nil)
         }.value
-        return failure.map {
-            switch $0 {
-            case "WrongCode": "That isn't the code \(name) shows. Check it, and try again."
-            case "Closed": "\(name) stopped pairing after too many wrong codes. On it, show a new code."
-            default: "Couldn't pair with \(name): \($0)."
+        if let failure {
+            switch failure {
+            case "WrongCode": return "That isn't the code \(name) shows. Check it, and try again."
+            case "Closed": return "\(name) stopped pairing after too many wrong codes. On it, show a new code."
+            default: return "Couldn't pair with \(name): \(failure)."
             }
         }
+        if peer.joining, let user { setMember(user, true) }
+        return nil
     }
 
     // Managing.

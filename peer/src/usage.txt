@@ -29,11 +29,17 @@ REPO is a repo's ID or URL.
                                count, and digest
   library create               create a library, founded by this user
   library join FOUNDER         open the library that user founded
+  library join                 on a new device, show a code, and wait for
+                               a member's device to let this user join
+                               with it (member pair)
   library handover USER [--leave]
                                hand the library over to a member
 
   member list                  list members
   member add USER              admit a user
+  member pair CODE [URL]       admit the user of the new device showing
+                               CODE (found nearby, or at URL), sending it
+                               the library's founder
   member remove USER           remove a member
 
   repo list                    list repos

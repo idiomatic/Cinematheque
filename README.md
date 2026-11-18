@@ -146,16 +146,23 @@ On a device that has the library, let other peers reach it:
 cinematheque serve
 ```
 
-It answers on port 8008, or on any free port if that one's taken, and announces itself on your network; `--port` fixes the port, for peers others add by URL. On another device, or for another person, join the library and print the new peer's key:
+It answers on port 8008, or on any free port if that one's taken, and announces itself on your network; `--port` fixes the port, for peers others add by URL. For another person, on their device, on the same network, ask to join:
+
+```sh
+cinematheque library join
+```
+
+It shows a code. A member enters it, which sends the new peer the library and adds its user:
+
+```sh
+cinematheque member pair CODE
+```
+
+On the apps, the new device shows the code (Join Someone's Library), and a member enters it on their Mac, in Settings › People & Devices, under New Devices. Away from your network, join by the founder's key instead, and have a member add the new peer's key:
 
 ```sh
 cinematheque library join FOUNDER_KEY
 cinematheque user show
-```
-
-A member adds that key:
-
-```sh
 cinematheque member add NEW_USER_KEY
 ```
 
@@ -184,7 +191,7 @@ It shows a code. On a device you already use:
 cinematheque user pair CODE
 ```
 
-That sends the new device your secret and the library, sealed so that only a device showing the code can open them. The code is short, but it's worth one guess per try, and the new device stops after 3 wrong ones. On the apps, the Apple TV shows the code, and you enter it on the Mac, in Settings › People & Devices › Add a Device.
+That sends the new device your secret and the library, sealed so that only a device showing the code can open them. The code is short, but it's worth one guess per try, and the new device stops after 3 wrong ones. On the apps, the new device shows the code (I Use Cinematheque on Another Device, or on a Mac, Pair with Your Other Device), and you enter it on your Mac, in Settings › People & Devices, under New Devices.
 
 A device off your network can be linked by hand instead. On a device you already use:
 
