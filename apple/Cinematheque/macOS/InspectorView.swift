@@ -52,9 +52,8 @@ struct InspectorView: View {
         let next = Playback.nextItem(detail, season: tile.season)
         let renditions = Array(Set(items.flatMap { $0.renditions.map(\.label) })).sorted()
         VStack(alignment: .leading, spacing: 10) {
-            // Start Over leads, as a player's timeline does.
             // Going back leads, as on a player's timeline: a season from its
-            // first episode, then the next item from its beginning.
+            // first episode.
             HStack {
                 if tile.season != nil {
                     Button {
@@ -65,16 +64,6 @@ struct InspectorView: View {
                     }
                     .buttonStyle(.bordered)
                     .help("Play the season from its first episode")
-                }
-                if next?.inProgress == true {
-                    Button {
-                        if let request = Playback.next(in: detail, season: tile.season, rendition: rendition, overFromStart: true) { play(request) }
-                    } label: {
-                        Label("Start Over", systemImage: Playback.startOverSymbol)
-                            .labelStyle(.iconOnly)
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Start over")
                 }
                 Button {
                     if let request = Playback.next(in: detail, season: tile.season, rendition: rendition) { play(request) }
@@ -97,7 +86,7 @@ struct InspectorView: View {
                 .help("The rendition to play")
             }
             if tile.season == nil, let item = items.first, item.inProgress, item.duration > 0 {
-                progress(item)
+                progress(item, key: "\(detail.key)/\(item.key)")
             }
             // Labeled where they fit, else icons alone.
             ViewThatFits(in: .horizontal) {
@@ -116,13 +105,14 @@ struct InspectorView: View {
             .fixedSize()
     }
 
-    private func progress(_ item: TitleDetail.Item) -> some View {
+    private func progress(_ item: TitleDetail.Item, key: String) -> some View {
         HStack {
             ProgressView(value: Double(item.position), total: Double(item.duration))
             Text((Runtime.format(item.duration - item.position) ?? "") + " left")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
+            ClearPosition(key: key)
         }
     }
 
@@ -208,7 +198,10 @@ private struct EpisodeRow: View {
                     }
                 }
                 if item.inProgress, item.duration > 0 {
-                    ProgressView(value: Double(item.position), total: Double(item.duration)).controlSize(.mini)
+                    HStack {
+                        ProgressView(value: Double(item.position), total: Double(item.duration)).controlSize(.mini)
+                        ClearPosition(key: "\(detail.key)/\(item.key)").controlSize(.mini)
+                    }
                 }
                 if let description = item.fields["description"] {
                     Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(3)
@@ -222,6 +215,21 @@ private struct EpisodeRow: View {
                 library.setWatched("\(detail.key)/\(item.key)", !item.watched)
             }
         }
+    }
+}
+
+/// Beside a progress meter: forgets where this user stopped, so the item
+/// plays from the beginning.
+private struct ClearPosition: View {
+    let key: String
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        Button("Clear Progress", systemImage: "arrow.counterclockwise.circle.fill") { library.clearPosition(key) }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Forget where you stopped, to play from the beginning")
     }
 }
 #endif

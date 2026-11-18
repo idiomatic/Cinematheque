@@ -716,6 +716,15 @@ final class Library {
 
     /// Records this user's playhead in an item (a title's key and an
     /// item's, e.g., "t/m/alien/1979/v/-").
+    /// Forgets where this user stopped in an item (its watched mark stays),
+    /// so it plays from the beginning: Resume becomes Play.
+    func clearPosition(_ item: String) {
+        // A position in the first 10 seconds isn't kept (the core's rule).
+        setPlayhead(item, position: 0, duration: 1)
+        reload()
+        changed()
+    }
+
     func setPlayhead(_ item: String, position: Double, duration: Double) {
         guard position.isFinite, duration.isFinite, duration > 0 else { return }
         check(reload: false) { cq_set_playhead($0, item, UInt64(max(0, position) * 1000), UInt64(duration * 1000)) }
