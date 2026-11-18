@@ -8,7 +8,7 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 * **Linux:** running the peer itself there (its experiments ran in a VM).
 * **Experiments:** merge the READMEs of experiments whose code is gone (crdt, naming, discovery, repository) into [experiments/README.md](experiments/README.md), keeping their methods and results.
 * **Known issues:**
-  * macOS's Local Network privacy can block the peer from reaching the LAN (`HostUnreachable`, as Python's `No route to host`) when it's started by a program without that permission, while Apple's own tools, such as `curl`, get through; check the launch agents, and how the peer asks.
+  * macOS's Local Network privacy blocks the peer from the LAN (`HostUnreachable`) when run as a launch agent or started by another app, so `agent add`'s agents can't reach a NAS; Terminal and SSH sessions and system daemons are exempt (TN3179). The fix is to run it from a signed app bundle whose `Info.plist` says why it needs the local network, so macOS can ask once (or to serve from the Mac app). Until then, a test peer runs in Terminal.
 
 ## Libraries
 
@@ -35,7 +35,7 @@ Open:
 ## Sync
 
 * **Pairing:** a user links a new player by QR code, or by typing a code, instead of copying the user's secret.
-* **Partial replicas:** tvOS players have only purgeable cache storage, so they may be thin, holding part of a library fetched on demand (the core's thin fetches) and its facet bitmaps.
+* **Partial replicas:** tvOS players have only purgeable cache storage, so they may be thin, holding part of a library fetched on demand (the core's thin fetches) and its facet bitmaps, if rebuilding a whole replica after a purge (see [Apple TV player](#apple-tv-player)) proves too slow.
 * **Repair:** range-based set reconciliation, if catching up by version vectors proves insufficient.
 * **Compaction:** emptied fields stay as tombstones, so a peer that missed the emptying can't revive an older value, and they grow with churn: in a reference library, 40,000 emptied holdings (from removed repositories, and keys that parser fixes changed) outnumbered 20,000 live ones, 28% of all winners. Drop a tombstone once every member device's version vector covers it, which needs peers to share the vectors they've seen of others; a device not heard from in long enough could be set aside, at the cost of its stale writes being refused.
 
@@ -70,6 +70,25 @@ Open:
 Open:
 
 * **Linux and Windows players:** UI toolkit and playback engine. Explored in other projects.
+
+## Apple TV player
+
+Designed, not built; for the reference Apple TV 4K (3rd generation), tvOS 18 or later, tried first in the tvOS simulator.
+
+* **Core:** the same C interface, built by the app's build phase for tvOS and its simulator, as for macOS.
+* **Storage:** tvOS keeps only 500 KB of an app's own data (user defaults), and the Keychain; its caches may be purged while it isn't running. The device's and user's seeds go in the Keychain; the replica (about 37 MB for 5,400 movies and seasons) and covers go in the caches, and a purged replica is rebuilt by syncing in full at the next launch.
+* **Peers:** it syncs with peers found by DNS-SD, then crawls the repositories itself (as every peer refreshes), so it works with no other peer on, and rebuilds a purged replica from the repositories in under a minute (about 40 seconds for 5,400 movies and seasons); what it can't get without a peer is the user's playheads and watchlist from their other devices. It streams from repositories, and doesn't serve.
+* **Linking,** without typing a 64-digit secret: the TV advertises itself; the Mac app lists it in Settings (This Device), both derive a key by X25519 and show the same six digits, and once they're confirmed on the Mac, it sends the user's seed, encrypted; the library's founder key comes the same way.
+* **Navigation:** a tab bar of Home, Movies, Series, Watchlist, and Search.
+  * **Home:** rows of Continue Watching (playheads in progress, and seasons' next episodes), the watchlist, and recently added titles.
+  * **Movies:** a grid of covers with an alphabetical jump and filters by decade and genre (facets), since 4,000 covers are a long way by remote.
+  * **Series:** covers of series, each opening on its seasons and episodes.
+  * **Search:** SwiftUI's search, by keyboard or dictation.
+* **Detail:** full screen, its cover (or placeholder) as backdrop: Play or Resume, versions and renditions, the description, and a season's episodes.
+* **Playing:** `AVPlayerViewController`, with title, description, and cover in its info panel, proposing the next episode at an episode's end; playheads as on the Mac.
+* **Renditions:** the best it plays: MP4s (not MKV or ISO), 4K HDR on a 4K HDR display, else HD.
+* **Users:** one linked user at first; later, tvOS's profiles as library users (Who's watching, under Players).
+* **Later:** a Top Shelf of Continue Watching.
 
 ## Transcoder
 

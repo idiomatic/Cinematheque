@@ -1,6 +1,6 @@
 //! Runs the peer in the background on macOS, as two launch agents: one that
-//! keeps `serve` running, and one that runs `refresh` (crawl, then sync with
-//! peers found) every hour.
+//! keeps `serve` running, and one that runs `refresh` (sync with peers found,
+//! then crawl) every hour.
 
 const std = @import("std");
 const Io = std.Io;

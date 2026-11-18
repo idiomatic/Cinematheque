@@ -260,12 +260,14 @@ pub fn crawl(peer: *Peer, c: Command) !void {
     try crawlRepositories(peer, try c.args.number("--workers", 16), if (c.rest.len == 1) c.rest[0] else null);
 }
 
-/// `refresh`: crawls, then syncs.
+/// `refresh`: syncs, then crawls.
 pub fn refresh(peer: *Peer, c: Command) !void {
     if (c.rest.len > 0) return error.Usage;
     try c.args.only(&.{});
-    try crawlRepositories(peer, 16, null);
+    // Peers' catalog first, already described, so crawling then finds
+    // little to do.
     try network.pullAll(peer, null);
+    try crawlRepositories(peer, 16, null);
 }
 
 /// Crawls every repo, or the one given, then describes what's new: covers

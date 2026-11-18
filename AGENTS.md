@@ -13,7 +13,8 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 
 ## Peers
 
-* **Players:** every client. iOS and tvOS players only play.
+* **Players:** every client, each able to sync and crawl as well as play.
+* **Refreshing:** every peer syncs with peers first, then crawls: the catalog other peers have crawled and described arrives first, so the crawl finds little to do (a device's first crawl after syncing adds and describes nothing unchanged).
 * **Repositories:** anything that serves videos over HTTP.
 * **Static servers:** repositories running no Cinematheque code, such as a consumer-grade NAS or a web server (Caddy, nginx, Apache).
 * **Desktop peers:** macOS, Linux, and Windows players. They are repositories too, serving their local and downloaded videos, and differ from static servers only in what they hold and how long they stay online.
@@ -62,7 +63,7 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 * **Commands:** [usage.txt](peer/src/usage.txt) lists them, and is their help. State commands are `NOUN VERB`, with verbs `list`, `show`, `add`, `set`, and `remove` where they apply, over nouns `user`, `library`, `member`, `repo`, `title`, `alias`, `playhead`, `peer`, and `agent`; whole-peer actions are single words (`crawl`, `sync`, `serve`, `refresh`). Options are named (`--port`, `--leave`); `ls` and `show` are shortcuts for `title list` and `title show`.
 * **Usage:** placeholders are in capitals, named for what they mean rather than their type (`URL`, `--port PORT`). `-h` or `--help` shows usage, of one noun or action if given, as does a noun alone; a command line that isn't one shows the same and exits with status 2.
 * **Added peers:** peers added by URL are kept in `local`, on that device only; `sync` without a URL, and `refresh`, pull from every peer discovered or added.
-* **Background:** on macOS, `agent add` loads two launch agents (`com.rbrian.cinematheque.serve`, keeping `serve` running, and `.refresh`, crawling and syncing with peers discovered or added hourly), logging to `~/Library/Logs/Cinematheque`.
+* **Background:** on macOS, `agent add` loads two launch agents (`com.rbrian.cinematheque.serve`, keeping `serve` running, and `.refresh`, syncing with peers discovered or added, then crawling, hourly), logging to `~/Library/Logs/Cinematheque`.
 
 ## macOS player
 
@@ -72,7 +73,7 @@ This file specifies what's built. Plans and open questions are in [DEVELOPMENT.m
 * **Crawling:** while a crawl runs, the grid reloads as it commits (polling `cq_data_version` each second), and the tiles on screen are described first.
 * **Playing:** a window per queue, an `AVQueuePlayer` in AppKit's `AVPlayerView`, streaming from the repository, starting at the playhead unless watched, saving it every 10 seconds past the first 10 and where it's paused or its window closed, marking an item watched at its end, and going on to the next. Player windows aren't restored at launch.
 * **Managing,** in Settings: repositories (adding, editing, removing, crawling), members (adding and removing; this user's key), and this device (its keys, the user's secret, syncing with peers found or by address). Long operations run off the main thread.
-* **Toolbar:** the sidebar's toggle and the shelf's title at the leading edge; the inspector's toggle (⌥⌘I) and search at the trailing. Refresh Library (⌘R, in the View menu) crawls, then syncs; the app refreshes so once at launch, if the library has repositories.
+* **Toolbar:** the sidebar's toggle and the shelf's title at the leading edge; the inspector's toggle (⌥⌘I) and search at the trailing. Refresh Library (⌘R, in the View menu) syncs, then crawls; the app refreshes so once at launch, if the library has repositories.
 * **Status bar:** along the bottom of the grid, floating over it: the shelf's counts ("4,000 movies"; "12 of 4,000 movies match …" while searching), or what went wrong, at the leading edge; what a long operation is doing and how far it has come, with a progress bar, at the trailing. It fades out 3 seconds after it last changed, unless something is running or wrong, and comes back when the pointer nears it; floating, so fading moves nothing.
 * **Modelessness:** no modal alerts, after the original Macintosh guidelines. What goes wrong shows in the status bar (and in a bar along the bottom of Settings), in words (e.g., "Crawling failed for art (and 5 more): connection refused."), until dismissed or until the next action of its kind (refreshing, changing the library, reading it) succeeds.
 * The project follows Xcode's recommended settings but for script sandboxing (the core's build phase), the App Sandbox (the home it shares with the peer), the hardened runtime (until signing for distribution), and its macOS 15 minimum. A developer's signing settings stay in an ignored `Local.xcconfig`.

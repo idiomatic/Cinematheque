@@ -189,7 +189,7 @@ The secret lets a device act as you, so keep it to yourself.
 
 ## Running in the background
 
-On a Mac, the peer can keep serving, and crawl and sync every hour, on its own:
+On a Mac, the peer can keep serving, and sync and crawl every hour, on its own:
 
 ```sh
 cinematheque agent add

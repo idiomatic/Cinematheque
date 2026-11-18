@@ -199,11 +199,13 @@ final class Library {
         await refresh()
     }
 
-    /// Crawls every repository, then syncs with peers found or added.
+    /// Syncs with peers found or added, then crawls every repository: what
+    /// peers have crawled and described arrives first, so crawling then
+    /// finds little to do.
     func refresh() async {
-        let crawled = await long("Crawling") { cq_crawl($0) }
         let synced = await long("Syncing") { cq_sync($0, nil) }
-        report(.refresh, crawled ?? synced)
+        let crawled = await long("Crawling") { cq_crawl($0) }
+        report(.refresh, synced ?? crawled)
     }
 
     func crawl() async { report(.refresh, await long("Crawling") { cq_crawl($0) }) }

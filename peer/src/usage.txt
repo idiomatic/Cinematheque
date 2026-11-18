@@ -80,4 +80,4 @@ REPO is a repo's ID or URL.
                                answer peers' syncs, and serve media, on
                                the port given, else on 8008 or, if that's
                                taken, any free port
-  refresh                      crawl, then sync
+  refresh                      sync, then crawl
