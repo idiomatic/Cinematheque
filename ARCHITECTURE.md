@@ -109,7 +109,7 @@ Sync runs both ways, started by either side: a device asks a device for what it 
 
 Since only winners are sent, a sync carries the current state of what changed, not its history: progress moved ten times since the last sync is one operation per field.
 
-* **Repair:** a removal drops winners past its cutoff. The fields it dropped are refetched from a device that refused those writes: just those fields' winners, with one shared proof per batch (the sibling hashes covering all the operations taken from it), so they're verified without the batch's other leaves.
+* **Repair:** a removal drops winners past its cutoff. The fields it dropped are refetched from a device that refused those writes: just those fields' winners, with one shared proof per batch (the sibling hashes covering all the operations taken from it), so they're verified without the batch's other leaves. A device asks for them in each sync, after pulling, of each device it syncs with, until none await (see [`POST /sync`](#post-sync)'s repair).
 
 The apps' status line ("Received 3 changes from firefly") counts operations: received, the operations that won their fields, and sent, the operations a response or a push carried.
 
@@ -149,6 +149,8 @@ Answers:
 * **403,** `not a member`: the certificate's person isn't a member. Or `removed`, for a device that was removed, with `x-cinematheque-device` and `x-cinematheque-certificate` as above and `x-cinematheque-signature`, the other device's signature (hex) over `cinematheque removed`, the library ID, the asking device's key, and its request's time (u64): proof enough, from a member's device, for the device to leave.
 
 A push is a `POST /sync` with `Content-Type: application/x-cinematheque-push`: the request's length (u32) and a request, as above (its vector unused), then frames, as a response's, gzipped. It's answered with 204, once applied, or 400 or 403 as above. A device too old to take pushes reads the whole body as a request, and refuses it as `BadSignature`.
+
+A repair is a `POST /sync` with `Content-Type: application/x-cinematheque-repair`: the request's length (u32) and a request, as a push's, then, gzipped, the fields wanted: a count (u32), then each one's key and field, each its length (u16) and bytes. It's answered, after the same checks, with 200 and gzipped frames: per batch the fields come from, `R`, device key (32), first sequence number (u64), count (u32), signature (64), the number of operations (u16) and their indices in the batch (u16 each), the number of proof hashes (u16) and the hashes (32 each), then an `O` frame for each operation; then `E`. One shared proof covers a batch's operations, which the receiver verifies against its signed root. Private streams not the requester's person's are left out. There's no `S`: nothing is adopted into the version vector.
 
 ### `/pair`
 

@@ -1236,18 +1236,37 @@ fn writeBatch(w: *std.Io.Writer, transcript: *Transcript, batch: *const Batch, r
     transcript.add(&batch.sig);
     transcript.add(std.mem.sliceAsBytes(&sent.masks)[0 .. (count + 7) / 8]);
     for (batch.leaves, 0..) |leaf, i| if (!sent.isSet(i)) try w.writeAll(&leaf);
-    for (rows) |row| {
-        try w.writeByte('O');
-        try w.writeInt(u64, row.seq, .little);
-        try w.writeInt(u64, row.hlc, .little);
-        try w.writeByte(@intFromEnum(row.kind));
-        try w.writeInt(u16, @intCast(row.key.len), .little);
-        try w.writeAll(row.key);
-        try w.writeInt(u16, @intCast(row.field.len), .little);
-        try w.writeAll(row.field);
-        try w.writeInt(u32, @intCast(row.value.len), .little);
-        try w.writeAll(row.value);
-    }
+    for (rows) |row| try writeOpFrame(w, row);
+}
+
+/// An `O` frame: the operation's sequence number, clock, kind, key, field,
+/// and value (`op` has those fields; the library and device are its batch's).
+fn writeOpFrame(w: *std.Io.Writer, op: anytype) !void {
+    try w.writeByte('O');
+    try w.writeInt(u64, op.seq, .little);
+    try w.writeInt(u64, op.hlc, .little);
+    try w.writeByte(@intFromEnum(op.kind));
+    try w.writeInt(u16, @intCast(op.key.len), .little);
+    try w.writeAll(op.key);
+    try w.writeInt(u16, @intCast(op.field.len), .little);
+    try w.writeAll(op.field);
+    try w.writeInt(u32, @intCast(op.value.len), .little);
+    try w.writeAll(op.value);
+}
+
+/// Reads an `O` frame of `device`'s operation `seq`, its text in `ta`.
+fn readOpFrame(r: *std.Io.Reader, ta: std.mem.Allocator, library: op_.Library, device: Device, seq: u64) !Op {
+    if (try r.takeByte() != 'O') return error.Malformed;
+    if (try r.takeInt(u64, .little) != seq) return error.Malformed;
+    const hlc = try r.takeInt(u64, .little);
+    const kind = std.enums.fromInt(op_.Kind, try r.takeByte()) orelse return error.Malformed;
+    const key = try ta.alloc(u8, try r.takeInt(u16, .little));
+    try r.readSliceAll(key);
+    const field = try ta.alloc(u8, try r.takeInt(u16, .little));
+    try r.readSliceAll(field);
+    const value = try ta.alloc(u8, try r.takeInt(u32, .little));
+    try r.readSliceAll(value);
+    return .{ .library = library, .device = device, .seq = seq, .hlc = hlc, .kind = kind, .key = key, .field = field, .value = value };
 }
 
 /// The sender's version vector, as a sync's frames end with it, for the
@@ -1308,18 +1327,8 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
                 const ta = text_state.allocator();
                 var it = sent.iterator(.{});
                 while (it.next()) |i| {
-                    if (i >= count or try r.takeByte() != 'O') return error.Malformed;
-                    const seq = try r.takeInt(u64, .little);
-                    if (seq != batch.first + i) return error.Malformed;
-                    const hlc = try r.takeInt(u64, .little);
-                    const kind = std.enums.fromInt(op_.Kind, try r.takeByte()) orelse return error.Malformed;
-                    const key = try ta.alloc(u8, try r.takeInt(u16, .little));
-                    try r.readSliceAll(key);
-                    const field = try ta.alloc(u8, try r.takeInt(u16, .little));
-                    try r.readSliceAll(field);
-                    const value = try ta.alloc(u8, try r.takeInt(u32, .little));
-                    try r.readSliceAll(value);
-                    const op: Op = .{ .library = dst.library, .device = batch.device, .seq = seq, .hlc = hlc, .kind = kind, .key = key, .field = field, .value = value };
+                    if (i >= count) return error.Malformed;
+                    const op = try readOpFrame(r, ta, dst.library, batch.device, batch.first + i);
                     try ops.append(dst.gpa, op);
                     stats.wire_bytes += 1 + op.wireLen();
                 }
@@ -1416,11 +1425,53 @@ pub fn sync(arena: std.mem.Allocator, dst: *Replica, src: *Replica) !Stats {
 }
 
 /// Refetches the fields a removal dropped (see `Replica.cut`) from a device,
-/// whose winners exclude the refused writes.
+/// whose winners exclude the refused writes, through the same frames a
+/// network carries.
 pub fn repair(dst: *Replica, src: *Replica) !Stats {
     var arena_state = std.heap.ArenaAllocator.init(src.gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
+    var response: std.Io.Writer.Allocating = .init(arena);
+    _ = try writeRepair(src, arena, try repairFields(dst, arena), dst.personKey(), &response.writer);
+    var reader: std.Io.Reader = .fixed(response.written());
+    return readRepair(dst, &reader);
+}
+
+/// A key's field.
+pub const Field = struct { key: []const u8, field: []const u8 };
+
+/// Writes the fields to refetch: a count (u32), then each one's key and field,
+/// each its length (u16) and bytes.
+pub fn writeFields(w: *std.Io.Writer, fields: []const Field) !void {
+    try w.writeInt(u32, @intCast(fields.len), .little);
+    for (fields) |f| {
+        try w.writeInt(u16, @intCast(f.key.len), .little);
+        try w.writeAll(f.key);
+        try w.writeInt(u16, @intCast(f.field.len), .little);
+        try w.writeAll(f.field);
+    }
+}
+
+/// The most fields one repair asks for, so a request can't ask for more
+/// than a library holds.
+const max_repair_fields = 1 << 20;
+
+pub fn readFields(arena: std.mem.Allocator, r: *std.Io.Reader) ![]Field {
+    const n = try r.takeInt(u32, .little);
+    if (n > max_repair_fields) return error.Malformed;
+    var out: std.ArrayList(Field) = .empty;
+    for (0..n) |_| {
+        const key = try arena.alloc(u8, try r.takeInt(u16, .little));
+        try r.readSliceAll(key);
+        const field = try arena.alloc(u8, try r.takeInt(u16, .little));
+        try r.readSliceAll(field);
+        try out.append(arena, .{ .key = key, .field = field });
+    }
+    return out.items;
+}
+
+/// The fields a removal dropped, which a repair refetches.
+pub fn repairFields(dst: *Replica, arena: std.mem.Allocator) ![]Field {
     var fields: std.ArrayList(Field) = .empty;
     const s = try dst.db.prepare("SELECT key, field FROM repair");
     defer s.finalize();
@@ -1428,17 +1479,53 @@ pub fn repair(dst: *Replica, src: *Replica) !Stats {
         .key = try arena.dupe(u8, s.blob(0)),
         .field = try arena.dupe(u8, s.blob(1)),
     });
-    return fetchFields(dst, src, fields.items);
+    return fields.items;
 }
 
-const Field = struct { key: []const u8, field: []const u8 };
+const Found = struct { id: i64, op: Op };
 
-/// Fetches `fields`' winning operations from `src`: for each batch they
-/// come from, its device, range, and signature, the operations' indices,
-/// one shared proof, and the operations, which `dst` verifies against the
-/// batch's signed root without the batch's other leaves. Batches not yet
-/// admitted wait for the rest of the fetch.
-fn fetchFields(dst: *Replica, src: *Replica, fields: []const Field) !Stats {
+fn foundBefore(_: void, a: Found, b: Found) bool {
+    return if (a.id != b.id) a.id < b.id else a.op.seq < b.op.seq;
+}
+
+/// Answers a repair: the winning operations of `fields`, for each batch they
+/// come from, an `R` frame, then an `O` frame for each operation:
+///
+/// * `R` device (32) | first seq (8) | count (4) | signature (64) |
+///   operations (2) | their indices in the batch (2 each) | proof hashes (2) |
+///   the hashes (32 each)
+///
+/// with one shared proof per batch (the sibling hashes covering all the
+/// operations taken from it), so the receiver verifies them against the
+/// batch's signed root without its other leaves; then `E`. Streams that aren't
+/// `reader`'s (its person's private ones) are left out, as a sync's are.
+/// Returns how many operations it sent.
+pub fn writeRepair(src: *Replica, arena: std.mem.Allocator, fields: []const Field, reader: Device, w: *std.Io.Writer) !usize {
+    var allowed: std.AutoHashMapUnmanaged(Device, void) = .empty;
+    for (try src.readableVector(arena, reader)) |entry| try allowed.put(arena, entry.device, {});
+
+    var found: std.ArrayList(Found) = .empty;
+    const s = try src.db.prepare(
+        \\SELECT kind, key, field, hlc, seq, value, device FROM winners
+        \\WHERE key = ?1 AND field = ?2
+    );
+    defer s.finalize();
+    for (fields) |f| {
+        defer s.reset();
+        try s.bindText(1, f.key);
+        try s.bindText(2, f.field);
+        if (!try s.step()) continue;
+        const id = s.int(6);
+        const device = src.keys.items[@intCast(id - 1)];
+        if (!allowed.contains(device)) continue;
+        var op = rowOp(src, s, device);
+        op.key = try arena.dupe(u8, op.key);
+        op.field = try arena.dupe(u8, op.field);
+        op.value = try arena.dupe(u8, op.value);
+        try found.append(arena, .{ .id = id, .op = op });
+    }
+    std.mem.sort(Found, found.items, {}, foundBefore);
+
     const gpa = src.gpa;
     var leaves: std.ArrayList(Hash) = .empty;
     defer leaves.deinit(gpa);
@@ -1448,12 +1535,43 @@ fn fetchFields(dst: *Replica, src: *Replica, fields: []const Field) !Stats {
     defer indices.deinit(gpa);
     var siblings: std.ArrayList(Hash) = .empty;
     defer siblings.deinit(gpa);
-    var ops: std.ArrayList(Op) = .empty;
-    defer ops.deinit(gpa);
-    var text_state = std.heap.ArenaAllocator.init(gpa);
+
+    var at: usize = 0;
+    while (at < found.items.len) {
+        const id = found.items[at].id;
+        const batch = try src.loadBatch(id, found.items[at].op.seq, &leaves);
+        var end = at;
+        indices.clearRetainingCapacity();
+        while (end < found.items.len and found.items[end].id == id and batch.contains(found.items[end].op.seq)) : (end += 1)
+            try indices.append(gpa, found.items[end].op.seq - batch.first);
+        if (end == at) return error.NoBatch;
+        tree.init(batch.leaves);
+        siblings.clearRetainingCapacity();
+        try tree.multiproof(indices.items, gpa, &siblings);
+
+        try w.writeByte('R');
+        try w.writeAll(&batch.device);
+        try w.writeInt(u64, batch.first, .little);
+        try w.writeInt(u32, @intCast(batch.leaves.len), .little);
+        try w.writeAll(&batch.sig);
+        try w.writeInt(u16, @intCast(indices.items.len), .little);
+        for (indices.items) |i| try w.writeInt(u16, @intCast(i), .little);
+        try w.writeInt(u16, @intCast(siblings.items.len), .little);
+        for (siblings.items) |h| try w.writeAll(&h);
+        for (found.items[at..end]) |f| try writeOpFrame(w, f.op);
+        at = end;
+    }
+    try w.writeByte('E');
+    return found.items.len;
+}
+
+/// Applies a repair's frames (see `writeRepair`) in one transaction. A batch
+/// whose stream isn't admitted yet waits for the rest of them.
+pub fn readRepair(dst: *Replica, r: *std.Io.Reader) !Stats {
+    var text_state = std.heap.ArenaAllocator.init(dst.gpa);
     defer text_state.deinit();
     const Pending = struct { batch: Batch, count: usize, indices: []usize, siblings: []Hash, ops: []Op };
-    var pending_state = std.heap.ArenaAllocator.init(gpa);
+    var pending_state = std.heap.ArenaAllocator.init(dst.gpa);
     defer pending_state.deinit();
     const pa = pending_state.allocator();
     var pending: std.ArrayList(Pending) = .empty;
@@ -1461,58 +1579,49 @@ fn fetchFields(dst: *Replica, src: *Replica, fields: []const Field) !Stats {
     var stats: Stats = .{};
     try dst.begin();
     errdefer dst.rollback();
-    for (fields) |f| {
-        const s = try src.db.prepare(
-            \\SELECT kind, key, field, hlc, seq, value, device FROM winners
-            \\WHERE key = ?1 AND field = ?2
-        );
-        defer s.finalize();
-        try s.bindText(1, f.key);
-        try s.bindText(2, f.field);
-        var batch: ?Batch = null;
-        var batch_id: i64 = 0;
-        while (true) {
-            const more = try s.step();
-            const id = if (more) s.int(6) else 0;
-            const seq: u64 = if (more) @intCast(s.int(4)) else 0;
-            if (batch) |b| if (!more or batch_id != id or !b.contains(seq)) {
-                tree.init(b.leaves);
-                siblings.clearRetainingCapacity();
-                try tree.multiproof(indices.items, gpa, &siblings);
-                dst.receiveShared(b, b.leaves.len, indices.items, siblings.items, ops.items, &stats) catch |err| switch (err) {
+    while (true) {
+        const tag = try r.takeByte();
+        switch (tag) {
+            'R' => {
+                _ = text_state.reset(.retain_capacity);
+                const ta = text_state.allocator();
+                var batch: Batch = undefined;
+                try r.readSliceAll(&batch.device);
+                batch.first = try r.takeInt(u64, .little);
+                const count = try r.takeInt(u32, .little);
+                if (batch.first == 0 or batch.first > max_seq) return error.Malformed;
+                if (count == 0 or count > merkle.max_leaves) return error.Malformed;
+                try r.readSliceAll(&batch.sig);
+                batch.leaves = &.{};
+                const n = try r.takeInt(u16, .little);
+                if (n == 0 or n > count) return error.Malformed;
+                const indices = try ta.alloc(usize, n);
+                for (indices) |*i| {
+                    i.* = try r.takeInt(u16, .little);
+                    if (i.* >= count) return error.Malformed;
+                }
+                const siblings = try ta.alloc(Hash, try r.takeInt(u16, .little));
+                for (siblings) |*h| try r.readSliceAll(h);
+                const ops = try ta.alloc(Op, n);
+                for (ops, indices) |*op, i| op.* = try readOpFrame(r, ta, dst.library, batch.device, batch.first + i);
+                dst.receiveShared(batch, count, indices, siblings, ops, &stats) catch |err| switch (err) {
                     error.Unauthorized => {
-                        const copied = try pa.dupe(Op, ops.items);
+                        const copied = try pa.dupe(Op, ops);
                         for (copied) |*op| {
                             op.key = try pa.dupe(u8, op.key);
                             op.field = try pa.dupe(u8, op.field);
                             op.value = try pa.dupe(u8, op.value);
                         }
-                        var held = b;
-                        held.leaves = &.{};
-                        try pending.append(pa, .{ .batch = held, .count = b.leaves.len, .indices = try pa.dupe(usize, indices.items), .siblings = try pa.dupe(Hash, siblings.items), .ops = copied });
+                        try pending.append(pa, .{ .batch = batch, .count = count, .indices = try pa.dupe(usize, indices), .siblings = try pa.dupe(Hash, siblings), .ops = copied });
                     },
                     else => |e| return e,
                 };
                 stats.batches += 1;
-                stats.wire_bytes += Batch.header_wire_len + 2 + 2 * indices.items.len + 32 * siblings.items.len;
-                for (ops.items) |op| stats.wire_bytes += op.wireLen();
-                indices.clearRetainingCapacity();
-                ops.clearRetainingCapacity();
-                _ = text_state.reset(.retain_capacity);
-                batch = null;
-            };
-            if (!more) break;
-            if (batch == null) {
-                batch = try src.loadBatch(id, seq, &leaves);
-                batch_id = id;
-            }
-            const ta = text_state.allocator();
-            var op = rowOp(src, s, src.keys.items[@intCast(id - 1)]);
-            op.key = try ta.dupe(u8, op.key);
-            op.field = try ta.dupe(u8, op.field);
-            op.value = try ta.dupe(u8, op.value);
-            try ops.append(gpa, op);
-            try indices.append(gpa, seq - batch.?.first);
+                stats.wire_bytes += Batch.header_wire_len + 2 + 2 * indices.len + 32 * siblings.len;
+                for (ops) |op| stats.wire_bytes += op.wireLen();
+            },
+            'E' => break,
+            else => return error.Malformed,
         }
     }
     var progress = true;
@@ -1537,6 +1646,17 @@ fn fetchFields(dst: *Replica, src: *Replica, fields: []const Field) !Stats {
 }
 
 const testing = std.testing;
+
+/// Fetches `fields` from `src` through a repair's frames.
+fn fetchFields(dst: *Replica, src: *Replica, fields: []const Field) !Stats {
+    var arena_state = std.heap.ArenaAllocator.init(src.gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var response: std.Io.Writer.Allocating = .init(arena);
+    _ = try writeRepair(src, arena, fields, dst.personKey(), &response.writer);
+    var reader: std.Io.Reader = .fixed(response.written());
+    return readRepair(dst, &reader);
+}
 
 fn testPerson(seed: u8) !Device {
     return (try personKeyPair(@splat(seed))).public_key.toBytes();

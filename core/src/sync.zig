@@ -126,6 +126,9 @@ test "sync URLs" {
 /// A push's content type, which a device too old to take pushes doesn't
 /// know, and so refuses as a request whose signature doesn't verify.
 pub const push_type = "application/x-cinematheque-push";
+/// A repair's: a request for fields a removal dropped, in the push's form,
+/// then the fields (see `replica.writeFields`), gzipped.
+pub const repair_type = "application/x-cinematheque-repair";
 const device_header = "x-cinematheque-device";
 const certificate_header = "x-cinematheque-certificate";
 const signature_header = "x-cinematheque-signature";
@@ -207,12 +210,13 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const pushed = if (request.head.content_type) |t| std.mem.eql(u8, t, push_type) else false;
+    const repairing = if (request.head.content_type) |t| std.mem.eql(u8, t, repair_type) else false;
 
     var body_buf: [64 * 1024]u8 = undefined;
     const body = request.readerExpectNone(&body_buf);
-    // A push's request comes first, its length before it; a pull's is the
-    // whole body.
-    const head = if (pushed) blk: {
+    // A push's or repair's request comes first, its length before it; a
+    // pull's is the whole body.
+    const head = if (pushed or repairing) blk: {
         const n = try body.takeInt(u32, .little);
         if (n > 1 << 20) {
             try request.respond("Malformed", .{ .status = .bad_request });
@@ -260,6 +264,26 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         return true;
     }
 
+    if (repairing) {
+        var gunzip: flate.Decompress = .init(body, .gzip, window);
+        const fields = replica_.readFields(arena, &gunzip.reader) catch |err| {
+            try request.respond(@errorName(err), .{ .status = .bad_request });
+            return true;
+        };
+        var repair_buf: [64 * 1024]u8 = undefined;
+        var response = try request.respondStreaming(&repair_buf, .{ .respond_options = .{
+            .extra_headers = &.{
+                .{ .name = "content-type", .value = "application/octet-stream" },
+                .{ .name = "content-encoding", .value = "gzip" },
+            },
+        } });
+        var gz = try flate.Compress.init(&response.writer, try arena.alloc(u8, flate.max_window_len), .gzip, .fastest);
+        _ = try replica_.writeRepair(&src, arena, fields, reader, &gz.writer);
+        try gz.finish();
+        try response.end();
+        return true;
+    }
+
     // Who's answering, for the device to push to: its key and certificate.
     const device_hex = std.fmt.bytesToHex(src.device(), .lower);
     const certificate_hex = std.fmt.bytesToHex(try src.certificate(false), .lower);
@@ -285,6 +309,8 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
 pub const Exchanged = struct {
     stats: replica_.Stats,
     sent: usize = 0,
+    /// How many fields a removal had dropped it got back.
+    repaired: usize = 0,
 };
 
 /// Syncs both ways with the other device at `url` (e.g.,
@@ -296,6 +322,11 @@ pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, u
     var out: Exchanged = .{ .stats = pulled.stats };
     const person = pulled.person orelse return out;
     if (!try dst.isMemberPerson(person)) return out;
+    // Fields a removal dropped, from a device that may hold what stands.
+    out.repaired = repairFrom(arena, client, dst, url, now_ms) catch |err| switch (err) {
+        error.Refused => 0,
+        else => |e| return e,
+    };
     out.sent = push(arena, client, dst, url, now_ms, theirs.items, person) catch |err| switch (err) {
         // A device too old to take pushes, which still pulls from this one.
         error.Refused => 0,
@@ -415,6 +446,42 @@ fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []co
     };
 }
 
+/// Asks the other device at `url` for the fields a removal dropped from `dst`
+/// (see `Replica.cut`), and applies what it holds of them; returns how many
+/// came back. Nothing dropped asks nothing.
+fn repairFrom(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !usize {
+    const fields = try replica_.repairFields(dst, arena);
+    if (fields.len == 0) return 0;
+    const head = try writeRequest(arena, dst, now_ms);
+    var body: Io.Writer.Allocating = .init(arena);
+    try body.writer.writeInt(u32, @intCast(head.len), .little);
+    try body.writer.writeAll(head);
+    const window = try arena.alloc(u8, flate.max_window_len);
+    var gz = try flate.Compress.init(&body.writer, window, .gzip, .fastest);
+    try replica_.writeFields(&gz.writer, fields);
+    try gz.finish();
+    var request = try client.request(.POST, try std.Uri.parse(url), .{
+        .headers = .{ .content_type = .{ .override = repair_type }, .accept_encoding = .{ .override = "gzip" } },
+    });
+    defer request.deinit();
+    request.transfer_encoding = .{ .content_length = body.written().len };
+    var sending = try request.sendBodyUnflushed(&.{});
+    try sending.writer.writeAll(body.written());
+    try sending.end();
+    try request.connection.?.flush();
+    var response = try request.receiveHead(&.{});
+    switch (response.head.status) {
+        .ok => {},
+        .forbidden => return error.NotAMember,
+        .bad_request => return error.Refused,
+        else => return error.BadStatus,
+    }
+    var transfer: [64 * 1024]u8 = undefined;
+    var decompress: http.Decompress = undefined;
+    const stats = try replica_.readRepair(dst, response.readerDecompressing(&transfer, &decompress, try arena.alloc(u8, flate.max_window_len)));
+    return stats.won;
+}
+
 test "requests are checked" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
@@ -464,4 +531,47 @@ test "a removed device is told so, believably, and can tell" {
     _ = try exchange(arena, &client, &b, url, now);
     try a.revokeDevice(now, b.device());
     try std.testing.expectError(error.Removed, exchange(arena, &client, &b, url, now + 1));
+}
+
+test "a device gets back the fields a removal dropped, over HTTP" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const dir = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    const person_seed: [32]u8 = @splat(7);
+    const founder = (try Ed25519.KeyPair.generateDeterministic(person_seed)).public_key.toBytes();
+    const a_identity: replica_.Identity = .{ .device = @splat(1), .person = person_seed };
+    const a_path = try std.fmt.allocPrintSentinel(arena, "{s}/a.db", .{dir}, 0);
+    var a = try Replica.open(gpa, io, a_path, founder, a_identity);
+    defer a.close();
+    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), founder, .{ .device = @splat(2), .person = person_seed });
+    defer b.close();
+    try a.write(1000, "t/00001", "name", "Alien");
+
+    var sharing: Sharing = .{ .path = a_path, .founder = founder, .identity = a_identity };
+    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .handler = sharing.handler() } };
+    try server.start();
+    defer server.stop();
+    const url = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/sync", .{server.port});
+    var client: http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    const now: u64 = @intCast(Io.Timestamp.now(io, .real).toMilliseconds());
+
+    _ = try exchange(arena, &client, &b, url, now);
+    // As if a removal had dropped the field after b took it.
+    try b.db.exec("DELETE FROM winners WHERE key = 't/00001'");
+    try b.db.exec("INSERT INTO repair VALUES ('t/00001', 'name')");
+    b.repairing = true;
+    try std.testing.expectEqual(@as(i64, 1), try b.repairsPending());
+    const out = try exchange(arena, &client, &b, url, now + 1);
+    try std.testing.expectEqual(@as(usize, 1), out.repaired);
+    try std.testing.expectEqual(@as(i64, 0), try b.repairsPending());
+    const s = try b.db.prepare("SELECT value FROM winners WHERE key = 't/00001' AND field = 'name'");
+    defer s.finalize();
+    try std.testing.expect(try s.step());
+    try std.testing.expectEqualStrings("Alien", s.blob(0));
 }
