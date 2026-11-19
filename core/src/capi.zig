@@ -799,8 +799,9 @@ fn downloadRemove(lib: *Library, arena: std.mem.Allocator, key: []const u8) !voi
     _ = try download.remove(lib.io(), arena, try lib.main(), &lib.writer, lib.now(), key);
 }
 
-/// Chooses which of a series' episodes download, as it's watched: the next
-/// N after where this person is (`3`), its `unwatched` ones, a season's
+/// Chooses which of a series' episodes download, as it's watched: the
+/// `current` one (in progress, else the next unwatched), the next N after
+/// where this person is (`3`), its `unwatched` ones, a season's
 /// unwatched ones (`s02`), or `all` of them, kept however they're watched;
 /// empty or `0`, none.
 export fn cq_download_next(lib: *Library, title_key: [*:0]const u8, choice: [*:0]const u8) c_int {
@@ -811,6 +812,30 @@ fn downloadNext(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, 
     const parsed = download.Choice.parse(choice);
     if (parsed == null and choice.len > 0 and !std.mem.eql(u8, choice, "0")) return error.InvalidArgument;
     try download.setNext(try lib.main(), arena, title_key, parsed);
+}
+
+/// What downloading would come to, as a JSON array, one object per choice
+/// in `choices_json` (an array of strings): `choice`, `size` (bytes, of all
+/// its files), and `needed` (of those, what isn't here yet). A choice is a
+/// series' (`key` its title's), as `cq_download_next` takes it, or empty
+/// for `key`'s own files (a title's, season's, or item's) in `quality`
+/// (null: the one most have).
+export fn cq_download_sizes(lib: *Library, key: [*:0]const u8, choices_json: [*:0]const u8, quality: ?[*:0]const u8) ?[*:0]u8 {
+    return json(lib, downloadSizes, .{ std.mem.span(key), std.mem.span(choices_json), span(quality) });
+}
+
+const SizeJson = struct { choice: []const u8, size: u64, needed: u64 };
+
+fn downloadSizes(lib: *Library, arena: std.mem.Allocator, key: []const u8, choices_json: []const u8, quality: ?[]const u8) ![]const SizeJson {
+    const r = try lib.main();
+    const choices = try std.json.parseFromSliceLeaky([]const []const u8, arena, choices_json, .{});
+    const out = try arena.alloc(SizeJson, choices.len);
+    for (choices, out) |c, *o| {
+        const choice = if (c.len == 0) null else download.Choice.parse(c) orelse return error.InvalidArgument;
+        const s = try download.sizeOf(r, arena, key, choice, quality);
+        o.* = .{ .choice = c, .size = s.size, .needed = s.needed };
+    }
+    return out;
 }
 
 /// A series' choice of episodes, as `cq_downloads` tells it.

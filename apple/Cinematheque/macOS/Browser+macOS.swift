@@ -287,6 +287,12 @@ struct CoverGrid: View {
                     }
                     .simultaneousGesture(TapGesture(count: 2).onEnded { playNext(tile) })
                     .contextMenu {
+                        // A movie's download (the version Play plays), as an
+                        // episode's is in its row's.
+                        if tile.season == nil, let detail = library.detail(tile.key), let item = detail.items.first {
+                            DownloadMenuItems(key: "\(tile.key)/\(item.key)", quality: nil)
+                            Divider()
+                        }
                         // Forgets its progress (positions and watched marks).
                         if tile.played {
                             Button(shelf == .watched ? "Remove from Watched" : shelf == .inProgress ? "Remove from In Progress" : "Mark as Unwatched") { library.removeFromPlayed(tile) }

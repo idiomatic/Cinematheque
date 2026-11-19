@@ -272,45 +272,92 @@ private struct DownloadControls: View {
     let season: Int?
     let quality: String?
     @Environment(Library.self) private var library
+    /// What each choice (or the movie) would come to, as of the last
+    /// change to the library or its downloads.
+    @State private var sizes: [String: Library.DownloadSize] = [:]
 
     private static let counts = [1, 3, 5, 10]
 
     var body: some View {
-        if let season {
-            seasonControls(season)
-        } else if let item = items.first {
-            movieControls("\(detail.key)/\(item.key)")
+        Group {
+            if let season {
+                seasonControls(season)
+            } else if let item = items.first {
+                movieControls("\(detail.key)/\(item.key)")
+            }
+        }
+        .task(id: "\(library.revision) \(library.downloadedBytes) \(detail.key) \(season ?? -1) \(quality ?? "")") {
+            if let season {
+                sizes = library.downloadSizes(detail.key, choices: ["current"] + Self.counts.map(String.init) + [String(format: "s%02d", season), "unwatched", "all"])
+            } else if let item = items.first {
+                sizes = library.downloadSizes("\(detail.key)/\(item.key)", choices: [""], quality: quality)
+            }
         }
     }
 
+    /// A size, as Finder gives it ("4.2 GB").
+    private static func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
+
+    /// Whether what isn't here yet fits in the space downloads may take.
+    private func fits(_ size: Library.DownloadSize?) -> Bool {
+        guard let size, let space = library.spaceForDownloads else { return true }
+        return size.needed <= space
+    }
+
+    /// A choice in the menu, with its size (all its files'), orange if
+    /// what isn't here yet wouldn't fit. Only then colored: a menu item
+    /// given any color, the primary one too, is drawn as if disabled.
+    @ViewBuilder
+    private func item(_ choice: String) -> some View {
+        let size = sizes[choice]
+        let text = Text(size.map { "\(Self.title(choice))  \(Self.bytes($0.size))" } ?? Self.title(choice))
+        if fits(size) {
+            text.tag(choice)
+        } else {
+            text.foregroundStyle(.orange).tag(choice)
+        }
+    }
+
+    /// One row, nothing in it coming or going, as a season's: Download,
+    /// dimmed once it's here or coming; the spinner's place kept while it
+    /// doesn't come; and the trash button, canceling while it comes,
+    /// deleting once it's here, dimmed while neither. Keeping it is in the
+    /// tile's context menu, as an episode's is in its row's.
     @ViewBuilder
     private func movieControls(_ key: String) -> some View {
+        let held = library.isDownloaded(key)
+        let coming = !held && library.isWanted(key)
+        let size = sizes[""]
         HStack {
-            if library.isDownloaded(key) {
-                DownloadState(key: key)
-                if library.done(key) != nil {
-                    Button("Keep") { library.keep(key, true) }
-                        .buttonStyle(.borderless)
-                        .help("Keep it on this Mac, however it's watched")
-                }
-                Button("Delete Download", systemImage: "trash") { library.deleteDownload(key) }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help(library.onlyCopies(key) > 0 ? "Delete it from this Mac: the only copy" : "Delete it from this Mac")
-            } else if library.isWanted(key) {
-                ProgressView().controlSize(.small)
-                Text("Downloading…").foregroundStyle(.secondary)
-                Button("Cancel Download", systemImage: "xmark.circle.fill") { library.removeDownload(key) }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help("Stop downloading it")
-            } else {
-                Button("Download", systemImage: "arrow.down.circle") { library.download(key, quality: quality) }
-                    .buttonStyle(.bordered)
-                    .help("Download it to this Mac, to watch without a network")
+            // Its size, all its files', fixed for the quality picked; orange
+            // if what isn't here yet wouldn't fit.
+            Button(size.map { "Download \(Self.bytes($0.size))" } ?? "Download", systemImage: "arrow.down.circle") { library.download(key, quality: quality) }
+                .foregroundStyle(fits(size) ? AnyShapeStyle(.foreground) : AnyShapeStyle(.orange))
+                .buttonStyle(.bordered)
+                .disabled(held || coming)
+                .help(fits(size) ? "Download it to this Mac, to watch without a network" : "Download it to this Mac: more than the space downloads may take now")
+            ProgressView().controlSize(.mini).opacity(coming ? 1 : 0)
+                .help("Downloading")
+            Button(coming ? "Cancel Download" : "Delete Download", systemImage: "trash") {
+                if coming { library.removeDownload(key) } else { library.deleteDownload(key) }
             }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .disabled(!held && !coming)
+            .help(Self.deleteHelp(library, key, coming: coming))
         }
         .controlSize(.small)
+    }
+
+    /// The movie's trash button's help, saying what it does and, once
+    /// watched, what's become of the download.
+    private static func deleteHelp(_ library: Library, _ key: String, coming: Bool) -> String {
+        if coming { return "Stop downloading it" }
+        if let done = library.done(key) {
+            return done.deletable ? "Delete it from this Mac (watched: it goes when its space is needed anyway)" : "Delete it from this Mac: watched, and the only copy (or keep it, in its context menu)"
+        }
+        if library.onlyCopies(key) > 0 { return "Delete it from this Mac: the only copy" }
+        return library.isKept(key) ? "Delete it from this Mac (kept, however it's watched)" : "Delete it from this Mac"
     }
 
     @ViewBuilder
@@ -326,20 +373,27 @@ private struct DownloadControls: View {
         // One row, nothing in it coming or going: the spinner's place kept
         // while nothing comes, the trash button dimmed while nothing's here.
         HStack {
+            // The open menu gives each choice's size, and the space free; the
+            // closed one, only the choice, which nothing but picking changes.
             Picker("Download", selection: Binding(get: { chosen }, set: { library.chooseDownloads(detail.key, $0) })) {
                 Section {
                     Text("Nothing").tag("")
-                    ForEach(Self.counts, id: \.self) { n in Text(Self.title(String(n))).tag(String(n)) }
+                    item("current")
+                    ForEach(Self.counts, id: \.self) { n in item(String(n)) }
                     // A count chosen elsewhere (the core takes any).
-                    if Int(chosen).map({ !Self.counts.contains($0) }) ?? false { Text(Self.title(chosen)).tag(chosen) }
+                    if Int(chosen).map({ !Self.counts.contains($0) }) ?? false { item(chosen) }
+                } header: {
+                    if let space = library.spaceForDownloads { Text("\(Self.bytes(space)) free") }
                 }
                 Section {
-                    Text(Self.title(here)).tag(here)
+                    item(here)
                     // Another season's, as chosen there.
-                    if chosen.hasPrefix("s"), chosen != here { Text(Self.title(chosen)).tag(chosen) }
-                    Text("Unwatched").tag("unwatched")
-                    Text("All").tag("all")
+                    if chosen.hasPrefix("s"), chosen != here { item(chosen) }
+                    item("unwatched")
+                    item("all")
                 }
+            } currentValueLabel: {
+                Text(Self.title(chosen))
             }
             .pickerStyle(.menu)
             .fixedSize()
@@ -362,27 +416,12 @@ private struct DownloadControls: View {
             return season == 0 ? "Unwatched Specials" : "Unwatched in Season \(season)"
         }
         switch choice {
+        case "": return "Nothing"
+        case "current": return "Current"
         case "1": return "Next"
         case "unwatched": return "Unwatched"
         case "all": return "All"
         default: return "Next \(choice)"
-        }
-    }
-}
-
-/// A download's state, in words: kept, watched (waiting for its space to
-/// be needed, or the only copy), or downloaded.
-private struct DownloadState: View {
-    let key: String
-    @Environment(Library.self) private var library
-
-    var body: some View {
-        if let done = library.done(key) {
-            Label(done.deletable ? "Watched: goes when space is needed" : "Watched, and the only copy", systemImage: done.deletable ? "hourglass.circle.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(done.deletable ? Color.secondary : Color.orange)
-        } else {
-            Label(library.isKept(key) ? "Downloaded, kept" : "Downloaded", systemImage: "arrow.down.circle.fill")
-                .foregroundStyle(.secondary)
         }
     }
 }
@@ -408,8 +447,9 @@ private struct DownloadMark: View {
     }
 }
 
-/// An item's download, in its context menu.
-private struct DownloadMenuItems: View {
+/// An item's download, in its context menu (an episode's row's, or a
+/// movie's tile's).
+struct DownloadMenuItems: View {
     let key: String
     let quality: String?
     @Environment(Library.self) private var library

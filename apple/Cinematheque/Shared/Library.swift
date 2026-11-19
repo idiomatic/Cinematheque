@@ -940,6 +940,30 @@ final class Library {
         check { cq_download_remove($0, key) }
     }
 
+    /// What downloading would come to: all its files' `size`, and what of
+    /// it isn't here yet (`needed`), in bytes.
+    struct DownloadSize: Decodable, Equatable {
+        let choice: String
+        let size: Int
+        let needed: Int
+    }
+
+    /// Per choice (a series' choice of episodes, `key` its title's, or
+    /// empty for `key`'s own files in `quality`), what downloading would
+    /// come to (`cq_download_sizes`).
+    func downloadSizes(_ key: String, choices: [String], quality: String? = nil) -> [String: DownloadSize] {
+        guard let json = try? JSONEncoder().encode(choices) else { return [:] }
+        let text = String(decoding: json, as: UTF8.self)
+        let sizes = decode([DownloadSize].self) { cq_download_sizes($0, key, text, quality) } ?? []
+        return Dictionary(sizes.map { ($0.choice, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// The space downloads may take: what's free, less what they keep free.
+    var spaceForDownloads: Int? {
+        guard let d = downloads, let free = d.free else { return nil }
+        return max(0, free - d.floor)
+    }
+
     /// Chooses which of a series' episodes download as it's watched (see
     /// `Downloads.Next`); empty, none.
     func chooseDownloads(_ title: String, _ choice: String) {

@@ -13,7 +13,7 @@
 //! came from, so devices see it and copy racing can use it. What it keeps is
 //! this device's (in `local`): items wanted (a title or season wanted is
 //! its items, as of then), and per series, a choice of episodes (`Choice`):
-//! the next N after where this person is ("download next"), its unwatched
+//! the current one, the next N after where this person is ("download next"), its unwatched
 //! ones, a season's unwatched ones, or all of them. A download watched since
 //! it was fetched, and not kept (or all of its series chosen), is done with: deleted once another source is confirmed to
 //! hold it (same quality and size, not unavailable), at once with
@@ -377,12 +377,15 @@ pub fn wants(replica: *Replica, arena: std.mem.Allocator) ![]Want {
     return out.items;
 }
 
-/// Which of a series' episodes download, as it's watched: the `next` N
-/// after where this person is, its `unwatched` ones (specials aside, as
-/// with `next`), a `season`'s unwatched ones, or `all` of them, kept
-/// however they're watched. Written as the number, `unwatched`, `all`, or
-/// `s` and the season's (`s02`).
+/// Which of a series' episodes download, as it's watched: the `current`
+/// one (the one Play would play: in progress, else the next unwatched), the
+/// `next` N after where this person is (and the current one), its
+/// `unwatched` ones (specials aside, as with those), a `season`'s
+/// unwatched ones, or `all` of them, kept however they're watched. Written
+/// as `current`, the number, `unwatched`, `all`, or `s` and the season's
+/// (`s02`).
 pub const Choice = union(enum) {
+    current,
     next: u32,
     unwatched,
     season: u32,
@@ -390,6 +393,7 @@ pub const Choice = union(enum) {
 
     /// Null for none (empty, `0`, or one that doesn't read).
     pub fn parse(text: []const u8) ?Choice {
+        if (std.mem.eql(u8, text, "current")) return .current;
         if (std.mem.eql(u8, text, "unwatched")) return .unwatched;
         if (std.mem.eql(u8, text, "all")) return .all;
         if (text.len > 1 and text[0] == 's') return .{ .season = std.fmt.parseInt(u32, text[1..], 10) catch return null };
@@ -399,6 +403,7 @@ pub const Choice = union(enum) {
 
     pub fn write(c: Choice, arena: std.mem.Allocator) ![]const u8 {
         return switch (c) {
+            .current => "current",
             .next => |n| std.fmt.allocPrint(arena, "{d}", .{n}),
             .unwatched => "unwatched",
             .season => |s| std.fmt.allocPrint(arena, "s{d:0>2}", .{s}),
@@ -423,6 +428,35 @@ pub fn nexts(replica: *Replica, arena: std.mem.Allocator) ![]Next {
         try out.append(arena, .{ .title = k[next_prefix.len..], .choice = c });
     }
     return out.items;
+}
+
+/// What downloading comes to: the files' total size, and of it, what isn't
+/// here yet (`needed`), which is what space it would take.
+pub const Size = struct { size: u64 = 0, needed: u64 = 0 };
+
+/// The size of `key`'s files (a title's, season's, or item's, in `quality`,
+/// else the one most have, as `plan`), or with `choice`, of the episodes the
+/// series' choice comes to now (each in the quality most of its files have,
+/// as reconciling fetches them).
+pub fn sizeOf(replica: *Replica, arena: std.mem.Allocator, key: []const u8, choice: ?Choice, quality: ?[]const u8) !Size {
+    var here: std.StringHashMapUnmanaged(void) = .empty;
+    if (try settings(replica, arena)) |s| for (try held(replica, arena, s.source)) |h| try here.put(arena, h.key, {});
+    var keys: std.ArrayList([]const u8) = .empty;
+    if (choice) |c| {
+        for (try ahead(replica, arena, key, c)) |item| try keys.append(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ key, item }));
+    } else try keys.append(arena, key);
+    var out: Size = .{};
+    for (keys.items) |k| {
+        const files = plan(replica, arena, k, if (choice == null) quality else null) catch |err| switch (err) {
+            error.NotFound => continue,
+            else => |e| return e,
+        };
+        for (files) |f| {
+            out.size += f.size;
+            if (!here.contains(try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ f.item, f.quality }))) out.needed += f.size;
+        }
+    }
+    return out;
 }
 
 /// A file this device's downloads hold.
@@ -478,7 +512,9 @@ pub fn confirmed(replica: *Replica, sources: []const library.Source, unavailable
 /// The item keys (below the title's) of a series' episodes `choice` comes
 /// to for this person. For the next `n`, specials aside: the latest in
 /// progress and the `n` unwatched after it, so the next is there before
-/// this one ends; else, none in progress, the first `n` unwatched.
+/// this one ends; else, none in progress, the first `n` unwatched. The
+/// current one is the first of those: the latest in progress, else the
+/// first unwatched.
 pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, choice: Choice) ![]const []const u8 {
     const d = try library.detail(replica, arena, title) orelse return &.{};
     const Episode = struct { item: library.Item, season: u32, number: u32 };
@@ -486,7 +522,7 @@ pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, cho
     for (d.items.items) |item| {
         const code = episodeCode(item.key) orelse continue;
         switch (choice) {
-            .next, .unwatched => if (code[0] == 0) continue,
+            .current, .next, .unwatched => if (code[0] == 0) continue,
             .season => |s| if (code[0] != s) continue,
             .all => {},
         }
@@ -499,6 +535,7 @@ pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, cho
     }.lt);
     var out: std.ArrayList([]const u8) = .empty;
     const n = switch (choice) {
+        .current => 0,
         .next => |n| n,
         .all => {
             for (episodes.items) |e| try out.append(arena, e.item.key);
@@ -519,7 +556,7 @@ pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, cho
         start = i;
         break;
     };
-    const want_count = if (in_progress) n + 1 else n;
+    const want_count = if (choice == .current) 1 else if (in_progress) n + 1 else n;
     for (episodes.items[start orelse return &.{}..]) |e| {
         if (out.items.len == want_count) break;
         if (!e.item.progress.watched) try out.append(arena, e.item.key);
@@ -946,6 +983,7 @@ test "a series' choice of episodes: next, unwatched, a season's, or all" {
     try library.setWatched(&r, arena, 3, "t/s/firefly/-/e/s01e01", true);
 
     const cases = [_]struct { choice: []const u8, want: []const []const u8 }{
+        .{ .choice = "current", .want = &.{"e/s01e02"} },
         .{ .choice = "2", .want = &.{ "e/s01e02", "e/s01e03" } },
         .{ .choice = "unwatched", .want = &.{ "e/s01e02", "e/s01e03", "e/s02e01", "e/s02e02" } },
         .{ .choice = "s02", .want = &.{ "e/s02e01", "e/s02e02" } },
@@ -961,6 +999,11 @@ test "a series' choice of episodes: next, unwatched, a season's, or all" {
         for (c.want, got) |w, g| try std.testing.expectEqualStrings(w, g);
     }
     for ([_][]const u8{ "", "0", "s", "sx", "none" }) |none| try std.testing.expectEqual(@as(?Choice, null), Choice.parse(none));
+
+    // Sizes: each file is 1,000 bytes, and none is here.
+    try std.testing.expectEqual(Size{ .size = 2000, .needed = 2000 }, try sizeOf(&r, arena, "t/s/firefly/-", .{ .next = 2 }, null));
+    try std.testing.expectEqual(Size{ .size = 6000, .needed = 6000 }, try sizeOf(&r, arena, "t/s/firefly/-", .all, null));
+    try std.testing.expectEqual(Size{ .size = 3000, .needed = 3000 }, try sizeOf(&r, arena, "t/s/firefly/-/e/s01", null, null));
 
     // Chosen, then none.
     try setNext(&r, arena, "t/s/firefly/-", .unwatched);

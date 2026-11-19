@@ -69,7 +69,8 @@ void cq_race_lost(cq_library *library, const char *url);
 // cq_download wants a title, season
 // (TITLE/e/s01), or item kept, in a quality (null: the commonest);
 // cq_download_next chooses which of a series' episodes download as it's
-// watched: the next N ("3"), "unwatched", a season's unwatched ("s02"),
+// watched: the "current" one, the next N ("3"), "unwatched", a season's
+// unwatched ("s02"),
 // or "all", kept however watched ("" or "0" stops); cq_download_remove
 // deletes and stops wanting; cq_downloads is all of it as JSON;
 // cq_reconcile (long, its own connection) fetches and deletes to
@@ -78,6 +79,11 @@ int cq_downloads_configure(cq_library *library, const char *dir, const char *ser
 int cq_download(cq_library *library, const char *key, const char *quality);
 int cq_download_remove(cq_library *library, const char *key);
 int cq_download_next(cq_library *library, const char *title_key, const char *choice);
+// What downloading would come to, as JSON: per choice in choices_json (an
+// array of strings, each a series' choice as cq_download_next takes it, key
+// its title, or "" for key's own files in quality, NULL for the commonest),
+// its total size and what of it isn't here yet (needed), in bytes.
+char *cq_download_sizes(cq_library *library, const char *key, const char *choices_json, const char *quality);
 // Keeps a download (an item), so it's never deleted as watched; 0 lets it
 // go.
 int cq_keep(cq_library *library, const char *item_key, int on);
