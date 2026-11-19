@@ -139,18 +139,6 @@ struct InspectorView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("Episodes").font(.headline)
                 Spacer()
-                // Beside the list it starts, and only where Play wouldn't
-                // start there anyway.
-                if Playback.nextIndex(items) != 0 {
-                    Button {
-                        if let request = Playback.request(detail, items: items, from: 0, quality: quality) { play(request) }
-                    } label: {
-                        Label("Restart", systemImage: "backward.end.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Play the season from its first episode, the rest queued")
-                }
                 qualityPicker(items)
             }
             .padding(.bottom, 6)
