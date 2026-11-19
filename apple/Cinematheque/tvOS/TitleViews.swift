@@ -8,6 +8,8 @@ struct MovieView: View {
     @Environment(Library.self) private var library
     @State private var detail: TitleDetail?
     @State private var playing: PlayRequest?
+    /// The quality chosen in its picker, if one was.
+    @State private var quality: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 80) {
@@ -23,20 +25,21 @@ struct MovieView: View {
                     HStack(spacing: 30) {
                         if Playback.nextItem(detail, season: nil)?.inProgress == true {
                             Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items), overFromStart: true)
+                                playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality), overFromStart: true)
                             }
                         }
                         Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items))
+                            playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality))
                         }
                         Marks(detail: detail, items: detail.items)
+                        QualityPicker(detail: detail, items: detail.items, chosen: $quality)
                     }
                     if detail.items.count > 1 {
                         VStack(alignment: .leading, spacing: 16) {
                             Text("Versions").font(.headline)
                             ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
                                 Button(item.versionName, systemImage: item.watched ? "checkmark.circle.fill" : "play.circle") {
-                                    playing = Playback.request(detail, items: [item], from: 0, quality: detail.quality(for: [item]))
+                                    playing = Playback.request(detail, items: [item], from: 0, quality: detail.quality(for: [item], chosen: quality))
                                 }
                             }
                         }
@@ -53,7 +56,7 @@ struct MovieView: View {
         .task(id: library.revision) {
             detail = library.detail(tile.key)
             #if DEBUG
-            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items)) }
+            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality)) }
             #endif
         }
         .modifier(PlaysFullScreen(request: $playing))
@@ -69,6 +72,8 @@ struct SeriesView: View {
     @State private var detail: TitleDetail?
     @State private var season: Int?
     @State private var playing: PlayRequest?
+    /// The quality chosen in its picker, if one was.
+    @State private var quality: String?
 
     var body: some View {
         let seasons = library.tiles.filter { $0.key == key && $0.season != nil }
@@ -111,13 +116,14 @@ struct SeriesView: View {
                     HStack(spacing: 30) {
                         if Playback.nextItem(detail, season: tile.season)?.inProgress == true {
                             Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items), overFromStart: true)
+                                playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items, chosen: quality), overFromStart: true)
                             }
                         }
                         Button(Playback.playLabel(Playback.nextItem(detail, season: tile.season)), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items))
+                            playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items, chosen: quality))
                         }
                         Marks(detail: detail, items: items, season: tile.season)
+                        QualityPicker(detail: detail, items: items, chosen: $quality)
                     }
                     if let description = detail.fields["description"] {
                         Text(description).lineLimit(4).foregroundStyle(.secondary)
@@ -125,7 +131,7 @@ struct SeriesView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                             Button {
-                                playing = Playback.request(detail, items: items, from: index, quality: detail.quality(for: items))
+                                playing = Playback.request(detail, items: items, from: index, quality: detail.quality(for: items, chosen: quality))
                             } label: {
                                 Episode(item: item)
                             }
@@ -177,6 +183,29 @@ private struct Backdrop: View {
             .blur(radius: 60)
             .opacity(0.35)
             .ignoresSafeArea()
+    }
+}
+
+/// The quality to play, when there's a choice: the best this Apple TV plays
+/// (MP4, MOV, or M4V, up to its display's resolution), unless one's chosen,
+/// as a quicker copy in another quality may be, or a direct one.
+private struct QualityPicker: View {
+    let detail: TitleDetail
+    let items: [TitleDetail.Item]
+    @Binding var chosen: String?
+
+    var body: some View {
+        let labels = Array(Set(items.flatMap { $0.qualities.map(\.label) })).sorted()
+        if labels.count > 1 {
+            Picker(selection: Binding(get: { detail.quality(for: items, chosen: chosen) }, set: { chosen = $0 })) {
+                ForEach(labels, id: \.self) { label in
+                    Text(QualityChoice.name(label, in: items)).tag(Optional(label))
+                }
+            } label: {
+                Label("Quality", systemImage: "slider.horizontal.3")
+            }
+            .pickerStyle(.menu)
+        }
     }
 }
 #endif

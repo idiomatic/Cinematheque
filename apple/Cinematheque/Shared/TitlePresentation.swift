@@ -19,6 +19,12 @@ extension TitleDetail {
     func quality(for items: [Item]) -> String? {
         QualityChoice.best(items)
     }
+
+    /// `chosen`, if any of `items` has it, else the best this device plays.
+    func quality(for items: [Item], chosen: String?) -> String? {
+        guard let chosen, items.contains(where: { $0.qualities.contains { $0.label == chosen } }) else { return quality(for: items) }
+        return chosen
+    }
 }
 
 extension TitleDetail.Item {
