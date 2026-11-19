@@ -65,13 +65,13 @@ struct InspectorView: View {
             .controlSize(.large)
             // On a row of its own: renditions' names are long.
             if renditions.count > 1 {
-                Picker("Rendition", selection: $rendition) {
+                Picker("Quality", selection: $rendition) {
                     ForEach(renditions, id: \.self) { label in
                         Text(RenditionChoice.name(label, in: items)).tag(Optional(label))
                     }
                 }
                 .labelsHidden()
-                .help("The rendition to play")
+                .help("The quality to play")
             }
             if tile.season == nil, let item = items.first, item.inProgress, item.duration > 0 {
                 progress(item, key: "\(detail.key)/\(item.key)")

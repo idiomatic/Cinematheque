@@ -879,15 +879,15 @@ fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
 
 /// Forgets an unavailable directory of a source (by ID or URL), as if it
 /// were deleted: its copies go, for every device.
-export fn cq_forget_unavailable(lib: *Library, source: [*:0]const u8, dir: [*:0]const u8) c_int {
-    return status(lib, forgetUnavailable, .{ std.mem.span(source), std.mem.span(dir) });
+export fn cq_remove_unavailable(lib: *Library, source: [*:0]const u8, dir: [*:0]const u8) c_int {
+    return status(lib, removeUnavailable, .{ std.mem.span(source), std.mem.span(dir) });
 }
 
-fn forgetUnavailable(lib: *Library, arena: std.mem.Allocator, source: []const u8, dir: []const u8) !void {
+fn removeUnavailable(lib: *Library, arena: std.mem.Allocator, source: []const u8, dir: []const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
     const r = try lib.main();
-    _ = try library.forgetUnavailable(r, arena, lib.now(), try library.findSource(r, arena, source), dir);
+    _ = try library.removeUnavailable(r, arena, lib.now(), try library.findSource(r, arena, source), dir);
 }
 
 /// Adds a source by URL, as typed, with its rendition and the prefix of

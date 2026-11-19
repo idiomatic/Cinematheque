@@ -175,12 +175,13 @@ pub fn source(app: *App, c: Command) !void {
         defer r.close();
         const rp = try lib.setSource(&r, app.arena, app.now(), c.rest[0], c.args.get("--rendition"), c.args.get("--skip"));
         try app.out.print("{s}  rendition: \"{s}\", skip: \"{s}\"; crawl to apply\n", .{ rp.id, rp.layout.rendition, rp.layout.skip });
-    } else if (c.is("forget", 2, &.{})) {
+    } else if (c.is("remove", 1, &.{"--unavailable"}) and c.args.get("--unavailable") != null) {
         var r = try app.open();
         defer r.close();
         const rp = try lib.findSource(&r, app.arena, c.rest[0]);
-        const n = try lib.forgetUnavailable(&r, app.arena, app.now(), rp, c.rest[1]);
-        try app.out.print("forgot /{s} and its {d} copies\n", .{ std.mem.trim(u8, c.rest[1], "/"), n });
+        const dir = c.args.get("--unavailable").?;
+        const n = try lib.removeUnavailable(&r, app.arena, app.now(), rp, dir);
+        try app.out.print("removed /{s}'s {d} copies\n", .{ std.mem.trim(u8, dir, "/"), n });
     } else if (c.is("remove", 1, &.{})) {
         var r = try app.open();
         defer r.close();

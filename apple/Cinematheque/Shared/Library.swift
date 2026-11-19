@@ -369,7 +369,7 @@ final class Library {
 
     /// Forgets a source's unavailable directory, as if it were deleted: its
     /// copies go, for every device.
-    func forgetUnavailable(_ source: String, _ dir: String) { check { cq_forget_unavailable($0, source, dir) } }
+    func removeUnavailable(_ source: String, _ dir: String) { check { cq_remove_unavailable($0, source, dir) } }
 
     /// Removes another of this person's devices from the library: its later
     /// writes are refused, and it's served no more.

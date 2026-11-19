@@ -142,8 +142,8 @@ $cq $d crawl | grep -q "0 directories unavailable" || { echo "FAIL: a drive back
 rm "$work/drives/archive0001/Archive Movie (2001).mkv"
 drives
 $cq $d crawl > /dev/null
-$cq $d source forget http://127.0.0.1:8194/ /archive0001
-$cq $d source show http://127.0.0.1:8194/ | grep -q "copies     1" || { echo "FAIL: source forget"; exit 1; }
+$cq $d source remove http://127.0.0.1:8194/ --unavailable /archive0001
+$cq $d source show http://127.0.0.1:8194/ | grep -q "copies     1" || { echo "FAIL: source remove --unavailable"; exit 1; }
 kill $d_pid
 
 $cq $c device add http://127.0.0.1:8191

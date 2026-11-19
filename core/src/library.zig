@@ -556,7 +556,7 @@ pub const UnavailableDirs = struct {
 
 /// Forgets an unavailable directory, as if it were deleted: its copies go,
 /// for every device. Returns how many.
-pub fn forgetUnavailable(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source: Source, dir: []const u8) !usize {
+pub fn removeUnavailable(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source: Source, dir: []const u8) !usize {
     const d = std.mem.trim(u8, dir, "/");
     const held_field = try std.fmt.allocPrint(arena, "held:{s}", .{source.id});
     var gone: std.ArrayList([]const u8) = .empty;
@@ -1248,7 +1248,7 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
     _ = try Fresh.crawl(&r, io, arena, &client, 7000 + unavailable_expiry_ms, source);
     try tmp.dir.deleteFile(io, "a/Alien (1979).mp4");
     _ = try Fresh.crawl(&r, io, arena, &client, 8000 + unavailable_expiry_ms, source);
-    try t.expectEqual(@as(usize, 1), try forgetUnavailable(&r, arena, 9000 + unavailable_expiry_ms, source, "/"));
+    try t.expectEqual(@as(usize, 1), try removeUnavailable(&r, arena, 9000 + unavailable_expiry_ms, source, "/"));
     try t.expectEqual(@as(i64, 0), try countCopies(&r, arena, source));
     try t.expectEqual(@as(usize, 0), (try unavailableDirs(&r, arena, &source.id)).len);
 

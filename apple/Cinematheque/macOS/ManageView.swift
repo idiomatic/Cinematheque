@@ -89,7 +89,7 @@ private struct DeviceRow: View {
             if device.you {
                 Text("This Mac").foregroundStyle(.secondary)
             } else {
-                RemoveButton(help: "Remove it from your devices: what it changes from now on is refused, and it isn't synced with. It still knows your secret, so it could be paired again.") {
+                RemoveButton(help: "Remove it from your devices: what it changes from now on is refused, and your devices stop catching up with it. It could still be paired again, as a new device.") {
                     withAnimation { library.removeDevice(device.key) }
                 }
             }
@@ -256,7 +256,7 @@ private struct DevicesPane: View {
             } footer: {
                 Text(library.servingPort != nil
                     ? "Your other devices, and the people who share the library, get your changes (such as where you are in what you're watching) from this Mac, and can play videos from its folders, while Cinematheque is open."
-                    : "Your changes reach your other devices only when this Mac syncs with them.")
+                    : "Your changes reach your other devices only when this Mac catches up with them.")
             }
             Section {
                 ForEach(nearby.filter { $0.pairing != nil }) { device in
@@ -476,15 +476,15 @@ private struct SourceSheet: View {
                 }
             }
             Section("Advanced", isExpanded: $advanced) {
-                TextField("Rendition", text: $rendition, prompt: Text("From file names"))
+                TextField("Quality", text: $rendition, prompt: Text("From file names"))
             }
             if advanced {
-                Footer("Name its rendition (e.g., 4K HDR) only if its files' names don't show it.")
+                Footer("Name its quality (e.g., 4K HDR) only if its files' names don't show it.")
                 Section {
                     TextField("Skip names starting with", text: $skip)
                 }
             }
-            // As it is now, so one forgotten leaves the list.
+            // As it is now, so one removed leaves the list.
             if let current = library.sources.first(where: { $0.id == source?.id }), !current.unavailable.isEmpty {
                 Section {
                     ForEach(current.unavailable, id: \.dir) { gone in
@@ -492,14 +492,17 @@ private struct SourceSheet: View {
                             Label(gone.name, systemImage: "externaldrive.badge.questionmark")
                             Text("since \(gone.date.formatted(date: .abbreviated, time: .omitted))").foregroundStyle(.secondary)
                             Spacer()
-                            Button("Forget") { library.forgetUnavailable(current.id, gone.dir) }
-                                .help("Forget it as if deleted: its videos go, for every device")
+                            Button("Remove Videos", systemImage: "minus.circle") { library.removeUnavailable(current.id, gone.dir) }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.secondary)
+                                .help("Remove its videos from the library, for every device, as if it were deleted; they come back if it does")
                         }
                     }
                 } header: {
                     Text("Unavailable")
                 } footer: {
-                    Text("Folders that held videos and are empty now, as a drive's is when it's unplugged. Their videos stay, dimmed, until they're back, for a year, or until you forget them.")
+                    Text("Folders that held videos and are empty now, as a drive's is when it's unplugged. Their videos stay, dimmed, until they're back, for a year, or until you remove them.")
                 }
             }
         }

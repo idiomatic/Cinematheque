@@ -1,4 +1,4 @@
-# Device
+# Command-line app
 
 The command-line app, `cinematheque`, for macOS and Linux, on the [core](../core/README.md). It does everything a player does but play: it founds or joins a library, pairs devices, crawls sources, reviews what it found, records progress, and serves and syncs with other devices. Run in the background, it's a library's always-on hub.
 
@@ -43,7 +43,7 @@ The other device keeps its state in a directory of its own, its home. By default
 
 ## The command line
 
-State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `alias`, `progress`, `device`, and `agent`. Actions on the whole device are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
+State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `alias`, `progress`, `device`, and `agent`. Actions on the whole app are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
 
 * **Options** are named and may come anywhere: `--port PORT`, `--media DIR`, `--rendition NAME`, `--skip PREFIX`, and `--workers WORKERS` take a value. `--leave`, `--watched`, and `--unwatched` are flags. `--home DIR` works with every command.
 * **Help:** [usage.txt](src/usage.txt) lists every command, and is the help, built into the binary. `-h` or `--help` prints it all. With a noun or action (`cinematheque source -h`), or for a noun alone, only that one's commands are printed.
@@ -74,7 +74,7 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 * `source add URL` adds a source. The URL is percent-encoded as typed, and given a trailing slash. `--rendition NAME` names its files' rendition (e.g., a HandBrake preset's), and `--skip PREFIX` skips names beginning with it (default `,`). It prints the source's ID, a hash of its URL.
 * `source list` and `source show SOURCE` print sources' settings; `show` adds how many copies of files the source holds.
 * `source set SOURCE` changes `--rendition` or `--skip`; the next crawl applies it. `source remove SOURCE` removes the source and every copy it had, for every device.
-* A directory that held files and lists none now, as an unplugged drive's mount point does, is unavailable: its copies stay, `crawl` counts it, and `source show` lists it (`unavailable     /archive0001, since 3 days ago`). It clears once the drive is back. `source forget SOURCE DIR` forgets one as if it were deleted, and its copies go, as they do on their own after a year.
+* A directory that held files and lists none now, as an unplugged drive's mount point does, is unavailable: its copies stay, `crawl` counts it, and `source show` lists it (`unavailable     /archive0001, since 3 days ago`). It clears once the drive is back. `source remove SOURCE --unavailable DIR` removes its copies as if it were deleted, as they go on their own after a year.
 * `crawl [SOURCE]` crawls every source, or one, with 16 concurrent workers unless `--workers` says otherwise. It reuses the last crawl's listing of any directory whose files haven't changed. Each source gets a line of requests, files, titles added, copies changed, and duplicates. Then covers and metadata are described, with one line of totals.
 
 ### Titles
@@ -102,7 +102,7 @@ Progress are private: they're written on this device's private stream, and trave
 
 ### Devices, syncing, and serving
 
-* `serve` answers other devices' syncs (`/sync`) until stopped. It listens on `--port`, or else on 8008, falling back to any free port if 8008 is taken. It advertises the port it got by DNS-SD, with the library, the person, and the names of this device and person. `--media DIR` also serves a directory of videos at the root, so the other device is a source too: byte ranges, listings as JSON or HTML, and an `INDEX` of every file and directory, built at start and again once a minute old when asked for. It prints a line once listening.
+* `serve` answers other devices' syncs (`/sync`) until stopped. It listens on `--port`, or else on 8008, falling back to any free port if 8008 is taken. It advertises the port it got by DNS-SD, with the library, the person, and the names of this device and person. `--media DIR` also serves a directory of videos at the root, so this device is a source too: byte ranges, listings as JSON or HTML, and an `INDEX` of every file and directory, built at start and again once a minute old when asked for. It prints a line once listening.
 * `sync [URL]` syncs both ways with one device, or with every device of this library found nearby or added: it pulls what this device lacks, then pushes what the other does. Each prints a line: operations pulled, how many were new, lost (older than what's held), known, rejected (from a device not yet admitted), and refused (past a cutoff), then batches and size, how many were pushed, and time. A device that can't be reached prints its error, and the rest go on.
 * `refresh` syncs with every device, then crawls every source: the catalog others have already described arrives first, so the crawl finds little to do.
 * `device list` then prints devices found nearby (with their libraries) and addresses added. `device add URL` adds the address of a device that can't be found, such as one beyond a NAT, on this device only; `device forget URL` forgets it. A URL may be a device's base or its `/sync`.
@@ -168,7 +168,7 @@ What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 
 * [main.zig](src/main.zig): the command line. `Args` parses words and options (an option not among the flags takes the next word as its value) and expands the `ls` and `show` shortcuts. `Command.is` matches a verb, its arity, and the options it allows. The nouns and actions are tables of functions, and `help` prints a noun's or action's part of [usage.txt](src/usage.txt), which it embeds. It opens the home and the `Device` every command acts with (the store, the output, and the clock), and turns `error.Usage` into help and status 2.
 * [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `source`, `title`, `alias`, `progress`, `agent`), sending pairing codes (`pairWith`, which finds the one device offering nearby), and `crawl` and `refresh`, which crawl sources and then describe them.
-* [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync` and `pullAll`, which find devices by DNS-SD and in `local` (`device:URL`); `device`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
+* [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync` and `pullAll`, which find devices by DNS-SD and in `local` (`address:URL`); `device`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
 * [agent.zig](src/agent.zig): the launch agents' property lists, installed and removed by `launchctl bootstrap` and `bootout`.
 * [usage.txt](src/usage.txt): the commands and the help.
 * [test.sh](test.sh): the end-to-end test. Devices on one computer, each with a home of its own, found a library and serve a generated source as media. They crawl, pair (to join, and to be another of a person's devices) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that progress travel only between the person's devices.
