@@ -98,6 +98,10 @@ private struct Row: View {
                 .padding(.vertical, 30)
             }
             .scrollClipDisabled()
+            // The whole row's width takes focus moving into it, so moving
+            // down from the tab bar goes to the first row's nearest cover,
+            // not to one further down that's more nearly beneath the tab.
+            .focusSection()
         }
     }
 }
