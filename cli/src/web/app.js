@@ -292,7 +292,26 @@ async function titlePage(key, season) {
       el("span", { class: "time" }, ""),
     ))));
   }
+  describe(detail, items);
   return [el("div", { class: "page" }, art, el("div", {}, body))];
+}
+
+/// Items asked to be described, so each is asked once a page load.
+const described = new Set();
+
+/// Reads the episodes shown that a crawl didn't describe (their titles and
+/// descriptions, from their files), one at a time, then shows the page again.
+async function describe(detail, items) {
+  const page = location.hash;
+  let any = false;
+  for (const item of items) {
+    const key = `${detail.key}/${item.key}`;
+    if (!episodeCode(item.key) || item.fields.title || described.has(key)) continue;
+    described.add(key);
+    if (location.hash !== page || session) return;
+    await api("describe", { item: key }).then(() => { any = true; }).catch(() => {});
+  }
+  if (any && location.hash === page && !session) route();
 }
 
 // Playing.
@@ -478,6 +497,7 @@ async function route() {
       const key = segments.slice(0, 4).join("/");
       const season = segments.length > 4 ? Number(segments[4]) : null;
       parts = await titlePage(key, season);
+      show("");
     } else {
       parts = (shelves[hash] || shelves.home)();
       show(search.value ? "" : counts());

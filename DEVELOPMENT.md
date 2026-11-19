@@ -59,7 +59,7 @@ Open:
 
 * **Windows:** two POSIX calls remain outside `Io`, each where Zig 0.17's `Io` can't yet do the job, and each needs a Windows path: the server's socket setup (`listen` in serve.zig, since `Io`'s `reuse_address` also sets `SO_REUSEPORT`), and peeking at DNS-SD's socket (`poll` with no wait, in discover.zig, since `Io` can't wait on a foreign socket). Zig 0.17's `Io` also has no connect timeout (it panics), so connecting relies on deadlines around it, as copy racing's.
 * **Platforms:** iOS and iPadOS; Linux and Windows; later Wayland.
-* **Web client** (`serve --web` is built; see [AGENTS.md](AGENTS.md)), still to come: describing a season's episodes on demand, as the apps do (only those a crawl described have titles and descriptions); syncing after a change, as the apps do, rather than waiting for other devices' syncs; and a code once per browser, for networks where anyone reaching the port shouldn't.
+* **Web client** (`serve --web` is built; see [AGENTS.md](AGENTS.md)), still to come: syncing after a change, as the apps do, rather than waiting for other devices' syncs; and a code once per browser, for networks where anyone reaching the port shouldn't.
 * **Browsing:** by intersections of facets (e.g., new releases, thrillers or mysteries, starring A-listers, English audio), along the title hierarchy, since set-top remotes make typing slow and a library runs to thousands of titles. Full devices query facets in SQLite; thin players hold a bitmap per small facet's value, and posting lists for people.
 * **Cover art, still to come** (what's built is in [AGENTS.md](AGENTS.md)):
   * **PNG placeholders:** PNG covers (a fraction of a percent, in a reference library) have none; `std.compress.flate` would decode them.

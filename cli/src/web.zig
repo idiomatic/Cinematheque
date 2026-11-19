@@ -142,6 +142,13 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     } else if (std.mem.eql(u8, name, "forget")) {
         const p = try std.json.parseFromSliceLeaky(struct { item: []const u8 }, arena, body, .{});
         try core.library.removeProgress(&r, arena, now(io), p.item);
+    } else if (std.mem.eql(u8, name, "describe")) {
+        // An episode's title, description, and duration, read from its
+        // file, as the apps describe a season's as it's shown.
+        const p = try std.json.parseFromSliceLeaky(struct { item: []const u8 }, arena, body, .{});
+        var client: http.Client = .{ .allocator = gpa, .io = io };
+        defer client.deinit();
+        try core.art.describeItem(&r, arena, &client, now(io), p.item);
     } else return error.NotFound;
     return sendJson(arena, request, true);
 }
