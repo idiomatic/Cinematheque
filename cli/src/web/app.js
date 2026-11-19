@@ -174,14 +174,22 @@ function seriesGrid(tiles) {
   })];
 }
 
+/// A shelf's tiles as the Mac's grid lays them out: its movies first, then
+/// each series' seasons under its name, so each shape has rows of its own.
+function shelfGrid(tiles) {
+  const movies = tiles.filter((t) => t.kind === "movie");
+  const seasons = tiles.filter((t) => t.kind === "series");
+  return [movies.length ? grid(movies) : null, ...(seasons.length ? seriesGrid(seasons) : [])].filter(Boolean);
+}
+
 const shelves = {
   home: () => {
     const all = matching(library.tiles);
     const going = all.filter((t) => t.started && !t.watched);
     const listed = all.filter((t) => library.watchlist.has(listKey(t)));
     const parts = [];
-    if (going.length) parts.push(el("h2", {}, "Continue Watching"), grid(going));
-    if (listed.length) parts.push(el("h2", {}, "Watchlist"), grid(listed.sort(byName)));
+    if (going.length) parts.push(el("h2", {}, "Continue Watching"), ...shelfGrid(going));
+    if (listed.length) parts.push(el("h2", {}, "Watchlist"), ...shelfGrid(listed.sort(byName)));
     return parts.length ? parts : [empty("Nothing in progress or on your watchlist yet.")];
   },
   movies: () => {
@@ -194,11 +202,11 @@ const shelves = {
   },
   watchlist: () => {
     const t = matching(library.tiles.filter((t) => library.watchlist.has(listKey(t)))).sort(byName);
-    return t.length ? [grid(t)] : [empty("Nothing on your watchlist.")];
+    return t.length ? shelfGrid(t) : [empty("Nothing on your watchlist.")];
   },
   played: () => {
     const t = matching(library.tiles.filter((t) => t.started || t.watched)).sort(byName);
-    return t.length ? [grid(t)] : [empty("Nothing played yet.")];
+    return t.length ? shelfGrid(t) : [empty("Nothing played yet.")];
   },
 };
 
