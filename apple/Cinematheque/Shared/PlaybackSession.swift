@@ -13,8 +13,6 @@ final class PlaybackSession {
     /// end by itself.
     let player: AVQueuePlayer
     /// Called as each item starts, e.g., for a window's title.
-    /// The item reconciling downloads last began for (macOS).
-    private var reconciled: String?
     var onItem: ((PlayRequest.Entry) -> Void)?
     /// Called once the queue's last item has played to its end.
     var onFinished: (() -> Void)?
@@ -34,6 +32,24 @@ final class PlaybackSession {
     private var ended: NSObjectProtocol?
     private var current: NSKeyValueObservation?
     private var status: NSKeyValueObservation?
+    /// Once closed, it doesn't start.
+    private var closed = false
+    #if os(macOS)
+    /// The item reconciling downloads last began for.
+    private var reconciled: String?
+    /// Held while it plays: the display doesn't dim or sleep.
+    private var awake: NSObjectProtocol?
+    #endif
+
+    /// Playback's steps and their times, in the system's log (Xcode's
+    /// console), to tell where a slow start goes.
+    static let log = Logger(subsystem: "com.rbrian.cinematheque", category: "playback")
+    /// Counts sessions, to tell them apart in the log.
+    private static var made = 0
+    private let number: Int = {
+        made += 1
+        return made
+    }()
 
     /// `prepare` may describe each player item, e.g., with metadata for a
     /// system player's info panel.
@@ -55,16 +71,6 @@ final class PlaybackSession {
         player = AVQueuePlayer(items: items)
     }
 
-    /// Once closed, it doesn't start.
-    private var closed = false
-
-    /// Counts sessions, to tell them apart in the log.
-    private static var made = 0
-    private let number: Int = {
-        made += 1
-        return made
-    }()
-
     /// Readies the first item, paused, at the request's start (resuming,
     /// `Platform.replay` before it): loaded, sought, and buffered
     /// (prerolled), so it plays at once.
@@ -75,7 +81,7 @@ final class PlaybackSession {
         func lap() -> String {
             let now = clock.now
             defer { mark = now }
-            return (now - mark).formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow))
+            return (now - mark).logged
         }
         guard let current = player.currentItem else { return }
         let preferred = await prefer(current)
@@ -91,10 +97,6 @@ final class PlaybackSession {
         _ = await player.preroll(atRate: 1)
         Self.log.notice("Starting #\(self.number): prerolled in \(lap(), privacy: .public)")
     }
-
-    /// Playback's steps and their times, in the system's log (Xcode's
-    /// console), to tell where a slow start goes.
-    static let log = Logger(subsystem: "com.rbrian.cinematheque", category: "playback")
 
     /// Puts the copy of `playerItem`'s item whose server answers first
     /// (copy racing, `Library.race`) in its place, if that's another copy; returns
@@ -256,11 +258,6 @@ final class PlaybackSession {
         #endif
     }
 
-    #if os(macOS)
-    /// Held while it plays: the display doesn't dim or sleep.
-    private var awake: NSObjectProtocol?
-    #endif
-
     /// Stops where it is, as when its window closes.
     func close() {
         closed = true
@@ -282,4 +279,9 @@ final class PlaybackSession {
         // Pausing or leaving: other devices hear of it now.
         library.changed()
     }
+}
+
+extension Duration {
+    /// As the log tells it, e.g., "3s 117ms".
+    var logged: String { formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow)) }
 }

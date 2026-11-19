@@ -2,8 +2,9 @@
 //! copy's server is asked at once, briefly (`HEAD`, `timeout_ms`), and
 //! those that answer go first, in their order, as soon as the best-placed
 //! one has (or `grace_ms` after any has), so a copy on a device that's
-//! asleep costs a moment rather than a network timeout; like Happy Eyeballs (RFC 8305), which races a
-//! server's addresses, but over copies on different servers. A server that
+//! asleep costs a moment rather than a network timeout; like Happy
+//! Eyeballs (RFC 8305), which races a server's addresses, but over copies
+//! on different servers. A server that
 //! didn't answer lately (`remembered_ms`, noted in `Memory`, on this device
 //! only) is asked last.
 //!
@@ -221,6 +222,13 @@ fn serverOf(buf: []u8, url: []const u8) ?[]const u8 {
     return std.fmt.bufPrint(buf, "{s}:{d}", .{ name, port }) catch null;
 }
 
+/// The `HEAD` of a server's path, asking it to close once it's answered.
+const head_format = "HEAD {s} HTTP/1.1\r\nHost: {s}\r\nConnection: close\r\n\r\n";
+
+fn headArgs(server: Server) struct { []const u8, []const u8 } {
+    return .{ if (server.path.len == 0) "/" else server.path, server.host };
+}
+
 /// Whether the server answers at all (any status will do): connected to, for
 /// TLS, which a status would need a handshake to read; else answering a
 /// `HEAD` of its path. The race's deadline bounds it.
@@ -234,7 +242,7 @@ fn answers(io: Io, server: Server) bool {
     if (server.tls) return true;
     var out_buf: [1024]u8 = undefined;
     var writer = stream.writer(io, &out_buf);
-    writer.interface.print("HEAD {s} HTTP/1.1\r\nHost: {s}\r\nConnection: close\r\n\r\n", .{ if (server.path.len == 0) "/" else server.path, server.host }) catch return false;
+    writer.interface.print(head_format, headArgs(server)) catch return false;
     writer.interface.flush() catch return false;
     var in_buf: [64]u8 = undefined;
     var reader = stream.reader(io, &in_buf);
@@ -293,7 +301,7 @@ fn answersAt(io: Io, addresses: []const Io.net.IpAddress, server: Server) bool {
     if (server.tls) return true;
     const fd = fds[won].fd;
     var head: [1024]u8 = undefined;
-    const request = std.fmt.bufPrint(&head, "HEAD {s} HTTP/1.1\r\nHost: {s}\r\nConnection: close\r\n\r\n", .{ if (server.path.len == 0) "/" else server.path, server.host }) catch return false;
+    const request = std.fmt.bufPrint(&head, head_format, headArgs(server)) catch return false;
     if (c.send(fd, request.ptr, request.len, 0) != @as(isize, @intCast(request.len))) return false;
     // Its first byte, whatever it says.
     var wait = [_]c.pollfd{.{ .fd = fd, .events = c.POLL.IN, .revents = 0 }};

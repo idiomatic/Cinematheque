@@ -62,7 +62,7 @@ struct PlaysFullScreen: ViewModifier {
         let making = clock.now
         let artwork = await TVPlayer.artwork(request, library)
         let session = TVPlayer.session(request, library, artwork: artwork)
-        PlaybackSession.log.notice("Playing: made the session in \((clock.now - making).formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow)), privacy: .public)")
+        PlaybackSession.log.notice("Playing: made the session in \((clock.now - making).logged, privacy: .public)")
         // Superseded, it stops loading at once.
         await withTaskCancellationHandler {
             await session.prepare()
@@ -132,8 +132,7 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         controller.player = session.player
     }
 
-    /// Presents a player over whatever's frontmost, unanimated; `gone` once
-    /// it's left.
+    /// Presents a player over whatever's frontmost, unanimated:
     /// `dismissed` once it's off screen (the page beneath still black);
     /// `gone` once the display has its own mode back, to fade the page in.
     static func present(_ session: PlaybackSession, dismissed: @escaping () -> Void, gone: @escaping () -> Void) {
@@ -224,10 +223,17 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         let asked = clock.now
         manager.preferredDisplayCriteria = nil
         return {
-            while !manager.isDisplayModeSwitchInProgress, clock.now - asked < .milliseconds(500) { try? await Task.sleep(for: .milliseconds(50)) }
-            while manager.isDisplayModeSwitchInProgress, clock.now - asked < .seconds(5) { try? await Task.sleep(for: .milliseconds(50)) }
-            PlaybackSession.log.notice("Leaving: gave the display back its mode in \((clock.now - asked).formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow)), privacy: .public)")
+            await Self.switched(manager, since: asked)
+            PlaybackSession.log.notice("Leaving: gave the display back its mode in \((clock.now - asked).logged, privacy: .public)")
         }
+    }
+
+    /// Waits for the display's switch of mode, asked for at `asked`: up to
+    /// half a second for it to start, and five for it to end.
+    private static func switched(_ manager: AVDisplayManager, since asked: ContinuousClock.Instant) async {
+        let clock = ContinuousClock()
+        while !manager.isDisplayModeSwitchInProgress, clock.now - asked < .milliseconds(500) { try? await Task.sleep(for: .milliseconds(50)) }
+        while manager.isDisplayModeSwitchInProgress, clock.now - asked < .seconds(5) { try? await Task.sleep(for: .milliseconds(50)) }
     }
 
     // Menu (Back) leaves through the curtain, not at once.
@@ -238,20 +244,17 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
 
     /// Asks the display for the video's frame rate and dynamic range (as
     /// Match Content does, if it's on), and waits for it to switch, if it
-    /// does: up to half a second for the switch to start, and five for it
-    /// to end.
+    /// does.
     private func matchDisplay(_ window: UIWindow) async {
         let clock = ContinuousClock()
         let start = clock.now
-        defer { PlaybackSession.log.notice("Starting: matched the display in \((clock.now - start).formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow)), privacy: .public)") }
+        defer { PlaybackSession.log.notice("Starting: matched the display in \((clock.now - start).logged, privacy: .public)") }
         guard let asset = session.player.currentItem?.asset else { return }
         let manager = window.avDisplayManager
         guard manager.isDisplayCriteriaMatchingEnabled, let criteria = try? await asset.load(.preferredDisplayCriteria) else { return }
         self.window = window
         manager.preferredDisplayCriteria = criteria
-        let asked = clock.now
-        while !manager.isDisplayModeSwitchInProgress, clock.now - asked < .milliseconds(500) { try? await Task.sleep(for: .milliseconds(50)) }
-        while manager.isDisplayModeSwitchInProgress, clock.now - asked < .seconds(5) { try? await Task.sleep(for: .milliseconds(50)) }
+        await Self.switched(manager, since: clock.now)
     }
 
     /// A session for `request`, its items described for the info panel.
@@ -267,9 +270,8 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
     /// takes longer than the page's fade to come (from the cover cache, it
     /// doesn't).
     @MainActor static func artwork(_ request: PlayRequest, _ library: Library) async -> Data? {
-        guard let cut = request.item.range(of: "/v/") ?? request.item.range(of: "/e/") else { return nil }
-        let key = String(request.item[..<cut.lowerBound])
-        let season = request.item[cut.upperBound...].hasPrefix("s") ? Int(request.item[cut.upperBound...].dropFirst().prefix(2)) : nil
+        guard let (key, rest) = split(request.item) else { return nil }
+        let season = rest.hasPrefix("e/s") ? Int(rest.dropFirst(3).prefix(2)) : nil
         let id = season.map { "\(key)#\($0)" } ?? key
         guard let cover = (library.tiles.first { $0.id == id } ?? library.tiles.first { $0.key == key })?.cover else { return nil }
         return await withTaskGroup(of: Data?.self) { group in
@@ -287,15 +289,19 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         var out: [String: String] = [:]
         var details: [String: TitleDetail] = [:]
         for entry in [first] + request.queue {
-            // An item key is its title's key, then `/v/` or `/e/`.
-            guard let cut = entry.item.range(of: "/v/") ?? entry.item.range(of: "/e/") else { continue }
-            let titleKey = String(entry.item[..<cut.lowerBound])
-            let itemKey = String(entry.item[entry.item.index(after: cut.lowerBound)...])
+            guard let (titleKey, itemKey) = split(entry.item) else { continue }
             if details[titleKey] == nil { details[titleKey] = library.detail(titleKey) }
             let detail = details[titleKey]
             out[entry.item] = detail?.items.first { $0.key == itemKey }?.fields["description"] ?? detail?.fields["description"]
         }
         return out
+    }
+
+    /// An item key's title key, and the rest after it (`v/...` or `e/...`;
+    /// an episode's version is `e/.../v/...`).
+    private static func split(_ item: String) -> (String, String)? {
+        guard let cut = item.range(of: "/e/") ?? item.range(of: "/v/") else { return nil }
+        return (String(item[..<cut.lowerBound]), String(item[item.index(after: cut.lowerBound)...]))
     }
 
     private static func metadata(title: String, description: String?, artwork: Data?) -> [AVMetadataItem] {
