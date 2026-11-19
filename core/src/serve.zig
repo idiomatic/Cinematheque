@@ -162,7 +162,14 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
     var group: Io.Group = .init;
     defer group.cancel(io);
     while (true) {
-        const stream = try listener.accept(io);
+        // A connection that fails to arrive (out of file descriptors, say)
+        // is no reason to stop serving: wait a moment, and carry on.
+        const stream = listener.accept(io) catch |err| {
+            if (err == error.Canceled) return err;
+            std.log.err("accept: {t}", .{err});
+            io.sleep(.fromMilliseconds(200), .awake) catch return error.Canceled;
+            continue;
+        };
         if (options.stop) |stop| if (stop.load(.acquire)) {
             stream.close(io);
             return;
@@ -229,14 +236,22 @@ fn respond(ctx: *const Context, request: *http.Server.Request) !void {
     const within = if (found.within.len == 0) "/" else found.within;
 
     if (std.mem.eql(u8, within, "/INDEX") and mount.index != null) {
+        // Copied under the lock, so a slow client doesn't hold others up.
         try mount.index_mutex.lock(ctx.io);
-        defer mount.index_mutex.unlock(ctx.io);
-        try mount.freshen(ctx.io, ctx.gpa, nowMs(ctx.io));
-        if (header(request, "if-none-match")) |tag| if (std.mem.eql(u8, tag, &mount.index_etag))
-            return request.respond("", .{ .status = .not_modified, .extra_headers = &.{.{ .name = "etag", .value = &mount.index_etag }} });
-        return request.respond(mount.index.?, .{ .extra_headers = &.{
+        var etag: [18]u8 = undefined;
+        const body = blk: {
+            defer mount.index_mutex.unlock(ctx.io);
+            try mount.freshen(ctx.io, ctx.gpa, nowMs(ctx.io));
+            etag = mount.index_etag;
+            if (header(request, "if-none-match")) |tag| if (std.mem.eql(u8, tag, &etag)) break :blk null;
+            break :blk try ctx.gpa.dupe(u8, mount.index.?);
+        };
+        if (body == null)
+            return request.respond("", .{ .status = .not_modified, .extra_headers = &.{.{ .name = "etag", .value = &etag }} });
+        defer ctx.gpa.free(body.?);
+        return request.respond(body.?, .{ .extra_headers = &.{
             .{ .name = "content-type", .value = "text/plain; charset=utf-8" },
-            .{ .name = "etag", .value = &mount.index_etag },
+            .{ .name = "etag", .value = &etag },
         } });
     }
 
@@ -281,7 +296,9 @@ fn listing(ctx: *const Context, request: *http.Server.Request, root: Io.Dir, rel
     var first = true;
     while (try it.next(io)) |entry| {
         if (entry.name[0] == '.') continue;
-        const stat = try dir.statFile(io, entry.name, .{});
+        // An entry that can't be statted (a dangling symlink, a file gone
+        // since) isn't listed, rather than failing the listing.
+        const stat = dir.statFile(io, entry.name, .{}) catch continue;
         const is_dir = stat.kind == .directory;
         href.clearRetainingCapacity();
         try url.encode(gpa, &href, entry.name);
@@ -309,7 +326,7 @@ fn listing(ctx: *const Context, request: *http.Server.Request, root: Io.Dir, rel
 fn sendFile(ctx: *const Context, request: *http.Server.Request, root: Io.Dir, rel: []const u8, stat: Io.File.Stat) !void {
     const io = ctx.io;
     var etag_buf: [48]u8 = undefined;
-    const mtime: u64 = @intCast(@divTrunc(stat.mtime.nanoseconds, std.time.ns_per_s));
+    const mtime = unixSeconds(stat.mtime);
     const etag = try std.fmt.bufPrint(&etag_buf, "\"{x}-{x}\"", .{ mtime, stat.size });
 
     var start: u64 = 0;
@@ -408,8 +425,13 @@ fn appendHtml(gpa: std.mem.Allocator, out: *std.ArrayList(u8), s: []const u8) !v
     };
 }
 
+/// A time in seconds since 1970, or 0 for one before it.
+fn unixSeconds(t: Io.Timestamp) u64 {
+    return @intCast(@max(0, @divTrunc(t.nanoseconds, std.time.ns_per_s)));
+}
+
 fn appendRfc3339(gpa: std.mem.Allocator, out: *std.ArrayList(u8), t: Io.Timestamp) !void {
-    const secs: u64 = @intCast(@divTrunc(t.nanoseconds, std.time.ns_per_s));
+    const secs = unixSeconds(t);
     const es: std.time.epoch.EpochSeconds = .{ .secs = secs };
     const yd = es.getEpochDay().calculateYearDay();
     const md = yd.calculateMonthDay();
@@ -433,8 +455,9 @@ fn buildIndex(io: Io, gpa: std.mem.Allocator, root: Io.Dir) ![]u8 {
             continue;
         }
         if (entry.kind != .file) continue;
-        const stat = try entry.dir.statFile(io, entry.basename, .{});
-        try out.print(gpa, "{s}\t{d}\t{d}\n", .{ entry.path, stat.size, @divTrunc(stat.mtime.nanoseconds, std.time.ns_per_s) });
+        // A file that can't be statted (gone since, a dangling link) isn't listed.
+        const stat = entry.dir.statFile(io, entry.basename, .{}) catch continue;
+        try out.print(gpa, "{s}\t{d}\t{d}\n", .{ entry.path, stat.size, unixSeconds(stat.mtime) });
     }
     return out.toOwnedSlice(gpa);
 }

@@ -42,10 +42,14 @@ pub const Advertisement = struct {
 pub fn txtRecord(arena: std.mem.Allocator, pairs: []const [2][]const u8) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     for (pairs) |pair| {
-        const len = pair[0].len + 1 + pair[1].len;
-        if (len > 255) return error.TxtTooLong;
-        try out.append(arena, @intCast(len));
-        try out.print(arena, "{s}={s}", .{ pair[0], pair[1] });
+        // A value too long for its string (a name any member can set) is
+        // cut, not refused, at a character's start, so a device is still
+        // advertised.
+        if (pair[0].len + 1 > 255) return error.TxtTooLong;
+        var value = pair[1][0..@min(pair[1].len, 255 - pair[0].len - 1)];
+        while (value.len < pair[1].len and value.len > 0 and pair[1][value.len] & 0xc0 == 0x80) value = value[0 .. value.len - 1];
+        try out.append(arena, @intCast(pair[0].len + 1 + value.len));
+        try out.print(arena, "{s}={s}", .{ pair[0], value });
     }
     return out.items;
 }
@@ -234,4 +238,17 @@ test "TXT records round-trip" {
     try std.testing.expectEqualStrings("abc", s.get("library").?);
     try std.testing.expectEqualStrings("/sync", s.get("path").?);
     try std.testing.expect(s.get("lib") == null);
+}
+
+test "a TXT value too long is cut at a character, not refused" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    // 'é' is two bytes; an odd fit would cut one in half.
+    const long = try std.mem.concat(arena, u8, &@as([200][]const u8, @splat("é")));
+    const txt = try txtRecord(arena, &.{ .{ "name", long }, .{ "path", "/sync" } });
+    const n: usize = txt[0];
+    try std.testing.expect(n <= 255);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(txt[1 + 5 .. 1 + n]));
+    try std.testing.expectEqualStrings("path=/sync", txt[1 + n + 1 ..]);
 }
