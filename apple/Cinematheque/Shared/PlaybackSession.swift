@@ -101,8 +101,10 @@ final class PlaybackSession {
     /// the one to play.
     private func prefer(_ playerItem: AVPlayerItem) async -> AVPlayerItem {
         // A download plays from its file, with nothing to race.
-        guard var entry = entries[ObjectIdentifier(playerItem)], !entry.alternates.isEmpty, !entry.url.isFileURL else { return playerItem }
-        let ordered = await library.race([entry.url] + entry.alternates)
+        guard var entry = entries[ObjectIdentifier(playerItem)], entry.contenders > 1, !entry.url.isFileURL else { return playerItem }
+        // Only the chosen quality's copies race; the rest follow, in order.
+        let all = [entry.url] + entry.alternates
+        let ordered = await library.race(Array(all.prefix(entry.contenders))) + all.dropFirst(entry.contenders)
         guard !closed, let first = ordered.first, entries[ObjectIdentifier(playerItem)] != nil else { return playerItem }
         entry.alternates = Array(ordered.dropFirst())
         guard first != entry.url else {

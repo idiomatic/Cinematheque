@@ -11,14 +11,19 @@ const c = struct {
     const Flags = u32;
     const Error = i32;
     const flags_add: Flags = 0x2;
+    const flags_more_coming: Flags = 0x1;
+    const protocol_ipv4: u32 = 0x1;
+    const protocol_ipv6: u32 = 0x2;
 
     const RegisterReply = *const fn (DNSServiceRef, Flags, Error, [*:0]const u8, [*:0]const u8, [*:0]const u8, ?*anyopaque) callconv(.c) void;
     const BrowseReply = *const fn (DNSServiceRef, Flags, u32, Error, [*:0]const u8, [*:0]const u8, [*:0]const u8, ?*anyopaque) callconv(.c) void;
     const ResolveReply = *const fn (DNSServiceRef, Flags, u32, Error, [*:0]const u8, [*:0]const u8, u16, u16, [*]const u8, ?*anyopaque) callconv(.c) void;
+    const AddrInfoReply = *const fn (DNSServiceRef, Flags, u32, Error, [*:0]const u8, ?*const anyopaque, u32, ?*anyopaque) callconv(.c) void;
 
     extern "c" fn DNSServiceRegister(ref: *DNSServiceRef, flags: Flags, interface: u32, name: ?[*:0]const u8, regtype: [*:0]const u8, domain: ?[*:0]const u8, host: ?[*:0]const u8, port_be: u16, txt_len: u16, txt: ?*const anyopaque, callback: ?RegisterReply, context: ?*anyopaque) Error;
     extern "c" fn DNSServiceBrowse(ref: *DNSServiceRef, flags: Flags, interface: u32, regtype: [*:0]const u8, domain: ?[*:0]const u8, callback: BrowseReply, context: ?*anyopaque) Error;
     extern "c" fn DNSServiceResolve(ref: *DNSServiceRef, flags: Flags, interface: u32, name: [*:0]const u8, regtype: [*:0]const u8, domain: [*:0]const u8, callback: ResolveReply, context: ?*anyopaque) Error;
+    extern "c" fn DNSServiceGetAddrInfo(ref: *DNSServiceRef, flags: Flags, interface: u32, protocol: u32, hostname: [*:0]const u8, callback: AddrInfoReply, context: ?*anyopaque) Error;
     extern "c" fn DNSServiceProcessResult(ref: DNSServiceRef) Error;
     extern "c" fn DNSServiceRefSockFD(ref: DNSServiceRef) i32;
     extern "c" fn DNSServiceRefDeallocate(ref: DNSServiceRef) void;
@@ -111,11 +116,11 @@ fn fail(state: *State, err: anyerror) void {
     state.err = err;
 }
 
-/// Dispatches results for `ref` for `ms` milliseconds, or until `done`.
-fn pump(io: Io, ref: c.DNSServiceRef, ms: i64, state: *const State, done: ?usize) !void {
+/// Dispatches results for `ref` for `ms` milliseconds, or until `finished`.
+fn pump(io: Io, ref: c.DNSServiceRef, ms: i64, context: anytype, comptime finished: fn (@TypeOf(context)) bool) !void {
     const deadline = Io.Timestamp.now(io, .awake).nanoseconds + @as(i96, ms) * std.time.ns_per_ms;
     while (true) {
-        if (done) |n| if (state.services.items.len >= n) return;
+        if (finished(context)) return;
         const left = @divTrunc(deadline - Io.Timestamp.now(io, .awake).nanoseconds, std.time.ns_per_ms);
         if (left <= 0) return;
         // Whether a result is waiting, without waiting (Io has no wait on a
@@ -126,8 +131,79 @@ fn pump(io: Io, ref: c.DNSServiceRef, ms: i64, state: *const State, done: ?usize
         } else {
             try io.sleep(.fromMilliseconds(@intCast(@min(left, 10))), .awake);
         }
-        if (state.err) |e| return e;
+        if (context.err) |e| return e;
     }
+}
+
+const Browsing = struct {
+    state: *const State,
+    done: ?usize,
+    err: ?anyerror = null,
+
+    fn finished(b: *Browsing) bool {
+        b.err = b.state.err;
+        return if (b.done) |n| b.state.services.items.len >= n else false;
+    }
+};
+
+const Lookup = struct {
+    io: Io,
+    out: []Io.net.IpAddress,
+    port: u16,
+    len: usize = 0,
+    /// More answers are on their way (DNS-SD's MoreComing).
+    more: bool = false,
+    /// When the first address came.
+    first: ?Io.Timestamp = null,
+    err: ?anyerror = null,
+
+    /// How long, after the first address, to wait for others (RFC 8305's
+    /// resolution delay): an answer flagged MoreComing may have none
+    /// after it, as for an IPv6 address a `.local` device hasn't, which
+    /// held a lookup its whole time.
+    const grace_ms = 50;
+
+    fn finished(l: *Lookup) bool {
+        if (l.len == 0) return false;
+        if (!l.more) return true;
+        if (l.first == null) l.first = Io.Timestamp.now(l.io, .awake);
+        return l.first.?.durationTo(Io.Timestamp.now(l.io, .awake)).toMilliseconds() >= grace_ms;
+    }
+};
+
+fn onAddrInfo(_: c.DNSServiceRef, flags: c.Flags, interface: u32, err: c.Error, _: [*:0]const u8, address: ?*const anyopaque, _: u32, context: ?*anyopaque) callconv(.c) void {
+    const l: *Lookup = @ptrCast(@alignCast(context.?));
+    l.more = flags & c.flags_more_coming != 0;
+    if (err != 0 or flags & c.flags_add == 0 or l.len == l.out.len) return;
+    // A sockaddr, as BSD lays it out: its length, its family, then the
+    // family's fields (port and address in network order).
+    const bytes: [*]const u8 = @ptrCast(address orelse return);
+    switch (bytes[1]) {
+        std.posix.AF.INET => l.out[l.len] = .{ .ip4 = .{ .bytes = bytes[4..8].*, .port = l.port } },
+        std.posix.AF.INET6 => l.out[l.len] = .{ .ip6 = .{
+            .bytes = bytes[8..24].*,
+            .port = l.port,
+            // Link-local addresses need the interface they're on.
+            .interface = .{ .index = interface },
+        } },
+        else => return,
+    }
+    l.len += 1;
+}
+
+/// The addresses of `host` (a `.local` name, or one in the DNS), through
+/// DNS-SD, waiting through `Io` for at most `ms`, so a lookup can be
+/// canceled, as the system's resolver (getaddrinfo) can't be: a name that
+/// doesn't resolve, as a device's that's gone, would hold it some 20
+/// seconds. Apple platforms only, where DNS-SD looks up names.
+pub fn lookup(io: Io, host: [:0]const u8, port: u16, ms: i64, out: []Io.net.IpAddress) ![]Io.net.IpAddress {
+    var l: Lookup = .{ .io = io, .out = out, .port = port };
+    var ref: c.DNSServiceRef = null;
+    if (c.DNSServiceGetAddrInfo(&ref, 0, 0, c.protocol_ipv4 | c.protocol_ipv6, host.ptr, onAddrInfo, &l) != 0) return error.DnsSd;
+    defer c.DNSServiceRefDeallocate(ref);
+    try pump(io, ref, ms, &l, Lookup.finished);
+    if (l.len == 0) return error.UnknownHostName;
+    return out[0..l.len];
 }
 
 /// Browses for Cinematheque devices for `ms` milliseconds, then resolves each.
@@ -136,12 +212,14 @@ pub fn browse(io: Io, arena: std.mem.Allocator, ms: i64) ![]Service {
     var ref: c.DNSServiceRef = null;
     if (c.DNSServiceBrowse(&ref, 0, 0, service_type, null, onBrowse, &state) != 0) return error.DnsSd;
     defer c.DNSServiceRefDeallocate(ref);
-    try pump(io, ref, ms, &state, null);
+    var browsing: Browsing = .{ .state = &state, .done = null };
+    try pump(io, ref, ms, &browsing, Browsing.finished);
     for (state.found.items, 0..) |f, i| {
         var resolve: c.DNSServiceRef = null;
         if (c.DNSServiceResolve(&resolve, 0, f.interface, f.name.ptr, f.regtype.ptr, f.domain.ptr, onResolve, &state) != 0) return error.DnsSd;
         defer c.DNSServiceRefDeallocate(resolve);
-        try pump(io, resolve, 2000, &state, i + 1);
+        var resolving: Browsing = .{ .state = &state, .done = i + 1 };
+        try pump(io, resolve, 2000, &resolving, Browsing.finished);
         // A service that didn't resolve keeps the list aligned with an empty host.
         if (state.services.items.len == i) try state.services.append(arena, .{ .name = f.name, .host = "", .port = 0, .txt = "" });
     }

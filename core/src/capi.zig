@@ -11,6 +11,10 @@
 //! while one runs, but for progress and watchlists, which don't need to.
 
 const std = @import("std");
+
+/// Warnings too, not errors alone (a release build's default), on the
+/// apps' stderr: what's slow says so (copy racing, say).
+pub const std_options: std.Options = .{ .log_level = .warn };
 const Io = std.Io;
 const library = @import("library.zig");
 const art = @import("art.zig");

@@ -35,6 +35,7 @@ Open:
 
 ## Sync
 
+* **Uninterruptible connects on tvOS:** in the Apple TV app, a blocking connect through `Io` wasn't interrupted when its task was canceled (copy racing waited out a dropped connection's TCP timeout, some 20 seconds; on macOS, the same connect is interrupted). Copy racing connects without blocking now; syncing, and pairing by address, still connect through `Io`, so a device that drops connections may hold a sync as long. Find why (whether the app's signal handling keeps `Io`'s `SIGIO` from interrupting it), or connect without blocking there too.
 * **Pairing:** by address in the apps, for a new device off the network (it would show its address with its code, as the command-line app prints its port); a QR code carrying the code, for a phone app.
 * **Partial replicas:** tvOS players have only purgeable cache storage, so they may be thin, holding part of a library fetched on demand (by a title's prefix, with shared proofs, as repair fetches fields; a prefix fetch was built and dropped unused after commit `ae9f1d6`) and its facet bitmaps, if rebuilding a whole replica after a purge (see [Apple TV player](#apple-tv-player)) proves too slow.
 * **Repair:** range-based set reconciliation, if catching up by version vectors proves insufficient.

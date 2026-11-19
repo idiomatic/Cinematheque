@@ -10,6 +10,12 @@ struct PlayRequest: Codable, Hashable {
         let title: String
         /// The item's other copies, in the order to try them.
         var alternates: [URL] = []
+        /// How many copies, from `url` on, copy racing orders: the chosen
+        /// quality's (available) ones. The rest, other qualities' and
+        /// those on drives that aren't there, stay after them, in order,
+        /// for when none of them loads: the race picks the fastest copy,
+        /// never another quality.
+        var contenders = 1
     }
 
     let url: URL
@@ -18,9 +24,10 @@ struct PlayRequest: Codable, Hashable {
     var title: String = ""
     var queue: [Entry] = []
     var alternates: [URL] = []
+    var contenders = 1
 
     /// The first entry, the one `url` plays.
-    var first: Entry { Entry(url: url, item: item, title: title, alternates: alternates) }
+    var first: Entry { Entry(url: url, item: item, title: title, alternates: alternates, contenders: contenders) }
 }
 
 /// What to play next, and the queue after it.
@@ -54,29 +61,35 @@ enum Playback {
     /// `overFromStart`, then the rest in order.
     static func request(_ detail: TitleDetail, items: [TitleDetail.Item], from index: Int, quality: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
         let queue = items[index...].compactMap { item -> PlayRequest.Entry? in
-            let urls = copies(item, quality: quality).compactMap { URL(string: $0.url) }
+            let ordered = copies(item, quality: quality)
+            let urls = ordered.copies.compactMap { URL(string: $0.url) }
             guard let url = urls.first else { return nil }
-            return .init(url: url, item: "\(detail.key)/\(item.key)", title: name(item, in: detail), alternates: Array(urls.dropFirst()))
+            return .init(url: url, item: "\(detail.key)/\(item.key)", title: name(item, in: detail), alternates: Array(urls.dropFirst()), contenders: max(1, min(ordered.contenders, urls.count)))
         }
         guard let first = queue.first else { return nil }
         let item = items[index]
-        return PlayRequest(url: first.url, item: first.item, start: item.watched || overFromStart ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()), alternates: first.alternates)
+        return PlayRequest(url: first.url, item: first.item, start: item.watched || overFromStart ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()), alternates: first.alternates, contenders: first.contenders)
     }
 
     /// The copies to try, in order: the chosen quality's (if the item has
     /// it, else its first quality's), then its other qualities', so one
     /// on a device that's asleep, or a drive that's unplugged, gives way to
     /// another.
-    static func copies(_ item: TitleDetail.Item, quality: String?) -> [TitleDetail.Copy] {
+    /// With how many of them, from the first, copy racing orders: the
+    /// chosen quality's available copies (none to race before a download).
+    static func copies(_ item: TitleDetail.Item, quality: String?) -> (copies: [TitleDetail.Copy], contenders: Int) {
         let chosen = item.qualities.first { $0.label == quality } ?? item.qualities.first
-        guard let chosen else { return [] }
-        let all = chosen.copies + item.qualities.filter { $0.label != chosen.label }.flatMap(\.copies)
+        guard let chosen else { return ([], 0) }
+        let others = item.qualities.filter { $0.label != chosen.label }.flatMap(\.copies)
         // A download on this device first, from its file, in whatever
         // quality: it's there to play, online or not.
-        let local = all.compactMap(downloaded)
-        let others = all.filter { $0.source != downloads?.source }
+        let local = (chosen.copies + others).compactMap(downloaded)
+        let streamed = { (copies: [TitleDetail.Copy]) in copies.filter { $0.source != downloads?.source } }
+        let mine = streamed(chosen.copies).filter { !$0.unavailable }
+        let theirs = streamed(others).filter { !$0.unavailable }
         // Those on a drive that isn't there, last.
-        return local + others.filter { !$0.unavailable } + others.filter(\.unavailable)
+        let gone = streamed(chosen.copies + others).filter(\.unavailable)
+        return (local + mine + theirs + gone, local.isEmpty ? mine.count : 0)
     }
 
     /// This device's downloads, if it has any: their source, the URL
