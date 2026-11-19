@@ -82,18 +82,33 @@ function el(tag, attributes = {}, ...children) {
   return e;
 }
 
+/// Covers and placeholders are fetched only as their tiles near the screen:
+/// a shelf of thousands asked for them all at once, and the browser's few
+/// connections to the server queued them behind one another.
+const nearScreen = new IntersectionObserver((entries) => {
+  for (const e of entries) if (e.isIntersecting) {
+    nearScreen.unobserve(e.target);
+    e.target.load();
+  }
+}, { rootMargin: "1000px 0px" });
+
 /// A tile; under its series' name (`underSeries`), a season says only which.
 function tileView(tile, underSeries = false) {
   const cover = el("div", { class: "cover" });
-  if (tile.thumb && tile.thumb !== "-") cover.style.backgroundImage = `url("${thumbURL(tile.thumb)}")`;
-  if (tile.cover) {
-    const img = el("img", { alt: "", loading: "lazy", decoding: "async", src: coverURL(tile.cover) });
-    // Shown at once, once loaded, without a fade, over its placeholder.
-    img.style.visibility = "hidden";
-    img.onload = () => { img.style.visibility = ""; };
-    img.onerror = () => img.remove();
-    cover.append(img);
-  } else if (!tile.thumb) {
+  if ((tile.thumb && tile.thumb !== "-") || tile.cover) {
+    cover.load = () => {
+      if (tile.thumb && tile.thumb !== "-") cover.style.backgroundImage = `url("${thumbURL(tile.thumb)}")`;
+      if (!tile.cover) return;
+      const img = el("img", { alt: "", decoding: "async", src: coverURL(tile.cover) });
+      // Shown at once, once loaded, without a fade, over its placeholder.
+      img.style.visibility = "hidden";
+      img.onload = () => { img.style.visibility = ""; };
+      img.onerror = () => img.remove();
+      cover.append(img);
+    };
+    nearScreen.observe(cover);
+  }
+  if (!tile.thumb && !tile.cover) {
     cover.append(el("div", { class: "initials" }, tile.name));
   }
   if (library.watchlist.has(listKey(tile))) cover.append(el("span", { class: "badge star", title: "On Watchlist" }, "★"));
@@ -122,25 +137,41 @@ function byName(a, b) {
   return a.name.localeCompare(b.name) || (a.year || 0) - (b.year || 0) || (a.season || 0) - (b.season || 0);
 }
 
+/// Which showing of a page is the latest, so building an older one stops.
+let showing = 0;
+
+/// Appends what `make` makes of each of `items` to `parent`: a screenful at
+/// once, the rest a slice a frame, so a shelf of thousands shows at once and
+/// the page never stops answering.
+function fill(parent, items, make) {
+  const mine = showing;
+  let i = 0;
+  const slice = (n) => {
+    if (mine !== showing) return;
+    for (const end = Math.min(items.length, i + n); i < end; i++) parent.append(make(items[i]));
+    if (i < items.length) requestAnimationFrame(() => slice(400));
+  };
+  slice(80);
+  return parent;
+}
+
 function grid(tiles) {
-  return el("div", { class: "grid" }, tiles.map((t) => tileView(t)));
+  return fill(el("div", { class: "grid" }), tiles, (t) => tileView(t));
 }
 
 /// Seasons under their series' names, as the Mac's grid has them.
 function seriesGrid(tiles) {
-  const out = [];
-  let last = null;
-  let group = null;
+  const series = [];
   for (const t of tiles) {
-    if (t.key !== last) {
-      out.push(el("div", { class: "series-name" }, t.name + (t.year ? ` (${t.year})` : "")));
-      group = el("div", { class: "grid" });
-      out.push(group);
-      last = t.key;
-    }
-    group.append(tileView(t, true));
+    if (series.at(-1)?.key !== t.key) series.push({ key: t.key, name: t.name, year: t.year, seasons: [] });
+    series.at(-1).seasons.push(t);
   }
-  return out;
+  return [fill(el("div"), series, (s) => {
+    const part = document.createDocumentFragment();
+    part.append(el("div", { class: "series-name" }, s.name + (s.year ? ` (${s.year})` : "")),
+      el("div", { class: "grid" }, s.seasons.map((t) => tileView(t, true))));
+    return part;
+  })];
 }
 
 const shelves = {
@@ -532,9 +563,13 @@ addEventListener("keydown", (e) => {
 // Routing: #home, #movies, #series, #watchlist, #played, #title/<key>[/<season>].
 
 async function route() {
+  const mine = ++showing;
   const hash = decodeURIComponent(location.hash.slice(1)) || "home";
   for (const a of document.querySelectorAll("nav a")) a.toggleAttribute("aria-current", a.dataset.shelf === hash);
   for (const a of document.querySelectorAll("nav a[aria-current]")) a.setAttribute("aria-current", "page");
+  // The tab shows chosen before its shelf is built, so the click answers at once.
+  await new Promise((r) => requestAnimationFrame(() => setTimeout(r)));
+  if (mine !== showing) return;
   let parts;
   try {
     if (hash.startsWith("title/")) {
@@ -554,7 +589,9 @@ async function route() {
     parts = [empty("Couldn't load it.")];
     problem(e.message);
   }
+  if (mine !== showing) return;
   main.replaceChildren(...parts);
+  scrollTo(0, 0);
 }
 
 search.addEventListener("input", () => {
