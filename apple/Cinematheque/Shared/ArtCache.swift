@@ -19,13 +19,22 @@ actor ArtCache {
     /// NSCache is safe to use from any thread.
     nonisolated(unsafe) private let memory = NSCache<NSString, CGImageBox>()
     private var loading: [String: Task<CGImage?, Never>] = [:]
+    /// When each cover that failed to load did, so scrolling back doesn't
+    /// ask again at once.
+    private var failed: [String: ContinuousClock.Instant] = [:]
     private let directory: URL
     private let session: URLSession
 
+    /// What the disk cache keeps: files unused for 60 days go, then the
+    /// oldest while it's over 500 MB.
+    private static let diskAge: TimeInterval = 60 * 24 * 3600
+    private static let diskBytes = 500 << 20
+
     init() {
-        memory.countLimit = 600
+        memory.totalCostLimit = 256 << 20
         directory = URL.cachesDirectory.appending(path: "com.rbrian.cinematheque/covers", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        Task.detached(priority: .background) { [directory] in Self.prune(directory) }
         let configuration = URLSessionConfiguration.default
         configuration.httpMaximumConnectionsPerHost = 6
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -41,9 +50,14 @@ actor ArtCache {
         let name = Self.name(cover, size)
         if let box = memory.object(forKey: name as NSString) { return box.image }
         if let task = loading[name] { return await task.value }
+        if let when = failed[name], ContinuousClock.now - when < .seconds(30) { return nil }
         let task = Task.detached(priority: size == .tile ? .utility : .userInitiated) { [directory, session] () -> CGImage? in
             let file = directory.appending(path: name + ".jpg")
-            if let image = Self.decode(try? Data(contentsOf: file), size) { return image }
+            if let image = Self.decode(try? Data(contentsOf: file), size) {
+                // Used now, for pruning by age.
+                try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
+                return image
+            }
             guard let url = URL(string: cover.url), cover.length > 0 else { return nil }
             var request = URLRequest(url: url)
             request.setValue("bytes=\(cover.offset)-\(cover.offset + cover.length - 1)", forHTTPHeaderField: "Range")
@@ -56,8 +70,36 @@ actor ArtCache {
         loading[name] = task
         let image = await task.value
         loading[name] = nil
-        if let image { memory.setObject(CGImageBox(image), forKey: name as NSString) }
+        if let image {
+            failed[name] = nil
+            memory.setObject(CGImageBox(image), forKey: name as NSString, cost: image.bytesPerRow * image.height)
+        } else if !Task.isCancelled {
+            failed[name] = ContinuousClock.now
+        }
         return image
+    }
+
+    /// Deletes cached covers unused for `diskAge` (those of old stamps
+    /// among them), then the least recently used while over `diskBytes`.
+    private static func prune(_ directory: URL) {
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys) else { return }
+        var kept: [(url: URL, date: Date, size: Int)] = []
+        let cutoff = Date(timeIntervalSinceNow: -diskAge)
+        for url in files {
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            let date = values?.contentModificationDate ?? .distantPast
+            if date < cutoff {
+                try? FileManager.default.removeItem(at: url)
+            } else {
+                kept.append((url, date, values?.fileSize ?? 0))
+            }
+        }
+        var total = kept.reduce(0) { $0 + $1.size }
+        for file in kept.sorted(by: { $0.date < $1.date }) where total > diskBytes {
+            try? FileManager.default.removeItem(at: file.url)
+            total -= file.size
+        }
     }
 
     private static func name(_ cover: Cover, _ size: Size) -> String {

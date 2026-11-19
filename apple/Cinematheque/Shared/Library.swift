@@ -207,7 +207,7 @@ struct Folder: Codable, Identifiable, Hashable {
     var name: String { URL(fileURLWithPath: path).lastPathComponent }
 }
 
-struct Status: Codable {
+struct Status: Codable, Equatable {
     let person: String
     /// Acting as the person of another of the person's devices.
     let paired: Bool
@@ -267,27 +267,59 @@ final class Library {
         reload()
     }
 
+    /// Whether this connection changed the library since it was last read
+    /// (`cq_data_version` tells only of other connections' commits).
+    private var dirty = true
+    /// The core's data version when the library was last read.
+    private var loadedVersion: Int64 = -2
+    /// The tiles as the core gave them, before sorting.
+    private var unsortedTiles: [Tile] = []
+
+    /// Reads the library again, unless nothing has changed since it was
+    /// last read; assigns only what differs, so views showing the rest
+    /// aren't redrawn. On the main thread, since the core's main connection
+    /// belongs to it.
     func reload() {
         let had = hasLibrary
-        status = decode(Status.self) { cq_status($0) }
+        let now = decode(Status.self) { cq_status($0) }
+        if now != status { status = now }
         // Problems were the library's, or setup's: a library gained or left
         // starts afresh.
         if hasLibrary != had, status != nil {
             problem = nil
             problemKind = nil
+            dirty = true
         }
-        guard hasLibrary else { return }
-        tiles = (decode([Tile].self) { cq_tiles($0) } ?? []).sorted {
-            ($0.name.localizedStandardCompare($1.name), $0.year ?? 0, $0.season ?? 0) < (.orderedSame, $1.year ?? 0, $1.season ?? 0)
+        guard hasLibrary, let handle else { return }
+        let version = cq_data_version(handle.pointer)
+        guard dirty || version < 0 || version != loadedVersion else { return }
+        let wrote = dirty
+        dirty = false
+        loadedVersion = version
+        let read = decode([Tile].self) { cq_tiles($0) } ?? []
+        var changed = false
+        if read != unsortedTiles {
+            changed = true
+            unsortedTiles = read
+            tiles = read.sorted {
+                ($0.name.localizedStandardCompare($1.name), $0.year ?? 0, $0.season ?? 0) < (.orderedSame, $1.year ?? 0, $1.season ?? 0)
+            }
         }
-        watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
-        sources = decode([Source].self) { cq_repos($0) } ?? []
-        members = decode([Member].self) { cq_members($0) } ?? []
-        devices = decode([Device].self) { cq_devices($0) } ?? []
+        let list = Set(decode([String].self) { cq_watchlist($0) } ?? [])
+        if list != watchlist { watchlist = list }
+        let repos = decode([Source].self) { cq_repos($0) } ?? []
+        if repos != sources { sources = repos }
+        let people = decode([Member].self) { cq_members($0) } ?? []
+        if people != members { members = people }
+        let own = decode([Device].self) { cq_devices($0) } ?? []
+        if own != devices { devices = own }
         #if os(macOS)
         reloadDownloads()
         #endif
-        revision += 1
+        // Views of a title's details (which reread them with it) wait for a
+        // change in the tiles, not each reload: a crawl or sync reloads
+        // every second. Local writes and descriptions bump it themselves.
+        if changed || wrote { revision += 1 }
     }
 
     func detail(_ key: String) -> TitleDetail? {
@@ -313,6 +345,32 @@ final class Library {
         servingPort = nil
         refreshedAtLaunch = false
         problem = nil
+        // Nothing of the old library stays: not what was read, served, or
+        // downloaded, nor what's under way.
+        afterChange?.cancel()
+        afterChange = nil
+        received = nil
+        sent = nil
+        lastPush = nil
+        folders = []
+        loadedFoldersKey = nil
+        unavailableFolders = []
+        tiles = []
+        unsortedTiles = []
+        watchlist = []
+        sources = []
+        members = []
+        devices = []
+        #if os(macOS)
+        reconciling?.cancel()
+        reconciling = nil
+        streams = []
+        downloads = nil
+        downloadedTiles = []
+        watchedTiles = [:]
+        Playback.downloads = nil
+        #endif
+        dirty = true
         reload()
     }
 
@@ -343,7 +401,10 @@ final class Library {
     func checkPairing() -> Pairing? {
         guard !hasLibrary else { return nil }
         let state = decode(Pairing.self) { cq_pair_check($0) }
-        if state?.paired == true { reload() }
+        if state?.paired == true {
+            dirty = true
+            reload()
+        }
         return state
     }
 
@@ -523,7 +584,12 @@ final class Library {
 
     private var foldersKey: String { "folders-" + (status?.library ?? "") }
 
+    /// The key the folders were loaded under: another library's are others.
+    private var loadedFoldersKey: String?
+
     private func loadFolders() {
+        guard loadedFoldersKey != foldersKey else { return }
+        loadedFoldersKey = foldersKey
         let data = UserDefaults.standard.data(forKey: foldersKey)
         folders = data.flatMap { try? JSONDecoder().decode([Folder].self, from: $0) } ?? []
     }
@@ -541,6 +607,7 @@ final class Library {
     /// NAME/` (`host` being this device's name on the network, e.g.,
     /// `firefly.local`), adds it, and crawls it.
     func addFolder(_ path: String, host: String) async {
+        loadFolders()
         let base = URL(fileURLWithPath: path).lastPathComponent
             .lowercased().replacing(/[^a-z0-9]+/, with: "-").trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         var prefix = base.isEmpty ? "folder" : base
@@ -564,6 +631,7 @@ final class Library {
 
     /// Stops serving a folder, and removes its source.
     func removeFolder(_ folder: Folder) {
+        loadFolders()
         if let source = sources.first(where: { $0.url == folder.url }) { removeSource(source.id) }
         folders.removeAll { $0.prefix == folder.prefix }
         saveFolders()
@@ -579,7 +647,7 @@ final class Library {
     /// put.
     func serve() {
         guard let handle, hasLibrary else { return }
-        if folders.isEmpty { loadFolders() }
+        loadFolders()
         let defaults = UserDefaults.standard
         unavailableFolders = foldersNotThere
         var mounts = folders.map { ["prefix": $0.prefix, "path": $0.path] }
@@ -885,10 +953,11 @@ final class Library {
                 let no_room: Int
                 let error: String?
             }
-            let data: Data? = await Task.detached {
-                guard let text = cq_reconcile(handle.pointer) else { return nil }
+            // The core's error is the thread's own: read where it failed.
+            let (data, failure): (Data?, String?) = await Task.detached {
+                guard let text = cq_reconcile(handle.pointer) else { return (nil, String(cString: cq_error())) }
                 defer { cq_free(text) }
-                return Data(bytes: text, count: strlen(text))
+                return (Data(bytes: text, count: strlen(text)), nil)
             }.value
             watcher.cancel()
             reconciling = nil
@@ -900,7 +969,7 @@ final class Library {
             } else if let result, result.failed > 0, let error = result.error {
                 report(.download, "Downloading failed: \(error.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.lowercased()).")
             } else {
-                report(.download, data == nil ? "Downloading failed: \(Self.reason(String(cString: cq_error())))." : nil)
+                report(.download, failure.map { "Downloading failed: \(Self.reason($0))." })
             }
         }
     }
@@ -1094,7 +1163,10 @@ final class Library {
 
     func setProgress(_ item: String, position: Double, duration: Double) {
         guard position.isFinite, duration.isFinite, duration > 0 else { return }
-        check(reload: false) { cq_set_progress($0, item, UInt64(max(0, position) * 1000), UInt64(duration * 1000)) }
+        // Clamped (a position to a day, a duration to ten): a huge finite
+        // value would trap in the conversion.
+        let day = 86_400.0
+        check(reload: false) { cq_set_progress($0, item, UInt64(min(max(0, position), day) * 1000), UInt64(min(duration, day * 10) * 1000)) }
         revision += 1
     }
 
@@ -1230,6 +1302,7 @@ final class Library {
 
     private func check(reload again: Bool = true, _ body: (OpaquePointer) -> Int32) {
         guard let handle else { return }
+        dirty = true
         if body(handle.pointer) != 0 {
             let reason = String(cString: cq_error())
             report(.change, reason == "Busy" ? "Couldn't change the library while \(activity?.lowercased() ?? "it's busy"); try again when it's done." : "Couldn't change the library: \(Self.reason(reason)).")

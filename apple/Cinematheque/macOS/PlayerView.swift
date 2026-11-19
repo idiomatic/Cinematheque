@@ -335,7 +335,7 @@ private struct Player: NSViewRepresentable {
         view.player = session.player
         curtain.session = session
         let curtain = curtain
-        Task { await session.begin(); curtain.raise() }
+        Task { if await session.begin() { curtain.raise() } }
         context.coordinator.session = session
         return view
     }

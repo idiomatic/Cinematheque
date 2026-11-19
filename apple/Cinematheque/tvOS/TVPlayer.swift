@@ -45,19 +45,19 @@ struct PlaysFullScreen: ViewModifier {
     }
 
     @State private var starting: Task<Void, Never>?
-    /// From Play until the player's on screen.
+    /// From Play until the page is back from the player (or the start was
+    /// given up).
     @State private var warming = false
 
     private func start(_ request: PlayRequest) async {
         PlaybackSession.log.notice("Playing \(request.item, privacy: .public)")
         warming = true
-        defer { warming = false }
         withAnimation(.easeInOut(duration: Platform.fade)) { black = true }
         // The fade first, with the main thread free to draw it: making the
         // session (the series' details, a player item an episode), done
         // during it, held the fade, which ended in black at once.
         try? await Task.sleep(for: .seconds(Platform.fade))
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return abandon() }
         let clock = ContinuousClock()
         let making = clock.now
         let artwork = await TVPlayer.artwork(request, library)
@@ -69,10 +69,20 @@ struct PlaysFullScreen: ViewModifier {
         } onCancel: {
             Task { @MainActor in session.close() }
         }
-        guard !Task.isCancelled else { return session.close() }
+        guard !Task.isCancelled else {
+            session.close()
+            return abandon()
+        }
         TVPlayer.present(session, dismissed: { self.request = nil }) {
             reveal()
         }
+    }
+
+    /// Gives up a start (the request cleared while it warmed up): the page
+    /// fades back in.
+    private func abandon() {
+        warming = false
+        withAnimation(.easeOut(duration: Platform.fade)) { black = false }
     }
 
     /// Fades the page back in from black, once the player
@@ -81,6 +91,7 @@ struct PlaysFullScreen: ViewModifier {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(100))
             withAnimation(.easeOut(duration: Platform.fade)) { black = false }
+            warming = false
         }
     }
 }
@@ -167,6 +178,8 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         while session.player.timeControlStatus != .playing, clock.now - asked < .seconds(5), !leaving {
             try? await Task.sleep(for: .milliseconds(20))
         }
+        // Left meanwhile: leaving fades it out, which this would undo.
+        guard !leaving else { return }
         session.ramp(to: 1, over: .seconds(Platform.fade))
         UIView.animate(withDuration: Platform.fade, delay: 0, options: .curveEaseIn) { self.curtain.alpha = 0 }
     }

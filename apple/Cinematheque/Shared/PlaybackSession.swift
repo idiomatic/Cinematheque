@@ -34,6 +34,8 @@ final class PlaybackSession {
     private var status: NSKeyValueObservation?
     /// Once closed, it doesn't start.
     private var closed = false
+    /// The sound's ramp under way.
+    private var ramping: Task<Void, Never>?
     #if os(macOS)
     /// The item reconciling downloads last began for.
     private var reconciled: String?
@@ -107,7 +109,8 @@ final class PlaybackSession {
         // Only the chosen quality's copies race; the rest follow, in order.
         let all = [entry.url] + entry.alternates
         let ordered = await library.race(Array(all.prefix(entry.contenders))) + all.dropFirst(entry.contenders)
-        guard !closed, let first = ordered.first, entries[ObjectIdentifier(playerItem)] != nil else { return playerItem }
+        // The race took a while: the item may have played or been dropped.
+        guard !closed, let first = ordered.first, entries[ObjectIdentifier(playerItem)] != nil, player.items().contains(playerItem) else { return playerItem }
         entry.alternates = Array(ordered.dropFirst())
         guard first != entry.url else {
             entries[ObjectIdentifier(playerItem)] = entry
@@ -159,16 +162,18 @@ final class PlaybackSession {
     /// Starts as the players do: warming up, paused (`prepare`), for at
     /// least `fade` (as the screen fades to black), then playing, its sound
     /// rising as the picture fades in. Returns once playing, to fade to the
-    /// picture.
-    func begin(fade: Duration = .seconds(Platform.fade)) async {
+    /// picture; false if there's nothing to play (it didn't load, or it's
+    /// closed).
+    func begin(fade: Duration = .seconds(Platform.fade)) async -> Bool {
         let clock = ContinuousClock()
         let faded = clock.now + fade
         await prepare()
         try? await Task.sleep(until: faded, clock: clock)
-        guard !closed else { return }
+        guard !closed, player.currentItem?.status == .readyToPlay else { return false }
         // Silent until its curtain rises.
         player.volume = 0
         play()
+        return true
     }
 
     /// Plays, from where it's readied (`prepare`), keeping progress.
@@ -179,15 +184,17 @@ final class PlaybackSession {
         Task {
             for queued in player.items().dropFirst() where !closed { _ = await prefer(queued) }
         }
+        // The observers hop to the main actor by a task, in order, rather
+        // than assuming it: AVFoundation may call from another thread.
         current = player.observe(\.currentItem, options: [.new]) { [weak self] player, _ in
             let id = player.currentItem.map(ObjectIdentifier.init)
-            MainActor.assumeIsolated {
-                guard let self, let id, let entry = self.entries[id] else { return }
+            Task { @MainActor in
+                guard let self, !self.closed, let id, let entry = self.entries[id] else { return }
                 self.item = entry.item
                 self.onItem?(entry)
                 self.noteStreaming()
                 // A queued item that doesn't load gives way to another copy.
-                if let playing = player.currentItem, playing.status != .readyToPlay {
+                if let playing = self.player.currentItem, playing.status != .readyToPlay {
                     Task { await self.loaded(playing) }
                 }
             }
@@ -208,8 +215,8 @@ final class PlaybackSession {
         }
         status = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
             let status = player.timeControlStatus
-            MainActor.assumeIsolated {
-                guard let self else { return }
+            Task { @MainActor in
+                guard let self, !self.closed else { return }
                 if status == .playing { self.started = true }
                 if status == .paused { self.stopped() }
                 self.noteStreaming()
@@ -229,11 +236,14 @@ final class PlaybackSession {
     /// Takes the sound from where it is to `volume` (1, full; 0, silent)
     /// over `duration`, as the picture fades in or out.
     func ramp(to volume: Float, over duration: Duration) {
+        // One at a time: a new ramp replaces the one under way.
+        ramping?.cancel()
         let from = player.volume
-        Task { [player] in
+        ramping = Task { [player] in
             let steps = 24
             for step in 1...steps {
                 try? await Task.sleep(for: duration / steps)
+                guard !Task.isCancelled else { return }
                 player.volume = from + (volume - from) * Float(step) / Float(steps)
             }
         }
@@ -261,6 +271,7 @@ final class PlaybackSession {
     /// Stops where it is, as when its window closes.
     func close() {
         closed = true
+        ramping?.cancel()
         defer { noteStreaming() }
         if let periodic { player.removeTimeObserver(periodic) }
         if let ended { NotificationCenter.default.removeObserver(ended) }
