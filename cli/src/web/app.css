@@ -84,13 +84,14 @@ h2 { font-size: 20px; margin: 24px 0 12px; }
 .page .art img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .page h1 { margin: 0; font-size: 28px; }
 .facts { color: var(--dim); margin: 4px 0 16px; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; max-width: 80ch; }
-.spacer { flex: 1; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+/* Set apart, not pushed to the far edge, where a wide window strands it. */
+.gap { width: 16px; }
 /* The marks: toggles set now and then, quieter than what plays. */
 button.mark { background: none; border-color: transparent; color: var(--dim); padding: 7px 8px; }
 button.mark:hover { color: var(--text); }
 button.mark[aria-pressed="true"] { color: var(--text); }
-.heading { display: flex; gap: 12px; align-items: center; margin: 24px 0 4px; max-width: 80ch; }
+.heading { display: flex; gap: 12px; align-items: center; margin: 24px 0 4px; }
 .heading h2 { margin: 0; font-size: 17px; }
 .picker { color: var(--dim); font-size: 13px; }
 .picker select, .heading select { margin-left: 4px; padding: 4px 8px; font-size: 13px; }
