@@ -8,7 +8,9 @@ struct Browser: View {
     static let shelves: [Shelf] = [.movies, .series, .watchlist, .inProgress, .watched, .downloaded]
 
     @Environment(Library.self) private var library
-    @State private var shelf: Shelf? = .movies
+    /// The shelf shown last, again at launch; at first, In Progress.
+    @AppStorage("shelf") private var lastShelf: Shelf = .inProgress
+    @State private var shelf: Shelf?
     @State private var search = ""
     @State private var selection: Tile.ID?
     @State private var inspecting = true
@@ -32,6 +34,11 @@ struct Browser: View {
             }
         }
         .environment(\.play, PlayAction(inWindow: { playing = $0 }, newWindow: { openWindow(value: $0) }))
+        .onAppear {
+            // One the sidebar has no longer (another build's) gives way.
+            if shelf == nil { shelf = Self.shelves.contains(lastShelf) ? lastShelf : .inProgress }
+        }
+        .onChange(of: shelf) { if let shelf { lastShelf = shelf } }
     }
 
     private var browser: some View {
@@ -43,7 +50,7 @@ struct Browser: View {
         } detail: {
             // A scroll view per shelf: one left scrolled past the end of a
             // shorter shelf shows nothing until scrolled.
-            CoverGrid(tiles: shown, selection: $selection, shelf: shelf ?? .movies, search: search, positions: positions)
+            CoverGrid(tiles: shown, selection: $selection, shelf: shelf ?? .inProgress, search: search, positions: positions)
                 .id(shelf)
                 .navigationTitle(shelf?.title ?? "Cinematheque")
                 .overlay(alignment: .bottom) { StatusBar(counts: counts, hovering: nearBottom) }
@@ -75,7 +82,11 @@ struct Browser: View {
         }
         #if DEBUG
         .onAppear {
-            if let id = Launch.selection { selection = id }
+            if let id = Launch.selection {
+                selection = id
+                // On the shelf it's on, whatever was shown last.
+                shelf = id.contains("#") ? .series : .movies
+            }
             if let url = Launch.play.flatMap(URL.init(string:)) { playing = PlayRequest(url: url, item: Launch.item ?? "", start: 0) }
         }
         #endif
@@ -87,9 +98,9 @@ struct Browser: View {
             .help(inspecting ? "Hide the inspector" : "Show the inspector")
     }
 
-    private var shown: [Tile] { (shelf ?? .movies).tiles(in: library, search: search) }
+    private var shown: [Tile] { (shelf ?? .inProgress).tiles(in: library, search: search) }
 
-    private var counts: String { (shelf ?? .movies).counts(in: library, search: search) }
+    private var counts: String { (shelf ?? .inProgress).counts(in: library, search: search) }
 }
 
 /// Tiles of fixed size, laid out lazily: movies' covers 2:3, and each
