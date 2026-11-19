@@ -12,6 +12,8 @@ final class PlaybackSession {
     /// end by itself.
     let player: AVQueuePlayer
     /// Called as each item starts, e.g., for a window's title.
+    /// The item reconciling downloads last began for (macOS).
+    private var reconciled: String?
     var onItem: ((PlayRequest.Entry) -> Void)?
     /// Called once the queue's last item has played to its end.
     var onFinished: (() -> Void)?
@@ -151,6 +153,7 @@ final class PlaybackSession {
                 guard let self, let id, let entry = self.entries[id] else { return }
                 self.item = entry.item
                 self.onItem?(entry)
+                self.noteStreaming()
                 // A queued item that doesn't load gives way to another copy.
                 if let playing = player.currentItem, playing.status != .readyToPlay {
                     Task { await self.loaded(playing) }
@@ -161,6 +164,14 @@ final class PlaybackSession {
             MainActor.assumeIsolated {
                 guard let self, self.player.rate != 0, time.seconds >= 10, let duration = self.player.currentItem?.duration.seconds else { return }
                 self.library.setPlayhead(self.item, position: time.seconds, duration: duration)
+                #if os(macOS)
+                // In progress now: a kept series' next episode downloads
+                // (once no stream plays).
+                if self.reconciled != self.item {
+                    self.reconciled = self.item
+                    self.library.reconcileSoon()
+                }
+                #endif
             }
         }
         status = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
@@ -169,6 +180,7 @@ final class PlaybackSession {
                 guard let self else { return }
                 if status == .playing { self.started = true }
                 if status == .paused { self.stopped() }
+                self.noteStreaming()
             }
         }
         ended = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main) { [weak self] note in
@@ -195,9 +207,19 @@ final class PlaybackSession {
         }
     }
 
+    /// Tells the library whether this streams now (playing, not from a
+    /// file), so downloads wait rather than slow it.
+    private func noteStreaming() {
+        #if os(macOS)
+        let file = player.currentItem.flatMap { ($0.asset as? AVURLAsset)?.url.isFileURL } ?? false
+        library.streaming(self, !closed && player.timeControlStatus == .playing && !file)
+        #endif
+    }
+
     /// Stops where it is, as when its window closes.
     func close() {
         closed = true
+        defer { noteStreaming() }
         if let periodic { player.removeTimeObserver(periodic) }
         if let ended { NotificationCenter.default.removeObserver(ended) }
         current?.invalidate()

@@ -779,6 +779,21 @@ final class Library {
         check { cq_downloads_configure($0, path, url, drop ? 1 : 0) }
     }
 
+    /// Playback sessions streaming (not playing a file), during which no
+    /// download begins, so as not to slow them.
+    private var streams: Set<ObjectIdentifier> = []
+
+    /// Notes a playback session streaming, or not; when none is, what
+    /// waited is fetched.
+    func streaming(_ session: AnyObject, _ on: Bool) {
+        let id = ObjectIdentifier(session)
+        let was = !streams.isEmpty
+        if on { streams.insert(id) } else { streams.remove(id) }
+        guard let handle, was != !streams.isEmpty else { return }
+        cq_downloads_hold(handle.pointer, streams.isEmpty ? 0 : 1)
+        if streams.isEmpty { reconcileSoon() }
+    }
+
     /// Fetches and deletes downloads to match what's kept, off the main
     /// thread, showing how far it's come; if it's running, it runs again.
     func reconcileSoon() {

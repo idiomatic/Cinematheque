@@ -62,6 +62,8 @@ const Library = struct {
     reconciling: std.atomic.Value(bool) = .init(false),
     reconcile_again: std.atomic.Value(bool) = .init(false),
     downloaded_mb: std.atomic.Value(u32) = .init(0),
+    /// Set while a stream plays (`cq_downloads_hold`): no download begins.
+    hold: std.atomic.Value(bool) = .init(false),
     download_mb: std.atomic.Value(u32) = .init(0),
 
     fn onServed(context: ?*anyopaque, device: [32]u8, operations: usize) void {
@@ -841,7 +843,14 @@ export fn cq_reconcile(lib: *Library) ?[*:0]u8 {
     return json(lib, reconcile, .{});
 }
 
-const ReconciledJson = struct { fetched: usize = 0, kept: usize = 0, deleted: usize = 0, failed: usize = 0, no_room: usize = 0, @"error": ?[]const u8 = null, busy: bool = false };
+const ReconciledJson = struct { fetched: usize = 0, kept: usize = 0, deleted: usize = 0, failed: usize = 0, no_room: usize = 0, held: usize = 0, @"error": ?[]const u8 = null, busy: bool = false };
+
+/// Holds downloads back (nonzero), as while a stream plays, which they'd
+/// slow: none begins, though one under way finishes; or lets them go (then
+/// `cq_reconcile` fetches what waited). Any thread.
+export fn cq_downloads_hold(lib: *Library, on: c_int) void {
+    lib.hold.store(on != 0, .release);
+}
 
 fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
     lib.reconcile_again.store(true, .release);
@@ -855,12 +864,13 @@ fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
     // Again while asked again (a download wanted meanwhile).
     while (lib.reconcile_again.swap(false, .acq_rel)) {
         try r.refresh();
-        const done = try download.reconcile(lib.io(), gpa, arena, &client, &lib.racing, &r, &lib.writer, lib.now(), .{ .done = &lib.downloaded_mb, .total = &lib.download_mb });
+        const done = try download.reconcile(lib.io(), gpa, arena, &client, &lib.racing, &r, &lib.writer, lib.now(), .{ .done = &lib.downloaded_mb, .total = &lib.download_mb }, &lib.hold);
         out.fetched += done.fetched;
         out.kept = done.kept;
         out.deleted += done.deleted;
         out.failed = done.failed;
         out.no_room = done.no_room;
+        out.held = done.held;
         out.@"error" = done.@"error";
     }
     return out;

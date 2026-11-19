@@ -397,8 +397,9 @@ fn confirmed(replica: *Replica, repos: []const library.Repository, absences: *co
 }
 
 /// The item keys (below the title's) of a series' next `n` episodes for
-/// this user: from the latest in progress, else the first unwatched, the
-/// unwatched among those after it; specials aside.
+/// this user, specials aside: the latest in progress and the `n` unwatched
+/// after it, so the next is there before this one ends; else, none in
+/// progress, the first `n` unwatched.
 pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, n: u32) ![]const []const u8 {
     const d = try library.detail(replica, arena, title) orelse return &.{};
     const Episode = struct { item: library.Item, season: u32, number: u32 };
@@ -417,13 +418,16 @@ pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, n: 
     for (episodes.items, 0..) |e, i| if (e.item.playhead.position_ms > 0 and !e.item.playhead.watched) {
         start = i;
     };
+    // The one in progress is kept beyond the `n`.
+    const in_progress = start != null;
     if (start == null) for (episodes.items, 0..) |e, i| if (!e.item.playhead.watched) {
         start = i;
         break;
     };
     var out: std.ArrayList([]const u8) = .empty;
+    const want_count = if (in_progress) n + 1 else n;
     for (episodes.items[start orelse return &.{}..]) |e| {
-        if (out.items.len == n) break;
+        if (out.items.len == want_count) break;
         if (!e.item.playhead.watched) try out.append(arena, e.item.key);
     }
     return out.items;
@@ -483,6 +487,8 @@ pub const Reconciled = struct {
     failed: usize = 0,
     /// Files left for want of space (keeping `floor_bytes` free).
     no_room: usize = 0,
+    /// Files left while held (a stream playing), for when it isn't.
+    held: usize = 0,
     /// Why the last file that failed did.
     @"error": ?[]const u8 = null,
 };
@@ -498,8 +504,10 @@ pub const Counter = struct {
 /// deletes watched episodes of kept series as `Settings.drop_watched` and
 /// space call for, and fetches what's wanted and the next episodes kept,
 /// recording each file as fetched. `writer`, if given, is held around each
-/// write, as other connections' writers are.
-pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, client: *std.http.Client, memory: *race.Memory, replica: *Replica, writer: ?*Io.Mutex, wall_ms: u64, counter: ?Counter) !Reconciled {
+/// write, as other connections' writers are. While `hold` is set (a stream
+/// playing, which a download would slow), no file is begun: a file under
+/// way finishes, and the rest wait for the next reconciling.
+pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, client: *std.http.Client, memory: *race.Memory, replica: *Replica, writer: ?*Io.Mutex, wall_ms: u64, counter: ?Counter, hold: ?*const std.atomic.Value(bool)) !Reconciled {
     const s = try settings(replica, arena) orelse return error.NoDownloads;
     var out: Reconciled = .{};
     try Io.Dir.cwd().createDirPath(io, s.dir);
@@ -562,6 +570,10 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
             _ = c.done.fetchAdd(@intCast(@min(f.size / 1_000_000, std.math.maxInt(u32))), .monotonic);
         };
         const have = if (dir.statFile(io, f.path, .{})) |st| st.size else |_| 0;
+        if (have != f.size) if (hold) |h| if (h.load(.acquire)) {
+            out.held += 1;
+            continue;
+        };
         if (have != f.size) {
             const part = if (dir.statFile(io, try std.fmt.allocPrint(arena, "{s}.part", .{f.path}), .{})) |st| st.size else |_| 0;
             const need = f.size -| part;
@@ -742,21 +754,30 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     defer client.deinit();
     var memory: race.Memory = .{};
     defer memory.deinit(gpa);
-    var done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 5, null);
+    var done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 5, null, null);
     try std.testing.expectEqual(3, done.fetched);
     var holding = try held(&r, arena, s.repo);
     try std.testing.expectEqual(3, holding.len);
     try std.testing.expectEqualStrings("t/m/alien/1979/v/-", holding[0].item);
     try std.testing.expectEqualStrings("t/s/firefly/-/e/s01e02", holding[1].item);
 
+    // Episode 2 in progress: it and the 2 after it.
+    try library.setPlayhead(&r, arena, 5, keys[2], 60_000, 600_000);
+    try std.testing.expectEqual(3, (try ahead(&r, arena, "t/s/firefly/-", 2)).len);
+    // A stream playing holds new files back.
+    var held_back: std.atomic.Value(bool) = .init(true);
+    done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 5, null, &held_back);
+    try std.testing.expectEqual(0, done.fetched);
+    try std.testing.expectEqual(1, done.held);
+
     // Episode 2 watched: 4 comes; 2 stays (it's kept until space is needed),
     // then goes once watched episodes are dropped at once.
     try library.setWatched(&r, arena, 6, keys[2], true);
-    done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 7, null);
+    done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 7, null, null);
     try std.testing.expectEqual(1, done.fetched);
     try std.testing.expectEqual(0, done.deleted);
     try configure(&r, arena, 8, downloads, "http://hal.local:8008/downloads/", true);
-    done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 9, null);
+    done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 9, null, null);
     try std.testing.expectEqual(1, done.deleted);
     holding = try held(&r, arena, s.repo);
     try std.testing.expectEqual(3, holding.len);
@@ -769,7 +790,7 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     var finished = try finishedWith(&r, arena, s.repo);
     try std.testing.expectEqual(1, finished.len);
     try std.testing.expect(!finished[0].deletable);
-    _ = try reconcile(io, gpa, arena, &client, &memory, &r, null, 14, null);
+    _ = try reconcile(io, gpa, arena, &client, &memory, &r, null, 14, null, null);
     try std.testing.expect(tmp.dir.statFile(io, "downloads/Alien (1979).mp4", .{}) != error.FileNotFound);
     try setPin(&r, arena, keys[0], true);
     finished = try finishedWith(&r, arena, s.repo);
@@ -778,7 +799,7 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     // Deleted by hand: forgotten. Removed: deleted, and no longer wanted.
     try tmp.dir.deleteFile(io, "downloads/Firefly/S01E04.mp4");
     try setKeep(&r, arena, "t/s/firefly/-", 0);
-    _ = try reconcile(io, gpa, arena, &client, &memory, &r, null, 10, null);
+    _ = try reconcile(io, gpa, arena, &client, &memory, &r, null, 10, null, null);
     try std.testing.expectEqual(2, (try held(&r, arena, s.repo)).len);
     try std.testing.expectEqual(1, try remove(io, arena, &r, null, 11, "t/m/alien/1979"));
     try std.testing.expectEqual(0, (try wants(&r, arena)).len);

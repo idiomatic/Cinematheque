@@ -76,6 +76,9 @@ int cq_keep(cq_library *library, const char *title_key, int episodes);
 int cq_pin(cq_library *library, const char *item_key, int on);
 char *cq_downloads(cq_library *library);
 char *cq_reconcile(cq_library *library);
+// Holds downloads back (nonzero) while a stream plays: none begins; 0
+// lets them go. Any thread.
+void cq_downloads_hold(cq_library *library, int on);
 
 // Long: crawling every repository and describing what's new (committing
 // as it goes, so reload when cq_data_version changes), syncing with a peer (or,
