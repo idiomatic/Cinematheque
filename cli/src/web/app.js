@@ -150,11 +150,32 @@ function empty(text) {
   return el("p", { class: "empty" }, text);
 }
 
-/// How many a shelf holds, for the status line.
-function counts() {
-  const movies = library.tiles.filter((t) => t.kind === "movie").length;
-  const series = new Set(library.tiles.filter((t) => t.kind === "series").map((t) => t.key)).size;
-  return `${movies.toLocaleString()} movies, ${series.toLocaleString()} series`;
+/// Each shelf's tiles, before a search.
+const onShelf = {
+  home: (t) => (t.started && !t.watched) || library.watchlist.has(listKey(t)),
+  movies: (t) => t.kind === "movie",
+  series: (t) => t.kind === "series",
+  watchlist: (t) => library.watchlist.has(listKey(t)),
+  played: (t) => t.started || t.watched,
+};
+
+/// How many a shelf holds, for the status line, as the Mac's says it:
+/// "4,000 movies", "300 series, 1,200 seasons, 15,000 episodes", or with a
+/// search, "12 of 4,000 movies match “zoo”".
+function counts(shelf) {
+  const all = library.tiles.filter(onShelf[shelf] || onShelf.home);
+  const titles = new Set(all.map((t) => t.key)).size;
+  const noun = shelf === "movies" ? (titles === 1 ? "movie" : "movies") : shelf === "series" ? "series" : titles === 1 ? "title" : "titles";
+  const n = (x) => x.toLocaleString();
+  if (search.value.trim()) {
+    const found = new Set(matching(all).map((t) => t.key)).size;
+    return `${n(found)} of ${n(titles)} ${noun} match “${search.value.trim()}”`;
+  }
+  if (shelf === "series") {
+    const episodes = all.reduce((sum, t) => sum + t.items, 0);
+    return `${n(titles)} series, ${n(all.length)} ${all.length === 1 ? "season" : "seasons"}, ${n(episodes)} ${episodes === 1 ? "episode" : "episodes"}`;
+  }
+  return `${n(titles)} ${noun}`;
 }
 
 // Title pages.
@@ -501,7 +522,7 @@ async function route() {
       show("");
     } else {
       parts = (shelves[hash] || shelves.home)();
-      show(search.value ? "" : counts());
+      show(counts(shelves[hash] ? hash : "home"));
     }
   } catch (e) {
     parts = [empty("Couldn't load it.")];
