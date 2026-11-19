@@ -9,6 +9,10 @@ const std = @import("std");
 
 pub const Error = error{ NotJpeg, Unsupported, Corrupt, OutOfMemory };
 
+/// The most DC blocks (all components) a file may declare: 2^22 is some
+/// 268 megapixels, and 16 MB of coefficients per component set.
+const max_blocks = 1 << 22;
+
 /// Pixels as RGB, row by row.
 pub const Image = struct {
     width: usize,
@@ -259,6 +263,10 @@ pub fn decodeDc(arena: std.mem.Allocator, bytes: []const u8) Error!Image {
                 }
                 mcux = (width + 8 * @as(usize, hmax) - 1) / (8 * @as(usize, hmax));
                 mcuy = (height + 8 * @as(usize, vmax) - 1) / (8 * @as(usize, vmax));
+                // Declared dimensions are the file's word: cap what they allocate.
+                var blocks: usize = 0;
+                for (comps[0..ncomps]) |c| blocks += mcux * c.h * mcuy * c.v;
+                if (blocks > max_blocks) return error.Unsupported;
                 for (comps[0..ncomps]) |*c| {
                     c.stride = mcux * c.h;
                     c.rows = mcuy * c.v;
@@ -423,4 +431,12 @@ test "baseline and progressive JPEGs decode to the same eighth-size image" {
     for (base.rgb, progressive.rgb) |a, b| differ += @abs(@as(i32, a) - b);
     try std.testing.expect(differ / base.rgb.len <= 2);
     try std.testing.expectError(error.NotJpeg, decodeDc(arena, "\x89PNG\r\n"));
+}
+
+test "declared dimensions that would allocate too much are refused" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    // SOI, SOF0 of 65535×65535 with three 1×1 components.
+    const huge = "\xff\xd8\xff\xc0\x00\x11\x08\xff\xff\xff\xff\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00";
+    try std.testing.expectError(error.Unsupported, decodeDc(arena_state.allocator(), huge));
 }

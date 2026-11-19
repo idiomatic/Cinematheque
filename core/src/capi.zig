@@ -883,23 +883,30 @@ export fn cq_downloads_hold(lib: *Library, on: c_int) void {
 fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
     lib.reconcile_again.store(true, .release);
     if (lib.reconciling.swap(true, .acq_rel)) return .{ .busy = true };
-    defer lib.reconciling.store(false, .release);
+    errdefer lib.reconciling.store(false, .release);
     var r = try connection(lib, arena);
     defer r.close();
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     var out: ReconciledJson = .{};
-    // Again while asked again (a download wanted meanwhile).
-    while (lib.reconcile_again.swap(false, .acq_rel)) {
-        try r.refresh();
-        const done = try download.reconcile(lib.io(), gpa, arena, &client, &lib.racing, &r, &lib.writer, lib.now(), .{ .done = &lib.downloaded_mb, .total = &lib.download_mb }, &lib.hold);
-        out.fetched += done.fetched;
-        out.kept = done.kept;
-        out.deleted += done.deleted;
-        out.failed = done.failed;
-        out.no_room = done.no_room;
-        out.held = done.held;
-        out.@"error" = done.@"error";
+    while (true) {
+        // Again while asked again (a download wanted meanwhile).
+        while (lib.reconcile_again.swap(false, .acq_rel)) {
+            try r.refresh();
+            const done = try download.reconcile(lib.io(), gpa, arena, &client, &lib.racing, &r, &lib.writer, lib.now(), .{ .done = &lib.downloaded_mb, .total = &lib.download_mb }, &lib.hold);
+            out.fetched += done.fetched;
+            out.kept = done.kept;
+            out.deleted += done.deleted;
+            out.failed = done.failed;
+            out.no_room = done.no_room;
+            out.held = done.held;
+            out.@"error" = done.@"error";
+        }
+        lib.reconciling.store(false, .release);
+        // A caller may have asked after the last check and found us still
+        // running, so returned busy: take its request up, unless another has.
+        if (!lib.reconcile_again.load(.acquire)) break;
+        if (lib.reconciling.swap(true, .acq_rel)) break;
     }
     return out;
 }

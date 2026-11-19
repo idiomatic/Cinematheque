@@ -303,7 +303,8 @@ pub fn placeholder(arena: std.mem.Allocator, bytes: []const u8) ![]const u8 {
 fn fetch(arena: std.mem.Allocator, client: *std.http.Client, target: []const u8, offset: u64, length: u64) ![]const u8 {
     if (length == 0 or length > 16 << 20) return error.TooLarge;
     var range_buf: [64]u8 = undefined;
-    const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-{d}", .{ offset, offset + length - 1 });
+    const last = std.math.add(u64, offset, length - 1) catch return error.TooLarge;
+    const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-{d}", .{ offset, last });
     var request = try client.request(.GET, try std.Uri.parse(target), .{
         .extra_headers = &.{.{ .name = "range", .value = range }},
     });
@@ -311,7 +312,7 @@ fn fetch(arena: std.mem.Allocator, client: *std.http.Client, target: []const u8,
     try request.sendBodiless();
     var response = try request.receiveHead(&.{});
     // Whole, only if the file is no more than what was asked for.
-    if (response.head.status != .partial_content and !(response.head.status == .ok and offset == 0)) return error.NoRanges;
+    if (response.head.status != .partial_content and !(response.head.status == .ok and offset == 0)) return mp4.statusError(response.head.status);
     var transfer: [8192]u8 = undefined;
     return response.reader(&transfer).allocRemaining(arena, .limited(length));
 }
@@ -319,7 +320,7 @@ fn fetch(arena: std.mem.Allocator, client: *std.http.Client, target: []const u8,
 /// Whether an error is the network's, worth trying again later.
 fn unreachable_(err: anyerror) bool {
     return switch (err) {
-        error.ConnectionRefused, error.ConnectionResetByPeer, error.ConnectionTimedOut, error.NetworkUnreachable, error.HostUnreachable, error.TemporaryNameServerFailure, error.UnknownHostName, error.NameServerFailure, error.EndOfStream, error.ReadFailed, error.WriteFailed => true,
+        error.ConnectionRefused, error.ConnectionResetByPeer, error.ConnectionTimedOut, error.NetworkUnreachable, error.HostUnreachable, error.TemporaryNameServerFailure, error.UnknownHostName, error.NameServerFailure, error.EndOfStream, error.ReadFailed, error.WriteFailed, error.Timeout, error.HttpConnectionClosing, error.ServerUnavailable => true,
         else => false,
     };
 }
@@ -380,6 +381,7 @@ pub fn run(io: Io, replica: *Replica, arena: std.mem.Allocator, client: *std.htt
         try gop.value_ptr.append(arena, i);
     }
     var group: Io.Group = .init;
+    errdefer group.cancel(io);
     for (0..@max(1, @min(options.workers, jobs.len))) |_| try group.concurrent(io, Runner.work, .{&runner});
     try group.await(io);
     try runner.mutex.lock(io);
@@ -539,21 +541,21 @@ fn findSidecar(arena: std.mem.Allocator, images: anytype, titles_in: anytype, t:
 /// Describes one item from its first held copy (e.g., an episode the
 /// season's describing didn't read), if it's an MP4.
 pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, item_key: []const u8) !void {
-    const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key > ?1 AND key < ?2 AND field LIKE 'held:%' AND length(value) > 0 LIMIT 1");
-    defer s.finalize();
-    try s.bindText(1, try std.fmt.allocPrint(arena, "{s}/r/", .{item_key}));
-    try s.bindText(2, try std.fmt.allocPrint(arena, "{s}/r0", .{item_key}));
-    if (!try s.step()) return error.NotHeld;
-    const source_id = try arena.dupe(u8, s.blob(0)["held:".len..]);
-    const value = try arena.dupe(u8, s.blob(1));
+    // Copied out and finalized before the network, so no read snapshot is
+    // held open across it and the write after.
+    const source_id, const value = blk: {
+        const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key > ?1 AND key < ?2 AND field LIKE 'held:%' AND length(value) > 0 LIMIT 1");
+        defer s.finalize();
+        try s.bindText(1, try std.fmt.allocPrint(arena, "{s}/r/", .{item_key}));
+        try s.bindText(2, try std.fmt.allocPrint(arena, "{s}/r0", .{item_key}));
+        if (!try s.step()) return error.NotHeld;
+        break :blk .{ try arena.dupe(u8, s.blob(0)["held:".len..]), try arena.dupe(u8, s.blob(1)) };
+    };
     const path = value[0 .. std.mem.indexOfScalar(u8, value, '\t') orelse value.len];
     const source = try library.findSource(replica, arena, source_id);
     // A file that isn't an MP4, or can't be read, is marked described too,
-    // so it isn't read again.
-    const info = mp4.read(arena, client, try fileUrl(arena, source.url, path)) catch |err| switch (err) {
-        error.ConnectionRefused, error.NetworkUnreachable, error.HostUnreachable => return err,
-        else => mp4.Info{},
-    };
+    // so it isn't read again; a network failure is tried again later.
+    const info = mp4.read(arena, client, try fileUrl(arena, source.url, path)) catch |err| if (unreachable_(err)) return err else mp4.Info{};
     const title_end = std.mem.indexOf(u8, item_key, "/e/") orelse std.mem.indexOf(u8, item_key, "/v/") orelse item_key.len;
     var writes: std.ArrayList(Write) = .empty;
     try appendInfo(arena, &writes, .{
@@ -625,7 +627,7 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
             try seen.put(arena, item, {});
             const e = std.mem.indexOf(u8, item, "/e/s");
             const title_key = item[0 .. e orelse (std.mem.indexOf(u8, item, "/v/") orelse item.len)];
-            const n: u16 = if (e) |i| std.fmt.parseInt(u16, item[i + 4 ..][0..@min(2, item.len - i - 4)], 10) catch continue else 0;
+            const n: u16 = if (e) |i| seasonNumber(item[i + 4 ..]) orelse continue else 0;
             const id = try std.fmt.allocPrint(arena, "{s}#{d}", .{ title_key, n });
             if (here) try present.put(arena, id, {});
             const gop = try items.getOrPut(arena, id);
@@ -677,11 +679,26 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     return out.items;
 }
 
+/// A season's number from the digits that start `rest` (after `/e/s`), of
+/// any count up to the `e` or `-` that follows.
+fn seasonNumber(rest: []const u8) ?u16 {
+    var n: usize = 0;
+    while (n < rest.len and std.ascii.isDigit(rest[n])) n += 1;
+    return std.fmt.parseInt(u16, rest[0..n], 10) catch null;
+}
+
+test "season numbers of any width" {
+    try std.testing.expectEqual(@as(?u16, 3), seasonNumber("03e17"));
+    try std.testing.expectEqual(@as(?u16, 2024), seasonNumber("2024e05"));
+    try std.testing.expectEqual(@as(?u16, 0), seasonNumber("00-special"));
+    try std.testing.expectEqual(@as(?u16, null), seasonNumber("e05"));
+}
+
 /// An item's tile: its title's key, and its season (0 for a movie's).
 fn tileOf(item: []const u8) ?struct { title: []const u8, season: u16 } {
     const e = std.mem.indexOf(u8, item, "/e/s");
     const title_key = item[0 .. e orelse (std.mem.indexOf(u8, item, "/v/") orelse item.len)];
-    const n: u16 = if (e) |i| std.fmt.parseInt(u16, item[i + 4 ..][0..@min(2, item.len - i - 4)], 10) catch return null else 0;
+    const n: u16 = if (e) |i| seasonNumber(item[i + 4 ..]) orelse return null else 0;
     return .{ .title = title_key, .season = n };
 }
 

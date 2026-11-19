@@ -50,15 +50,17 @@ pub fn read(arena: std.mem.Allocator, client: *http.Client, target: []const u8) 
     // The top level: ftyp, then moov first or after mdat.
     _ = try f.get(0, 64);
     const size = f.size orelse return error.NoRanges;
+    // Sizes are the file's word: add them saturating, and stop at its end.
     var at: u64 = 0;
-    const moov = while (at + 8 <= size) {
+    const moov = while (at < size and size - at >= 8) {
         const a = try f.atomAt(at);
         if (std.mem.eql(u8, &a.kind, "moov")) break a;
-        at += a.size;
+        at = @min(size, at +| a.size);
     } else return error.NoMovie;
     // moov's children: mvhd, traks (skipped), udta, and perhaps meta.
     at = moov.offset + moov.header;
-    while (at + 8 <= moov.offset + moov.size) {
+    const moov_end = @min(size, moov.offset +| moov.size);
+    while (at < moov_end and moov_end - at >= 8) {
         const a = try f.atomAt(at);
         if (std.mem.eql(u8, &a.kind, "mvhd")) {
             info.duration_ms = duration(try f.get(a.offset + a.header, 32));
@@ -68,7 +70,7 @@ pub fn read(arena: std.mem.Allocator, client: *http.Client, target: []const u8) 
                 parseContainer(&info, bytes, a.offset, std.mem.eql(u8, &a.kind, "meta"));
             }
         }
-        at += a.size;
+        at = @min(moov_end, at +| a.size);
     }
     return info;
 }
@@ -94,6 +96,16 @@ fn header(bytes: []const u8, offset: u64, end: u64) !Atom {
     return .{ .offset = offset, .size = size, .header = h, .kind = bytes[4..8].* };
 }
 
+/// Why a response other than partial content is no use: a server that is
+/// busy or waking (5xx, 408, 429) may answer next time, so it isn't a
+/// verdict on the file; anything else (a whole body, 404, 416) is.
+pub fn statusError(status: http.Status) error{ NoRanges, ServerUnavailable } {
+    return switch (status.class()) {
+        .server_error => error.ServerUnavailable,
+        else => if (status == .request_timeout or status == .too_many_requests) error.ServerUnavailable else error.NoRanges,
+    };
+}
+
 const File = struct {
     arena: std.mem.Allocator,
     client: *http.Client,
@@ -105,20 +117,22 @@ const File = struct {
     /// The atom at `offset`, from bytes already read if they hold its
     /// header, else from a request for it.
     fn atomAt(f: *File, offset: u64) !Atom {
-        if (offset + 16 <= f.head.len) return header(f.head[offset..], offset, f.size.?);
+        if (f.head.len >= 16 and offset <= f.head.len - 16) return header(f.head[offset..], offset, f.size.?);
         return header(try f.get(offset, 16), offset, f.size.?);
     }
 
     fn get(f: *File, offset: u64, length: u64) ![]const u8 {
         var range_buf: [64]u8 = undefined;
-        const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-{d}", .{ offset, offset + length - 1 });
+        if (length == 0) return error.Malformed;
+        const last = std.math.add(u64, offset, length - 1) catch return error.Malformed;
+        const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-{d}", .{ offset, last });
         var request = try f.client.request(.GET, f.uri, .{
             .extra_headers = &.{.{ .name = "range", .value = range }},
         });
         defer request.deinit();
         try request.sendBodiless();
         var response = try request.receiveHead(&.{});
-        if (response.head.status != .partial_content) return error.NoRanges;
+        if (response.head.status != .partial_content) return statusError(response.head.status);
         if (f.size == null) {
             var headers = response.head.iterateHeaders();
             while (headers.next()) |h| if (std.ascii.eqlIgnoreCase(h.name, "content-range")) {
@@ -141,7 +155,7 @@ fn duration(b: []const u8) ?u64 {
     else
         .{ std.mem.readInt(u32, b[12..16], .big), std.mem.readInt(u32, b[16..20], .big) };
     if (timescale == 0) return null;
-    return units * 1000 / timescale;
+    return (std.math.mul(u64, units, 1000) catch return null) / timescale;
 }
 
 /// Finds `meta` > `ilst` within `udta` (or `meta` itself) and reads its
@@ -152,7 +166,7 @@ fn parseContainer(info: *Info, bytes: []const u8, base: u64, is_meta: bool) void
     var at: usize = @intCast(udta.header);
     while (at + 8 <= bytes.len) {
         const a = header(bytes[at..], at, bytes.len) catch return;
-        if (at + a.size > bytes.len) return;
+        if (a.size > bytes.len - at) return;
         if (std.mem.eql(u8, &a.kind, "meta")) parseMeta(info, bytes[at..][0..@intCast(a.size)], base + at);
         at += @intCast(a.size);
     }
@@ -164,7 +178,7 @@ fn parseMeta(info: *Info, bytes: []const u8, base: u64) void {
     var at: usize = @intCast(meta.header + 4);
     while (at + 8 <= bytes.len) {
         const a = header(bytes[at..], at, bytes.len) catch return;
-        if (at + a.size > bytes.len) return;
+        if (a.size > bytes.len - at) return;
         if (std.mem.eql(u8, &a.kind, "ilst")) parseItems(info, bytes[at..][0..@intCast(a.size)], base + at);
         at += @intCast(a.size);
     }
@@ -175,13 +189,17 @@ fn parseItems(info: *Info, bytes: []const u8, base: u64) void {
     var at: usize = @intCast(ilst.header);
     while (at + 8 <= bytes.len) {
         const item = header(bytes[at..], at, bytes.len) catch return;
-        if (at + item.size > bytes.len) return;
+        if (item.size > bytes.len - at) return;
         const body = bytes[at..][0..@intCast(item.size)];
         // An item holds a `data` atom: type (4), locale (4), then the value.
         const data = header(body[@intCast(item.header)..], 0, body.len) catch {
             at += @intCast(item.size);
             continue;
         };
+        if (data.size > body.len - item.header) {
+            at += @intCast(item.size);
+            continue;
+        }
         const start: usize = @intCast(item.header + data.header + 8);
         const end: usize = @intCast(item.header + data.size);
         if (std.mem.eql(u8, &data.kind, "data") and start <= end and end <= body.len) {
@@ -274,4 +292,29 @@ test "mvhd's duration, in either version" {
     std.mem.writeInt(u32, v1[20..24], 1000, .big);
     std.mem.writeInt(u64, v1[24..32], 5_400_000, .big);
     try std.testing.expectEqual(@as(?u64, 5_400_000), duration(&v1));
+}
+
+test "atom sizes near 2^64 don't overflow" {
+    // An ilst item claiming a huge size, and a huge data atom inside one.
+    var big: [32]u8 = @splat(0);
+    std.mem.writeInt(u32, big[0..4], 1, .big);
+    @memcpy(big[4..8], "ilst");
+    std.mem.writeInt(u64, big[8..16], std.math.maxInt(u64) - 4, .big);
+    var info: Info = .{};
+    parseItems(&info, &big, 0);
+    parseMeta(&info, &big, 0);
+    parseContainer(&info, &big, 0, false);
+    try std.testing.expect(info.cover == null);
+    var v1: [32]u8 = @splat(0);
+    v1[0] = 1;
+    std.mem.writeInt(u32, v1[20..24], 1, .big);
+    std.mem.writeInt(u64, v1[24..32], std.math.maxInt(u64), .big);
+    try std.testing.expectEqual(@as(?u64, null), duration(&v1));
+}
+
+test "a busy server isn't a verdict on the file" {
+    try std.testing.expectEqual(error.ServerUnavailable, statusError(.service_unavailable));
+    try std.testing.expectEqual(error.ServerUnavailable, statusError(.too_many_requests));
+    try std.testing.expectEqual(error.NoRanges, statusError(.ok));
+    try std.testing.expectEqual(error.NoRanges, statusError(.not_found));
 }
