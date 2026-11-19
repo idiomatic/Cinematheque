@@ -355,11 +355,11 @@ async function titlePage(key, season) {
     : resuming ? "Resume" : "Play";
 
   const play = (index, fromStart) => playQueue(detail, items, index, quality, fromStart);
-  // Playing, on a row of its own; the marks, quieter, at its end.
+  // Playing, on a row of its own, filled: the marks, quieter, at its end.
+  // Starting over is beside each progress meter, as on the Mac.
   const actions = el("div", { class: "actions" },
     el("button", { class: "primary", type: "button", disabled: !quality, onclick: () => play(next, false) }, "▶ " + nextLabel),
-    resuming ? el("button", { type: "button", title: "Play from the beginning", onclick: () => play(next, true) }, "⏮ Start Over") : null,
-    el("span", { class: "gap" }),
+    el("span", { class: "spacer" }),
     el("button", { class: "mark", type: "button", "aria-pressed": listed, onclick: async () => { await api("watchlist", { key: isSeries ? `${key}#${season}` : key, on: !listed }); await reload(); route(); } },
       listed ? "★ On Watchlist" : "☆ Watchlist"),
     el("button", { class: "mark", type: "button", "aria-pressed": allWatched, onclick: async () => {
@@ -384,6 +384,7 @@ async function titlePage(key, season) {
     el("h1", {}, detail.name),
     facts ? el("div", { class: "facts" }, facts) : null,
     actions,
+    !isSeries && items.length === 1 ? progressRow(detail, items[0]) : null,
     detail.fields.description && !isSeries ? el("p", { class: "description" }, detail.fields.description) : null,
   ];
   if (isSeries) {
@@ -397,7 +398,7 @@ async function titlePage(key, season) {
       el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n, false) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
       el("span", { class: "time" }, item.fields.duration ? formatTime(Number(item.fields.duration)) : ""),
-      item.position > 0 && item.duration > 0 && !item.watched ? el("progress", { max: item.duration, value: item.position }) : null,
+      progressRow(detail, item),
       item.fields.description ? el("span", { class: "desc" }, item.fields.description) : null,
     ))));
   } else if (items.length > 1) {
@@ -412,6 +413,21 @@ async function titlePage(key, season) {
   }
   describe(detail, items);
   return [el("div", { class: "page" }, art, el("div", {}, body))];
+}
+
+/// An item's progress, if it's partway: a meter, what's left, and Start
+/// from Beginning, which forgets the position (not the watched mark), so
+/// Resume becomes Play, as the Mac's does.
+function progressRow(detail, item) {
+  if (!(item.position > 0 && item.duration > 0 && !item.watched)) return null;
+  return el("div", { class: "progress" },
+    el("progress", { max: item.duration, value: item.position }),
+    el("span", { class: "left" }, `${formatTime(item.duration - item.position)} left`),
+    el("button", {
+      class: "mark", type: "button", title: "Start from Beginning", "aria-label": "Start from Beginning",
+      // A position in the first 10 seconds isn't kept: recording one forgets it.
+      onclick: async () => { await api("progress", { item: `${detail.key}/${item.key}`, position: 0, duration: 0 }); await reload(); route(); },
+    }, "↺"));
 }
 
 /// Items asked to be described, so each is asked once a page load.

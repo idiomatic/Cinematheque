@@ -84,9 +84,13 @@ h2 { font-size: 20px; margin: 24px 0 12px; }
 .page .art img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .page h1 { margin: 0; font-size: 28px; }
 .facts { color: var(--dim); margin: 4px 0 16px; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
-/* Set apart, not pushed to the far edge, where a wide window strands it. */
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; max-width: 80ch; }
+.spacer { flex: 1; }
 .gap { width: 16px; }
+.progress { display: flex; gap: 10px; align-items: center; max-width: 80ch; margin: -4px 0 12px; }
+.progress progress { flex: 1; height: 4px; accent-color: var(--accent); }
+.progress .left { color: var(--dim); font-size: 12px; white-space: nowrap; }
+.progress .mark { padding: 0 4px; }
 /* The marks: toggles set now and then, quieter than what plays. */
 button.mark { background: none; border-color: transparent; color: var(--dim); padding: 7px 8px; }
 button.mark:hover { color: var(--text); }
@@ -116,7 +120,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .episodes .watched .title::after { content: " ✓"; color: var(--dim); }
 .episodes .time { color: var(--dim); font-size: 13px; }
 .episodes .desc { grid-column: 2 / 4; color: var(--dim); font-size: 13px; }
-.episodes progress { grid-column: 2 / 4; width: 100%; height: 4px; accent-color: var(--accent); }
+.episodes .progress { grid-column: 2 / 4; margin: 0; }
 
 #status {
   position: fixed; left: 0; right: 0; bottom: 0; padding: 6px 24px;
