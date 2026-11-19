@@ -31,7 +31,11 @@ struct PlaysFullScreen: ViewModifier {
             // the view's: fading the page hides the tab bar, which re-hosts
             // the page, and SwiftUI restarts a view's task when it does,
             // which started every request twice.
-            .onChange(of: request, initial: true) { _, asked in
+            // Not `initial`: that fires again as the page reappears (the
+            // player dismissed), which, its request not yet cleared, started
+            // it over.
+            .onChange(of: request) { _, asked in
+                PlaybackSession.log.notice("Asked to play \(asked?.item ?? "nothing", privacy: .public)\(warming ? ", while starting" : "", privacy: .public)")
                 // Pressing Play again over the black (focus stays on the
                 // page's Play beneath it) doesn't start it over.
                 guard asked == nil || !warming else { return }
@@ -66,8 +70,7 @@ struct PlaysFullScreen: ViewModifier {
             Task { @MainActor in session.close() }
         }
         guard !Task.isCancelled else { return session.close() }
-        TVPlayer.present(session) {
-            self.request = nil
+        TVPlayer.present(session, dismissed: { self.request = nil }) {
             reveal()
         }
     }
@@ -95,6 +98,7 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
     private let controller = AVPlayerViewController()
     private let curtain = UIView()
     /// Once it's gone, and the page can come back.
+    private let dismissed: () -> Void
     private let gone: () -> Void
     /// The window whose display mode it asked for, to give back.
     private weak var window: UIWindow?
@@ -102,8 +106,9 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
     /// The one shown, kept while it is.
     private static var shown: TVPlayer?
 
-    private init(session: PlaybackSession, gone: @escaping () -> Void) {
+    private init(session: PlaybackSession, dismissed: @escaping () -> Void, gone: @escaping () -> Void) {
         self.session = session
+        self.dismissed = dismissed
         self.gone = gone
         super.init()
         controller.delegate = self
@@ -129,14 +134,17 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
 
     /// Presents a player over whatever's frontmost, unanimated; `gone` once
     /// it's left.
-    static func present(_ session: PlaybackSession, gone: @escaping () -> Void) {
+    /// `dismissed` once it's off screen (the page beneath still black);
+    /// `gone` once the display has its own mode back, to fade the page in.
+    static func present(_ session: PlaybackSession, dismissed: @escaping () -> Void, gone: @escaping () -> Void) {
         let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
         guard var top = window?.rootViewController else {
             session.close()
+            dismissed()
             return gone()
         }
         while let presented = top.presentedViewController { top = presented }
-        let player = TVPlayer(session: session, gone: gone)
+        let player = TVPlayer(session: session, dismissed: dismissed, gone: gone)
         shown = player
         // The display switches to the video's mode first, over the black
         // page (the window's to ask, not the player's): presented only then,
@@ -180,16 +188,45 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         UIView.animate(withDuration: Platform.fade, delay: 0, options: .curveEaseOut) {
             self.curtain.alpha = 1
         } completion: { _ in
-            // Its video detached while it's still on screen, behind the
-            // curtain, rather than its views reacting to it stopping once
-            // they're out of the window.
-            self.controller.player = nil
+            // Stopped while it's black, its controls hidden first, so the
+            // player has nothing to show: detached, it showed its spinner
+            // and controls for a moment.
+            self.controller.showsPlaybackControls = false
+            // The display's own mode asked for first, while it's black, so
+            // its switch (some 3 seconds) covers stopping (saving where it
+            // stopped, half a second) and going.
+            let switching = self.restoreDisplay()
+            self.session.close()
+            PlaybackSession.log.notice("Leaving: faded and stopped")
             self.controller.dismiss(animated: false) {
-                self.session.close()
-                self.window?.avDisplayManager.preferredDisplayCriteria = nil
-                Self.shown = nil
-                self.gone()
+                self.dismissed()
+                Task { @MainActor in
+                    // The switch (which blanks the screen) done before the
+                    // page fades in, rather than under it, which left the
+                    // page simply there.
+                    await switching?()
+                    PlaybackSession.log.notice("Left")
+                    Self.shown = nil
+                    self.gone()
+                }
             }
+        }
+    }
+
+    /// Gives the display back its own mode, if it was switched, at once;
+    /// returns a wait for the switch to end (up to half a second to start,
+    /// five to end), if there's one.
+    private func restoreDisplay() -> (() async -> Void)? {
+        guard let window else { return nil }
+        let manager = window.avDisplayManager
+        guard manager.preferredDisplayCriteria != nil else { return nil }
+        let clock = ContinuousClock()
+        let asked = clock.now
+        manager.preferredDisplayCriteria = nil
+        return {
+            while !manager.isDisplayModeSwitchInProgress, clock.now - asked < .milliseconds(500) { try? await Task.sleep(for: .milliseconds(50)) }
+            while manager.isDisplayModeSwitchInProgress, clock.now - asked < .seconds(5) { try? await Task.sleep(for: .milliseconds(50)) }
+            PlaybackSession.log.notice("Leaving: gave the display back its mode in \((clock.now - asked).formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow)), privacy: .public)")
         }
     }
 
