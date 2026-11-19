@@ -111,6 +111,13 @@ test "a year's unclosed parenthesis ends the name without a crash" {
     _ = parse_.parse("Movies/Alien (1979.mkv", &scratch);
 }
 
+test "a deep path keeps its file, not its first folders" {
+    var scratch: [512]u8 = undefined;
+    const p = parse_.parse("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/Alien (1979).mkv", &scratch);
+    try std.testing.expectEqualStrings("Alien", p.title);
+    try std.testing.expectEqual(@as(?u16, 1979), p.year);
+}
+
 fn check(case: Case, p: parse_.Parsed) !void {
     try std.testing.expectEqual(case.kind, p.kind);
     try std.testing.expectEqualStrings(case.title, p.title);

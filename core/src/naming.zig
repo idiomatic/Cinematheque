@@ -95,7 +95,11 @@ pub fn parse(path: []const u8, scratch: []u8) Parsed {
     var it = mem.splitScalar(u8, path, '/');
     while (it.next()) |s| {
         if (s.len == 0) continue;
-        if (n == segments.len) break;
+        // Keep the last segments, so the file's name is never lost.
+        if (n == segments.len) {
+            mem.copyForwards([]const u8, segments[0 .. n - 1], segments[1..n]);
+            n -= 1;
+        }
         segments[n] = s;
         n += 1;
     }

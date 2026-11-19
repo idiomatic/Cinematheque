@@ -91,6 +91,8 @@ pub fn order(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, memory: *
     const started = Io.Timestamp.now(io, .awake);
     const buffer = try arena.alloc(Event, servers.items.len + 2);
     var select: Io.Select(Event) = .init(io, buffer);
+    // The tasks use this frame's state, so none outlives an early return.
+    errdefer select.cancelDiscard();
     try select.concurrent(.deadline, deadline, .{io});
     for (servers.items, 0..) |server, i| try select.concurrent(.asked, ask, .{ io, server, i });
     const asked_at = Io.Timestamp.now(io, .awake);

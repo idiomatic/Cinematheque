@@ -184,7 +184,8 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
         try request.sendBodiless();
         var response = try request.receiveHead(&.{});
         switch (response.head.status) {
-            .partial_content => {},
+            // Only from where the file stands, else it would be corrupted.
+            .partial_content => if ((contentRangeStart(response.head) orelse return error.BadRange) != have) return error.BadRange,
             // Whole: from the beginning, then.
             .ok => if (have > 0) {
                 try out.setLength(io, 0);
@@ -212,6 +213,31 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
         try writer.interface.flush();
     }
     if (try out.length(io) != size) return error.Truncated;
+}
+
+/// Where a `206` response says its bytes start (`Content-Range: bytes
+/// 100-199/300`).
+fn contentRangeStart(head: std.http.Client.Response.Head) ?u64 {
+    var headers = head.iterateHeaders();
+    while (headers.next()) |h| {
+        if (std.ascii.eqlIgnoreCase(h.name, "content-range")) return rangeStart(h.value);
+    }
+    return null;
+}
+
+fn rangeStart(value: []const u8) ?u64 {
+    const rest = std.mem.trimStart(u8, value, " ");
+    if (!std.mem.startsWith(u8, rest, "bytes ")) return null;
+    const spec = rest["bytes ".len..];
+    const dash = std.mem.indexOfScalar(u8, spec, '-') orelse return null;
+    return std.fmt.parseInt(u64, std.mem.trim(u8, spec[0..dash], " "), 10) catch null;
+}
+
+test "a Content-Range's start" {
+    try std.testing.expectEqual(@as(?u64, 100), rangeStart("bytes 100-199/300"));
+    try std.testing.expectEqual(@as(?u64, 0), rangeStart("bytes 0-9/*"));
+    try std.testing.expectEqual(@as(?u64, null), rangeStart("bytes */300"));
+    try std.testing.expectEqual(@as(?u64, null), rangeStart("items 1-2/3"));
 }
 
 // A player's downloads.
@@ -464,14 +490,37 @@ fn episodeCode(key: []const u8) ?[2]u32 {
 }
 
 /// Free bytes for this person on the volume holding `dir`, if the platform
-/// tells.
+/// tells (macOS and Linux). Where it doesn't, or the call fails, null:
+/// reconciling then goes on unchecked, as a floor it can't measure can't
+/// hold back a download a person asked for.
 pub fn freeBytes(arena: std.mem.Allocator, dir: []const u8) ?u64 {
-    if (@import("builtin").os.tag != .macos) return null;
     const path = arena.dupeSentinel(u8, dir, 0) catch return null;
-    var st: Statfs = undefined;
-    if (statfs(path.ptr, &st) != 0) return null;
-    return st.f_bavail * st.f_bsize;
+    switch (@import("builtin").os.tag) {
+        .macos => {
+            var st: Statfs = undefined;
+            if (statfs(path.ptr, &st) != 0) return null;
+            return st.f_bavail * st.f_bsize;
+        },
+        .linux => {
+            var st: Statvfs = undefined;
+            if (statvfs(path.ptr, &st) != 0) return null;
+            // Blocks are counted in the fragment size.
+            return @as(u64, st.f_bavail) * @as(u64, st.f_frsize);
+        },
+        else => return null,
+    }
 }
+
+/// Linux's `struct statvfs` on 64-bit glibc and musl, padded past its end.
+const Statvfs = extern struct {
+    f_bsize: c_ulong,
+    f_frsize: c_ulong,
+    f_blocks: c_ulong,
+    f_bfree: c_ulong,
+    f_bavail: c_ulong,
+    f_rest: [16]c_ulong,
+};
+extern "c" fn statvfs(path: [*:0]const u8, buf: *Statvfs) c_int;
 
 /// macOS's `struct statfs` (64-bit inodes).
 const Statfs = extern struct {

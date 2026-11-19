@@ -53,25 +53,40 @@ pub const Snapshot = struct {
     }
 
     /// Lines of `url<TAB>parent<TAB>d|f<TAB>size<TAB>mtime`.
+    /// A tab or newline in a field (a hostile listing's) couldn't be read
+    /// back, and leaving only that entry out would leave its directory
+    /// looking whole, so then nothing is saved and the next crawl lists all.
     pub fn save(entries: []const Entry, w: *Io.Writer) !void {
+        for (entries) |e| {
+            if (std.mem.indexOfAny(u8, e.url, "\t\n") != null or std.mem.indexOfAny(u8, e.parent, "\t\n") != null or
+                std.mem.indexOfAny(u8, e.mtime, "\t\n") != null) return;
+        }
         for (entries) |e| try w.print("{s}\t{s}\t{s}\t{d}\t{s}\n", .{ e.url, e.parent, if (e.is_dir) "d" else "f", e.size, e.mtime });
     }
 
+    /// A snapshot only saves work, so a damaged one (a line that doesn't
+    /// read) is none at all: never an error, and never partial, since a
+    /// directory missing children would be reused as it stands.
     pub fn load(arena: std.mem.Allocator, text: []const u8) ![]Entry {
         var entries: std.ArrayList(Entry) = .empty;
         var lines = std.mem.splitScalar(u8, text, '\n');
         while (lines.next()) |line| {
             if (line.len == 0) continue;
-            var f = std.mem.splitScalar(u8, line, '\t');
-            try entries.append(arena, .{
-                .url = f.next() orelse return error.Malformed,
-                .parent = f.next() orelse return error.Malformed,
-                .is_dir = std.mem.eql(u8, f.next() orelse return error.Malformed, "d"),
-                .size = try std.fmt.parseInt(u64, f.next() orelse return error.Malformed, 10),
-                .mtime = f.next() orelse "",
-            });
+            const entry = parseLine(line) orelse return &.{};
+            try entries.append(arena, entry);
         }
         return entries.items;
+    }
+
+    fn parseLine(line: []const u8) ?Entry {
+        var f = std.mem.splitScalar(u8, line, '\t');
+        const entry_url = f.next() orelse return null;
+        const parent = f.next() orelse return null;
+        const kind = f.next() orelse return null;
+        const size = std.fmt.parseInt(u64, f.next() orelse return null, 10) catch return null;
+        const mtime = f.next() orelse "";
+        if (f.next() != null) return null;
+        return .{ .url = entry_url, .parent = parent, .is_dir = std.mem.eql(u8, kind, "d"), .size = size, .mtime = mtime };
     }
 };
 
@@ -91,7 +106,7 @@ pub const Result = struct {
     fn add(r: *Result, o: Result) void {
         r.files += o.files;
         r.dirs += o.dirs;
-        r.size += o.size;
+        r.size +|= o.size;
         r.requests += o.requests;
         r.skipped += o.skipped;
         r.retries += o.retries;
@@ -132,31 +147,25 @@ const Worker = struct {
     }
 
     fn list(w: *Worker, dir: []const u8) !void {
-        var body: Io.Writer.Allocating = .init(w.arena);
         const json = w.format == .json;
         // A server may close a pooled keep-alive connection between
         // requests (e.g., Apache after 100), so retry on a fresh one.
         var attempts: usize = 0;
-        const status = while (true) : (attempts += 1) {
-            body.clearRetainingCapacity();
-            break (w.client.fetch(.{
-                .location = .{ .url = dir },
-                .response_writer = &body.writer,
-                .extra_headers = if (json) &.{.{ .name = "accept", .value = "application/json" }} else &.{},
-            }) catch |err| switch (err) {
+        const got = while (true) : (attempts += 1) {
+            break get(w.arena, w.client, dir, if (json) &.{.{ .name = "accept", .value = "application/json" }} else &.{}) catch |err| switch (err) {
                 error.HttpConnectionClosing, error.ConnectionResetByPeer, error.ReadFailed, error.WriteFailed => {
                     if (attempts == 3) return err;
                     w.result.retries += 1;
                     continue;
                 },
                 else => return err,
-            }).status;
+            };
         };
-        if (status != .ok) {
-            std.log.err("{s}: {d}", .{ dir, @intFromEnum(status) });
-            return statusError(status);
+        if (got.status != .ok) {
+            std.log.err("{s}: {d}", .{ dir, @intFromEnum(got.status) });
+            return statusError(got.status);
         }
-        const text = body.written();
+        const text = got.body;
         w.result.requests += 1;
         w.result.listing_bytes += text.len;
         if (json) try w.parseJson(dir, text) else try w.parseHtml(dir, text);
@@ -176,10 +185,13 @@ const Worker = struct {
         const items = try std.json.parseFromSliceLeaky([]Item, w.arena, text, .{ .ignore_unknown_fields = true });
         var href: std.ArrayList(u8) = .empty;
         for (items) |item| {
+            // Caddy ends directories' names with a slash.
+            const name = std.mem.trimEnd(u8, item.name, "/");
+            // Never a name that leaves or loops within the tree.
+            if (escapes(name)) continue;
             href.clearRetainingCapacity();
             try href.appendSlice(w.arena, dir);
-            // Caddy ends directories' names with a slash.
-            try url.encode(w.arena, &href, std.mem.trimEnd(u8, item.name, "/"));
+            try url.encode(w.arena, &href, name);
             const is_dir = item.is_dir orelse std.mem.eql(u8, item.type orelse "", "directory");
             if (is_dir) try href.append(w.arena, '/');
             try w.found(try w.arena.dupe(u8, href.items), dir, is_dir, item.size, item.mod_time orelse item.mtime orelse "");
@@ -198,10 +210,9 @@ const Worker = struct {
             // Skip sort and download links, fragments, parents, and links
             // outside the tree.
             if (href.len == 0 or href[0] == '/' or std.mem.indexOfAny(u8, href, "?#") != null or
-                std.mem.eql(u8, href, "..") or std.mem.startsWith(u8, href, "../") or
                 std.mem.indexOf(u8, href, "://") != null) continue;
             const target = try unescapeHtml(w.arena, if (std.mem.startsWith(u8, href, "./")) href[2..] else href);
-            if (target.len == 0) continue;
+            if (target.len == 0 or escapes(target)) continue;
             const is_dir = target[target.len - 1] == '/';
             try w.found(try std.mem.concat(w.arena, u8, &.{ dir, target }), dir, is_dir, 0, "");
         }
@@ -214,7 +225,7 @@ const Worker = struct {
             try w.next.append(w.arena, .{ .url = target, .mtime = mtime });
         } else {
             w.result.files += 1;
-            w.result.size += size;
+            w.result.size +|= size;
             if (w.result.sample == null) w.result.sample = target;
         }
     }
@@ -267,8 +278,12 @@ pub fn crawl(io: Io, arena: std.mem.Allocator, client: *http.Client, base: []con
     var result: Result = .{};
     var level: []const Dir = &.{.{ .url = base }};
     const pool = try arena.alloc(Worker, workers);
-    while (level.len > 0) {
+    var depth: usize = 0;
+    while (level.len > 0) : (depth += 1) {
+        if (depth == max_depth) return error.TooDeep;
         var group: Io.Group = .init;
+        // The workers use this frame's state, so none outlives an early return.
+        errdefer group.cancel(io);
         const n = @min(workers, level.len);
         for (pool[0..n], 0..) |*w, i| {
             const chunk = (level.len + n - 1) / n;
@@ -294,6 +309,51 @@ pub fn crawl(io: Io, arena: std.mem.Allocator, client: *http.Client, base: []con
     return result;
 }
 
+/// The most a listing may be, and how deep a crawl goes, so a hostile or
+/// broken server (or a symlink loop) can't exhaust memory or never finish.
+const max_listing_bytes = 64 << 20;
+const max_depth = 64;
+
+const Fetched = struct { status: http.Status, body: []const u8 };
+
+/// `fetch` into memory, at most `max_listing_bytes` of it.
+fn get(arena: std.mem.Allocator, client: *http.Client, location: []const u8, extra_headers: []const http.Header) !Fetched {
+    var req = try client.request(.GET, try std.Uri.parse(location), .{ .redirect_behavior = .init(3), .extra_headers = extra_headers });
+    defer req.deinit();
+    try req.sendBodiless();
+    var redirect: [8 * 1024]u8 = undefined;
+    var response = try req.receiveHead(&redirect);
+    const decompress_buffer: []u8 = switch (response.head.content_encoding) {
+        .identity => &.{},
+        .zstd => try arena.alloc(u8, std.compress.zstd.default_window_len),
+        .deflate, .gzip => try arena.alloc(u8, std.compress.flate.max_window_len),
+        .compress => return error.UnsupportedCompressionMethod,
+    };
+    defer if (decompress_buffer.len > 0) arena.free(decompress_buffer);
+    var transfer: [64]u8 = undefined;
+    var decompress: http.Decompress = undefined;
+    const reader = response.readerDecompressing(&transfer, &decompress, decompress_buffer);
+    const status = response.head.status;
+    const body = reader.allocRemaining(arena, .limited(max_listing_bytes)) catch |err| switch (err) {
+        error.ReadFailed => return response.bodyErr().?,
+        else => |e| return e,
+    };
+    return .{ .status = status, .body = body };
+}
+
+/// Whether a path segment would leave or loop within the tree.
+fn dotSegment(s: []const u8) bool {
+    return s.len == 0 or std.mem.eql(u8, s, ".") or std.mem.eql(u8, s, "..");
+}
+
+/// Whether a relative path has an empty, `.`, or `..` segment (a trailing
+/// slash aside), which could leave the source's tree.
+fn escapes(path: []const u8) bool {
+    var segments = std.mem.splitScalar(u8, std.mem.trimEnd(u8, path, "/"), '/');
+    while (segments.next()) |s| if (dotSegment(s)) return true;
+    return false;
+}
+
 /// What a server's status says went wrong, as an error a person can read
 /// (see the apps' messages): nothing there, refused, or the server's fault.
 pub fn statusError(status: http.Status) anyerror {
@@ -306,14 +366,9 @@ pub fn statusError(status: http.Status) anyerror {
 
 /// Asks for a listing as JSON and sees whether that's what came back.
 fn sniff(arena: std.mem.Allocator, client: *http.Client, base: []const u8) !Format {
-    var body: Io.Writer.Allocating = .init(arena);
-    const status = (try client.fetch(.{
-        .location = .{ .url = base },
-        .response_writer = &body.writer,
-        .extra_headers = &.{.{ .name = "accept", .value = "application/json" }},
-    })).status;
-    if (status != .ok) return statusError(status);
-    const text = std.mem.trimStart(u8, body.written(), " \t\r\n");
+    const got = try get(arena, client, base, &.{.{ .name = "accept", .value = "application/json" }});
+    if (got.status != .ok) return statusError(got.status);
+    const text = std.mem.trimStart(u8, got.body, " \t\r\n");
     return if (text.len > 0 and text[0] == '[') .json else .html;
 }
 
@@ -322,15 +377,14 @@ fn sniff(arena: std.mem.Allocator, client: *http.Client, base: []const u8) !Form
 /// by a tab, the size, a tab, and the modification time. Returns null when
 /// there's none.
 fn crawlIndex(arena: std.mem.Allocator, client: *http.Client, base: []const u8, entries: ?*std.ArrayList(Entry)) !?Result {
-    var body: Io.Writer.Allocating = .init(arena);
-    const status = (try client.fetch(.{
-        .location = .{ .url = try std.mem.concat(arena, u8, &.{ base, "INDEX" }) },
-        .response_writer = &body.writer,
-    })).status;
-    if (status == .not_found) return null;
+    const got = try get(arena, client, try std.mem.concat(arena, u8, &.{ base, "INDEX" }), &.{});
+    const status = got.status;
+    // A server that refuses or rejects the probe (403, 405) has no INDEX to
+    // give; only a refusal to be asked at all (401) or a failure is one.
+    if (status == .not_found or (@intFromEnum(status) >= 400 and @intFromEnum(status) < 500 and status != .unauthorized)) return null;
     if (status != .ok) return statusError(status);
-    var result: Result = .{ .requests = 1, .listing_bytes = body.written().len };
-    var lines = std.mem.splitScalar(u8, body.written(), '\n');
+    var result: Result = .{ .requests = 1, .listing_bytes = got.body.len };
+    var lines = std.mem.splitScalar(u8, got.body, '\n');
     while (lines.next()) |line| {
         if (line.len == 0) continue;
         var fields = std.mem.splitScalar(u8, line, '\t');
@@ -341,6 +395,7 @@ fn crawlIndex(arena: std.mem.Allocator, client: *http.Client, base: []const u8, 
         // one (an unplugged drive's mount point) shows it's still there.
         const is_dir = std.mem.endsWith(u8, path, "/");
         if (is_dir) path = path[0 .. path.len - 1];
+        if (escapes(path) or path.len == 0) continue;
         const size = if (fields.next()) |f| std.fmt.parseInt(u64, f, 10) catch 0 else 0;
         const mtime = fields.next() orelse "";
         var href: std.ArrayList(u8) = .empty;
@@ -361,10 +416,34 @@ fn crawlIndex(arena: std.mem.Allocator, client: *http.Client, base: []const u8, 
             result.dirs += 1;
         } else {
             result.files += 1;
-            result.size += size;
+            result.size +|= size;
             if (result.sample == null) result.sample = href.items;
         }
         if (entries) |e| try e.append(arena, .{ .url = href.items, .parent = href.items[0..parent_len], .is_dir = is_dir, .size = size, .mtime = mtime });
     }
     return result;
+}
+
+test "a damaged snapshot loads as none, and a hostile entry isn't saved" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    try std.testing.expectEqual(@as(usize, 0), (try Snapshot.load(arena, "http://a/\thttp://\td\tnope\t\n")).len);
+    try std.testing.expectEqual(@as(usize, 1), (try Snapshot.load(arena, "http://a/\thttp://\td\t0\tx\n")).len);
+
+    var buf: Io.Writer.Allocating = .init(arena);
+    const bad: Entry = .{ .url = "http://a/b", .parent = "http://a/", .is_dir = false, .size = 1, .mtime = "x\ty" };
+    const good: Entry = .{ .url = "http://a/c", .parent = "http://a/", .is_dir = false, .size = 1, .mtime = "" };
+    try Snapshot.save(&.{ good, bad }, &buf.writer);
+    try std.testing.expectEqual(@as(usize, 0), buf.written().len);
+}
+
+test "paths that leave or loop within the tree are refused" {
+    try std.testing.expect(escapes("a/../../x"));
+    try std.testing.expect(escapes(".."));
+    try std.testing.expect(escapes("./a"));
+    try std.testing.expect(escapes(""));
+    try std.testing.expect(escapes("a//b"));
+    try std.testing.expect(!escapes("a/b/"));
+    try std.testing.expect(!escapes("a.b/..c"));
 }
