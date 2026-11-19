@@ -4,9 +4,12 @@ import Foundation
 /// searched, and how it's counted. Each platform shows them its own way
 /// (the Mac in a sidebar, the Apple TV in a tab bar).
 enum Shelf: String, CaseIterable, Identifiable, Hashable {
-    /// Downloaded and Watched Downloads are the Mac's only: what this Mac
-    /// keeps.
-    case home, movies, series, watchlist, played, downloaded, watchedDownloads
+    /// In Progress and Watched are the Mac's Played, split (it has no
+    /// Home); Downloaded, what this Mac keeps, is the Mac's only too.
+    case home, movies, series, watchlist, played, inProgress, watched, downloaded
+
+    /// The Mac's only.
+    static let macOnly: Set<Shelf> = [.inProgress, .watched, .downloaded]
 
     var id: Self { self }
 
@@ -17,8 +20,9 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .series: "Series"
         case .watchlist: "Watchlist"
         case .played: "Played"
+        case .inProgress: "In Progress"
+        case .watched: "Watched"
         case .downloaded: "Downloaded"
-        case .watchedDownloads: "Watched Downloads"
         }
     }
 
@@ -29,32 +33,36 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .series: "tv"
         case .watchlist: "star"
         case .played: "play.circle"
+        case .inProgress: "play.circle"
+        case .watched: "checkmark.circle"
         case .downloaded: "arrow.down.circle"
-        case .watchedDownloads: "hourglass"
         }
     }
 
     /// Its tiles, a series' by season, whose names hold `search`, if any:
     /// Home's are those in progress (movies partway, seasons begun);
     /// Played's, a smart folder, everything with a playhead, in progress or
-    /// watched.
+    /// watched; the Mac's In Progress, Home's, and its Watched, what's
+    /// watched through, and any with a download watched since (its mark
+    /// saying whether it waits for its space to be needed or is the only
+    /// copy).
     @MainActor func tiles(in library: Library, search: String = "") -> [Tile] {
         #if os(macOS)
         let downloaded = self == .downloaded ? library.downloadedTiles : []
-        let watched = self == .watchedDownloads ? library.watchedTiles : [:]
+        let watchedDownloads = self == .watched ? library.watchedTiles : [:]
         #else
         let downloaded: Set<String> = []
-        let watched: [String: Bool] = [:]
+        let watchedDownloads: [String: Bool] = [:]
         #endif
         return library.tiles.filter { tile in
             let on = switch self {
-            case .home: !tile.watched && tile.started
+            case .home, .inProgress: !tile.watched && tile.started
             case .movies: !tile.isSeries
             case .series: tile.isSeries
             case .watchlist: library.watchlist.contains(tile.id)
             case .played: tile.played
+            case .watched: tile.watched || watchedDownloads[tile.id] != nil
             case .downloaded: downloaded.contains(tile.id)
-            case .watchedDownloads: watched[tile.id] != nil
             }
             return on && (search.isEmpty || tile.name.localizedCaseInsensitiveContains(search))
         }
@@ -66,10 +74,10 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         let all = tiles(in: library)
         let titles = Set(all.map(\.key)).count
         let noun = switch self {
-        case .home: titles == 1 ? "title in progress" : "titles in progress"
+        case .home, .inProgress: titles == 1 ? "title in progress" : "titles in progress"
         case .movies: titles == 1 ? "movie" : "movies"
         case .series: "series"
-        case .watchlist, .played, .downloaded, .watchedDownloads: titles == 1 ? "title" : "titles"
+        case .watchlist, .played, .watched, .downloaded: titles == 1 ? "title" : "titles"
         }
         if !search.isEmpty {
             let matching = Set(tiles(in: library, search: search).map(\.key)).count
@@ -82,11 +90,11 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
     /// What an empty shelf says.
     var empty: String {
         switch self {
-        case .home: "What you're watching shows here."
+        case .home, .inProgress: "What you're watching shows here."
+        case .watched: "What you've watched shows here, and downloads you've watched: those another source has, until their space is needed; those that are the only copy, until you delete or keep them."
         case .watchlist: "Titles you add to your watchlist show here."
         case .played: "What you've started or watched shows here."
         case .downloaded: "What you download, to watch without a network, shows here."
-        case .watchedDownloads: "Downloads you've watched show here: those another source has, until their space is needed; those that are the only copy, until you delete or keep them."
         case .movies, .series: "Add sources of videos in Cinematheque on your Mac."
         }
     }

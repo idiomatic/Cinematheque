@@ -14,7 +14,7 @@ struct Browser: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            ForEach(Shelf.allCases.filter { $0 != .downloaded && $0 != .watchedDownloads }) { shelf in
+            ForEach(Shelf.allCases.filter { !Shelf.macOnly.contains($0) }) { shelf in
                 SwiftUI.Tab(shelf.title, systemImage: shelf.symbol, value: Tab.shelf(shelf)) {
                     Stack {
                         if shelf == .home {

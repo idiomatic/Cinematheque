@@ -5,7 +5,7 @@ import SwiftUI
 /// by shelf and search, beside an inspector for the one selected.
 struct Browser: View {
     /// The shelves in the sidebar.
-    static let shelves: [Shelf] = [.movies, .series, .watchlist, .played, .downloaded, .watchedDownloads]
+    static let shelves: [Shelf] = [.movies, .series, .watchlist, .inProgress, .watched, .downloaded]
 
     @Environment(Library.self) private var library
     @State private var shelf: Shelf? = .movies
@@ -180,7 +180,7 @@ struct CoverGrid: View {
         }
         .overlay {
             if tiles.isEmpty {
-                ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(shelf == .watchlist || shelf == .played ? shelf.empty : "Add sources of videos in Settings."))
+                ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(shelf == .movies || shelf == .series ? "Add sources of videos in Settings." : shelf.empty))
             }
         }
     }
@@ -209,8 +209,9 @@ struct CoverGrid: View {
                     .onTapGesture { selection = tile.id }
                     .simultaneousGesture(TapGesture(count: 2).onEnded { playNext(tile) })
                     .contextMenu {
+                        // Forgets its playheads (positions and watched marks).
                         if tile.played {
-                            Button("Remove from Played") { library.removeFromPlayed(tile) }
+                            Button(shelf == .watched ? "Remove from Watched" : shelf == .inProgress ? "Remove from In Progress" : "Clear Progress") { library.removeFromPlayed(tile) }
                         }
                     }
             }
