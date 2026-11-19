@@ -326,7 +326,6 @@ async function describe(detail, items) {
 const player = document.getElementById("player");
 const video = document.getElementById("video");
 const curtain = document.getElementById("curtain");
-const playingTitle = document.getElementById("playing");
 const fade = 500;
 /// How much before where it was left resuming starts.
 const replay = 4000;
@@ -366,6 +365,8 @@ async function copiesOf(item, quality) {
 async function playQueue(detail, items, index, quality, fromStart) {
   if (session) return;
   const me = (session = { detail, items, index, quality, item: null, started: false, saved: 0, leaving: false });
+  // The browser's Back leaves it, as Escape does.
+  history.pushState({ playing: true }, "", location.href);
   player.hidden = false;
   curtain.classList.remove("open");
   video.volume = 0;
@@ -377,7 +378,7 @@ async function start(me, fromStart) {
   const item = me.items[me.index];
   me.item = item;
   me.started = false;
-  playingTitle.textContent = episodeCode(item.key) ? `${me.detail.name} · ${itemTitle(me.detail, item)}` : itemTitle(me.detail, item);
+  document.title = episodeCode(item.key) ? `${me.detail.name} · ${itemTitle(me.detail, item)}` : itemTitle(me.detail, item);
   const urls = await copiesOf(item, me.quality);
   for (const url of urls) {
     if (session !== me) return;
@@ -459,22 +460,16 @@ async function leave() {
   video.removeAttribute("src");
   video.load();
   player.hidden = true;
+  document.title = "Cinematheque";
   session = null;
+  // Left another way than by the browser's Back: its entry goes too.
+  if (history.state?.playing) history.back();
   await reload().catch(() => {});
   route();
 }
 
-document.getElementById("back").addEventListener("click", leave);
+addEventListener("popstate", () => { if (session && !session.leaving) leave(); });
 addEventListener("pagehide", () => { if (session) save(session); });
-
-// Its controls, and the bar, show while the pointer moves.
-let idle = null;
-function stir() {
-  player.classList.remove("idle");
-  clearTimeout(idle);
-  idle = setTimeout(() => player.classList.add("idle"), 3000);
-}
-player.addEventListener("pointermove", stir);
 
 addEventListener("keydown", (e) => {
   if (!session || e.target === search) return;
@@ -486,7 +481,6 @@ addEventListener("keydown", (e) => {
   else if (e.key === "m") video.muted = !video.muted;
   else return;
   e.preventDefault();
-  stir();
 });
 
 // Routing: #home, #movies, #series, #watchlist, #played, #title/<key>[/<season>].

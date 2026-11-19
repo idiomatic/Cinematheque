@@ -122,25 +122,15 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 #status:empty { display: none; }
 
-/* The bar has a strip of its own above the video, not over it, where
-   browsers draw controls of their own (Safari's full screen and picture
-   in picture, at the top leading corner). */
-#player { position: fixed; inset: 0; z-index: 10; background: #000; --bar: 56px; }
-#player video { position: absolute; top: var(--bar); left: 0; width: 100%; height: calc(100% - var(--bar)); }
+/* Nothing over the video but the browser's own controls: Back is the
+   browser's, and what's playing is the window's title. */
+#player { position: fixed; inset: 0; z-index: 10; background: #000; }
+#player video { width: 100%; height: 100%; }
 #curtain {
   position: absolute; inset: 0; background: #000; pointer-events: none;
   opacity: 1; transition: opacity 0.5s ease-in-out;
 }
 #curtain.open { opacity: 0; }
-#bar {
-  position: absolute; top: 0; left: 0; right: 0; height: var(--bar); padding: 0 18px;
-  display: flex; gap: 16px; align-items: center; color: #fff;
-  transition: opacity 0.3s;
-}
-#player.idle #bar { opacity: 0; }
-#player.idle { cursor: none; }
-#bar button { background: rgb(255 255 255 / 0.15); color: #fff; border: 0; }
-#playing { font-weight: 600; }
 
 @media (max-width: 640px) {
   :root { --cell: 120px; --gap: 14px; }
