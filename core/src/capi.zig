@@ -888,7 +888,6 @@ export fn cq_downloads(lib: *Library) ?[*:0]u8 {
 
 fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
     const r = try lib.main();
-    try download.purgeObsolete(r, arena);
     const s = try download.settings(r, arena);
     var list: std.ArrayList(HeldJson) = .empty;
     if (s) |set| {

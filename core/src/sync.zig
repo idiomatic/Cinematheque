@@ -31,8 +31,6 @@ pub const path = "/sync";
 /// Where devices added by URL are kept, in the replica's `local` state: on
 /// this device only.
 const added_prefix = "address:";
-/// As they were kept, carried over (see `addedAddresses`).
-const obsolete_added_prefix = "device:";
 
 /// A device's sync URL, from its base URL or the sync URL itself.
 pub fn syncUrl(arena: std.mem.Allocator, target: []const u8) ![]const u8 {
@@ -75,10 +73,6 @@ pub fn foundUrl(arena: std.mem.Allocator, s: discover.Service) ![]const u8 {
 
 /// The sync URLs of the devices added by URL.
 pub fn addedAddresses(r: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
-    for (try r.localKeys(arena, obsolete_added_prefix)) |k| {
-        try r.setLocal(try std.mem.concat(arena, u8, &.{ added_prefix, k[obsolete_added_prefix.len..] }), "");
-        try r.removeLocal(k);
-    }
     const keys = try r.localKeys(arena, added_prefix);
     const urls = try arena.alloc([]const u8, keys.len);
     for (keys, urls) |k, *u| u.* = k[added_prefix.len..];

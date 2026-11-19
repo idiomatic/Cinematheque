@@ -249,8 +249,6 @@ const drop_key = "downloads/drop-watched";
 const want_prefix = "downloads/want/";
 const next_prefix = "downloads/next/";
 const keep_prefix = "downloads/keep/";
-/// Obsolete: series counts and pins as they were named, purged.
-const obsolete_prefixes = [_][]const u8{ "downloads/pin/", "downloads/keep/t/" };
 const at_prefix = "downloads/at/";
 
 /// Free space a download never goes below.
@@ -320,16 +318,6 @@ pub fn kept(replica: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
     for (try replica.localKeys(arena, keep_prefix)) |k| try out.append(arena, k[keep_prefix.len..]);
     return out.items;
-}
-
-/// Purges this device's download settings under names no longer used.
-pub fn purgeObsolete(replica: *Replica, arena: std.mem.Allocator) !void {
-    for (obsolete_prefixes) |prefix| for (try replica.localKeys(arena, prefix)) |k| {
-        // A title (four segments) under keep/ was a series count; an item
-        // there is a download kept, as named now.
-        if (std.mem.eql(u8, prefix, "downloads/keep/t/") and titleEnd(k[keep_prefix.len..]) != k.len - keep_prefix.len) continue;
-        try replica.removeLocal(k);
-    };
 }
 
 /// A download watched since it was fetched, and not kept: `deletable`
