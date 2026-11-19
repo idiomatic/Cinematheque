@@ -64,9 +64,9 @@ extension Playback {
         return items.isEmpty ? nil : items[nextIndex(items)]
     }
 
-    /// Start Over, beside Resume: the symbol of a button that plays what
-    /// Resume would, from its beginning (to the start, as the Mac's Restart,
-    /// not rewinding).
+    /// Start Over, beside Resume (on the Apple TV): the symbol of a button
+    /// that plays what Resume would, from its beginning (to the start, not
+    /// rewinding).
     static let startOverSymbol = "backward.end.fill"
 
     /// "Play", "Resume", "Play Episode 3", "Resume Special".

@@ -369,11 +369,11 @@ async function titlePage(key, season) {
     ? `${resuming ? "Resume" : "Play"} ${episodeCode(items[next].key).season === 0 ? "Special" : "Episode " + episodeCode(items[next].key).number}`
     : resuming ? "Resume" : "Play";
 
-  const play = (index, fromStart) => playQueue(detail, items, index, quality, fromStart);
+  const play = (index) => playQueue(detail, items, index, quality);
   // Playing, on a row of its own, filled: the marks, quieter, at its end.
   // Starting over is beside each progress meter, as on the Mac.
   const actions = el("div", { class: "actions" },
-    el("button", { class: "primary", type: "button", disabled: !quality, onclick: () => play(next, false) }, "▶ " + nextLabel),
+    el("button", { class: "primary", type: "button", disabled: !quality, onclick: () => play(next) }, "▶ " + nextLabel),
     el("span", { class: "spacer" }),
     el("button", { class: "mark", type: "button", "aria-pressed": listed, onclick: async () => { await api("watchlist", { key: isSeries ? `${key}#${season}` : key, on: !listed }); await reload(); route(); } },
       listed ? "★ On Watchlist" : "☆ Watchlist"),
@@ -410,7 +410,7 @@ async function titlePage(key, season) {
     }, seasons.map((s) => el("option", { value: s, selected: s === season }, seasonName(s)))) : null;
     body.push(el("div", { class: "heading" }, el("h2", {}, "Episodes"), seasonPicker, el("span", { class: "spacer" }), qualityPicker));
     body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", { class: item.watched ? "watched" : null },
-      el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n, false) }, "▶"),
+      el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
       el("span", { class: "time" }, item.fields.duration ? formatTime(Number(item.fields.duration)) : ""),
       progressRow(detail, item),
@@ -419,7 +419,7 @@ async function titlePage(key, season) {
   } else if (items.length > 1) {
     body.push(el("div", { class: "heading" }, el("h2", {}, "Versions"), el("span", { class: "spacer" }), qualityPicker));
     body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", {},
-      el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n, false) }, "▶"),
+      el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
       el("span", { class: "time" }, ""),
     ))));
@@ -504,7 +504,7 @@ async function copiesOf(item, quality) {
 
 /// Plays `items` from `index` on, as the apps do: fading to black while it
 /// warms up, then to the picture as its sound rises.
-async function playQueue(detail, items, index, quality, fromStart) {
+async function playQueue(detail, items, index, quality) {
   if (session) return;
   const me = (session = { detail, items, index, quality, item: null, started: false, saved: 0, leaving: false });
   // The browser's Back leaves it, as Escape does.
@@ -512,8 +512,7 @@ async function playQueue(detail, items, index, quality, fromStart) {
   player.hidden = false;
   curtain.classList.remove("open");
   video.volume = 0;
-  if (fromStart) await api("forget", { item: `${detail.key}/${items[index].key}` }).catch(() => {});
-  await start(me, fromStart);
+  await start(me, false);
 }
 
 async function start(me, fromStart) {

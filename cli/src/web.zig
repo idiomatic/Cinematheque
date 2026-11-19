@@ -180,9 +180,6 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     } else if (std.mem.eql(u8, name, "watchlist")) {
         const p = try std.json.parseFromSliceLeaky(struct { key: []const u8, on: bool }, arena, body, .{});
         try core.art.setWatchlisted(&r, arena, now(io), p.key, p.on);
-    } else if (std.mem.eql(u8, name, "forget")) {
-        const p = try std.json.parseFromSliceLeaky(struct { item: []const u8 }, arena, body, .{});
-        try core.library.removeProgress(&r, arena, now(io), p.item);
     } else if (std.mem.eql(u8, name, "describe")) {
         // An episode's title, description, and duration, read from its
         // file, as the apps describe a season's as it's shown.
