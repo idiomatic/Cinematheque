@@ -6,7 +6,8 @@ const core = @import("core");
 const commands = @import("commands.zig");
 const network = @import("network.zig");
 
-/// What every command acts with: this app's home, and where to print.
+/// What every command acts with: this device's data directory, and where
+/// to print.
 pub const App = struct {
     io: Io,
     gpa: std.mem.Allocator,
@@ -74,19 +75,19 @@ pub const Args = struct {
         return a.options.contains(name);
     }
 
-    /// Fails unless every option given is among `allowed` (or `--home`).
+    /// Fails unless every option given is among `allowed` (or `--data`).
     pub fn only(a: *const Args, allowed: []const []const u8) !void {
         for (a.options.keys()) |k| {
-            if (std.mem.eql(u8, k, "--home")) continue;
+            if (std.mem.eql(u8, k, "--data")) continue;
             for (allowed) |o| {
                 if (std.mem.eql(u8, o, k)) break;
             } else return error.Usage;
         }
     }
 
-    /// How many options the command was given, besides `--home`.
+    /// How many options the command was given, besides `--data`.
     pub fn count(a: *const Args) usize {
-        return a.options.count() - @intFromBool(a.has("--home"));
+        return a.options.count() - @intFromBool(a.has("--data"));
     }
 
     pub fn port(a: *const Args) !?u16 {
@@ -156,8 +157,8 @@ pub fn main(init: std.process.Init) !void {
     const run = if (action) |found| found else find(&nouns, w[0]) orelse usage(out, null);
     if (action == null and w.len == 1) usage(out, w[0]);
 
-    const dir = args.get("--home") orelse init.environ_map.get("CINEMATHEQUE_HOME") orelse
-        try core.store.defaultHome(arena, init.environ_map.get("HOME") orelse return error.NoHome, init.environ_map.get("XDG_DATA_HOME"));
+    const dir = args.get("--data") orelse init.environ_map.get("CINEMATHEQUE_DATA") orelse
+        try core.store.defaultDataDir(arena, init.environ_map.get("HOME") orelse return error.NoHome, init.environ_map.get("XDG_DATA_HOME"));
     var app: App = .{
         .io = io,
         .gpa = init.gpa,

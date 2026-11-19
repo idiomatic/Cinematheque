@@ -2,33 +2,34 @@
 import Foundation
 import Security
 
-/// Keeps the home's seeds in the Keychain, since tvOS may purge the caches
-/// that hold the home: `identity` (the device's), `person` (the person's, once
-/// paired), and `library` (its founder's key). The replica is rebuilt by
+/// Keeps the data directory's seeds in the Keychain, since tvOS may purge
+/// the caches that hold it: `identity` (the device's), `user` (the person's,
+/// once paired), and `library` (its founder's key). The replica is rebuilt by
 /// syncing and crawling; these are not.
 enum Keys {
     private static let files = ["identity", "user", "library"]
+    // Stored data: the Keychain items' name, kept as it was.
     private static let service = "com.rbrian.cinematheque.home"
 
-    /// The home: in the caches, where the core puts it on tvOS.
-    static var home: URL {
+    /// The data directory: in the caches, where the core puts it on tvOS.
+    static var dataDir: URL {
         URL.cachesDirectory.appending(path: "Cinematheque", directoryHint: .isDirectory)
     }
 
-    /// Puts back any seed the home has lost, before the library opens it.
+    /// Puts back any seed the data directory has lost, before the library opens it.
     static func restore() {
-        try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         for name in files {
-            let file = home.appending(path: name)
+            let file = dataDir.appending(path: name)
             guard !FileManager.default.fileExists(atPath: file.path), let data = read(name) else { continue }
             try? data.write(to: file, options: .atomic)
         }
     }
 
-    /// Keeps any seed the home has gained (e.g., on pairingAsYours or joining).
+    /// Keeps any seed the data directory has gained (e.g., on pairing or joining).
     static func save() {
         for name in files {
-            guard let data = try? Data(contentsOf: home.appending(path: name)), read(name) != data else { continue }
+            guard let data = try? Data(contentsOf: dataDir.appending(path: name)), read(name) != data else { continue }
             write(name, data)
         }
     }

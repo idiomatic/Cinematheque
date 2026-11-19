@@ -116,26 +116,26 @@ export fn cq_free(text: ?[*:0]u8) void {
     gpa.free(std.mem.span(t));
 }
 
-/// Opens this device's home `home_dir`; if null, `$CINEMATHEQUE_HOME`, or else
+/// Opens this device's data directory `data_dir`; if null, `$CINEMATHEQUE_DATA`, or else
 /// the default. It may not hold a library yet (see `cq_status`).
-export fn cq_open(home_dir: ?[*:0]const u8) ?*Library {
-    return open(home_dir) catch |err| {
+export fn cq_open(data_dir: ?[*:0]const u8) ?*Library {
+    return open(data_dir) catch |err| {
         fail(err);
         return null;
     };
 }
 
-fn open(home_dir: ?[*:0]const u8) !*Library {
+fn open(data_dir: ?[*:0]const u8) !*Library {
     const lib = try gpa.create(Library);
     errdefer gpa.destroy(lib);
     lib.* = .{ .threaded = .init(gpa, .{}), .arena_state = .init(gpa), .store = undefined };
     errdefer lib.threaded.deinit();
     errdefer lib.arena_state.deinit();
     const arena = lib.arena_state.allocator();
-    const dir = if (home_dir orelse std.c.getenv("CINEMATHEQUE_HOME")) |d| try arena.dupe(u8, std.mem.span(d)) else blk: {
+    const dir = if (data_dir orelse std.c.getenv("CINEMATHEQUE_DATA")) |d| try arena.dupe(u8, std.mem.span(d)) else blk: {
         const home = std.c.getenv("HOME") orelse return error.NoHome;
         const xdg = std.c.getenv("XDG_DATA_HOME");
-        break :blk try store_.defaultHome(arena, std.mem.span(home), if (xdg) |x| std.mem.span(x) else null);
+        break :blk try store_.defaultDataDir(arena, std.mem.span(home), if (xdg) |x| std.mem.span(x) else null);
     };
     lib.store = try store_.Store.open(lib.io(), gpa, arena, dir);
     _ = lib.store.founder(arena) catch return lib;

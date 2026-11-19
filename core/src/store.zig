@@ -1,5 +1,5 @@
-//! A device's home directory: its identity (`identity`, a random seed from
-//! which its device keys derive, and `person`, its person's seed, shared with the
+//! A device's data directory: its identity (`identity`, a random seed from
+//! which its device keys derive, and `user`, its person's seed, shared with the
 //! person's other devices, or else derived from the device's), the founder of
 //! its library, and its replica.
 
@@ -8,10 +8,10 @@ const Io = std.Io;
 const replica_ = @import("replica.zig");
 const Replica = replica_.Replica;
 
-/// A device's home unless told otherwise: in Application Support on macOS
+/// A device's data directory unless told otherwise: in Application Support on macOS
 /// and iOS; in the caches on tvOS, the only place its apps may keep files
 /// (which it may purge); and in the XDG data directory elsewhere.
-pub fn defaultHome(arena: std.mem.Allocator, home: []const u8, xdg_data_home: ?[]const u8) ![]const u8 {
+pub fn defaultDataDir(arena: std.mem.Allocator, home: []const u8, xdg_data_home: ?[]const u8) ![]const u8 {
     switch (@import("builtin").os.tag) {
         .macos, .ios => return std.fmt.allocPrint(arena, "{s}/Library/Application Support/Cinematheque", .{home}),
         .tvos => return std.fmt.allocPrint(arena, "{s}/Library/Caches/Cinematheque", .{home}),
@@ -96,7 +96,7 @@ pub const Store = struct {
 
     /// Forgets the library and this device's identity, its seeds and its
     /// replica, as a device removed from its library does to pair afresh as
-    /// a new device; a new identity is made when the home is next opened.
+    /// a new device; a new identity is made when the data directory is next opened.
     pub fn forget(s: *const Store, arena: std.mem.Allocator) !void {
         for ([_][]const u8{ "replica.db", "replica.db-wal", "replica.db-shm", "library", "user", "identity" }) |name|
             Io.Dir.cwd().deleteFile(s.io, try path(arena, s.dir, name)) catch |err| switch (err) {

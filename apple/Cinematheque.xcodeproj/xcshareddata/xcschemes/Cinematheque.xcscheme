@@ -50,7 +50,7 @@
       </BuildableProductRunnable>
       <EnvironmentVariables>
          <EnvironmentVariable
-            key = "CINEMATHEQUE_HOME"
+            key = "CINEMATHEQUE_DATA"
             value = "$(HOME)/Library/Application Support/Cinematheque"
             isEnabled = "NO">
          </EnvironmentVariable>

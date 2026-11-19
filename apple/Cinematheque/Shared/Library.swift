@@ -230,10 +230,11 @@ final class Library {
     var hasLibrary: Bool { status?.library != nil }
     var paired: Bool { status?.paired ?? false }
 
-    /// Opens this device's home: `home`, else `CINEMATHEQUE_HOME`, else the
-    /// platform's default (see the core's `defaultHome`).
-    init(home: String? = nil) {
-        guard let pointer = cq_open(home) else {
+    /// Opens this device's data directory: `dataDir`, else
+    /// `CINEMATHEQUE_DATA`, else the platform's default (see the core's
+    /// `defaultDataDir`).
+    init(dataDir: String? = nil) {
+        guard let pointer = cq_open(dataDir) else {
             problem = "Couldn't open Cinematheque's data (\(String(cString: cq_error())))."
             return
         }

@@ -17,9 +17,10 @@ extern "C" {
 
 typedef struct cq_library cq_library;
 
-// Opens this device's home home_dir; if NULL, $CINEMATHEQUE_HOME, or else the
+// Opens this device's data directory data_dir; if NULL, $CINEMATHEQUE_DATA, or
+// else the
 // default. It may hold no library yet.
-cq_library *cq_open(const char *home_dir);
+cq_library *cq_open(const char *data_dir);
 void cq_close(cq_library *library);
 
 // Identity and membership.

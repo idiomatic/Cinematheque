@@ -15,10 +15,10 @@ rm -rf $work
 mkdir -p $work
 
 $gen $work/media 10
-a=(--home $work/a)
-b=(--home $work/b)
-b2=(--home $work/b2)
-c=(--home $work/c)
+a=(--data $work/a)
+b=(--data $work/b)
+b2=(--data $work/b2)
+c=(--data $work/c)
 a_pid=
 b_pid=
 d_pid=
@@ -27,17 +27,17 @@ cleanup() {
 }
 trap cleanup EXIT
 digest() { $cq "$@" library show | awk '/^digest/ { print $2 }' }
-# Pairs a new device ($1, a home) offering by $2 (`person pair` or `library
+# Pairs a new device ($1, a data directory) offering by $2 (`person pair` or `library
 # join`) with a member's ($3), which sends the code by $4 (`person pair` or
 # `member pair`), at the port the offer prints.
 pair() {
     local log=$work/pair.log
-    $cq --home $1 ${=2} > $log 2>&1 &
+    $cq --data $1 ${=2} > $log 2>&1 &
     local offer_pid=$!
     for _ in {1..100}; do grep -q "on port" $log && break; sleep 0.1; done
     local code=$(grep -o '[0-9]\{6\}$' $log)
     local port=$(grep -o 'on port [0-9]*' $log | grep -o '[0-9]*$')
-    $cq --home $3 ${=4} $code http://127.0.0.1:$port/pair
+    $cq --data $3 ${=4} $code http://127.0.0.1:$port/pair
     wait $offer_pid
 }
 
@@ -117,7 +117,7 @@ p2=$(grep -o "on port [0-9]*" $work/c2.log)
 # Two drives' mount points under served media: one unplugged is unavailable (one
 # marker), its copy kept, even over a restart; plugged back in, the marker
 # goes; forgotten, its copy goes.
-d=(--home $work/d)
+d=(--data $work/d)
 mkdir -p $work/drives/archive0001 $work/drives/archive0002
 cp "$work/media/$(cd $work/media && find . -name '*.mkv' | head -1)" "$work/drives/archive0001/Archive Movie (2001).mkv"
 cp "$work/media/$(cd $work/media && find . -name '*.mkv' | head -1)" "$work/drives/archive0002/Other Movie (2002).mkv"

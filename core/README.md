@@ -26,7 +26,7 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 | [race](src/race.zig) | Copy racing: an item's copies in the order to try them, each one's server asked at once, briefly, over `Io`'s networking, and those lately unanswered last |
 | [host](src/host.zig) | A server on a task of its own, advertised by DNS-SD once it listens, and stopped for sure: the apps' serving and pairing, and the other device's |
 | [discover](src/discover.zig) | DNS-SD: advertising and browsing devices |
-| [store](src/store.zig) | A other device's home: its identity, its library's founder, and its replica |
+| [store](src/store.zig) | A device's data directory: its identity, its library's founder, and its replica |
 | [pair](src/pair.zig) | Pairing a new device by a 6-digit code it shows: CPace over the code, then the person's secret and the library's founder sealed with the key it derives |
 | [capi](src/capi.zig) | The C interface: setup, management, long operations on their own connections, browsing, and private data |
 

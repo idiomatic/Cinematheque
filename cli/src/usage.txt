@@ -1,10 +1,10 @@
-Usage: cinematheque [--home DIR] NOUN VERB [ARGUMENTS]
-       cinematheque [--home DIR] crawl | sync | serve | refresh
+Usage: cinematheque [--data DIR] NOUN VERB [ARGUMENTS]
+       cinematheque [--data DIR] crawl | sync | serve | refresh
 
 The app keeps this device's identity and its copy of the catalog in its
-home: ~/Library/Application Support/Cinematheque on macOS, and
+data directory: ~/Library/Application Support/Cinematheque on macOS, and
 $XDG_DATA_HOME/cinematheque (~/.local/share/cinematheque) on Linux,
-unless --home or $CINEMATHEQUE_HOME names another directory.
+unless --data or $CINEMATHEQUE_DATA names another directory.
 
 NOUN -h (or NOUN alone) shows only that noun's commands.
 

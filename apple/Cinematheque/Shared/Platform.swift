@@ -5,23 +5,23 @@ import AppKit
 import UIKit
 #endif
 
-/// What differs by platform outside the interface: where this device's home
-/// is, and the names a device and its person start with.
+/// What differs by platform outside the interface: where this device's data
+/// directory is, and the names a device and its person start with.
 enum Platform {
-    /// Readies the home, returning it, or nil for the core's default (on
+    /// Readies the data directory, returning it, or nil for the core's default (on
     /// macOS, the one the command-line app shares). On tvOS, which may
     /// purge the caches that hold it, first puts back its seeds from the
     /// Keychain.
-    static func prepareHome() -> String? {
+    static func prepareDataDir() -> String? {
         #if os(tvOS)
         Keys.restore()
-        return Keys.home.path
+        return Keys.dataDir.path
         #else
         return nil
         #endif
     }
 
-    /// Keeps what the home has gained that a purge would lose (on tvOS,
+    /// Keeps what the data directory has gained that a purge would lose (on tvOS,
     /// seeds, in the Keychain).
     static func keep() {
         #if os(tvOS)

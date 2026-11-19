@@ -5,8 +5,8 @@ struct CinemathequeApp: App {
     @State private var library: Library
 
     init() {
-        let home = Platform.prepareHome()
-        _library = State(initialValue: Library(home: home))
+        let dataDir = Platform.prepareDataDir()
+        _library = State(initialValue: Library(dataDir: dataDir))
     }
 
     var body: some Scene {
@@ -53,7 +53,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if library.status == nil {
-                ContentUnavailableView("No Home", systemImage: "exclamationmark.triangle", description: Text(library.problem ?? ""))
+                ContentUnavailableView("Can't Open the Library", systemImage: "exclamationmark.triangle", description: Text(library.problem ?? ""))
             } else if !library.hasLibrary {
                 SetupView()
             } else {
