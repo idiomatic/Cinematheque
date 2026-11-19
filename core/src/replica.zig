@@ -14,6 +14,10 @@ const Op = op_.Op;
 const Device = op_.Device;
 const Hash = merkle.Hash;
 
+/// The highest sequence number a device accepts: sequences are stored as
+/// signed 64-bit integers, and a batch's `first + count` must not overflow.
+const max_seq: u64 = std.math.maxInt(i63);
+
 const schema =
     \\PRAGMA journal_mode = WAL;
     \\PRAGMA synchronous = NORMAL;
@@ -1180,6 +1184,9 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs) !Stats {
                 try r.readSliceAll(&batch.device);
                 batch.first = try r.takeInt(u64, .little);
                 const count = try r.takeInt(u32, .little);
+                // Sequence numbers start at 1 and stay within i63, so the
+                // arithmetic on them below can't overflow.
+                if (batch.first == 0 or batch.first > max_seq) return error.Malformed;
                 if (count == 0 or count > merkle.max_leaves) return error.Malformed;
                 try r.readSliceAll(&batch.sig);
                 var sent: std.StaticBitSet(merkle.max_leaves) = .empty;
@@ -1226,6 +1233,7 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs) !Stats {
                 var entry: Entry = undefined;
                 try r.readSliceAll(&entry.device);
                 entry.seq = try r.takeInt(u64, .little);
+                if (entry.seq > max_seq) return error.Malformed;
                 try vector.append(pa, entry);
                 if (theirs) |t| try t.vector.append(t.arena, entry);
                 stats.wire_bytes += 40;

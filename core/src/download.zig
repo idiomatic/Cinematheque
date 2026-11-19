@@ -382,7 +382,10 @@ pub fn held(replica: *Replica, arena: std.mem.Allocator, source: library.Source)
         const key = try arena.dupe(u8, s.blob(0));
         const r = std.mem.lastIndexOf(u8, key, "/r/") orelse continue;
         var parts = std.mem.splitScalar(u8, s.blob(1), '\t');
-        const path = try arena.dupe(u8, parts.first());
+        // A path comes from whichever member's device wrote it.
+        const first = parts.first();
+        if (!safe(first)) continue;
+        const path = try arena.dupe(u8, first);
         const size = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
         try out.append(arena, .{ .key = key, .item = key[0..r], .path = path, .size = size });
     }
@@ -630,6 +633,7 @@ fn locked(writer: ?*Io.Mutex, io: Io, replica: *Replica, wall_ms: u64, key: []co
 
 /// Deletes a download, and forgets wanting, fetching, and keeping it.
 fn delete(io: Io, arena: std.mem.Allocator, dir: Io.Dir, replica: *Replica, writer: ?*Io.Mutex, wall_ms: u64, source: library.Source, h: Held, out: *Reconciled) !void {
+    if (!safe(h.path)) return error.UnsafePath;
     dir.deleteFile(io, h.path) catch |err| switch (err) {
         error.FileNotFound => {},
         else => |e| return e,

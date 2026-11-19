@@ -278,6 +278,7 @@ pub fn decodeDc(arena: std.mem.Allocator, bytes: []const u8) Error!Image {
                         if (c.id == id) break c;
                     } else return error.Corrupt;
                     c.td = seg[2 + 2 * i] >> 4;
+                    if (c.td > 3 or seg[2 + 2 * i] & 15 > 3) return error.Corrupt;
                     scan[i] = c;
                     c.pred = 0;
                 }

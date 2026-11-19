@@ -105,6 +105,12 @@ test "naming fixtures" {
     try std.testing.expectEqual(@as(usize, 0), failures);
 }
 
+test "a year's unclosed parenthesis ends the name without a crash" {
+    var scratch: [512]u8 = undefined;
+    _ = parse_.parse("Movies/Alien (1979", &scratch);
+    _ = parse_.parse("Movies/Alien (1979.mkv", &scratch);
+}
+
 fn check(case: Case, p: parse_.Parsed) !void {
     try std.testing.expectEqual(case.kind, p.kind);
     try std.testing.expectEqualStrings(case.title, p.title);

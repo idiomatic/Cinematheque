@@ -255,7 +255,7 @@ pub const Options = struct {
 /// Crawls `base`, reusing `prev`'s listings of unchanged leaf directories,
 /// and appends every entry found to `entries`.
 pub fn crawl(io: Io, arena: std.mem.Allocator, client: *http.Client, base: []const u8, options: Options) !Result {
-    const workers = options.workers;
+    const workers = @max(1, options.workers);
     const prev = options.prev;
     const entries = options.entries;
     var format = options.format;

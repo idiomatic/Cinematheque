@@ -91,11 +91,14 @@ pub const Args = struct {
     }
 
     pub fn port(a: *const Args) !?u16 {
-        return if (a.get("--port")) |v| try std.fmt.parseInt(u16, v, 10) else null;
+        return if (a.get("--port")) |v| std.fmt.parseInt(u16, v, 10) catch error.Usage else null;
     }
 
+    /// An option's positive whole number, or `default`; anything else isn't
+    /// a command line.
     pub fn number(a: *const Args, name: []const u8, default: usize) !usize {
-        return if (a.get(name)) |v| try std.fmt.parseInt(usize, v, 10) else default;
+        const n = if (a.get(name)) |v| std.fmt.parseInt(usize, v, 10) catch return error.Usage else default;
+        return if (n == 0) error.Usage else n;
     }
 };
 

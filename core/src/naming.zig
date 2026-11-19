@@ -329,7 +329,7 @@ fn scanName(p: *Parsed, name: []const u8, scratch: []u8, used: *usize) void {
     // Words after a parenthesized year name a version too: "Fight Club
     // (1999) Unrated", but not scene tokens ("(2010) 1080p").
     if (p.edition == null and p.episode == null and p.part == null and p.kind != .extra) if (year_at) |at| if (name[at] == '(') {
-        const label = mem.trim(u8, name[at + 6 ..], " ._-");
+        const label = mem.trim(u8, name[@min(name.len, at + 6)..], " ._-");
         if (label.len > 0 and !startsWithSceneToken(label)) p.edition = label;
     };
     p.title = cleanTitle(name[0..title_end], scratch, used);
