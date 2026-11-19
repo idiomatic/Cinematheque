@@ -811,6 +811,16 @@ fn downloadsConfigure(lib: *Library, arena: std.mem.Allocator, dir: []const u8, 
     try download.configure(try lib.main(), arena, lib.now(), dir, served_at, drop_watched);
 }
 
+/// Whether watched downloads go at once (else as their space is needed),
+/// as `cq_downloads_configure` sets it; quick, as it takes no writer.
+export fn cq_downloads_drop_watched(lib: *Library, on: c_int) c_int {
+    return status(lib, dropWatched, .{on != 0});
+}
+
+fn dropWatched(lib: *Library, _: std.mem.Allocator, on: bool) !void {
+    try download.setDropWatched(try lib.main(), on);
+}
+
 /// Wants a title's, a season's (`<title>/e/s01`), or an item's files kept
 /// on this device (each item as of now), in `quality` (null or empty:
 /// the one most items have); `cq_reconcile` fetches them.

@@ -288,6 +288,12 @@ pub fn configure(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, dir:
     try replica.setLocal(drop_key, if (drop_watched) "1" else "");
 }
 
+/// Whether watched downloads go at once, rather than as their space is
+/// needed: this device's own, so no write of the device's (no writer).
+pub fn setDropWatched(replica: *Replica, on: bool) !void {
+    try replica.setLocal(drop_key, if (on) "1" else "");
+}
+
 /// This device's downloads' settings, if configured.
 pub fn settings(replica: *Replica, arena: std.mem.Allocator) !?Settings {
     const dir = try replica.local(arena, dir_key) orelse return null;

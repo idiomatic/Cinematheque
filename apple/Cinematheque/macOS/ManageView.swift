@@ -631,7 +631,7 @@ private struct DownloadsPane: View {
             Section {
                 Toggle("Delete watched downloads right away", isOn: Binding(
                     get: { library.downloads?.drop_watched ?? false },
-                    set: { library.setDownloads(dropWatched: $0) }
+                    set: { library.setDropWatched($0) }
                 ))
             } header: {
                 Text("Watched downloads")

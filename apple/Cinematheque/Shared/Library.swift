@@ -1048,6 +1048,20 @@ final class Library {
         reconcileSoon()
     }
 
+    /// Whether watched downloads go at once: set alone, so it doesn't wait
+    /// for a refresh holding the writer, and shown at once. Nothing in the
+    /// library changes, so only downloads are reread, not every shelf.
+    func setDropWatched(_ on: Bool) {
+        guard let handle else { return }
+        if cq_downloads_drop_watched(handle.pointer, on ? 1 : 0) != 0 {
+            report(.change, "Couldn't change the library: \(Self.reason(String(cString: cq_error()))).")
+        } else {
+            report(.change, nil)
+        }
+        reloadDownloads()
+        reconcileSoon()
+    }
+
     /// Changes where downloads go, or whether a kept series' watched
     /// episodes go at once.
     func setDownloads(dir: String? = nil, dropWatched: Bool? = nil) {

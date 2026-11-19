@@ -76,6 +76,9 @@ void cq_race_lost(cq_library *library, const char *url);
 // cq_reconcile (long, its own connection) fetches and deletes to
 // match, returning at once with "busy" if one runs, which then runs again.
 int cq_downloads_configure(cq_library *library, const char *dir, const char *served_at, int drop_watched);
+// Whether watched downloads go at once, alone: quick, waiting on no long
+// operation, as configuring does.
+int cq_downloads_drop_watched(cq_library *library, int on);
 int cq_download(cq_library *library, const char *key, const char *quality);
 int cq_download_remove(cq_library *library, const char *key);
 int cq_download_next(cq_library *library, const char *title_key, const char *choice);
