@@ -33,9 +33,9 @@ struct Tile: Codable, Identifiable, Hashable {
     let elapsed: Int
     let runtime: Int
     let started: Bool
-    /// Every copy it has is on a drive that isn't there (an absent
+    /// Every copy it has is on a drive that isn't there (an unavailable
     /// directory of its source's): shown dimmed.
-    var absent = false
+    var unavailable = false
 
     var id: String { season.map { "\(key)#\($0)" } ?? key }
     var isSeries: Bool { kind == "series" }
@@ -50,7 +50,7 @@ struct TitleDetail: Codable {
         let size: Int
         let source: String
         /// On a drive that isn't there: tried last.
-        var absent = false
+        var unavailable = false
     }
 
     struct Rendition: Codable, Hashable {
@@ -98,7 +98,7 @@ struct Source: Codable, Identifiable, Hashable {
     /// A directory of it that held files and lists none now (an unplugged
     /// drive's mount point): relative to it, empty for the whole of it, and
     /// when it was noticed, in milliseconds since the epoch.
-    struct Absence: Codable, Hashable {
+    struct Unavailable: Codable, Hashable {
         let dir: String
         let since: Double
 
@@ -111,7 +111,7 @@ struct Source: Codable, Identifiable, Hashable {
     let rendition: String
     let skip: String
     let copies: Int
-    var absent: [Absence] = []
+    var unavailable: [Unavailable] = []
     /// A device's downloads, which no one crawls (see the core's
     /// download.zig).
     var managed = false
@@ -367,9 +367,9 @@ final class Library {
         cq_race_lost(handle.pointer, url.absoluteString)
     }
 
-    /// Forgets a source's absent directory, as if it were deleted: its
+    /// Forgets a source's unavailable directory, as if it were deleted: its
     /// copies go, for every device.
-    func forgetAbsent(_ source: String, _ dir: String) { check { cq_forget_absent($0, source, dir) } }
+    func forgetUnavailable(_ source: String, _ dir: String) { check { cq_forget_unavailable($0, source, dir) } }
 
     /// Removes another of this user's devices from the library: its later
     /// writes are refused, and it's served no more.
@@ -461,11 +461,11 @@ final class Library {
     private(set) var folders: [Folder] = []
     /// Folders not there when last looked (on a drive unplugged, or a share
     /// unmounted), by prefix: served all the same, listed empty while gone,
-    /// so crawls find them absent, their titles dimmed, not failed.
-    private(set) var missingFolders: Set<String> = []
+    /// so crawls find them unavailable, their titles dimmed, not failed.
+    private(set) var unavailableFolders: Set<String> = []
 
     /// Folders that aren't there now.
-    private var absentFolders: Set<String> {
+    private var foldersNotThere: Set<String> {
         Set(folders.filter { folder in
             var directory: ObjCBool = false
             return !FileManager.default.fileExists(atPath: folder.path, isDirectory: &directory) || !directory.boolValue
@@ -474,8 +474,8 @@ final class Library {
 
     /// Notes folders that have come back, or gone, for Settings to show.
     private func checkFolders() {
-        let now = absentFolders
-        if now != missingFolders { missingFolders = now }
+        let now = foldersNotThere
+        if now != unavailableFolders { unavailableFolders = now }
     }
 
     private var foldersKey: String { "folders-" + (status?.library ?? "") }
@@ -538,7 +538,7 @@ final class Library {
         guard let handle, hasLibrary else { return }
         if folders.isEmpty { loadFolders() }
         let defaults = UserDefaults.standard
-        missingFolders = absentFolders
+        unavailableFolders = foldersNotThere
         var mounts = folders.map { ["prefix": $0.prefix, "path": $0.path] }
         #if os(macOS)
         if downloads == nil { reloadDownloads() }

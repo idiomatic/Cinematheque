@@ -53,7 +53,7 @@ prints it.
                                (default ",")
   source set SOURCE [--rendition NAME] [--skip PREFIX]
                                change a source's settings; crawl to apply
-  source forget SOURCE DIR     forget a directory the source shows as absent
+  source forget SOURCE DIR     forget a directory the source shows as unavailable
                                (one that held files and lists none, as an
                                unplugged drive's mount point does), as if
                                it were deleted: its copies go, for every

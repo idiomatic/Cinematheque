@@ -317,17 +317,17 @@ private struct SourcesPane: View {
             Table(library.sources.filter { !$0.managed }, selection: $selection) {
                 TableColumn("Source") { source in
                     if let folder = library.folder(of: source) {
-                        let missing = library.missingFolders.contains(folder.prefix)
+                        let unavailable = library.unavailableFolders.contains(folder.prefix)
                         Label {
-                            Text(folder.name) + Text(missing ? "  unavailable on this Mac" : "  on this Mac").foregroundStyle(.secondary)
+                            Text(folder.name) + Text(unavailable ? "  unavailable on this Mac" : "  on this Mac").foregroundStyle(.secondary)
                         } icon: {
-                            Image(systemName: missing ? "folder.badge.questionmark" : "folder")
+                            Image(systemName: unavailable ? "folder.badge.questionmark" : "folder")
                         }
-                        .help(missing ? "\(folder.path) isn't there (a share unmounted, or a drive unplugged?); its titles show dimmed until it's back." : folder.path)
+                        .help(unavailable ? "\(folder.path) isn't there (a share unmounted, or a drive unplugged?); its titles show dimmed until it's back." : folder.path)
                     } else {
                         Label {
                             // Folders of it on drives that aren't there.
-                            Text(source.displayName) + Text(source.absent.isEmpty ? "" : "  \(source.absent.count == 1 ? "a folder" : "\(source.absent.count) folders") unavailable").foregroundStyle(.secondary)
+                            Text(source.displayName) + Text(source.unavailable.isEmpty ? "" : "  \(source.unavailable.count == 1 ? "a folder" : "\(source.unavailable.count) folders") unavailable").foregroundStyle(.secondary)
                         } icon: {
                             Image(systemName: "server.rack")
                         }
@@ -393,7 +393,7 @@ private struct SourcesPane: View {
 
     private func canOpen(_ source: Source) -> Bool {
         guard let folder = library.folder(of: source) else { return URL(string: source.url) != nil }
-        return !library.missingFolders.contains(folder.prefix)
+        return !library.unavailableFolders.contains(folder.prefix)
     }
 
     private func open(_ source: Source) {
@@ -455,14 +455,14 @@ private struct SourceSheet: View {
                 }
             }
             // As it is now, so one forgotten leaves the list.
-            if let current = library.sources.first(where: { $0.id == source?.id }), !current.absent.isEmpty {
+            if let current = library.sources.first(where: { $0.id == source?.id }), !current.unavailable.isEmpty {
                 Section {
-                    ForEach(current.absent, id: \.dir) { gone in
+                    ForEach(current.unavailable, id: \.dir) { gone in
                         HStack {
                             Label(gone.name, systemImage: "externaldrive.badge.questionmark")
                             Text("since \(gone.date.formatted(date: .abbreviated, time: .omitted))").foregroundStyle(.secondary)
                             Spacer()
-                            Button("Forget") { library.forgetAbsent(current.id, gone.dir) }
+                            Button("Forget") { library.forgetUnavailable(current.id, gone.dir) }
                                 .help("Forget it as if deleted: its videos go, for every device")
                         }
                     }

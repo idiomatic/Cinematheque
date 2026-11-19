@@ -594,8 +594,8 @@ pub const Tile = struct {
     played: u64 = 0,
     total: u64 = 0,
     started: bool = false,
-    /// Every copy it has is under an absent directory (an unplugged drive's).
-    absent: bool = false,
+    /// Every copy it has is under an unavailable directory (an unplugged drive's).
+    unavailable: bool = false,
 };
 
 /// The grid's tiles: titles some source holds, a series' by season,
@@ -604,16 +604,16 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     var out: std.ArrayList(Tile) = .empty;
     var seasons: std.StringHashMapUnmanaged(std.ArrayList(u16)) = .empty;
     // Held items, by title key and season (0 for a movie's), for progress;
-    // and the tiles with a copy that isn't absent.
+    // and the tiles with a copy that isn't unavailable.
     var items: std.StringHashMapUnmanaged(std.ArrayList([]const u8)) = .empty;
     var present: std.StringHashMapUnmanaged(void) = .empty;
     {
-        const absent = try library.Absences.load(replica, arena);
+        const unavailable = try library.UnavailableDirs.load(replica, arena);
         var seen: std.StringHashMapUnmanaged(void) = .empty;
         const s = try replica.db.prepare("SELECT substr(key, 1, instr(key, '/r/') - 1), field, value FROM winners WHERE key LIKE 't/%/r/%' AND field LIKE 'held:%' AND length(value) > 0");
         defer s.finalize();
         while (try s.step()) {
-            const here = !absent.has(s.blob(1)["held:".len..], s.blob(2));
+            const here = !unavailable.has(s.blob(1)["held:".len..], s.blob(2));
             if (seen.contains(s.blob(0))) {
                 if (here) if (tileOf(s.blob(0))) |id| try present.put(arena, try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season }), {});
                 continue;
@@ -655,7 +655,7 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
         const own_thumb = if (own != null) thumbOf(try library.fieldValue(replica, arena, t.key, "thumb")) else null;
         if (t.kind != 's') {
             const id = try std.fmt.allocPrint(arena, "{s}#0", .{t.key});
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb, .absent = !present.contains(id) };
+            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb, .unavailable = !present.contains(id) };
             progress(&tile, &items, &heads, &durations, id);
             try out.append(arena, tile);
             continue;
@@ -666,7 +666,7 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
             const field = try std.fmt.allocPrint(arena, "art:s{d:0>2}", .{n});
             const cover = coverOf(try library.fieldValue(replica, arena, t.key, field));
             const id = try std.fmt.allocPrint(arena, "{s}#{d}", .{ t.key, n });
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try library.fieldValue(replica, arena, t.key, try thumbField(arena, field))) else own_thumb, .absent = !present.contains(id) };
+            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try library.fieldValue(replica, arena, t.key, try thumbField(arena, field))) else own_thumb, .unavailable = !present.contains(id) };
             progress(&tile, &items, &heads, &durations, id);
             try out.append(arena, tile);
         }

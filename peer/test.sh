@@ -114,7 +114,7 @@ p1=$(grep -o "on port [0-9]*" $work/c1.log)
 p2=$(grep -o "on port [0-9]*" $work/c2.log)
 [[ -n $p1 && -n $p2 && $p1 != $p2 ]] || { echo "FAIL: no fallback port ($p1, $p2)"; exit 1; }
 
-# Two drives' mount points under served media: one unplugged is absent (one
+# Two drives' mount points under served media: one unplugged is unavailable (one
 # marker), its copy kept, even over a restart; plugged back in, the marker
 # goes; forgotten, its copy goes.
 d=(--home $work/d)
@@ -133,12 +133,12 @@ $peer $d source add http://127.0.0.1:8194/
 $peer $d crawl > /dev/null
 rm "$work/drives/archive0001/Archive Movie (2001).mkv"
 drives
-$peer $d crawl | grep -q "1 directories absent" || { echo "FAIL: an unplugged drive wasn't absent"; exit 1; }
+$peer $d crawl | grep -q "1 directories unavailable" || { echo "FAIL: an unplugged drive wasn't unavailable"; exit 1; }
 $peer $d source show http://127.0.0.1:8194/ | grep -q "copies     2" || { echo "FAIL: an unplugged drive's copy went"; exit 1; }
-$peer $d source show http://127.0.0.1:8194/ | grep -q "absent     /archive0001" || { echo "FAIL: source show"; exit 1; }
+$peer $d source show http://127.0.0.1:8194/ | grep -q "unavailable     /archive0001" || { echo "FAIL: source show"; exit 1; }
 cp "$work/media/$(cd $work/media && find . -name '*.mkv' | head -1)" "$work/drives/archive0001/Archive Movie (2001).mkv"
 drives
-$peer $d crawl | grep -q "0 directories absent" || { echo "FAIL: a drive back stayed absent"; exit 1; }
+$peer $d crawl | grep -q "0 directories unavailable" || { echo "FAIL: a drive back stayed unavailable"; exit 1; }
 rm "$work/drives/archive0001/Archive Movie (2001).mkv"
 drives
 $peer $d crawl > /dev/null

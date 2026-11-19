@@ -244,7 +244,7 @@ fn respond(ctx: *const Context, request: *http.Server.Request) !void {
     const json = if (header(request, "accept")) |a| std.mem.indexOf(u8, a, "application/json") != null else false;
     const opened = if (mount.root == null) Io.Dir.cwd().openDir(ctx.io, mount.path, .{ .iterate = true }) catch {
         // Not there: listed empty, as an unplugged drive's mount point is,
-        // so a crawl finds it absent (its copies kept) rather than failing.
+        // so a crawl finds it unavailable (its copies kept) rather than failing.
         if (rel.len == 0 and path[path.len - 1] == '/') return request.respond(if (json) "[]" else "<!DOCTYPE html>\n<html><body><pre>\n</pre></body></html>\n", .{ .extra_headers = &.{
             .{ .name = "content-type", .value = if (json) "application/json" else "text/html; charset=utf-8" },
         } });

@@ -264,8 +264,8 @@ struct TileView: View {
                 .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.seasonName ?? tile.name, fit: tile.isSeries) }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 // Its copies are all on drives that aren't there.
-                .opacity(tile.absent ? 0.4 : 1)
-                .help(tile.absent ? "Unavailable: its copies are on a drive that isn't connected" : "")
+                .opacity(tile.unavailable ? 0.4 : 1)
+                .help(tile.unavailable ? "Unavailable: its copies are on a drive that isn't connected" : "")
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 3 : 1)

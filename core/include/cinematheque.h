@@ -50,8 +50,8 @@ char *cq_repos(cq_library *library);
 int cq_repo_add(cq_library *library, const char *url, const char *rendition, const char *skip);
 int cq_repo_set(cq_library *library, const char *source, const char *rendition, const char *skip);
 int cq_repo_remove(cq_library *library, const char *source);
-// Forgets an absent directory of a source, as if deleted.
-int cq_forget_absent(cq_library *library, const char *source, const char *dir);
+// Forgets an unavailable directory of a source, as if deleted.
+int cq_forget_unavailable(cq_library *library, const char *source, const char *dir);
 // Long (up to 1.5 s), any thread: copy racing. A JSON array of an item's
 // copies' URLs in, in the order to try them out: those whose servers answer
 // first. cq_race_lost notes a copy that didn't load.

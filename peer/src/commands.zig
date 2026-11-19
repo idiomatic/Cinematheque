@@ -153,8 +153,8 @@ pub fn source(peer: *Peer, c: Command) !void {
         try peer.out.print("source       {s}\nurl        {s}\nrendition  \"{s}\"\nskip       \"{s}\"\ncopies     {d}\n", .{
             rp.id, rp.url, rp.layout.rendition, rp.layout.skip, try lib.countCopies(&r, peer.arena, rp),
         });
-        for (try lib.absences(&r, peer.arena, &rp.id)) |a|
-            try peer.out.print("absent     /{s}, since {d} days ago\n", .{ a.dir, (peer.now() -| a.since_ms) / (24 * 60 * 60 * 1000) });
+        for (try lib.unavailableDirs(&r, peer.arena, &rp.id)) |a|
+            try peer.out.print("unavailable     /{s}, since {d} days ago\n", .{ a.dir, (peer.now() -| a.since_ms) / (24 * 60 * 60 * 1000) });
     } else if (c.is("add", 1, settings)) {
         var r = try peer.open();
         defer r.close();
@@ -174,7 +174,7 @@ pub fn source(peer: *Peer, c: Command) !void {
         var r = try peer.open();
         defer r.close();
         const rp = try lib.findSource(&r, peer.arena, c.rest[0]);
-        const n = try lib.forgetAbsent(&r, peer.arena, peer.now(), rp, c.rest[1]);
+        const n = try lib.forgetUnavailable(&r, peer.arena, peer.now(), rp, c.rest[1]);
         try peer.out.print("forgot /{s} and its {d} copies\n", .{ std.mem.trim(u8, c.rest[1], "/"), n });
     } else if (c.is("remove", 1, &.{})) {
         var r = try peer.open();
@@ -410,9 +410,9 @@ fn crawlSources(peer: *Peer, workers: usize, only: ?[]const u8) !void {
         }
         const s = try lib.crawlSource(&r, peer.io, peer.arena, &client, peer.now(), rp, workers);
         const i = s.ingest;
-        try peer.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; copies {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories absent; {d} ms in all\n", .{
+        try peer.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; copies {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories unavailable; {d} ms in all\n", .{
             rp.url,         s.crawl.requests, s.crawl.skipped,    s.crawl_ms,         i.files,      i.skipped, i.extras,   i.unparsed,
-            i.titles_added, i.copies_added, i.copies_changed, i.copies_removed, i.duplicates, i.absent,  s.total_ms,
+            i.titles_added, i.copies_added, i.copies_changed, i.copies_removed, i.duplicates, i.unavailable,  s.total_ms,
         });
         if (i.duplicate_example) |e| try peer.out.print("  e.g., {s}\n", .{e});
         try peer.out.flush();

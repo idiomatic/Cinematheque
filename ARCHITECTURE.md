@@ -19,12 +19,12 @@ An operation writes one field of one key, by one device. Everything that replica
 
 Its canonical encoding is those parts in that order, integers little-endian. The encoding is what's hashed and signed; storage and the wire carry the parts separately and rebuild it.
 
-Values are bytes, mostly UTF-8 text: numbers in decimal, flags as `1` and `0` (or empty), and records as tab-separated parts. There are no deletions: a field is emptied, and an empty value reads as absent.
+Values are bytes, mostly UTF-8 text: numbers in decimal, flags as `1` and `0` (or empty), and records as tab-separated parts. There are no deletions: a field is emptied, and an empty value reads as unavailable.
 
 ### Kinds
 
 * **Last writer wins** (`lww`), for nearly everything: of two operations on one field, the later clock wins, and on a tie, the greater device key.
-* **Causal length** (`causal_length`), for set elements (`members`): the field is the element and the value a u32 count of its additions and removals, odd while present. Adding an absent element, or removing a present one, writes the next count; the longer count wins. So a removal beats the addition it saw, and an addition after it beats both, whatever the clocks say.
+* **Causal length** (`causal_length`), for set elements (`members`): the field is the element and the value a u32 count of its additions and removals, odd while present. Adding an unavailable element, or removing a present one, writes the next count; the longer count wins. So a removal beats the addition it saw, and an addition after it beats both, whatever the clocks say.
 
 ### Clocks
 

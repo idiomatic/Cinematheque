@@ -74,7 +74,7 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `m
 * `source add URL` adds a source. The URL is percent-encoded as typed, and given a trailing slash. `--rendition NAME` names its files' rendition (e.g., a HandBrake preset's), and `--skip PREFIX` skips names beginning with it (default `,`). It prints the source's ID, a hash of its URL.
 * `source list` and `source show SOURCE` print sources' settings; `show` adds how many copies of files the source holds.
 * `source set SOURCE` changes `--rendition` or `--skip`; the next crawl applies it. `source remove SOURCE` removes the source and every copy it had, for every peer.
-* A directory that held files and lists none now, as an unplugged drive's mount point does, is absent: its copies stay, `crawl` counts it, and `source show` lists it (`absent     /archive0001, since 3 days ago`). It clears once the drive is back. `source forget SOURCE DIR` forgets one as if it were deleted, and its copies go, as they do on their own after a year.
+* A directory that held files and lists none now, as an unplugged drive's mount point does, is unavailable: its copies stay, `crawl` counts it, and `source show` lists it (`unavailable     /archive0001, since 3 days ago`). It clears once the drive is back. `source forget SOURCE DIR` forgets one as if it were deleted, and its copies go, as they do on their own after a year.
 * `crawl [SOURCE]` crawls every source, or one, with 16 concurrent workers unless `--workers` says otherwise. It reuses the last crawl's listing of any directory whose files haven't changed. Each source gets a line of requests, files, titles added, copies changed, and duplicates. Then covers and metadata are described, with one line of totals.
 
 ### Titles

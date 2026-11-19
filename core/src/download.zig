@@ -15,7 +15,7 @@
 //! its items, as of then), and per series, the next N episodes after where
 //! this user is ("next"). A download watched since it was fetched, and not
 //! kept, is done with: deleted once another source is confirmed to
-//! hold it (same rendition and size, not absent), at once with
+//! hold it (same rendition and size, not unavailable), at once with
 //! `drop_watched`, else as space is needed; the only copy, never. It keeps
 //! `floor_bytes` free.
 
@@ -34,7 +34,7 @@ pub const File = struct {
     /// Where it goes, relative to the directory: its path in the source.
     path: []const u8,
     size: u64,
-    /// Its copies' URLs, those not under an absent directory first.
+    /// Its copies' URLs, those not under an unavailable directory first.
     urls: []const []const u8,
 };
 
@@ -64,8 +64,8 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, rendit
         var urls: std.ArrayList([]const u8) = .empty;
         var path: ?[]const u8 = null;
         var size: u64 = 0;
-        for ([_]bool{ false, true }) |absent| for (r.copies.items) |h| {
-            if (h.absent != absent) continue;
+        for ([_]bool{ false, true }) |unavailable| for (r.copies.items) |h| {
+            if (h.unavailable != unavailable) continue;
             const base = bases.get(h.source) orelse continue;
             if (!safe(h.path)) continue;
             try urls.append(arena, try art.fileUrl(arena, base, h.path));
@@ -312,14 +312,14 @@ pub const Done = struct { held: Held, deletable: bool, fetched_ms: u64 };
 
 pub fn finishedWith(replica: *Replica, arena: std.mem.Allocator, source: library.Source) ![]Done {
     const sources = try library.sources(replica, arena);
-    const absences = try library.Absences.load(replica, arena);
+    const unavailable = try library.UnavailableDirs.load(replica, arena);
     var out: std.ArrayList(Done) = .empty;
     for (try held(replica, arena, source)) |h| {
         if (try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ keep_prefix, h.item })) != null) continue;
         const at = std.fmt.parseInt(u64, try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ at_prefix, h.item })) orelse "0", 10) catch 0;
         const watched_ms = try watchedAt(replica, arena, h.item) orelse continue;
         if (watched_ms <= at) continue;
-        try out.append(arena, .{ .held = h, .deletable = try confirmed(replica, sources, &absences, h), .fetched_ms = at });
+        try out.append(arena, .{ .held = h, .deletable = try confirmed(replica, sources, &unavailable, h), .fetched_ms = at });
     }
     std.mem.sort(Done, out.items, {}, struct {
         fn lt(_: void, a: Done, b: Done) bool {
@@ -390,9 +390,9 @@ pub fn held(replica: *Replica, arena: std.mem.Allocator, source: library.Source)
 }
 
 /// Whether another source (not a device's downloads) holds `h`'s file
-/// alike, its rendition and size, and isn't absent: so deleting it loses
+/// alike, its rendition and size, and isn't unavailable: so deleting it loses
 /// nothing.
-fn confirmed(replica: *Replica, sources: []const library.Source, absences: *const library.Absences, h: Held) !bool {
+fn confirmed(replica: *Replica, sources: []const library.Source, unavailable: *const library.UnavailableDirs, h: Held) !bool {
     const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND field >= 'held:' AND field < 'held;' AND length(value) > 0");
     defer s.finalize();
     try s.bindText(1, h.key);
@@ -401,7 +401,7 @@ fn confirmed(replica: *Replica, sources: []const library.Source, absences: *cons
         const source = for (sources) |rp| {
             if (std.mem.eql(u8, &rp.id, source_id)) break rp;
         } else continue;
-        if (source.managed or absences.has(source_id, s.blob(1))) continue;
+        if (source.managed or unavailable.has(source_id, s.blob(1))) continue;
         var parts = std.mem.splitScalar(u8, s.blob(1), '\t');
         _ = parts.first();
         if ((std.fmt.parseInt(u64, parts.next() orelse "", 10) catch continue) == h.size) return true;

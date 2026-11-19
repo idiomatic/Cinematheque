@@ -76,7 +76,7 @@ enum Playback {
         let local = all.compactMap(downloaded)
         let others = all.filter { $0.source != downloads?.source }
         // Those on a drive that isn't there, last.
-        return local + others.filter { !$0.absent } + others.filter(\.absent)
+        return local + others.filter { !$0.unavailable } + others.filter(\.unavailable)
     }
 
     /// This device's downloads, if it has any: their source, the URL
@@ -95,7 +95,7 @@ enum Playback {
               let path = String(copy.url.dropFirst(d.base.count)).removingPercentEncoding else { return nil }
         let file = URL(fileURLWithPath: d.dir).appending(path: path)
         guard FileManager.default.fileExists(atPath: file.path) else { return nil }
-        return TitleDetail.Copy(url: file.absoluteString, size: copy.size, source: copy.source, absent: false)
+        return TitleDetail.Copy(url: file.absoluteString, size: copy.size, source: copy.source, unavailable: false)
     }
 
     static func name(_ item: TitleDetail.Item, in detail: TitleDetail) -> String {

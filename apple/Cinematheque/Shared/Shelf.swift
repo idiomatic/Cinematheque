@@ -117,7 +117,7 @@ extension Library {
                 progress: runtime > 0 ? Double(elapsed) / Double(runtime) : 0,
                 elapsed: elapsed, runtime: runtime,
                 started: seasons.contains(where: \.started),
-                absent: seasons.allSatisfy(\.absent)
+                unavailable: seasons.allSatisfy(\.unavailable)
             )
         }
     }
