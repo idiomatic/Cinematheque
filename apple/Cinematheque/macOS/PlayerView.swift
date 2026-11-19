@@ -176,8 +176,8 @@ struct PlayerView: View {
 }
 
 /// AppKit's player view, taking the keyboard as it appears: Space plays or
-/// pauses, F toggles full screen, M mutes, and the left and right arrows
-/// skip back and forward 10 seconds. It tells of the pointer's
+/// pauses, F toggles full screen, M mutes, C toggles captions, and the left
+/// and right arrows skip back and forward 10 seconds. It tells of the pointer's
 /// moving over it itself, since SwiftUI's hover tracking over it keeps its
 /// own controls from showing.
 private final class KeyedPlayerView: AVPlayerView {
@@ -235,9 +235,31 @@ private final class KeyedPlayerView: AVPlayerView {
         case " ": if player.rate == 0 { player.play() } else { player.pause() }
         case "f": window?.toggleFullScreen(nil)
         case "m": player.isMuted.toggle()
+        case "c": toggleCaptions(player)
         default: return false
         }
         return true
+    }
+
+    /// Turns captions on, in the languages preferred (the rest of the queue
+    /// too), or off; beeps if the item has none.
+    private func toggleCaptions(_ player: AVPlayer) {
+        guard let item = player.currentItem else { return }
+        Task { @MainActor in
+            guard let group = try? await item.asset.loadMediaSelectionGroup(for: .legible), !group.options.isEmpty else {
+                NSSound.beep()
+                return
+            }
+            let on = item.currentMediaSelection.selectedMediaOption(in: group) == nil
+            if on {
+                let preferred = AVMediaSelectionGroup.mediaSelectionOptions(from: group.options, filteredAndSortedAccordingToPreferredLanguages: Locale.preferredLanguages)
+                item.select(preferred.first ?? group.options.first, in: group)
+                player.setMediaSelectionCriteria(AVPlayerMediaSelectionCriteria(preferredLanguages: Locale.preferredLanguages, preferredMediaCharacteristics: [.legible]), forMediaCharacteristic: .legible)
+            } else {
+                item.select(nil, in: group)
+                player.setMediaSelectionCriteria(nil, forMediaCharacteristic: .legible)
+            }
+        }
     }
 
     /// Skips `seconds` back or forward, within the item.
