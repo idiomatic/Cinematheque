@@ -265,7 +265,14 @@ final class Library {
     }
 
     func reload() {
+        let had = hasLibrary
         status = decode(Status.self) { cq_status($0) }
+        // Problems were the library's, or setup's: a library gained or left
+        // starts afresh.
+        if hasLibrary != had, status != nil {
+            problem = nil
+            problemKind = nil
+        }
         guard hasLibrary else { return }
         tiles = (decode([Tile].self) { cq_tiles($0) } ?? []).sorted {
             ($0.name.localizedStandardCompare($1.name), $0.year ?? 0, $0.season ?? 0) < (.orderedSame, $1.year ?? 0, $1.season ?? 0)
@@ -295,7 +302,7 @@ final class Library {
     /// this device's identity, so setup can pair it again as a new device.
     func leave(removedBy device: String) {
         guard let handle, cq_leave(handle.pointer) == 0 else {
-            report(.refresh, "Couldn't leave the library: \(String(cString: cq_error())).")
+            report(.refresh, "Couldn't leave the library: \(Self.reason(String(cString: cq_error()))).")
             return
         }
         Platform.forget()
@@ -436,6 +443,9 @@ final class Library {
         // (as tvOS may purge one) learns its own writes back, and so where
         // its numbering left off, before it writes again.
         let synced = await long("Catching up", results: noteReceived) { cq_sync($0, nil) }
+        // Told while catching up that it was removed, it left: nothing more
+        // to refresh, and no library to look for videos for.
+        guard hasLibrary else { return }
         var named = false
         if !devices.contains(where: \.you), !device.isEmpty { setName(.device, device); named = true }
         if let person, !person.isEmpty, members.first(where: \.you)?.name == nil { setName(.person, person); named = true }
@@ -573,7 +583,7 @@ final class Library {
         let port = cq_serve(handle.pointer, Int32(defaults.integer(forKey: "servingPort")), json)
         if port < 0 {
             servingPort = nil
-            report(.serve, "Couldn't share the library with your other devices: \(String(cString: cq_error())).")
+            report(.serve, "Couldn't share the library with your other devices: \(Self.reason(String(cString: cq_error()))).")
         } else {
             servingPort = Int(port)
             defaults.set(Int(port), forKey: "servingPort")
@@ -881,7 +891,7 @@ final class Library {
             } else if let result, result.failed > 0, let error = result.error {
                 report(.download, "Downloading failed: \(error.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.lowercased()).")
             } else {
-                report(.download, data == nil ? "Downloading failed: \(String(cString: cq_error()))." : nil)
+                report(.download, data == nil ? "Downloading failed: \(Self.reason(String(cString: cq_error())))." : nil)
             }
         }
     }
@@ -1131,6 +1141,8 @@ final class Library {
         case "UnknownHostName", "NameServerFailure", "TemporaryNameServerFailure": "no server by that name was found"
         case "NetworkUnreachable", "HostUnreachable": "it can't be reached from this network"
         case "NotAMember": "that device isn't part of this library"
+        case "NoLibrary": "this device has no library yet"
+        case "ProcessFdQuotaExceeded", "SystemFdQuotaExceeded": "too many files are open"
         default:
             // "ConnectionResetByPeer" to "connection reset by peer".
             error.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.lowercased()
@@ -1180,7 +1192,7 @@ final class Library {
         // Sources by the names Settings gives them.
         let names = Dictionary(sources.map { ($0.url, folder(of: $0).map { "\($0.name) on this Mac" } ?? $0.displayName) }, uniquingKeysWith: { a, _ in a })
         let (failure, data): (String?, Data?) = await Task.detached {
-            guard let text = body(handle.pointer) else { return (String(cString: cq_error()), nil) }
+            guard let text = body(handle.pointer) else { return ("\(what) failed: \(Library.reason(String(cString: cq_error()))).", nil) }
             defer { cq_free(text) }
             let data = Data(bytes: text, count: strlen(text))
             let results = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
@@ -1199,7 +1211,7 @@ final class Library {
         guard let handle else { return }
         if body(handle.pointer) != 0 {
             let reason = String(cString: cq_error())
-            report(.change, reason == "Busy" ? "Couldn't change the library while \(activity?.lowercased() ?? "it's busy"); try again when it's done." : reason)
+            report(.change, reason == "Busy" ? "Couldn't change the library while \(activity?.lowercased() ?? "it's busy"); try again when it's done." : "Couldn't change the library: \(Self.reason(reason)).")
         } else {
             report(.change, nil)
         }
@@ -1209,10 +1221,12 @@ final class Library {
     private func decode<T: Decodable>(_ type: T.Type, _ body: (OpaquePointer) -> UnsafeMutablePointer<CChar>?) -> T? {
         guard let handle else { return nil }
         guard let text = body(handle.pointer) else {
-            report(.read, String(cString: cq_error()))
+            report(.read, "Couldn't read the library: \(Self.reason(String(cString: cq_error()))).")
             return nil
         }
         defer { cq_free(text) }
+        // A read that works clears one that didn't.
+        report(.read, nil)
         return try? JSONDecoder().decode(T.self, from: Data(bytes: text, count: strlen(text)))
     }
 

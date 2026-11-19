@@ -138,7 +138,10 @@ fn open(data_dir: ?[*:0]const u8) !*Library {
         break :blk try store_.defaultDataDir(arena, std.mem.span(home), if (xdg) |x| std.mem.span(x) else null);
     };
     lib.store = try store_.Store.open(lib.io(), gpa, arena, dir);
-    _ = lib.store.founder(arena) catch return lib;
+    _ = lib.store.founder(arena) catch |err| switch (err) {
+        error.NoLibrary => return lib,
+        else => |e| return e,
+    };
     lib.replica = try lib.store.openReplica(arena);
     // One an older build certified wrongly is accepted by others again.
     try lib.replica.?.recertify(lib.now());

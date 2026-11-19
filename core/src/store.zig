@@ -83,7 +83,12 @@ pub const Store = struct {
     }
 
     pub fn founder(s: *const Store, arena: std.mem.Allocator) ![32]u8 {
-        const text = Io.Dir.cwd().readFileAlloc(s.io, try path(arena, s.dir, "library"), arena, .limited(128)) catch return error.NoLibrary;
+        // Only a missing file means no library; any other failure (out of
+        // file descriptors, say) is itself, not taken for one.
+        const text = Io.Dir.cwd().readFileAlloc(s.io, try path(arena, s.dir, "library"), arena, .limited(128)) catch |err| switch (err) {
+            error.FileNotFound => return error.NoLibrary,
+            else => |e| return e,
+        };
         return parseKey(std.mem.trim(u8, text, " \n"));
     }
 
