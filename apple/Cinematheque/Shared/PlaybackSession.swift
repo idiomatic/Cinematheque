@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// Plays a request's queue straight from sources, one item after
-/// another, keeping each item's playhead: every 10 seconds of playing (but
+/// another, keeping each item's progress: every 10 seconds of playing (but
 /// not within the first 10, where a resume's seek may not have landed),
 /// where it's paused, and where it's closed, so stopping within the first
 /// 10 seconds deletes it (the core's rule); and marking each item watched
@@ -139,7 +139,7 @@ final class PlaybackSession {
         play()
     }
 
-    /// Plays, from where it's readied (`prepare`), keeping playheads.
+    /// Plays, from where it's readied (`prepare`), keeping progress.
     func play() {
         player.play()
         // The rest of the queue, each from the copy whose server answers
@@ -163,7 +163,7 @@ final class PlaybackSession {
         periodic = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 10, preferredTimescale: 1), queue: .main) { [weak self] time in
             MainActor.assumeIsolated {
                 guard let self, self.player.rate != 0, time.seconds >= 10, let duration = self.player.currentItem?.duration.seconds else { return }
-                self.library.setPlayhead(self.item, position: time.seconds, duration: duration)
+                self.library.setProgress(self.item, position: time.seconds, duration: duration)
                 #if os(macOS)
                 // In progress now: a kept series' next episode downloads
                 // (once no stream plays).
@@ -228,10 +228,10 @@ final class PlaybackSession {
         player.pause()
     }
 
-    /// Saves the playhead where the player stopped.
+    /// Saves the progress where the player stopped.
     private func stopped() {
         guard started, let playing = player.currentItem else { return }
-        library.setPlayhead(item, position: player.currentTime().seconds, duration: playing.duration.seconds)
+        library.setProgress(item, position: player.currentTime().seconds, duration: playing.duration.seconds)
         // Tiles' progress bars and watched marks.
         library.reload()
         // Pausing or leaving: other devices hear of it now.

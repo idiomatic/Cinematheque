@@ -225,7 +225,7 @@ pub fn title(peer: *Peer, c: Command) !void {
         for (d.aliases.items) |from| try out.print("  {s} is an alias of it\n", .{from});
         for (d.items.items) |item| {
             try out.print("  {s}", .{item.key});
-            try printPlayhead(out, item.playhead);
+            try printProgress(out, item.progress);
             try out.print("\n", .{});
             for (item.fields.keys(), item.fields.values()) |k, v| try out.print("    {s}: {s}\n", .{ k, v });
             for (item.renditions.items) |rendition| {
@@ -324,14 +324,14 @@ pub fn alias(peer: *Peer, c: Command) !void {
     } else return error.Usage;
 }
 
-pub fn playhead(peer: *Peer, c: Command) !void {
+pub fn progress(peer: *Peer, c: Command) !void {
     const watched = c.args.has("--watched");
     if (c.is("list", 0, &.{}) or c.is("list", 1, &.{})) {
         var r = try peer.open();
         defer r.close();
-        for (try lib.playheads(&r, peer.arena, if (c.rest.len > 0) c.rest[0] else null)) |e| {
+        for (try lib.progressOf(&r, peer.arena, if (c.rest.len > 0) c.rest[0] else null)) |e| {
             try peer.out.print("{s}", .{e.item});
-            try printPlayhead(peer.out, e.playhead);
+            try printProgress(peer.out, e.progress);
             try peer.out.print("\n", .{});
         }
     } else if (c.is("set", 3, &.{})) {
@@ -339,7 +339,7 @@ pub fn playhead(peer: *Peer, c: Command) !void {
         defer r.close();
         const position = try std.fmt.parseFloat(f64, c.rest[1]);
         const duration = try std.fmt.parseFloat(f64, c.rest[2]);
-        try lib.setPlayhead(&r, peer.arena, peer.now(), c.rest[0], @intFromFloat(position * 1000), @intFromFloat(duration * 1000));
+        try lib.setProgress(&r, peer.arena, peer.now(), c.rest[0], @intFromFloat(position * 1000), @intFromFloat(duration * 1000));
         try peer.out.print("set {s}\n", .{c.rest[0]});
     } else if (c.is("set", 1, &.{ "--watched", "--unwatched" }) and watched != c.args.has("--unwatched")) {
         var r = try peer.open();
@@ -349,12 +349,12 @@ pub fn playhead(peer: *Peer, c: Command) !void {
     } else if (c.is("remove", 1, &.{})) {
         var r = try peer.open();
         defer r.close();
-        try lib.removePlayhead(&r, peer.arena, peer.now(), c.rest[0]);
-        try peer.out.print("removed playhead of {s}\n", .{c.rest[0]});
+        try lib.removeProgress(&r, peer.arena, peer.now(), c.rest[0]);
+        try peer.out.print("removed progress of {s}\n", .{c.rest[0]});
     } else return error.Usage;
 }
 
-fn printPlayhead(out: *Io.Writer, head: lib.Playhead) !void {
+fn printProgress(out: *Io.Writer, head: lib.Progress) !void {
     if (head.watched) try out.print("  watched", .{});
     if (head.position_ms > 0) try out.print("  at {d}:{d:0>2} of {d}:{d:0>2}", .{ head.position_ms / 60000, head.position_ms / 1000 % 60, head.duration_ms / 60000, head.duration_ms / 1000 % 60 });
 }

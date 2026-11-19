@@ -41,7 +41,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
 
     /// Its tiles, a series' by season, whose names hold `search`, if any:
     /// Home's are those in progress (movies partway, seasons begun);
-    /// Played's, a smart folder, everything with a playhead, in progress or
+    /// Played's, a smart folder, everything with progress, in progress or
     /// watched; the Mac's In Progress, Home's, and its Watched, what's
     /// watched through, and any with a download watched since (its mark
     /// saying whether it waits for its space to be needed or is the only
@@ -132,7 +132,7 @@ extension Library {
 }
 
 extension Tile {
-    /// On the Played shelf: with a playhead, in progress or watched.
+    /// On the Played shelf: with progress, in progress or watched.
     var played: Bool { started }
 }
 

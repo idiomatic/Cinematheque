@@ -1,6 +1,6 @@
 # Peer
 
-The command-line desktop peer, `cinematheque`, for macOS and Linux, on the [core](../core/README.md). It does everything a player does but play: it founds or joins a library, pairs devices, crawls sources, reviews what it found, records playheads, and serves and syncs with other peers. Run in the background, it's a library's always-on hub.
+The command-line desktop peer, `cinematheque`, for macOS and Linux, on the [core](../core/README.md). It does everything a player does but play: it founds or joins a library, pairs devices, crawls sources, reviews what it found, records progress, and serves and syncs with other peers. Run in the background, it's a library's always-on hub.
 
 ## Building
 
@@ -43,7 +43,7 @@ The peer keeps its state in a directory of its own, its home. By default that's 
 
 ## The command line
 
-State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `member`, `source`, `title`, `alias`, `playhead`, `peer`, and `agent`. Actions on the whole peer are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
+State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `member`, `source`, `title`, `alias`, `progress`, `peer`, and `agent`. Actions on the whole peer are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
 
 * **Options** are named and may come anywhere: `--port PORT`, `--media DIR`, `--rendition NAME`, `--skip PREFIX`, and `--workers WORKERS` take a value. `--leave`, `--watched`, and `--unwatched` are flags. `--home DIR` works with every command.
 * **Help:** [usage.txt](src/usage.txt) lists every command, and is the help, built into the binary. `-h` or `--help` prints it all. With a noun or action (`cinematheque source -h`), or for a noun alone, only that one's commands are printed.
@@ -80,7 +80,7 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `m
 ### Titles
 
 * `title list [TEXT]` (`ls`) prints each title held by some source whose name contains the text, ignoring case. Each line gives its year, kind, episodes or versions, renditions, and key, with `-> TARGET` if it's an alias. A count ends the list.
-* `title show TITLE` (`show`) prints a title's fields, its aliases, and each item: the item's fields, your playhead, and per rendition, every copy's size, modification time, and URL.
+* `title show TITLE` (`show`) prints a title's fields, its aliases, and each item: the item's fields, your progress, and per rendition, every copy's size, modification time, and URL.
 * `title download TITLE` fetches a title's files (or a season's, `TITLE/e/s01`, or an item's) into the current directory or `--to DIR`, under their paths in the source, so the directory can be served and added as a source of its own. It takes `--rendition NAME`, else the rendition most of the items have, tries the copy whose server answers first, then the others, and resumes a file cut short (`<path>.part`) by a range request. Mind the size: a 2160p remux runs to 60 GB.
 * `title review` prints close matches and duplicate files, tab-separated: the reason, then the two titles or files. A summary ends it.
 
@@ -93,12 +93,12 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `m
   Some are mistakes to fix in the source; others are different titles (a series and its reboot may share a name). `alias add TITLE TARGET` records that two are the same, `alias remove TITLE` undoes it, and `alias list` prints them. Aliases replicate, so one peer records each once for everyone.
 * `title facets` counts titles by kind, decade, and rendition, tab-separated.
 
-### Playheads
+### Progress
 
-* `playhead list [TITLE]` prints this user's playheads, or a title's: each item, whether watched, and where it's at.
-* `playhead set ITEM POSITION DURATION` records a position, in seconds. The core's rules apply: within the last 5% marks the item watched, and within the first 10 seconds clears the position. `playhead set ITEM --watched` (or `--unwatched`) marks it by hand, and `playhead remove ITEM` forgets it.
+* `progress list [TITLE]` prints this user's progress, or a title's: each item, whether watched, and where it's at.
+* `progress set ITEM POSITION DURATION` records a position, in seconds. The core's rules apply: within the last 5% marks the item watched, and within the first 10 seconds clears the position. `progress set ITEM --watched` (or `--unwatched`) marks it by hand, and `progress remove ITEM` forgets it.
 
-Playheads are private: they're written on this device's private stream, and travel only directly between the user's devices.
+Progress are private: they're written on this device's private stream, and travel only directly between the user's devices.
 
 ### Peers, syncing, and serving
 
@@ -167,11 +167,11 @@ What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 ## Sources
 
 * [main.zig](src/main.zig): the command line. `Args` parses words and options (an option not among the flags takes the next word as its value) and expands the `ls` and `show` shortcuts. `Command.is` matches a verb, its arity, and the options it allows. The nouns and actions are tables of functions, and `help` prints a noun's or action's part of [usage.txt](src/usage.txt), which it embeds. It opens the home and the `Peer` every command acts with (the store, the output, and the clock), and turns `error.Usage` into help and status 2.
-* [commands.zig](src/commands.zig): the state nouns, a function each (`user`, `library`, `member`, `source`, `title`, `alias`, `playhead`, `agent`), sending pairing codes (`pairWith`, which finds the one device offering nearby), and `crawl` and `refresh`, which crawl sources and then describe them.
+* [commands.zig](src/commands.zig): the state nouns, a function each (`user`, `library`, `member`, `source`, `title`, `alias`, `progress`, `agent`), sending pairing codes (`pairWith`, which finds the one device offering nearby), and `crawl` and `refresh`, which crawl sources and then describe them.
 * [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync` and `pullAll`, which find peers by DNS-SD and in `local` (`peer:URL`); `peer`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
 * [agent.zig](src/agent.zig): the launch agents' property lists, installed and removed by `launchctl bootstrap` and `bootout`.
 * [usage.txt](src/usage.txt): the commands and the help.
-* [test.sh](test.sh): the end-to-end test. Peers on one computer, each with a home of its own, found a library and serve a generated source as media. They crawl, pair (to join, and to link one to another's user) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that playheads travel only between the user's devices.
+* [test.sh](test.sh): the end-to-end test. Peers on one computer, each with a home of its own, found a library and serve a generated source as media. They crawl, pair (to join, and to link one to another's user) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that progress travel only between the user's devices.
 * [test/gen.zig](test/gen.zig): the test source's generator (`gen DIR [DIVISOR]`): a media tree at the library's full scale, or a fraction of it, named as Plex and Jellyfin expect, of sparse files that take no disk space.
 
 The library itself, from parsing names to syncing, is the [core](../core/README.md)'s; how its operations work is in [ARCHITECTURE.md](../ARCHITECTURE.md).

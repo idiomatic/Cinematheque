@@ -1,6 +1,6 @@
 //! The library's domain on top of the replica: keys derived from titles'
 //! parsed identities, sources and their layouts, copies ingested
-//! from crawls, the review of close matches and aliases, and playheads.
+//! from crawls, the review of close matches and aliases, and progress.
 //!
 //! Keys:
 //! * `t/<kind>/<title>/<year>`: a title; kind `m` (movie) or `s` (series),
@@ -19,7 +19,7 @@
 //! * `aliases`: field `<title key>`, value the title key it's an alias of,
 //!   or empty if none.
 //! * `u/<path>`: files that didn't parse, with `held:<source>`.
-//! * `p/<user>/<item key>`: a user's playhead in an item (a version,
+//! * `p/<user>/<item key>`: a user's progress in an item (a version,
 //!   episode, or part), private to that user's devices: fields `position`
 //!   and `duration` (milliseconds) and `watched` (`1` or `0`).
 
@@ -731,21 +731,21 @@ pub const Item = struct {
     key: []const u8,
     renditions: std.ArrayList(Rendition) = .empty,
     /// This user's.
-    playhead: Playhead = .{},
+    progress: Progress = .{},
     /// Metadata: an episode's `title`, `description`, and `duration`.
     fields: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
 };
 
-/// Positions before this aren't kept as playheads.
+/// Positions before this aren't kept as progress.
 pub const kept_after_ms = 10_000;
 
-pub const Playhead = struct {
+pub const Progress = struct {
     position_ms: u64 = 0,
     duration_ms: u64 = 0,
     watched: bool = false,
 };
 
-pub fn playheadKey(replica: *Replica, arena: std.mem.Allocator, item_key: []const u8) ![]u8 {
+pub fn progressKey(replica: *Replica, arena: std.mem.Allocator, item_key: []const u8) ![]u8 {
     return std.fmt.allocPrint(arena, "p/{s}/{s}", .{ std.fmt.bytesToHex(replica.userKey(), .lower), item_key });
 }
 
@@ -754,8 +754,8 @@ pub fn playheadKey(replica: *Replica, arena: std.mem.Allocator, item_key: []cons
 /// credits aren't known yet; a position in the first 10 seconds isn't kept,
 /// clearing any earlier one (but not the watched mark), so the item plays
 /// from the start.
-pub fn setPlayhead(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8, position_ms: u64, duration_ms: u64) !void {
-    const key = try playheadKey(replica, arena, item_key);
+pub fn setProgress(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8, position_ms: u64, duration_ms: u64) !void {
+    const key = try progressKey(replica, arena, item_key);
     if (position_ms < kept_after_ms)
         return replica.writePrivate(wall_ms, key, &.{ .{ "position", "" }, .{ "duration", "" } });
     const position = try std.fmt.allocPrint(arena, "{d}", .{position_ms});
@@ -768,21 +768,21 @@ pub fn setPlayhead(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, it
 
 /// Marks an item watched or not, by hand.
 pub fn setWatched(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8, watched: bool) !void {
-    try replica.writePrivate(wall_ms, try playheadKey(replica, arena, item_key), &.{.{ "watched", if (watched) "1" else "0" }});
+    try replica.writePrivate(wall_ms, try progressKey(replica, arena, item_key), &.{.{ "watched", if (watched) "1" else "0" }});
 }
 
-/// Removes this user's playhead in an item: its position and watched mark.
-pub fn removePlayhead(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8) !void {
-    try replica.writePrivate(wall_ms, try playheadKey(replica, arena, item_key), &.{ .{ "position", "" }, .{ "duration", "" }, .{ "watched", "" } });
+/// Removes this user's progress in an item: its position and watched mark.
+pub fn removeProgress(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8) !void {
+    try replica.writePrivate(wall_ms, try progressKey(replica, arena, item_key), &.{ .{ "position", "" }, .{ "duration", "" }, .{ "watched", "" } });
 }
 
-pub const ItemPlayhead = struct { item: []const u8, playhead: Playhead };
+pub const ItemProgress = struct { item: []const u8, progress: Progress };
 
-/// This user's playheads, in progress or watched, by full item key, under
+/// This user's progress, in progress or watched, by full item key, under
 /// `title_key` if given.
-pub fn playheads(replica: *Replica, arena: std.mem.Allocator, title_key: ?[]const u8) ![]ItemPlayhead {
-    var out: std.ArrayList(ItemPlayhead) = .empty;
-    const prefix = try playheadKey(replica, arena, title_key orelse "");
+pub fn progressOf(replica: *Replica, arena: std.mem.Allocator, title_key: ?[]const u8) ![]ItemProgress {
+    var out: std.ArrayList(ItemProgress) = .empty;
+    const prefix = try progressKey(replica, arena, title_key orelse "");
     const base = prefix.len - (if (title_key) |k| k.len else 0);
     const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key >= ?1 AND key < ?2 ORDER BY key");
     defer s.finalize();
@@ -792,23 +792,23 @@ pub fn playheads(replica: *Replica, arena: std.mem.Allocator, title_key: ?[]cons
         const item = s.blob(0)[base..];
         if (title_key) |k| if (item.len <= k.len or item[k.len] != '/') continue;
         if (out.items.len == 0 or !std.mem.eql(u8, out.items[out.items.len - 1].item, item))
-            try out.append(arena, .{ .item = try arena.dupe(u8, item), .playhead = .{} });
-        const h = &out.items[out.items.len - 1].playhead;
+            try out.append(arena, .{ .item = try arena.dupe(u8, item), .progress = .{} });
+        const h = &out.items[out.items.len - 1].progress;
         const field = s.blob(1);
         const value = s.blob(2);
         if (std.mem.eql(u8, field, "position")) h.position_ms = std.fmt.parseInt(u64, value, 10) catch 0;
         if (std.mem.eql(u8, field, "duration")) h.duration_ms = std.fmt.parseInt(u64, value, 10) catch 0;
         if (std.mem.eql(u8, field, "watched")) h.watched = std.mem.eql(u8, value, "1");
     }
-    var kept: std.ArrayList(ItemPlayhead) = .empty;
-    for (out.items) |e| if (e.playhead.watched or e.playhead.position_ms > 0) try kept.append(arena, e);
+    var kept: std.ArrayList(ItemProgress) = .empty;
+    for (out.items) |e| if (e.progress.watched or e.progress.position_ms > 0) try kept.append(arena, e);
     return kept.items;
 }
 
-/// This user's playheads under a title, by item key below the title's.
-fn titlePlayheads(replica: *Replica, arena: std.mem.Allocator, title_key: []const u8) !std.StringHashMapUnmanaged(Playhead) {
-    var out: std.StringHashMapUnmanaged(Playhead) = .empty;
-    const prefix = try playheadKey(replica, arena, title_key);
+/// This user's progress under a title, by item key below the title's.
+fn titleProgress(replica: *Replica, arena: std.mem.Allocator, title_key: []const u8) !std.StringHashMapUnmanaged(Progress) {
+    var out: std.StringHashMapUnmanaged(Progress) = .empty;
+    const prefix = try progressKey(replica, arena, title_key);
     const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key > ?1 AND key < ?2");
     defer s.finalize();
     try s.bindText(1, try std.fmt.allocPrint(arena, "{s}/", .{prefix}));
@@ -902,9 +902,9 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
         });
     }
     if (!found) return null;
-    const heads = try titlePlayheads(replica, arena, key);
+    const heads = try titleProgress(replica, arena, key);
     for (d.items.items) |*item| {
-        if (heads.get(item.key)) |h| item.playhead = h;
+        if (heads.get(item.key)) |h| item.progress = h;
         if (item_fields.get(item.key)) |f| item.fields = f;
     }
     return d;
@@ -1277,7 +1277,7 @@ test "an unplugged directory is absent, its copies kept; a deleted one's go" {
     try t.expectEqual(@as(usize, 0), (try absences(&r, arena, &share.id)).len);
 }
 
-test "state: sources, aliases, playheads, and members can be listed, set, and removed" {
+test "state: sources, aliases, progress, and members can be listed, set, and removed" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -1297,19 +1297,19 @@ test "state: sources, aliases, playheads, and members can be listed, set, and re
     try removeAlias(&r, 4000, "t/m/rogue-protocol/2019");
     try std.testing.expectEqual(@as(usize, 0), (try aliases(&r, arena)).len);
 
-    try setPlayhead(&r, arena, 5000, "t/m/network-effect/2020/v/-", 60_000, 6_000_000);
+    try setProgress(&r, arena, 5000, "t/m/network-effect/2020/v/-", 60_000, 6_000_000);
     try setWatched(&r, arena, 6000, "t/s/worldhoppers/-/e/s01e02", true);
-    try std.testing.expectEqual(@as(usize, 2), (try playheads(&r, arena, null)).len);
-    const one = try playheads(&r, arena, "t/m/network-effect/2020");
+    try std.testing.expectEqual(@as(usize, 2), (try progressOf(&r, arena, null)).len);
+    const one = try progressOf(&r, arena, "t/m/network-effect/2020");
     try std.testing.expectEqual(@as(usize, 1), one.len);
     try std.testing.expectEqualStrings("t/m/network-effect/2020/v/-", one[0].item);
-    try std.testing.expectEqual(@as(u64, 60_000), one[0].playhead.position_ms);
-    try std.testing.expectEqual(@as(usize, 0), (try playheads(&r, arena, "t/m/network")).len);
-    // Back within the first 10 seconds: the playhead isn't kept.
-    try setPlayhead(&r, arena, 6500, "t/m/network-effect/2020/v/-", 9_000, 6_000_000);
-    try std.testing.expectEqual(@as(usize, 0), (try playheads(&r, arena, "t/m/network-effect/2020")).len);
-    try removePlayhead(&r, arena, 7000, "t/m/network-effect/2020/v/-");
-    try std.testing.expectEqual(@as(usize, 1), (try playheads(&r, arena, null)).len);
+    try std.testing.expectEqual(@as(u64, 60_000), one[0].progress.position_ms);
+    try std.testing.expectEqual(@as(usize, 0), (try progressOf(&r, arena, "t/m/network")).len);
+    // Back within the first 10 seconds: the progress isn't kept.
+    try setProgress(&r, arena, 6500, "t/m/network-effect/2020/v/-", 9_000, 6_000_000);
+    try std.testing.expectEqual(@as(usize, 0), (try progressOf(&r, arena, "t/m/network-effect/2020")).len);
+    try removeProgress(&r, arena, 7000, "t/m/network-effect/2020/v/-");
+    try std.testing.expectEqual(@as(usize, 1), (try progressOf(&r, arena, null)).len);
 
     const other = (try replica_.userKeyPair(@splat(2))).public_key.toBytes();
     try r.addMember(8000, other);

@@ -1,6 +1,6 @@
 import Foundation
 
-/// What to play: a copy's URL, the item it's a copy of (for its playhead),
+/// What to play: a copy's URL, the item it's a copy of (for its progress),
 /// where to start, and what to play after it (e.g., the rest of a season).
 /// Each comes with the item's other copies, to play if one doesn't load.
 struct PlayRequest: Codable, Hashable {

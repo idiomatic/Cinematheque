@@ -27,7 +27,7 @@ struct Tile: Codable, Identifiable, Hashable {
     /// This user's: every item watched; how far along (0 to 1), by running
     /// time: how many milliseconds have `elapsed` (watched items whole,
     /// those partway to their positions) of the `runtime`; and whether any
-    /// item has a playhead.
+    /// item has progress.
     let watched: Bool
     let progress: Double
     let elapsed: Int
@@ -64,7 +64,7 @@ struct TitleDetail: Codable {
         /// An episode's `title`, `description`, and `duration`.
         let fields: [String: String]
         let renditions: [Rendition]
-        /// This user's playhead, in milliseconds.
+        /// This user's progress, in milliseconds.
         let position: Int
         let duration: Int
         let watched: Bool
@@ -215,10 +215,10 @@ final class Library {
     private var refreshedAtLaunch = false
     /// What a long operation is doing, if one is running.
     private(set) var activity: String?
-    /// How far it has come, from the core, while one runs.
-    private(set) var progress: Progress?
+    /// How far it has come, in steps, from the core, while one runs.
+    private(set) var steps: Steps?
 
-    struct Progress: Codable, Equatable {
+    struct Steps: Codable, Equatable {
         /// `crawling`, `describing`, or `syncing`.
         let phase: String?
         let done: Int
@@ -531,7 +531,7 @@ final class Library {
     private(set) var servingPort: Int?
 
     /// Serves this library to peers (their syncs, so this device's changes,
-    /// such as playheads, reach them), and this device's folders, while the
+    /// such as progress, reach them), and this device's folders, while the
     /// app runs, on the port it served on last, so folders' addresses stay
     /// put.
     func serve() {
@@ -880,7 +880,7 @@ final class Library {
 
     /// While the app runs: syncs quietly a minute after it last synced (as
     /// when it comes to the front), so what other devices change
-    /// (playheads, the watchlist) arrives without a refresh; reloads at
+    /// (progress, the watchlist) arrives without a refresh; reloads at
     /// once when a peer pushes its changes here; and notes each sync served
     /// to a peer.
     func keepInSync() async {
@@ -1007,30 +1007,30 @@ final class Library {
 
     // This user's.
 
-    /// Records this user's playhead in an item (a title's key and an
+    /// Records this user's progress in an item (a title's key and an
     /// item's, e.g., "t/m/alien/1979/v/-").
     /// Forgets where this user stopped in an item (its watched mark stays),
     /// so it plays from the beginning: Resume becomes Play.
     func clearPosition(_ item: String) {
         // A position in the first 10 seconds isn't kept (the core's rule).
-        setPlayhead(item, position: 0, duration: 1)
+        setProgress(item, position: 0, duration: 1)
         reload()
         changed()
     }
 
-    func setPlayhead(_ item: String, position: Double, duration: Double) {
+    func setProgress(_ item: String, position: Double, duration: Double) {
         guard position.isFinite, duration.isFinite, duration > 0 else { return }
-        check(reload: false) { cq_set_playhead($0, item, UInt64(max(0, position) * 1000), UInt64(duration * 1000)) }
+        check(reload: false) { cq_set_progress($0, item, UInt64(max(0, position) * 1000), UInt64(duration * 1000)) }
         revision += 1
     }
 
-    /// Removes a tile from Played: this user's playheads in its items (a
+    /// Removes a tile from Played: this user's progress in its items (a
     /// movie's, a season's, or with `wholeTitle`, every season's), positions
     /// and watched marks alike.
     func removeFromPlayed(_ tile: Tile, wholeTitle: Bool = false) {
         guard let detail = detail(tile.key) else { return }
         let items = wholeTitle ? detail.items : Playback.items(detail, season: tile.season)
-        for item in items { check(reload: false) { cq_remove_playhead($0, "\(detail.key)/\(item.key)") } }
+        for item in items { check(reload: false) { cq_remove_progress($0, "\(detail.key)/\(item.key)") } }
         revision += 1
         reload()
         changed()
@@ -1119,8 +1119,8 @@ final class Library {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard let self, !Task.isCancelled else { return }
-                let progress = self.decode(Progress.self) { cq_progress($0) }
-                if progress != self.progress { self.progress = progress }
+                let steps = self.decode(Steps.self) { cq_steps($0) }
+                if steps != self.steps { self.steps = steps }
                 tick += 1
                 guard tick % 2 == 0 else { continue }
                 let now = cq_data_version(handle.pointer)
@@ -1132,7 +1132,7 @@ final class Library {
         }
         defer {
             watcher.cancel()
-            progress = nil
+            steps = nil
         }
         // Sources by the names Settings gives them.
         let names = Dictionary(sources.map { ($0.url, folder(of: $0).map { "\($0.name) on this Mac" } ?? $0.displayName) }, uniquingKeysWith: { a, _ in a })

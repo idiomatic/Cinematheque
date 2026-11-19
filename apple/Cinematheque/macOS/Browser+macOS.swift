@@ -220,7 +220,7 @@ struct CoverGrid: View {
                     .onTapGesture { selection = tile.id }
                     .simultaneousGesture(TapGesture(count: 2).onEnded { playNext(tile) })
                     .contextMenu {
-                        // Forgets its playheads (positions and watched marks).
+                        // Forgets its progress (positions and watched marks).
                         if tile.played {
                             Button(shelf == .watched ? "Remove from Watched" : shelf == .inProgress ? "Remove from In Progress" : "Mark as Unwatched") { library.removeFromPlayed(tile) }
                         }
@@ -381,11 +381,11 @@ struct StatusBar: View {
                 }
                 Spacer(minLength: 12)
                 if let activity = library.activity {
-                    Text(Self.describe(activity, library.progress))
+                    Text(Self.describe(activity, library.steps))
                         .lineLimit(1)
                         .monospacedDigit()
                         .layoutPriority(1)
-                    if let p = library.progress, p.total > 0 {
+                    if let p = library.steps, p.total > 0 {
                         ProgressView(value: Double(min(p.done, p.total)), total: Double(p.total))
                             .progressViewStyle(.linear)
                             .frame(width: 100)
@@ -421,7 +421,7 @@ struct StatusBar: View {
 
     /// "Looking in 3 of 6 sources", "Covers 1,200 of 5,000" (covers and
     /// details found), "Catching up with 1 of 2 devices", or what's running.
-    static func describe(_ activity: String, _ p: Library.Progress?) -> String {
+    static func describe(_ activity: String, _ p: Library.Steps?) -> String {
         guard let p, let phase = p.phase else { return activity + "…" }
         let done = min(p.done + (phase == "describing" ? 0 : 1), p.total).formatted()
         let total = p.total.formatted()

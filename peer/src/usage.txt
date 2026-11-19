@@ -80,13 +80,13 @@ prints it.
   alias add TITLE TARGET       record the title as an alias of the target
   alias remove TITLE           stop a title being an alias of another
 
-  playhead list [TITLE]        list this user's playheads
-  playhead set ITEM POSITION DURATION
+  progress list [TITLE]        list this user's progress
+  progress set ITEM POSITION DURATION
                                record how far this user has played, in
                                seconds
-  playhead set ITEM --watched | --unwatched
+  progress set ITEM --watched | --unwatched
                                mark an item watched, or not
-  playhead remove ITEM         forget this user's playhead in an item
+  progress remove ITEM         forget this user's progress in an item
 
   peer list                    list peers found on the network, and added
   peer add URL                 add a peer that can't be found, such as one

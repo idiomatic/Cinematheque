@@ -133,7 +133,7 @@ struct TVPlayer: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {}
 
-    // Leaving it stops it where it is, keeping the playhead, and gives
+    // Leaving it stops it where it is, keeping the progress, and gives
     // the display back its own mode.
     static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
         coordinator.session?.close()

@@ -8,7 +8,7 @@
 //! ones (crawling, syncing, describing) may run on any thread, each on a
 //! connection of its own. Only one connection writes as this device at a
 //! time: long ones wait for each other, and other writes fail with `Busy`
-//! while one runs, but for playheads and watchlists, which don't need to.
+//! while one runs, but for progress and watchlists, which don't need to.
 
 const std = @import("std");
 const Io = std.Io;
@@ -45,7 +45,7 @@ const Library = struct {
     /// Titles to describe first while a crawl runs, such as those on screen.
     priority: art.Priority = .{},
     /// How far the long operation running has come.
-    progress: Progress = .{},
+    steps: Steps = .{},
     /// Serving, while it does (`cq_serve`).
     serving: ?*Serving = null,
     /// Offering to pair, while it does (`cq_pair_offer`).
@@ -237,43 +237,43 @@ const StatusJson = struct { user: []const u8, linked: bool, library: ?[]const u8
 /// How far a long operation has come, in steps of its phase (sources
 /// crawled, movies and seasons described, peers synced); read from any
 /// thread.
-const Progress = struct {
+const Steps = struct {
     phase: std.atomic.Value(Phase) = .init(.idle),
     done: std.atomic.Value(u32) = .init(0),
     total: std.atomic.Value(u32) = .init(0),
 
     const Phase = enum(u8) { idle, crawling, describing, syncing };
 
-    fn start(p: *Progress, phase: Phase, total: usize) void {
+    fn start(p: *Steps, phase: Phase, total: usize) void {
         p.done.store(0, .monotonic);
         p.total.store(@intCast(total), .monotonic);
         p.phase.store(phase, .release);
     }
 
-    fn step(p: *Progress) void {
+    fn step(p: *Steps) void {
         _ = p.done.fetchAdd(1, .monotonic);
     }
 
-    fn finish(p: *Progress) void {
+    fn finish(p: *Steps) void {
         p.phase.store(.idle, .release);
     }
 };
 
-const ProgressJson = struct { phase: ?[]const u8, done: u32, total: u32 };
+const StepsJson = struct { phase: ?[]const u8, done: u32, total: u32 };
 
 /// How far the long operation running has come: a JSON object with `phase`
 /// (`crawling`, `describing`, `syncing`, or null when none runs), and
 /// `done` and `total` steps of it. Any thread.
-export fn cq_progress(lib: *Library) ?[*:0]u8 {
-    return json(lib, progress, .{});
+export fn cq_steps(lib: *Library) ?[*:0]u8 {
+    return json(lib, steps, .{});
 }
 
-fn progress(lib: *Library, _: std.mem.Allocator) !ProgressJson {
-    const phase = lib.progress.phase.load(.acquire);
+fn steps(lib: *Library, _: std.mem.Allocator) !StepsJson {
+    const phase = lib.steps.phase.load(.acquire);
     return .{
         .phase = if (phase == .idle) null else @tagName(phase),
-        .done = lib.progress.done.load(.monotonic),
-        .total = lib.progress.total.load(.monotonic),
+        .done = lib.steps.done.load(.monotonic),
+        .total = lib.steps.total.load(.monotonic),
     };
 }
 
@@ -954,10 +954,10 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
     const list = try library.sources(&r, arena);
     const out = try arena.alloc(CrawlJson, list.len);
     var crawled: std.ArrayList(art.Crawled) = .empty;
-    lib.progress.start(.crawling, list.len);
-    defer lib.progress.finish();
+    lib.steps.start(.crawling, list.len);
+    defer lib.steps.finish();
     for (list, out) |rp, *o| {
-        defer lib.progress.step();
+        defer lib.steps.step();
         if (rp.managed) {
             o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null };
             continue;
@@ -973,12 +973,12 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
         try crawled.append(arena, .{ .source = rp, .entries = s.entries });
     }
     const plan = try art.plan(&r, arena, crawled.items);
-    lib.progress.start(.describing, plan.jobs.len);
+    lib.steps.start(.describing, plan.jobs.len);
     _ = try art.run(lib.io(), &r, arena, &client, lib.now(), plan.jobs, .{
         .workers = 16,
         .priority = &lib.priority,
         .writer = &lib.writer,
-        .done = &lib.progress.done,
+        .done = &lib.steps.done,
     });
     return out;
 }
@@ -1010,8 +1010,8 @@ export fn cq_sync(lib: *Library, target: ?[*:0]const u8) ?[*:0]u8 {
 
 fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]const SyncJson {
     // Peers are counted once they're found.
-    lib.progress.start(.syncing, 0);
-    defer lib.progress.finish();
+    lib.steps.start(.syncing, 0);
+    defer lib.steps.finish();
     try lib.writer.lock(lib.io());
     defer lib.writer.unlock(lib.io());
     var r = try connection(lib, arena);
@@ -1022,9 +1022,9 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]cons
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     const out = try arena.alloc(SyncJson, urls.len);
-    lib.progress.start(.syncing, urls.len);
+    lib.steps.start(.syncing, urls.len);
     for (urls, out) |u, *o| {
-        defer lib.progress.step();
+        defer lib.steps.step();
         const exchanged = sync.exchange(arena, &client, &r, u, lib.now()) catch |err| {
             o.* = .{ .url = u, .name = names.get(u), .new = 0, .@"error" = @errorName(err) };
             continue;
@@ -1172,9 +1172,9 @@ fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !struct {
             .key = item.key,
             .fields = .{ .map = item.fields },
             .renditions = renditions,
-            .position = item.playhead.position_ms,
-            .duration = item.playhead.duration_ms,
-            .watched = item.playhead.watched,
+            .position = item.progress.position_ms,
+            .duration = item.progress.duration_ms,
+            .watched = item.progress.watched,
         };
     }
     var fields: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
@@ -1200,16 +1200,16 @@ fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !struct {
 
 // This user's private data.
 
-/// Records this user's playhead in an item (a title's key and an item's,
+/// Records this user's progress in an item (a title's key and an item's,
 /// e.g., `t/m/alien/1979/v/-`).
-export fn cq_set_playhead(lib: *Library, item_key: [*:0]const u8, position_ms: u64, duration_ms: u64) c_int {
-    return status(lib, setPlayhead, .{ std.mem.span(item_key), position_ms, duration_ms });
+export fn cq_set_progress(lib: *Library, item_key: [*:0]const u8, position_ms: u64, duration_ms: u64) c_int {
+    return status(lib, setProgress, .{ std.mem.span(item_key), position_ms, duration_ms });
 }
 
-fn setPlayhead(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, position_ms: u64, duration_ms: u64) !void {
+fn setProgress(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, position_ms: u64, duration_ms: u64) !void {
     const r = try privateWriter(lib);
     defer if (r.locked) lib.writer.unlock(lib.io());
-    try library.setPlayhead(r.replica, arena, lib.now(), item_key, position_ms, duration_ms);
+    try library.setProgress(r.replica, arena, lib.now(), item_key, position_ms, duration_ms);
 }
 
 /// Marks an item watched (nonzero) or not.
@@ -1223,15 +1223,15 @@ fn setWatched(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, wat
     try library.setWatched(r.replica, arena, lib.now(), item_key, watched);
 }
 
-/// Removes this user's playhead in an item: its position and watched mark.
-export fn cq_remove_playhead(lib: *Library, item_key: [*:0]const u8) c_int {
-    return status(lib, removePlayhead, .{std.mem.span(item_key)});
+/// Removes this user's progress in an item: its position and watched mark.
+export fn cq_remove_progress(lib: *Library, item_key: [*:0]const u8) c_int {
+    return status(lib, removeProgress, .{std.mem.span(item_key)});
 }
 
-fn removePlayhead(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !void {
+fn removeProgress(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !void {
     const r = try privateWriter(lib);
     defer if (r.locked) lib.writer.unlock(lib.io());
-    try library.removePlayhead(r.replica, arena, lib.now(), item_key);
+    try library.removeProgress(r.replica, arena, lib.now(), item_key);
 }
 
 /// What's on this user's watchlist, as a JSON array of keys: a movie's

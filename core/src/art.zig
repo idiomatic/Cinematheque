@@ -588,7 +588,7 @@ pub const Tile = struct {
     /// one stopped in its last 5% counts in full, and each item partway to
     /// its position), of how much (`total`, an item of unknown length
     /// taking the average of those known), and the share (`progress`); and
-    /// whether any item has a playhead.
+    /// whether any item has progress.
     watched: bool = false,
     progress: f64 = 0,
     played: u64 = 0,
@@ -637,8 +637,8 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
             try gop.value_ptr.append(arena, item);
         }
     }
-    var heads: std.StringHashMapUnmanaged(library.Playhead) = .empty;
-    for (try library.playheads(replica, arena, null)) |h| try heads.put(arena, h.item, h.playhead);
+    var heads: std.StringHashMapUnmanaged(library.Progress) = .empty;
+    for (try library.progressOf(replica, arena, null)) |h| try heads.put(arena, h.item, h.progress);
     // Items' lengths, as their files' metadata gives them.
     var durations: std.StringHashMapUnmanaged(u64) = .empty;
     {
@@ -710,7 +710,7 @@ fn progress(tile: *Tile, items: anytype, heads: anytype, durations: anytype, id:
     if (tile.total > 0) tile.progress = @as(f64, @floatFromInt(tile.played)) / @as(f64, @floatFromInt(tile.total));
 }
 
-/// An item's length: its playhead's, else its file's metadata's, if known.
+/// An item's length: its progress's, else its file's metadata's, if known.
 fn itemLength(item: []const u8, heads: anytype, durations: anytype) ?u64 {
     if (heads.get(item)) |h| if (h.duration_ms > 0) return h.duration_ms;
     return durations.get(item);
@@ -775,7 +775,7 @@ test "covers round-trip, and a season without one takes its series'" {
     try std.testing.expect(after[0].watched and after[0].progress == 1 and after[0].started);
     try std.testing.expect(!after[1].watched and after[1].progress == 0 and !after[1].started);
     // An episode begun starts its season, and counts to its position.
-    try library.setPlayhead(&r, arena, 3, "t/s/firefly/-/e/s02e01", 600_000, 2_400_000);
+    try library.setProgress(&r, arena, 3, "t/s/firefly/-/e/s02e01", 600_000, 2_400_000);
     const begun = try tiles(&r, arena);
     try std.testing.expect(!begun[1].watched and begun[1].progress == 0.25 and begun[1].started);
     try std.testing.expectEqual(@as(u64, 600_000), begun[1].played);
@@ -785,7 +785,7 @@ test "covers round-trip, and a season without one takes its series'" {
     try r.write(4, "t/s/firefly/-/e/s01e02/r/-", "held:0123456789abcdef", "Firefly/Firefly 102.m4v\t1\t-");
     try r.write(4, "t/s/firefly/-/e/s01e01", "duration", "1200000");
     try r.write(4, "t/s/firefly/-/e/s01e02", "duration", "3600000");
-    try library.setPlayhead(&r, arena, 5, "t/s/firefly/-/e/s01e02", 900_000, 3_600_000);
+    try library.setProgress(&r, arena, 5, "t/s/firefly/-/e/s01e02", 900_000, 3_600_000);
     const timed = try tiles(&r, arena);
     try std.testing.expectEqual(@as(u64, 1_200_000 + 900_000), timed[0].played);
     try std.testing.expectEqual(@as(u64, 4_800_000), timed[0].total);

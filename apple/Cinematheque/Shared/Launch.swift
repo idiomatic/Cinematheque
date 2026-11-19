@@ -40,7 +40,7 @@ enum Launch {
     private static var played = false
 
     /// `CINEMATHEQUE_ITEM`: the item the URL played is a copy of, for its
-    /// playhead (macOS).
+    /// progress (macOS).
     static var item: String? { env["CINEMATHEQUE_ITEM"] }
 }
 #endif

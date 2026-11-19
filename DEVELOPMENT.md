@@ -49,7 +49,7 @@ Open:
 
 * **Renditions from files:** read a file's rendition from the file itself (e.g., an MP4's tracks), for names that don't show it.
 * **Listings:** also WebDAV `PROPFIND`, and the dates Apache and nginx print in HTML listings, so re-crawls can skip their unchanged directories; an occasional full sweep for files rewritten in place.
-* **Moved files:** matched by size and modification time, which a rename keeps, so playheads and lists follow them; where listings lack those, by hashes of files' first and last 64 KiB, taken by byte ranges when first seen.
+* **Moved files:** matched by size and modification time, which a rename keeps, so progress and lists follow them; where listings lack those, by hashes of files' first and last 64 KiB, taken by byte ranges when first seen.
 * **Range probe:** flag sources that don't answer `Range: bytes=0-0` with 206 (e.g., Python's `http.server`), since players can't stream from them.
 * **Discovery:** suggest static servers advertising `_http._tcp` or `_webdav._tcp`, and add sources with HTTP user and password.
 * **Management:** by desktop peers, on a source's host or with network filesystem access to it: renaming and checksums; subtitles, cover art (slow to extract and bulky to cache), and text. To libraries, a static server is read-only until Cinematheque code reaches its files.
@@ -102,7 +102,7 @@ The decentralized library generalized for other apps, of books, audiobooks, and 
 * **Kinds:** each under a key prefix of its own (`t/<kind>/...`, as movies and series are), with progress in its own units.
   * **Books:** EPUB, PDF, and comics (CBZ); author → series → book → format; progress as a locator (an EPUB CFI, or a page), not milliseconds; metadata from EPUB's OPF and Calibre's `metadata.opf` sidecars.
   * **Audiobooks:** M4B (with chapters), and folders of MP3s; author → series → book → part; progress in milliseconds across parts; the narrator as metadata.
-  * **Music:** artist → album → disc → track; FLAC, ALAC or AAC (M4A), and MP3; tags from Vorbis comments, MP4 atoms, and ID3; play counts and when last played, in place of playheads; lossless and lossy as renditions.
+  * **Music:** artist → album → disc → track; FLAC, ALAC or AAC (M4A), and MP3; tags from Vorbis comments, MP4 atoms, and ID3; play counts and when last played, in place of progress; lossless and lossy as renditions.
 * **Pairing UX:** pairing by code, New Devices, and setup as a shared SwiftUI package. Pairing once covers every app on a device: its identity and home are shared among the apps (an app group, and a Keychain access group for the seeds).
 * **Lists:** the watchlist generalized, per [Libraries](#libraries): private, shared (read by members), and collaborative (written by members) lists of any kind's titles: reading lists, want-to-hear, and playlists. Playlists are ordered, so collaborative ones need an ordered sequence (Fugue, in [specifications](docs/specifications/README.md)); smart lists are queries over facets.
 * **Covers:** extraction generalized from MP4's `covr`, by range requests, each with its ThumbHash placeholder: ID3's `APIC`, FLAC's `PICTURE` blocks, EPUB's OPF cover item, a comic's first page; and each kind's sidecars (`cover.jpg`, `folder.jpg`, Calibre's `cover.jpg`). PDFs, which need rendering, take a sidecar or none.

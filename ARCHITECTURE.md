@@ -4,7 +4,7 @@ How a Cinematheque library is made of operations: what one is, how devices write
 
 ## Operations
 
-An operation writes one field of one key, by one device. Everything that replicates is an operation, from a title's name to a playhead's position, a device's certificate, and the library's members, so one mechanism carries all of it.
+An operation writes one field of one key, by one device. Everything that replicates is an operation, from a title's name to progress's position, a device's certificate, and the library's members, so one mechanism carries all of it.
 
 | Part | Size | Meaning |
 |---|---|---|
@@ -35,13 +35,13 @@ A hybrid logical clock packs wall-clock milliseconds into the high 48 bits and a
 Each device writes two streams, each with its own key pair and numbering:
 
 * **Its own stream,** under its device key, for everything shared with the library.
-* **Its private stream,** under a key derived from the device's seed (`"cinematheque private"`), for its user's private data (`p/<user>/...`): playheads and the watchlist.
+* **Its private stream,** under a key derived from the device's seed (`"cinematheque private"`), for its user's private data (`p/<user>/...`): progress and the watchlist.
 
 A stream's first operation must be a certificate (see [Admission](#admission)), and its numbering has no gaps, so a version vector, the highest number seen from each stream, says exactly what a replica holds.
 
 ## Batches
 
-A device signs batches of operations, not each one. Writes inside one transaction (a crawl's, a title's details, a playhead's fields) form one batch of up to 1,024 consecutive operations of one stream; a write outside a transaction is a batch of its own. Signing works like this:
+A device signs batches of operations, not each one. Writes inside one transaction (a crawl's, a title's details, progress's fields) form one batch of up to 1,024 consecutive operations of one stream; a write outside a transaction is a batch of its own. Signing works like this:
 
 * Each operation's encoding is hashed with BLAKE3, prefixed `0`, as a leaf.
 * Pairs of hashes are hashed, prefixed `1`, up to one root. An odd node at the end of a level is promoted unpaired, and the two prefixes keep a leaf from posing as an inner node.
@@ -106,7 +106,7 @@ Sync runs both ways, started by either side: a device asks a peer for what it la
 * **What's sent:** for each stream, the winners above the receiver's vector, grouped by batch. Other users' private streams are left out, frames and vector entries alike, so private data never reaches another user's peers.
 * **Push:** the response also names the peer, by its device key and certificate. The device then sends what the peer lacks, by the vector the response ended with: a second `POST /sync`, of a signed request and the same frames, leaving out private streams not the peer's user's, which the peer applies as it would a response. A peer too old to take pushes refuses one, and is only pulled from.
 
-Since only winners are sent, a sync carries the current state of what changed, not its history: a playhead moved ten times since the last sync is one operation per field.
+Since only winners are sent, a sync carries the current state of what changed, not its history: progress moved ten times since the last sync is one operation per field.
 
 * **Repair:** a removal drops winners past its cutoff. The fields it dropped are refetched from a peer that refused those writes: just those fields' winners, with one shared proof per batch (the sibling hashes covering all the operations taken from it), so they're verified without the batch's other leaves.
 

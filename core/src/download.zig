@@ -334,7 +334,7 @@ pub fn finishedWith(replica: *Replica, arena: std.mem.Allocator, source: library
 fn watchedAt(replica: *Replica, arena: std.mem.Allocator, item: []const u8) !?u64 {
     const s = try replica.db.prepare("SELECT hlc, value FROM winners WHERE key = ?1 AND field = 'watched'");
     defer s.finalize();
-    try s.bindText(1, try library.playheadKey(replica, arena, item));
+    try s.bindText(1, try library.progressKey(replica, arena, item));
     if (!try s.step() or !std.mem.eql(u8, s.blob(1), "1")) return null;
     return @as(u64, @intCast(s.int(0))) >> 16;
 }
@@ -428,12 +428,12 @@ pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, n: 
         }
     }.lt);
     var start: ?usize = null;
-    for (episodes.items, 0..) |e, i| if (e.item.playhead.position_ms > 0 and !e.item.playhead.watched) {
+    for (episodes.items, 0..) |e, i| if (e.item.progress.position_ms > 0 and !e.item.progress.watched) {
         start = i;
     };
     // The one in progress is kept beyond the `n`.
     const in_progress = start != null;
-    if (start == null) for (episodes.items, 0..) |e, i| if (!e.item.playhead.watched) {
+    if (start == null) for (episodes.items, 0..) |e, i| if (!e.item.progress.watched) {
         start = i;
         break;
     };
@@ -441,7 +441,7 @@ pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, n: 
     const want_count = if (in_progress) n + 1 else n;
     for (episodes.items[start orelse return &.{}..]) |e| {
         if (out.items.len == want_count) break;
-        if (!e.item.playhead.watched) try out.append(arena, e.item.key);
+        if (!e.item.progress.watched) try out.append(arena, e.item.key);
     }
     return out.items;
 }
@@ -775,7 +775,7 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     try std.testing.expectEqualStrings("t/s/firefly/-/e/s01e02", copy[1].item);
 
     // Episode 2 in progress: it and the 2 after it.
-    try library.setPlayhead(&r, arena, 5, keys[2], 60_000, 600_000);
+    try library.setProgress(&r, arena, 5, keys[2], 60_000, 600_000);
     try std.testing.expectEqual(3, (try ahead(&r, arena, "t/s/firefly/-", 2)).len);
     // A stream playing holds new files back.
     var held_back: std.atomic.Value(bool) = .init(true);

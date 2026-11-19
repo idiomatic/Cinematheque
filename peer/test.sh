@@ -2,7 +2,7 @@
 # Peer test: peer A founds a library, serves a generated source as
 # media, and crawls it; peer B pairs to join, syncs, and must match A
 # exactly; a change on A reaches B through discovery, and one on B reaches
-# A by push; C, paired then removed, is refused; and B's playhead reaches
+# A by push; C, paired then removed, is refused; and B's progress reaches
 # B's other device, B2 (paired to be B's), only directly.
 set -eu
 here=${0:A:h}
@@ -74,21 +74,21 @@ $peer $c sync http://127.0.0.1:8191 | grep -q NotAMember || { echo "FAIL: a remo
 
 item=t/m/movie-0003/1923/v/-
 pair $work/b2 "user pair" $work/b "user pair"
-$peer $b playhead set $item 600 6000
-# B's pushes to A, another user's device, leave out B's playheads.
+$peer $b progress set $item 600 6000
+# B's pushes to A, another user's device, leave out B's progress.
 $peer $b sync http://127.0.0.1:8191
-$peer $a show ${item%/v/-} | grep -q " at " && { echo "FAIL: B pushed its playhead to another user"; exit 1; }
+$peer $a show ${item%/v/-} | grep -q " at " && { echo "FAIL: B pushed its progress to another user"; exit 1; }
 $peer $b serve --port 8192 > $work/b.log 2>&1 &
 b_pid=$!
 sleep 1
 $peer $a sync http://127.0.0.1:8192
-$peer $a show ${item%/v/-} | grep -q " at " && { echo "FAIL: another user got B's playhead"; exit 1; }
+$peer $a show ${item%/v/-} | grep -q " at " && { echo "FAIL: another user got B's progress"; exit 1; }
 $peer $b2 sync http://127.0.0.1:8191
-$peer $b2 show ${item%/v/-} | grep -q " at " && { echo "FAIL: B2 got B's playhead through A"; exit 1; }
+$peer $b2 show ${item%/v/-} | grep -q " at " && { echo "FAIL: B2 got B's progress through A"; exit 1; }
 $peer $b2 sync http://127.0.0.1:8192
-$peer $b2 show ${item%/v/-} | grep " at " || { echo "FAIL: B2 didn't get B's playhead from B"; exit 1; }
-$peer $b2 playhead remove $item
-$peer $b2 playhead list | grep -q . && { echo "FAIL: playhead remove"; exit 1; }
+$peer $b2 show ${item%/v/-} | grep " at " || { echo "FAIL: B2 didn't get B's progress from B"; exit 1; }
+$peer $b2 progress remove $item
+$peer $b2 progress list | grep -q . && { echo "FAIL: progress remove"; exit 1; }
 # B removes B2, which is told so, signed, when it next syncs; it leaves,
 # and could pair again as a new device.
 $peer $b2 sync http://127.0.0.1:8192 > /dev/null

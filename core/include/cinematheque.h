@@ -5,7 +5,7 @@
 //
 // Functions belong to one thread, the app's main one, except the long ones
 // (cq_crawl, cq_sync, cq_describe), which may run on any thread. While a
-// long one runs, other changes to the library fail with "Busy"; playheads
+// long one runs, other changes to the library fail with "Busy"; progress
 // and the watchlist don't wait.
 
 #ifndef CINEMATHEQUE_H
@@ -106,7 +106,7 @@ long long cq_data_version(cq_library *library);
 // How far the long operation running has come: a JSON object with
 // "phase" ("crawling", "describing", "syncing", or null), and "done" and
 // "total" steps of it. Any thread.
-char *cq_progress(cq_library *library);
+char *cq_steps(cq_library *library);
 
 // Browsing: the grid's tiles, with their covers' byte ranges, and one
 // title, with its metadata and each copy's playable URL.
@@ -118,11 +118,11 @@ char *cq_title(cq_library *library, const char *key);
 // 0, or -1 if it isn't one. Any thread.
 int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *height);
 
-// This user's private data: playheads in items (e.g.,
+// This user's private data: progress in items (e.g.,
 // "t/m/alien/1979/v/-"), and the watchlist of titles.
-int cq_set_playhead(cq_library *library, const char *item_key, unsigned long long position_ms, unsigned long long duration_ms);
+int cq_set_progress(cq_library *library, const char *item_key, unsigned long long position_ms, unsigned long long duration_ms);
 int cq_set_watched(cq_library *library, const char *item_key, int watched);
-int cq_remove_playhead(cq_library *library, const char *item_key);
+int cq_remove_progress(cq_library *library, const char *item_key);
 char *cq_watchlist(cq_library *library);
 int cq_set_watchlisted(cq_library *library, const char *title_key, int on);
 

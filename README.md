@@ -72,7 +72,7 @@ On first run, an app creates a library, or pairs with one of your devices or som
 
 ## Sharing a library
 
-A library is shared by pairing: the new device shows a 6-digit code, and someone already in the library enters it, in the Mac app under Settings › Devices › New Devices, or with the command-line peer. Pair as another of your own devices to use the library as yourself, with your playheads and watchlist; or as someone new, who joins as a member. The code seals what's sent, so only the device showing it can open it, and the new device stops after 3 wrong tries. [peer/README.md](peer/README.md#sharing-a-library) covers the command line, and pairing from off your network.
+A library is shared by pairing: the new device shows a 6-digit code, and someone already in the library enters it, in the Mac app under Settings › Devices › New Devices, or with the command-line peer. Pair as another of your own devices to use the library as yourself, with your progress and watchlist; or as someone new, who joins as a member. The code seals what's sent, so only the device showing it can open it, and the new device stops after 3 wrong tries. [peer/README.md](peer/README.md#sharing-a-library) covers the command line, and pairing from off your network.
 
 Peers find each other on your network, and while an app runs, it serves the library to your other devices, and syncs with them every minute and whenever you make a change. Each peer checks, by signature, that every change comes from a member, so a peer that relays the library can't alter it, and it serves the library only to members' devices. Removing a member stops their later changes everywhere, while what they did before stands; removing one of your devices does the same for that device.
 
