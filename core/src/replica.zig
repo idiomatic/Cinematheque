@@ -248,6 +248,7 @@ pub const Replica = struct {
         replica.private_seq = try replica.seen(replica.private_own);
         replica.repairing = try replica.repairsPending() > 0;
         replica.founder = (try replica.founderAt(std.math.maxInt(u32))).person;
+        try replica.observeOwn();
         return replica;
     }
 
@@ -654,6 +655,21 @@ pub const Replica = struct {
         replica.seq = try replica.seen(replica.own);
         replica.private_seq = try replica.seen(replica.private_own);
         replica.founder = (try replica.founderAt(std.math.maxInt(u32))).person;
+        try replica.observeOwn();
+    }
+
+    /// Folds in the clocks of this device's latest writes (another
+    /// connection's, or before a restart), so a write now orders after them
+    /// even in the same millisecond, or after the wall clock stepped back,
+    /// and never loses to one of its own.
+    fn observeOwn(replica: *Replica) !void {
+        const s = try replica.db.prepare("SELECT hlc FROM winners WHERE device = ?1 ORDER BY seq DESC LIMIT 1");
+        defer s.finalize();
+        for ([_]i64{ replica.own, replica.private_own }) |id| {
+            defer s.reset();
+            try s.bindInt(1, id);
+            if (try s.step()) replica.hlc.observe(@bitCast(s.int(0)));
+        }
     }
 
     /// This device's own `key`, which doesn't replicate, if set.
@@ -2225,4 +2241,32 @@ test "two connections writing in turn, refreshing first, never reuse a sequence 
     // The device's writes are numbered 1 (its certificate) through 4.
     try testing.expectEqual(@as(u64, 4), a.seq);
     try testing.expectEqual(@as(i64, 4), try a.db.scalar("SELECT count(DISTINCT seq) FROM winners WHERE device = 1"));
+}
+
+test "a device's write after a restart, or a clock step back, doesn't lose to its own earlier one" {
+    const path = "/tmp/cinematheque-clock-test.db";
+    std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
+    const founder = (try personKeyPair(@splat(1))).public_key.toBytes();
+    {
+        var a = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+        defer a.close();
+        try a.write(5000, "t/m/a/-", "name", "first");
+    }
+    var a = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+    defer a.close();
+    var b = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+    defer b.close();
+    // The wall clock has stepped back since.
+    try a.write(1000, "t/m/a/-", "name", "second");
+    // Another connection to the same replica wrote meanwhile, later still.
+    try b.write(9000, "t/m/b/-", "name", "x");
+    try a.refresh();
+    try a.write(2000, "t/m/b/-", "name", "y");
+    const s = try a.db.prepare("SELECT key, value FROM winners WHERE field = 'name' ORDER BY key");
+    defer s.finalize();
+    try testing.expect(try s.step());
+    try testing.expectEqualStrings("second", s.blob(1));
+    try testing.expect(try s.step());
+    try testing.expectEqualStrings("y", s.blob(1));
 }
