@@ -251,7 +251,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
 
     if (pushed) {
         var gunzip: flate.Decompress = .init(body, .gzip, window);
-        const stats = replica_.readSync(&src, &gunzip.reader, null) catch |err| {
+        const stats = replica_.readSync(&src, &gunzip.reader, null, .{ .request = head[head.len - 64 ..][0..64].*, .sender = checked[0].device }) catch |err| {
             try request.respond(@errorName(err), .{ .status = .bad_request });
             return true;
         };
@@ -273,7 +273,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         },
     } });
     var gz = try flate.Compress.init(&response.writer, window, .gzip, .fastest);
-    const sent = try replica_.writeSync(&src, arena, checked[0].vector, reader, &gz.writer);
+    const sent = try replica_.writeSync(&src, arena, checked[0].vector, reader, head[head.len - 64 ..][0..64].*, &gz.writer);
     try gz.finish();
     try response.end();
     if (sharing.served) |f| f(sharing.context, checked[0].device, sent);
@@ -373,10 +373,13 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
         else => return error.BadStatus,
     }
     const person = other.person(dst.library);
+    // The frames must be signed by the device that says it answered, for
+    // this request: its certificate alone is public, so proves nothing.
+    const binding: replica_.Binding = .{ .request = body[body.len - 64 ..][0..64].*, .sender = other.device orelse return error.Refused };
     var transfer: [64 * 1024]u8 = undefined;
     var decompress: http.Decompress = undefined;
     const window = try arena.alloc(u8, flate.max_window_len);
-    var stats = try replica_.readSync(dst, response.readerDecompressing(&transfer, &decompress, window), .{ .arena = arena, .vector = theirs });
+    var stats = try replica_.readSync(dst, response.readerDecompressing(&transfer, &decompress, window), .{ .arena = arena, .vector = theirs }, binding);
     stats.wire_bytes += body.len;
     return .{ .stats = stats, .person = person };
 }
@@ -391,7 +394,7 @@ fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []co
     try body.writer.writeAll(head);
     const window = try arena.alloc(u8, flate.max_window_len);
     var gz = try flate.Compress.init(&body.writer, window, .gzip, .fastest);
-    const sent = try replica_.writeSync(src, arena, wanted, reader, &gz.writer);
+    const sent = try replica_.writeSync(src, arena, wanted, reader, head[head.len - 64 ..][0..64].*, &gz.writer);
     try gz.finish();
     if (sent == 0) return 0;
     var request = try client.request(.POST, try std.Uri.parse(url), .{

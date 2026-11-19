@@ -45,7 +45,7 @@ A device signs batches of operations, not each one. Writes inside one transactio
 
 * Each operation's encoding is hashed with BLAKE3, prefixed `0`, as a leaf.
 * Pairs of hashes are hashed, prefixed `1`, up to one root. An odd node at the end of a level is promoted unpaired, and the two prefixes keep a leaf from posing as an inner node.
-* The stream's key signs the root with Ed25519.
+* The stream's key signs `"cinematheque batch"`, the library ID, the stream key, the batch's first sequence number (u64) and count (u32), and the root, with Ed25519, so a signed batch can't be presented as another range of the stream.
 
 One signature thus covers 1,024 writes, and any operation, or any set of them, can still be proved part of the batch with the sibling hashes along its path.
 
@@ -101,8 +101,9 @@ Sync runs both ways, started by either side: a device asks a device for what it 
 * **Response,** gzipped, as frames:
   * `B`, a batch: device, first sequence number, count, signature, a bitmap of which operations follow, and the leaf hashes of those that don't. That's enough to rebuild the root and check the signature against only what's sent.
   * `O`, one per operation sent: its sequence number, clock, kind, key, field, and value. The library and device are the batch's.
-  * `V`, one per stream: the sender's version vector entry, which the receiver adopts.
-  * `E`: the end.
+  * `V`, one per stream: the sender's version vector entry, which the receiver adopts once `S` verifies.
+  * `S`, the sender's signature over `"cinematheque frames"` and the BLAKE3 hash of: the library ID, the signature of the request the frames answer (a pull's, or a push's own), the sender's device key, then each `B` frame's device, first sequence number, count, signature, and bitmap, and each `V` entry, in order. A receiver takes the frames only if it verifies against the device that claims to send them, so a host that merely copied a device's public certificate can't make a device adopt its vector, or take private streams from it, and no batch can be dropped on the way.
+  * `E`: the end, only after `S`.
 * **What's sent:** for each stream, the winners above the receiver's vector, grouped by batch. Other people's private streams are left out, frames and vector entries alike, so private data never reaches another person's devices.
 * **Push:** the response also names the other device, by its device key and certificate. The device then sends what the other device lacks, by the vector the response ended with: a second `POST /sync`, of a signed request and the same frames, leaving out private streams not the other device's person's, which the other device applies as it would a response. A device too old to take pushes refuses one, and is only pulled from.
 
@@ -141,6 +142,7 @@ Answers:
   * `B`, a batch: device key (32), first sequence number (u64), count (u32, 1 to 1,024), signature (64), a bitmap of `(count + 7) / 8` bytes, whose bit *i* is set if operation *first + i* follows, and a leaf hash (32) for each bit not set. Then an `O` frame for each bit set, in order.
   * `O`, an operation: sequence number (u64), clock (u64), kind (u8), then the key, field, and value, each its length (u16, u16, and u32) and bytes.
   * `V`, a version vector entry: stream key (32) and sequence number (u64).
+  * `S`, the sender's signature (64), as above.
   * `E`: the end.
   With it, two headers name the other device: `x-cinematheque-device`, its device key, and `x-cinematheque-certificate`, its certificate, each in hex.
 * **400,** the error's name as text: `Malformed`, `BadSignature`, `BadCertificate` (one that doesn't verify for this library), or `Stale` (a time more than ten minutes from the other device's).

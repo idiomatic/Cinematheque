@@ -358,7 +358,7 @@ pub const Replica = struct {
             _ = try replica.merge(op, replica.private_own);
         }
         const root = merkle.root(leaves.items);
-        try replica.storeBatch(replica.private_own, first, leaves.items, root, (try replica.private_pair.sign(&root, null)).toBytes());
+        try replica.storeBatch(replica.private_own, first, leaves.items, root, try signBatch(replica, replica.private_pair, first, leaves.items.len, root));
         try replica.advance(replica.private_own, replica.private_seq);
         if (alone) try replica.commit();
     }
@@ -792,7 +792,7 @@ pub const Replica = struct {
         const leaves = replica.pending.items;
         if (leaves.len == 0) return;
         const root = merkle.root(leaves);
-        const sig = (try replica.key_pair.sign(&root, null)).toBytes();
+        const sig = try signBatch(replica, replica.key_pair, replica.pending_first, leaves.len, root);
         try replica.storeBatch(replica.own, replica.pending_first, leaves, root, sig);
         replica.pending.clearRetainingCapacity();
     }
@@ -821,7 +821,7 @@ pub const Replica = struct {
             leaves[op.seq - batch.first] = merkle.leaf(replica.body.items);
         }
         const root = merkle.root(leaves);
-        if (replica.verify) try verifyRoot(batch.device, root, batch.sig);
+        if (replica.verify) try verifyBatch(replica.library, batch.device, batch.first, leaves.len, root, batch.sig);
         const admitted = try replica.admission(batch.device, ops);
         if (admitted == .none) return error.Unauthorized;
         var bad: std.StaticBitSet(merkle.max_leaves) = .empty;
@@ -858,7 +858,7 @@ pub const Replica = struct {
             leaves[k] = merkle.leaf(replica.body.items);
         }
         const root = try merkle.rootFromMulti(count, indices, leaves[0..ops.len], siblings);
-        if (replica.verify) try verifyRoot(batch.device, root, batch.sig);
+        if (replica.verify) try verifyBatch(replica.library, batch.device, batch.first, count, root, batch.sig);
         const admitted = try replica.admission(batch.device, ops);
         if (admitted == .none) return error.Unauthorized;
         var bad: std.StaticBitSet(merkle.max_leaves) = .empty;
@@ -1044,8 +1044,26 @@ pub fn verifyCertificate(library: op_.Library, device_key: Device, private: bool
     return cert[0..32].*;
 }
 
-fn verifyRoot(device: Device, root: Hash, sig: op_.Signature) !void {
-    try Ed25519.Signature.fromBytes(sig).verify(&root, try Ed25519.PublicKey.fromBytes(device));
+/// What a stream's key signs for a batch: its library, the stream, where the
+/// batch starts and how many operations it holds, and their root, so a batch
+/// can't be presented with another range than it was signed for.
+fn batchMessage(library: op_.Library, device: Device, first: u64, count: usize, root: Hash) [18 + 16 + 32 + 8 + 4 + 32]u8 {
+    var out: [18 + 16 + 32 + 8 + 4 + 32]u8 = undefined;
+    out[0..18].* = "cinematheque batch".*;
+    out[18..34].* = library;
+    out[34..66].* = device;
+    std.mem.writeInt(u64, out[66..74], first, .little);
+    std.mem.writeInt(u32, out[74..78], @intCast(count), .little);
+    out[78..110].* = root;
+    return out;
+}
+
+fn signBatch(replica: *const Replica, pair: Ed25519.KeyPair, first: u64, count: usize, root: Hash) !op_.Signature {
+    return (try pair.sign(&batchMessage(replica.library, pair.public_key.toBytes(), first, count, root), null)).toBytes();
+}
+
+fn verifyBatch(library: op_.Library, device: Device, first: u64, count: usize, root: Hash, sig: op_.Signature) !void {
+    try Ed25519.Signature.fromBytes(sig).verify(&batchMessage(library, device, first, count, root), try Ed25519.PublicKey.fromBytes(device));
 }
 
 /// Reads a winners row (kind, key, field, hlc, seq, value) as an operation.
@@ -1098,9 +1116,51 @@ pub fn readVector(arena: std.mem.Allocator, r: *std.Io.Reader) !VersionVector {
 
 const Row = struct { seq: u64, hlc: u64, kind: op_.Kind, key: []const u8, field: []const u8, value: []const u8 };
 
+/// What a sync's frames answer: the signature of the request they follow (a
+/// pull's, or a push's own), and the device sending them.
+pub const Binding = struct { request: [64]u8, sender: Device };
+
+/// A hash of a sync's frames' headers (each batch's range, signature, and
+/// which operations it sends, and each version vector entry), which the
+/// sender signs, bound to its request, so the receiver adopts its vector only
+/// if it comes from that device, in answer to that request, with no batch
+/// left out.
+const Transcript = struct {
+    hasher: Blake3,
+
+    fn init(library: op_.Library, binding: Binding) Transcript {
+        var t: Transcript = .{ .hasher = Blake3.init(.{}) };
+        t.add(&library);
+        t.add(&binding.request);
+        t.add(&binding.sender);
+        return t;
+    }
+
+    fn add(t: *Transcript, bytes: []const u8) void {
+        t.hasher.update(bytes);
+    }
+
+    fn addInt(t: *Transcript, comptime T: type, value: T) void {
+        var bytes: [@sizeOf(T)]u8 = undefined;
+        std.mem.writeInt(T, &bytes, value, .little);
+        t.add(&bytes);
+    }
+
+    fn message(t: *Transcript) [19 + 32]u8 {
+        var digest: [32]u8 = undefined;
+        t.hasher.final(&digest);
+        var out: [19 + 32]u8 = undefined;
+        out[0..19].* = "cinematheque frames".*;
+        out[19..].* = digest;
+        return out;
+    }
+};
+
 /// `reader` is the person the response is for: other people's private streams
-/// (and their places in the version vector) are left out.
-pub fn writeSync(src: *Replica, arena: std.mem.Allocator, wanted: VersionVector, reader: Device, w: *std.Io.Writer) !usize {
+/// (and their places in the version vector) are left out. The frames end
+/// with the sender's signature over their headers, bound to `request`.
+pub fn writeSync(src: *Replica, arena: std.mem.Allocator, wanted: VersionVector, reader: Device, request: [64]u8, w: *std.Io.Writer) !usize {
+    var transcript: Transcript = .init(src.library, .{ .request = request, .sender = src.device() });
     var sent: usize = 0;
     var have: std.AutoHashMapUnmanaged(Device, u64) = .empty;
     for (wanted) |entry| try have.put(arena, entry.device, entry.seq);
@@ -1128,7 +1188,7 @@ pub fn writeSync(src: *Replica, arena: std.mem.Allocator, wanted: VersionVector,
             const more = try s.step();
             const seq: u64 = if (more) @intCast(s.int(4)) else 0;
             if (batch) |*b| if (!more or !b.contains(seq)) {
-                try writeBatch(w, b, rows.items);
+                try writeBatch(w, &transcript, b, rows.items);
                 rows.clearRetainingCapacity();
                 _ = row_arena_state.reset(.retain_capacity);
                 batch = null;
@@ -1151,12 +1211,16 @@ pub fn writeSync(src: *Replica, arena: std.mem.Allocator, wanted: VersionVector,
         try w.writeByte('V');
         try w.writeAll(&entry.device);
         try w.writeInt(u64, entry.seq, .little);
+        transcript.add(&entry.device);
+        transcript.addInt(u64, entry.seq);
     }
+    try w.writeByte('S');
+    try w.writeAll(&(try src.key_pair.sign(&transcript.message(), null)).toBytes());
     try w.writeByte('E');
     return sent;
 }
 
-fn writeBatch(w: *std.Io.Writer, batch: *const Batch, rows: []const Row) !void {
+fn writeBatch(w: *std.Io.Writer, transcript: *Transcript, batch: *const Batch, rows: []const Row) !void {
     const count = batch.leaves.len;
     var sent: std.StaticBitSet(merkle.max_leaves) = .empty;
     for (rows) |row| sent.set(row.seq - batch.first);
@@ -1166,6 +1230,11 @@ fn writeBatch(w: *std.Io.Writer, batch: *const Batch, rows: []const Row) !void {
     try w.writeInt(u32, @intCast(count), .little);
     try w.writeAll(&batch.sig);
     try w.writeAll(std.mem.sliceAsBytes(&sent.masks)[0 .. (count + 7) / 8]);
+    transcript.add(&batch.device);
+    transcript.addInt(u64, batch.first);
+    transcript.addInt(u32, @intCast(count));
+    transcript.add(&batch.sig);
+    transcript.add(std.mem.sliceAsBytes(&sent.masks)[0 .. (count + 7) / 8]);
     for (batch.leaves, 0..) |leaf, i| if (!sent.isSet(i)) try w.writeAll(&leaf);
     for (rows) |row| {
         try w.writeByte('O');
@@ -1187,7 +1256,9 @@ pub const Theirs = struct { arena: std.mem.Allocator, vector: *std.ArrayList(Ent
 
 /// Applies a sync's frames (a pulled response's, or a pushed request's) in
 /// one transaction; nothing is kept unless they all check out.
-pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs) !Stats {
+pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Binding) !Stats {
+    var transcript: Transcript = .init(dst.library, binding);
+    var signed = false;
     var leaves: std.ArrayList(Hash) = .empty;
     defer leaves.deinit(dst.gpa);
     var ops: std.ArrayList(Op) = .empty;
@@ -1210,6 +1281,7 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs) !Stats {
     while (true) {
         const tag = try r.takeByte();
         stats.wire_bytes += 1;
+        if (signed and tag != 'E') return error.Malformed;
         switch (tag) {
             'B' => {
                 var batch: Batch = undefined;
@@ -1223,6 +1295,11 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs) !Stats {
                 try r.readSliceAll(&batch.sig);
                 var sent: std.StaticBitSet(merkle.max_leaves) = .empty;
                 try r.readSliceAll(std.mem.sliceAsBytes(&sent.masks)[0 .. (count + 7) / 8]);
+                transcript.add(&batch.device);
+                transcript.addInt(u64, batch.first);
+                transcript.addInt(u32, count);
+                transcript.add(&batch.sig);
+                transcript.add(std.mem.sliceAsBytes(&sent.masks)[0 .. (count + 7) / 8]);
                 try leaves.resize(dst.gpa, count);
                 for (leaves.items, 0..) |*leaf, i| if (!sent.isSet(i)) try r.readSliceAll(leaf);
                 // The operations sent follow, one per set bit.
@@ -1266,11 +1343,28 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs) !Stats {
                 try r.readSliceAll(&entry.device);
                 entry.seq = try r.takeInt(u64, .little);
                 if (entry.seq > max_seq) return error.Malformed;
+                transcript.add(&entry.device);
+                transcript.addInt(u64, entry.seq);
                 try vector.append(pa, entry);
                 if (theirs) |t| try t.vector.append(t.arena, entry);
                 stats.wire_bytes += 40;
             },
-            'E' => break,
+            // The sender's signature over every header before it, which
+            // makes what it claims to hold believable.
+            'S' => {
+                var sig: op_.Signature = undefined;
+                try r.readSliceAll(&sig);
+                if (dst.verify) {
+                    const key = Ed25519.PublicKey.fromBytes(binding.sender) catch return error.BadSignature;
+                    Ed25519.Signature.fromBytes(sig).verify(&transcript.message(), key) catch return error.BadSignature;
+                }
+                signed = true;
+                stats.wire_bytes += 64;
+            },
+            'E' => {
+                if (!signed) return error.BadSignature;
+                break;
+            },
             else => return error.Malformed,
         }
     }
@@ -1312,9 +1406,11 @@ pub fn sync(arena: std.mem.Allocator, dst: *Replica, src: *Replica) !Stats {
     const wanted = try readVector(arena, &request_reader);
 
     var response: std.Io.Writer.Allocating = .init(arena);
-    _ = try writeSync(src, arena, wanted, dst.personKey(), &response.writer);
+    // No signed request here, so the frames answer a blank one.
+    const unsigned: [64]u8 = @splat(0);
+    _ = try writeSync(src, arena, wanted, dst.personKey(), unsigned, &response.writer);
     var response_reader: std.Io.Reader = .fixed(response.written());
-    var stats = try readSync(dst, &response_reader, null);
+    var stats = try readSync(dst, &response_reader, null, .{ .request = unsigned, .sender = src.device() });
     stats.wire_bytes = request.written().len + response.written().len;
     return stats;
 }
@@ -1575,6 +1671,67 @@ test "a tampered operation or signature is rejected" {
     try a.db.exec("UPDATE winners SET value = 'Metropolis' WHERE key = 't/00001'");
     try a.db.exec("UPDATE batches SET sig = zeroblob(64) WHERE first = (SELECT max(first) FROM batches)");
     if (p.sync(1, 0)) |_| return error.TestUnexpectedResult else |_| {}
+}
+
+test "a batch's signature covers its range" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const a = &p.replicas[0];
+
+    try a.begin();
+    for (0..3) |i| {
+        var key: [16]u8 = undefined;
+        try a.write(1000, try std.fmt.bufPrint(&key, "t/{d:0>5}", .{i}), "name", "x");
+    }
+    try a.commit();
+    const s = try a.db.prepare("SELECT first, count, root, sig FROM batches WHERE count = 3");
+    defer s.finalize();
+    try testing.expect(try s.step());
+    const first: u64 = @intCast(s.int(0));
+    const count: usize = @intCast(s.int(1));
+    const root = s.blob(2)[0..32].*;
+    const sig = s.blob(3)[0..64].*;
+    try verifyBatch(a.library, a.device(), first, count, root, sig);
+    try testing.expectError(error.SignatureVerificationFailed, verifyBatch(a.library, a.device(), first + 1, count, root, sig));
+    try testing.expectError(error.SignatureVerificationFailed, verifyBatch(a.library, a.device(), first, count - 1, root, sig));
+    try testing.expectError(error.SignatureVerificationFailed, verifyBatch(@splat(9), a.device(), first, count, root, sig));
+}
+
+test "a response is believed only from the device that signed it, for its request" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const arena = p.arena_state.allocator();
+    const a = &p.replicas[0];
+    const b = &p.replicas[1];
+    try a.write(1000, "t/00001", "name", "Metropolis");
+
+    const request: [64]u8 = @splat(5);
+    var response: std.Io.Writer.Allocating = .init(arena);
+    _ = try writeSync(a, arena, try b.versionVector(arena), b.personKey(), request, &response.writer);
+    const frames = response.written();
+
+    const sender = a.device();
+    // Another request's answer, or another device's claim, is refused.
+    var r: std.Io.Reader = .fixed(frames);
+    try testing.expectError(error.BadSignature, readSync(b, &r, null, .{ .request = @splat(6), .sender = sender }));
+    r = .fixed(frames);
+    try testing.expectError(error.BadSignature, readSync(b, &r, null, .{ .request = request, .sender = p.replicas[2].device() }));
+    // So is one whose vector was changed on the way, or one unsigned.
+    const changed = try arena.dupe(u8, frames);
+    changed[changed.len - 2 - 64 - 1] ^= 1;
+    r = .fixed(changed);
+    try testing.expectError(error.BadSignature, readSync(b, &r, null, .{ .request = request, .sender = sender }));
+    const unsigned = try arena.dupe(u8, frames[0 .. frames.len - 65]);
+    unsigned[unsigned.len - 1] = 'E';
+    r = .fixed(unsigned[0 .. unsigned.len]);
+    try testing.expectError(error.BadSignature, readSync(b, &r, null, .{ .request = request, .sender = sender }));
+    // Nothing of the refused was kept; the real one is taken.
+    try testing.expectError(error.Missing, p.value(1, "t/00001", "name"));
+    r = .fixed(frames);
+    _ = try readSync(b, &r, null, .{ .request = request, .sender = sender });
+    try testing.expectEqualStrings("Metropolis", try p.value(1, "t/00001", "name"));
 }
 
 test "set membership: concurrent add and remove, then re-add" {
