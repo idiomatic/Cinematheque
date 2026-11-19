@@ -173,6 +173,7 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
         try out.setLength(io, 0);
         have = 0;
     }
+    if (progress) |p| p.report(p.context, have, size);
     if (have < size) {
         var range_buf: [64]u8 = undefined;
         const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-", .{have});
@@ -635,10 +636,52 @@ pub const Reconciled = struct {
     @"error": ?[]const u8 = null,
 };
 
-/// How far reconciling has come, in megabytes.
+/// How far reconciling has come, in megabytes, and the file under way.
 pub const Counter = struct {
     done: *std.atomic.Value(u32),
     total: *std.atomic.Value(u32),
+    fetching: ?*Fetching = null,
+};
+
+/// The file being fetched, if any: its item's full key, its size, and its
+/// bytes here so far (a resumed file's earlier ones too), read from any
+/// thread.
+pub const Fetching = struct {
+    mutex: Io.Mutex = .init,
+    item: [1024]u8 = undefined,
+    len: usize = 0,
+    done: u64 = 0,
+    size: u64 = 0,
+
+    /// Notes `item` under way (null: none), with `done` bytes; one whose key
+    /// is too long to note isn't.
+    fn note(f: *Fetching, io: Io, item: ?[]const u8, size: u64) void {
+        f.mutex.lockUncancelable(io);
+        defer f.mutex.unlock(io);
+        if (item) |i| {
+            if (i.len > f.item.len) {
+                f.len = 0;
+                return;
+            }
+            @memcpy(f.item[0..i.len], i);
+            f.len = i.len;
+        } else f.len = 0;
+        f.done = 0;
+        f.size = size;
+    }
+
+    fn progress(f: *Fetching, io: Io, done: u64) void {
+        f.mutex.lockUncancelable(io);
+        defer f.mutex.unlock(io);
+        if (f.len > 0) f.done = done;
+    }
+
+    pub fn get(f: *Fetching, io: Io, arena: std.mem.Allocator) !?struct { item: []const u8, done: u64, size: u64 } {
+        f.mutex.lockUncancelable(io);
+        defer f.mutex.unlock(io);
+        if (f.len == 0) return null;
+        return .{ .item = try arena.dupe(u8, f.item[0..f.len]), .done = f.done, .size = f.size };
+    }
 };
 
 /// Brings this device's downloads in line with what it keeps: forgets
@@ -730,7 +773,21 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
                 continue;
             };
         }
-        const fetched = fetch(io, gpa, arena, client, memory, dir, f, wall_ms, null) catch |err| {
+        const under_way = if (counter) |c| c.fetching else null;
+        var noted: struct {
+            f: *Fetching,
+            io: Io,
+            fn report(context: *anyopaque, done: u64, _: u64) void {
+                const n: *@This() = @ptrCast(@alignCast(context));
+                n.f.progress(n.io, done);
+            }
+        } = undefined;
+        if (under_way) |u| {
+            u.note(io, f.item, f.size);
+            noted = .{ .f = u, .io = io };
+        }
+        defer if (under_way) |u| u.note(io, null, 0);
+        const fetched = fetch(io, gpa, arena, client, memory, dir, f, wall_ms, if (under_way != null) .{ .context = &noted, .report = @TypeOf(noted).report } else null) catch |err| {
             if (err == error.Canceled) return err;
             out.failed += 1;
             out.@"error" = @errorName(err);

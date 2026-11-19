@@ -70,6 +70,7 @@ const Library = struct {
     reconciling: std.atomic.Value(bool) = .init(false),
     reconcile_again: std.atomic.Value(bool) = .init(false),
     downloaded_mb: std.atomic.Value(u32) = .init(0),
+    fetching: download.Fetching = .{},
     /// Set while a stream plays (`cq_downloads_hold`): no download begins.
     hold: std.atomic.Value(bool) = .init(false),
     download_mb: std.atomic.Value(u32) = .init(0),
@@ -900,7 +901,9 @@ const DownloadsJson = struct {
     running: bool,
     done_mb: u32,
     total_mb: u32,
+    fetching: ?FetchingJson,
 };
+const FetchingJson = struct { item: []const u8, done: u64, size: u64 };
 
 /// This device's downloads, as a JSON object: `dir`, `source` (its ID),
 /// and `drop_watched`, as configured (null if not); `held`, the files held
@@ -913,7 +916,9 @@ const DownloadsJson = struct {
 /// `deletable`, once held elsewhere, else the only copy); `kept` items; `free` bytes on its volume, if
 /// known, and the
 /// `floor` kept free; and whether `cq_reconcile` is `running`, with
-/// `done_mb` of `total_mb`.
+/// `done_mb` of `total_mb`, and the file it's `fetching` (`item`, its
+/// `size`, and the bytes `done`, a resumed file's earlier ones too), or
+/// null.
 export fn cq_downloads(lib: *Library) ?[*:0]u8 {
     return json(lib, downloads, .{});
 }
@@ -954,6 +959,7 @@ fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
         .running = lib.reconciling.load(.acquire),
         .done_mb = lib.downloaded_mb.load(.monotonic),
         .total_mb = lib.download_mb.load(.monotonic),
+        .fetching = if (try lib.fetching.get(lib.io(), arena)) |f| .{ .item = f.item, .done = f.done, .size = f.size } else null,
     };
 }
 
@@ -989,7 +995,7 @@ fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
         // Again while asked again (a download wanted meanwhile).
         while (lib.reconcile_again.swap(false, .acq_rel)) {
             try r.refresh();
-            const done = try download.reconcile(lib.io(), gpa, arena, &client, &lib.racing, &r, &lib.writer, lib.now(), .{ .done = &lib.downloaded_mb, .total = &lib.download_mb }, &lib.hold);
+            const done = try download.reconcile(lib.io(), gpa, arena, &client, &lib.racing, &r, &lib.writer, lib.now(), .{ .done = &lib.downloaded_mb, .total = &lib.download_mb, .fetching = &lib.fetching }, &lib.hold);
             out.fetched += done.fetched;
             out.kept = done.kept;
             out.deleted += done.deleted;

@@ -868,6 +868,13 @@ final class Library {
         let running: Bool
         let done_mb: Int
         let total_mb: Int
+        /// The file being fetched: its item's full key, size, and bytes here.
+        struct Fetching: Decodable, Equatable {
+            let item: String
+            let size: Int
+            let done: Int
+        }
+        let fetching: Fetching?
     }
 
     private(set) var downloads: Downloads?
@@ -992,6 +999,22 @@ final class Library {
             check { cq_download_next($0, title, "") }
         }
         check { cq_download_remove($0, key) }
+    }
+
+    /// How far an item, or a movie's or season's items, have come (`of`,
+    /// what they come to all told): what's here, and the bytes of the file
+    /// under way, if it's theirs; 0 to 1.
+    func downloadProgress(_ keys: [String], of size: DownloadSize?) -> Double {
+        guard let size, size.size > 0 else { return 0 }
+        var here = size.size - size.needed
+        if let f = downloads?.fetching, keys.contains(where: { f.item == $0 || f.item.hasPrefix($0 + "/") }) { here += f.done }
+        return min(1, Double(here) / Double(size.size))
+    }
+
+    /// How far an item being fetched has come, 0 to 1; 0 while it waits.
+    func downloadProgress(_ item: String) -> Double {
+        guard let f = downloads?.fetching, f.item == item, f.size > 0 else { return 0 }
+        return min(1, Double(f.done) / Double(f.size))
     }
 
     /// What downloading would come to: all its files' `size`, and what of

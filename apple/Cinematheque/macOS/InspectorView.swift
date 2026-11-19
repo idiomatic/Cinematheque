@@ -274,8 +274,8 @@ private struct ClearPosition: View {
 
 /// Downloading to this Mac: a movie (the version Play plays), or for a
 /// season, which of its series' episodes download as it's watched, a
-/// choice that changes only when a person picks another; a spinner while
-/// any comes; and deleting them (which sets the choice to Nothing, if it
+/// choice that changes only when a person picks another; a gauge of how far
+/// they've come while any comes; and deleting them (which sets the choice to Nothing, if it
 /// asks for any of them).
 private struct DownloadControls: View {
     let detail: TitleDetail
@@ -286,6 +286,8 @@ private struct DownloadControls: View {
     /// What each choice (or the movie) would come to, as of the last
     /// change to the library or its downloads.
     @State private var sizes: [String: Library.DownloadSize] = [:]
+    /// What the season's episodes asked for come to, for its gauge.
+    @State private var requested: Library.DownloadSize?
 
     private static let counts = [1, 3, 5, 10]
 
@@ -300,6 +302,9 @@ private struct DownloadControls: View {
         .task(id: "\(library.revision) \(library.downloadedBytes) \(detail.key) \(season ?? -1) \(quality ?? "")") {
             if let season {
                 sizes = library.downloadSizes(detail.key, choices: ["current"] + Self.counts.map(String.init) + [String(format: "s%02d", season), "unwatched", "all"])
+                let asked = items.map { "\(detail.key)/\($0.key)" }.filter(library.isRequested)
+                let each = asked.compactMap { library.downloadSizes($0, choices: [""])[""] }
+                requested = .init(choice: "", size: each.reduce(0) { $0 + $1.size }, needed: each.reduce(0) { $0 + $1.needed })
             } else if let item = items.first {
                 sizes = library.downloadSizes("\(detail.key)/\(item.key)", choices: [""], quality: quality)
             }
@@ -330,8 +335,8 @@ private struct DownloadControls: View {
     }
 
     /// One row, nothing in it coming or going, as a season's: Download,
-    /// dimmed once it's here or coming; the spinner's place kept while it
-    /// doesn't come; and the trash button, canceling while it comes,
+    /// dimmed once it's here or coming; a gauge of how far it's come, its
+    /// place kept while it doesn't come; and the trash button, canceling while it comes,
     /// deleting once it's here, dimmed while neither. Keeping it is in the
     /// tile's context menu, as an episode's is in its row's.
     @ViewBuilder
@@ -347,8 +352,8 @@ private struct DownloadControls: View {
                 .buttonStyle(.bordered)
                 .disabled(held || coming)
                 .help(fits(size) ? "Download it to this Mac, to watch without a network" : "Download it to this Mac: more than the space downloads may take now")
-            ProgressView().controlSize(.mini).opacity(coming ? 1 : 0)
-                .help("Downloading")
+            DownloadGauge(value: library.downloadProgress([key], of: size))
+                .opacity(coming ? 1 : 0)
             Spacer()
             Button(coming ? "Cancel Download" : "Delete Download", systemImage: "trash") {
                 if coming { library.removeDownload(key) } else { library.deleteDownload(key) }
@@ -382,7 +387,7 @@ private struct DownloadControls: View {
         // Whether any of this season's episodes the choice (or a person, one
         // by one) asks for hasn't come yet.
         let pending = keys.contains { library.isRequested($0) && !library.isDownloaded($0) }
-        // One row, nothing in it coming or going: the spinner's place kept
+        // One row, nothing in it coming or going: the gauge's place kept
         // while nothing comes, the trash button dimmed while nothing's here.
         HStack {
             // The open menu gives each choice's size, and the space free; the
@@ -410,8 +415,8 @@ private struct DownloadControls: View {
             .pickerStyle(.menu)
             .fixedSize()
             .help("Which of the series' episodes download to this Mac as it's watched, to watch without a network; watched ones go as their space is needed, but for All")
-            ProgressView().controlSize(.mini).opacity(pending ? 1 : 0)
-                .help("Downloading")
+            DownloadGauge(value: library.downloadProgress(keys, of: requested))
+                .opacity(pending ? 1 : 0)
             Spacer()
             Button(season == 0 ? "Delete Specials' Downloads" : "Delete Season's Downloads", systemImage: "trash") { library.deleteDownload(key) }
                 .labelStyle(.iconOnly)
@@ -455,8 +460,21 @@ private struct DownloadMark: View {
                 .foregroundStyle(.secondary)
                 .help(library.isKept(key) ? "Downloaded to this Mac, and kept" : "Downloaded to this Mac")
         } else if library.isWanted(key) {
-            ProgressView().controlSize(.mini).help("Downloading")
+            DownloadGauge(value: library.downloadProgress(key))
         }
+    }
+}
+
+/// How far a download has come, as a round gauge, as Finder and Safari
+/// show one; empty while it waits its turn.
+private struct DownloadGauge: View {
+    let value: Double
+
+    var body: some View {
+        ProgressView(value: value)
+            .progressViewStyle(.circular)
+            .controlSize(.mini)
+            .help("Downloading: \(value.formatted(.percent.precision(.fractionLength(0))))")
     }
 }
 
