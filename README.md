@@ -10,18 +10,34 @@ Every device keeps its own copy of the catalog: the titles, their episodes and v
 
 * **Library:** the shared catalog of titles (movies and series), their episodes and versions, and where each file is.
 * **Source:** anywhere your videos are served over HTTP. Cinematheque never changes a source's files; it only reads its listings.
-* **Rendition:** one encoding of a title (e.g., 720p H.264, or 4K HEVC). The same rendition may sit in several sources; when one copy doesn't load (on a device that's asleep, say), players try the next.
-* **Device:** a device that keeps a copy of the library's catalog (not of its videos). Devices sync directly with each other; there is no server in the middle.
+* **Quality:** one encoding of a title (e.g., 720p H.264, or 4K HEVC), which the command-line app and the code call a rendition. The same quality may have copies in several sources; when one copy doesn't load, players try the next.
+* **Device:** anything running Cinematheque (an app, or the command-line app), each keeping a copy of the library's catalog (not of its videos). Devices sync directly with each other; there is no server in the middle.
 * **Founder and members:** whoever creates a library founds it, and members add others. The founder can hand the library over to a successor; members can remove others, but not the founder.
 
 ## Getting it
 
 * **On a Mac or an Apple TV,** build the app; [apple/README.md](apple/README.md) says how. It needs Xcode 27 or later.
-* **On the command line,** on macOS or Linux, build the other device; [device/README.md](cli/README.md) says how, and how to use it. It builds and shares a library, and run in the background, keeps it available to your other devices.
+* **On the command line,** on macOS or Linux, build the command-line app; [cli/README.md](cli/README.md) says how, and how to use it. It builds and shares a library, and run in the background, keeps it available to your other devices.
 
 ## Preparing a source
 
-Any web server that lists directories will do. Cinematheque works out which kind of listing a source gives: an `INDEX` file if there is one (below), JSON listings from Caddy and nginx, or HTML listings from most others. The server must answer byte-range requests, so players can seek; Python's built-in `http.server` doesn't, so Cinematheque can catalog its files but players can't stream them.
+A source is a folder of videos your devices can reach over your network. The easiest is one you already have.
+
+### A folder
+
+* **On a Mac,** choose Add Folder… in the app's Settings › Sources: a folder on the Mac, on a drive plugged into it, or on a NAS share mounted in the Finder. While the app runs, it shares the folder with your other devices (an Apple TV, say), which play from it. If the drive is unplugged or the share unmounted, its videos stay in the library, dimmed, until it's back.
+* **Anywhere else,** on macOS or Linux (a home server, or a NAS that runs Linux), the command-line app shares a folder, then adds it:
+
+```sh
+cinematheque serve --media /srv/videos
+cinematheque source add http://hal.local:8008/
+```
+
+Either way, the folder needs nothing done to it: Cinematheque reads it as it is, and never changes its files.
+
+### A web server
+
+If your videos are on a server that already serves files, such as a NAS's web server, Caddy, nginx, or Apache, add its address instead (with Add Server… on the Mac). Any web server that lists directories will do. Cinematheque works out which kind of listing a source gives: an `INDEX` file if there is one (below), JSON listings from Caddy and nginx, or HTML listings from most others. The server must answer byte-range requests, so players can seek; Python's built-in `http.server` doesn't, so Cinematheque can catalog its files but players can't stream them.
 
 If your server doesn't list directories, put a file named `INDEX` in the served folder, listing its files. Make it there with:
 
@@ -29,23 +45,11 @@ If your server doesn't list directories, put a file named `INDEX` in the served 
 find . -type f ! -name INDEX > INDEX
 ```
 
-and remake it whenever the files change. Cinematheque's own server writes one, with each directory too (ending in `/`), so a drive's mount point that's empty, the drive unplugged, shows it's still there: its videos stay in the library, dimmed, rather than going, until it's back, a year passes, or you forget it in Settings › Sources. It works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to catalog a large source: one request instead of one per folder.
+and remake it whenever the files change. Cinematheque's own server writes one, with each directory too (ending in `/`), so a drive's mount point that's empty, the drive unplugged, shows it's still there: its videos stay in the library, dimmed, rather than going, until it's back, a year passes, or you remove them in Settings › Sources. It works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to catalog a large source: one request instead of one per folder.
 
-Crawling a source reads its listings, recognizes titles from file and folder names, and records each file as a rendition. Later crawls are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title.
+Crawling a source reads its listings, recognizes titles from file and folder names, and records each file as a copy of its title, in its quality. Later crawls are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title.
 
-### Renditions
-
-A title's renditions are its copies in different encodings, such as a 720p one and a 4K one. Each file's rendition comes from its name, as media servers put it there, so copies of a title can sit side by side:
-
-```
-Movies/All Systems Red (2017)/All Systems Red (2017) - 1080p.mkv
-Movies/All Systems Red (2017)/All Systems Red (2017) - 4K HDR.mkv
-Movies/Network.Effect.2020.1080p.BluRay.x264-GROUP.mkv
-```
-
-The names give the resolution, source, codec, and dynamic range; a file whose name says none of these has an unknown rendition.
-
-If a folder holds copies of one rendition whose names don't say which (say, everything one encoder preset made), add that folder as a source of its own, and name its rendition: in the Mac app, under Advanced in Settings › Sources, or with `source add --rendition` on the command line. A source can also skip names beginning with a prefix, by default `,`, for folders like `,obsolete` that hold files you don't want cataloged. Removing a source makes every device forget its copies, so titles it alone held stop showing.
+A source skips names beginning with a prefix, by default `,`, for folders like `,obsolete` that hold files you don't want cataloged. Removing a source removes its copies on every device, so titles it alone held stop showing; its files stay where they are.
 
 ### Naming
 
@@ -62,7 +66,21 @@ TV Shows/Worldhoppers/Worldhoppers The Lost Signal.m4v
 
 A file without an episode number beside a series' episodes, named for the series (as `Worldhoppers The Lost Signal`), or in a `Specials` folder, is one of the series' specials.
 
-Names aren't always consistent: a year off by one, a title spelled two ways, or a file copied twice. The command-line app's review lists what looks related, and an alias, recorded once, tells every device that two entries are the same title; see [device/README.md](cli/README.md#titles).
+Names aren't always consistent: a year off by one, a title spelled two ways, or a file copied twice. The command-line app's review lists what looks related, and an alias, recorded once, tells every device that two entries are the same title; see [cli/README.md](cli/README.md#titles).
+
+### Quality
+
+A title may come in more than one quality, such as 1080p and 4K HDR, and each may have copies in several sources; the Mac app's inspector picks which quality to play, and when one copy doesn't load (on a device that's asleep, say), players try the next. A file's quality comes from its name, as media servers put it there, so a title's files can sit side by side:
+
+```
+Movies/All Systems Red (2017)/All Systems Red (2017) - 1080p.mkv
+Movies/All Systems Red (2017)/All Systems Red (2017) - 4K HDR.mkv
+Movies/Network.Effect.2020.1080p.BluRay.x264-GROUP.mkv
+```
+
+Names give the resolution, origin (Blu-ray, web, DVD, or HDTV), codec, and dynamic range; a file whose name says none of these is of unknown quality.
+
+If a folder holds files of one quality whose names don't say which (say, everything one encoder preset made), add that folder as a source of its own and name its quality: under Advanced in Settings › Sources on the Mac, or with `source add --rendition` on the command line, which calls it a rendition.
 
 ## Watching
 
@@ -72,9 +90,9 @@ On first run, an app creates a library, or pairs with one of your devices or som
 
 ## Sharing a library
 
-A library is shared by pairing: the new device shows a 6-digit code, and someone already in the library enters it, in the Mac app under Settings › Devices › New Devices, or with the command-line app. Pair as another of your own devices to use the library as yourself, with your progress and watchlist; or as someone new, who joins as a member. The code seals what's sent, so only the device showing it can open it, and the new device stops after 3 wrong tries. [device/README.md](cli/README.md#sharing-a-library) covers the command line, and pairing from off your network.
+A library is shared by pairing: the new device shows a 6-digit code, and someone already in the library enters it, in the Mac app under Settings › Devices › New Devices, or with the command-line app. Pair as another of your own devices to use the library as yourself, with your progress and watchlist; or as someone new, who joins as a member. The code seals what's sent, so only the device showing it can open it, and the new device stops after 3 wrong tries. [cli/README.md](cli/README.md#sharing-a-library) covers the command line, and pairing from off your network.
 
-Devices find each other on your network, and while an app runs, it serves the library to your other devices, and syncs with them every minute and whenever you make a change. Each device checks, by signature, that every change comes from a member, so a device that relays the library can't alter it, and it serves the library only to members' devices. Removing a member stops their later changes everywhere, while what they did before stands; removing one of your devices does the same for that device.
+Devices find each other on your network, and while an app runs, it shares the library with your other devices, and syncs with them every minute and whenever you make a change. Each device checks, by signature, that every change comes from a member, so a device that relays the library can't alter it, and it serves the library only to members' devices. Removing a member stops their later changes everywhere, while what they did before stands; removing one of your devices does the same for that device.
 
 ## Privacy
 
