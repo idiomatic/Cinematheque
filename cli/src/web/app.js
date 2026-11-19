@@ -104,7 +104,8 @@ function tileView(tile, underSeries = false) {
       img.style.visibility = "hidden";
       img.onload = () => { img.style.visibility = ""; };
       img.onerror = () => img.remove();
-      cover.append(img);
+      // Under the marks (star, check, progress), which come before it.
+      cover.prepend(img);
     };
     nearScreen.observe(cover);
   }
