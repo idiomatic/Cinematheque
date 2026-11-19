@@ -320,18 +320,11 @@ private struct DownloadControls: View {
         return size.needed <= space
     }
 
-    /// A choice in the menu, with its size (all its files'), orange if
-    /// what isn't here yet wouldn't fit. Only then colored: a menu item
-    /// given any color, the primary one too, is drawn as if disabled.
-    @ViewBuilder
-    private func item(_ choice: String) -> some View {
+    /// A choice in the menu, with its size (all its files') at the item's
+    /// trailing edge, orange if what isn't here yet wouldn't fit.
+    private func item(_ choice: String) -> DetailedPopUp.Choice {
         let size = sizes[choice]
-        let text = Text(size.map { "\(Self.title(choice))  \(Self.bytes($0.size))" } ?? Self.title(choice))
-        if fits(size) {
-            text.tag(choice)
-        } else {
-            text.foregroundStyle(.orange).tag(choice)
-        }
+        return .init(tag: choice, title: Self.title(choice), detail: size.map { Self.bytes($0.size) }, warning: !fits(size))
     }
 
     /// One row, nothing in it coming or going, as a season's: Download,
@@ -392,28 +385,25 @@ private struct DownloadControls: View {
         HStack {
             // The open menu gives each choice's size, and the space free; the
             // closed one, only the choice, which nothing but picking changes.
-            Picker("Download", selection: Binding(get: { chosen }, set: { library.chooseDownloads(detail.key, $0) })) {
-                Section {
-                    Text("Nothing").tag("")
-                    item("current")
-                    ForEach(Self.counts, id: \.self) { n in item(String(n)) }
-                    // A count chosen elsewhere (the core takes any).
-                    if Int(chosen).map({ !Self.counts.contains($0) }) ?? false { item(chosen) }
-                } header: {
-                    if let space = library.spaceForDownloads { Text("\(Self.bytes(space)) free") }
-                }
-                Section {
-                    item(here)
-                    // Another season's, as chosen there.
-                    if chosen.hasPrefix("s"), chosen != here { item(chosen) }
-                    item("unwatched")
-                    item("all")
-                }
-            } currentValueLabel: {
-                Text(Self.title(chosen))
+            // A count chosen elsewhere (the core takes any); another season's,
+            // as chosen there.
+            let other = Int(chosen).map { !Self.counts.contains($0) } ?? false ? [item(chosen)] : []
+            let otherSeason = chosen.hasPrefix("s") && chosen != here ? [item(chosen)] : []
+            HStack(spacing: 6) {
+                // As a SwiftUI pop-up's own label is, whatever the controls' size.
+                Text("Download").font(.system(size: NSFont.systemFontSize))
+                DetailedPopUp(
+                    sections: [
+                        .init(choices: [.init(tag: "", title: "Nothing"), item("current")] + Self.counts.map { item(String($0)) } + other),
+                        .init(choices: [item(here)] + otherSeason + [item("unwatched"), item("all")]),
+                    ],
+                    footer: library.spaceForDownloads.map { ("Free Space", Self.bytes($0)) },
+                    selection: chosen,
+                    label: Self.title(chosen),
+                    select: { library.chooseDownloads(detail.key, $0) }
+                )
+                .fixedSize()
             }
-            .pickerStyle(.menu)
-            .fixedSize()
             .help("Which of the series' episodes download to this Mac as it's watched, to watch without a network; watched ones go as their space is needed, but for All")
             DownloadGauge(value: library.downloadProgress(keys, of: requested))
                 .opacity(pending ? 1 : 0)
