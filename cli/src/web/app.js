@@ -20,9 +20,34 @@ async function api(name, body) {
   return response.json();
 }
 
-function show(problem) {
-  statusBar.textContent = problem || "";
+/// The status line: the shelf's counts, which fade out 3 seconds after they
+/// last changed and come back when the pointer nears the bottom, as the
+/// Mac's status bar does; or a problem, which stays until something else
+/// replaces it.
+let fading = null;
+let problemShown = false;
+
+function show(text) {
+  problemShown = false;
+  if (statusBar.textContent !== text) statusBar.textContent = text || "";
+  wake();
 }
+
+function problem(text) {
+  problemShown = true;
+  statusBar.textContent = text;
+  wake();
+}
+
+function wake() {
+  statusBar.classList.remove("faded");
+  clearTimeout(fading);
+  if (!problemShown) fading = setTimeout(() => statusBar.classList.add("faded"), 3000);
+}
+
+addEventListener("pointermove", (e) => {
+  if (e.clientY > innerHeight - 60 && statusBar.classList.contains("faded")) wake();
+});
 
 async function reload() {
   const got = await api("tiles");
@@ -293,7 +318,7 @@ async function titlePage(key, season) {
       await reload(); route();
     } }, allWatched ? "✓ Watched" : "○ Unwatched"),
   );
-  if (!quality) show("None of its copies plays in a browser (MKV and ISO files don't).");
+  if (!quality) problem("None of its copies plays in a browser (MKV and ISO files don't).");
 
   const facts = [detail.year, detail.fields.genre, detail.fields.network, isSeries ? seasonName(season) : null,
     !isSeries && items[0]?.fields.duration ? formatTime(Number(items[0].fields.duration)) : null].filter(Boolean).join(" · ");
@@ -416,7 +441,7 @@ async function start(me, fromStart) {
     ramp(1, fade);
     return;
   }
-  show("None of its copies would load: its sources may be asleep or unavailable.");
+  problem("None of its copies would load: its sources may be asleep or unavailable.");
   await leave();
 }
 
@@ -445,7 +470,7 @@ function save(me) {
     item: `${me.detail.key}/${me.item.key}`,
     position: Math.round(video.currentTime * 1000),
     duration: Math.round(video.duration * 1000),
-  }).catch((e) => show(e.message));
+  }).catch((e) => problem(e.message));
 }
 
 video.addEventListener("playing", () => { if (session) session.started = true; });
@@ -518,15 +543,16 @@ async function route() {
       const segments = rest.split("/");
       const key = segments.slice(0, 4).join("/");
       const season = segments.length > 4 ? Number(segments[4]) : null;
-      parts = await titlePage(key, season);
+      // Cleared first, so a problem the page finds stays.
       show("");
+      parts = await titlePage(key, season);
     } else {
       parts = (shelves[hash] || shelves.home)();
       show(counts(shelves[hash] ? hash : "home"));
     }
   } catch (e) {
     parts = [empty("Couldn't load it.")];
-    show(e.message);
+    problem(e.message);
   }
   main.replaceChildren(...parts);
 }
@@ -541,7 +567,7 @@ addEventListener("hashchange", route);
   try {
     await reload();
   } catch (e) {
-    show(e.message);
+    problem(e.message);
   }
   route();
 })();

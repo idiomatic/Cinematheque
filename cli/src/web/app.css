@@ -120,6 +120,8 @@ button:disabled { opacity: 0.4; cursor: default; }
   background: color-mix(in srgb, Canvas 85%, transparent);
   backdrop-filter: blur(20px);
 }
+#status { transition: opacity 0.5s; }
+#status.faded { opacity: 0; pointer-events: none; }
 #status:empty { display: none; }
 
 /* Nothing over the video but the browser's own controls: Back is the
