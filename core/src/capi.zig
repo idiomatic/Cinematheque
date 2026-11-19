@@ -768,7 +768,7 @@ fn downloadNext(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, 
     try download.setNext(try lib.main(), arena, title_key, episodes);
 }
 
-const HeldJson = struct { item: []const u8, size: u64 };
+const HeldJson = struct { item: []const u8, size: u64, only: bool };
 const DoneJson = struct { item: []const u8, deletable: bool };
 
 /// Keeps a download (nonzero), so it's never deleted as watched, or lets
@@ -798,7 +798,8 @@ const DownloadsJson = struct {
 
 /// This device's downloads, as a JSON object: `dir`, `source` (its ID),
 /// and `drop_watched`, as configured (null if not); `held`, the files held
-/// (`item`, `size`); `wanted` (`key`, `rendition`); `next`, series whose
+/// (`item`, `size`, and whether it's the `only` copy, no other source
+/// holding it alike); `wanted` (`key`, `rendition`); `next`, series whose
 /// next episodes download (`title`, `episodes`); `watched`, downloads
 /// watched since fetched and not kept, oldest first (`item`, and
 /// `deletable`, once held elsewhere, else the only copy); `kept` items; `free` bytes on its volume, if
@@ -814,7 +815,12 @@ fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
     try download.purgeObsolete(r, arena);
     const s = try download.settings(r, arena);
     var list: std.ArrayList(HeldJson) = .empty;
-    if (s) |set| for (try download.held(r, arena, set.source)) |h| try list.append(arena, .{ .item = h.item, .size = h.size });
+    if (s) |set| {
+        const all = try library.sources(r, arena);
+        const unavailable = try library.UnavailableDirs.load(r, arena);
+        for (try download.held(r, arena, set.source)) |h|
+            try list.append(arena, .{ .item = h.item, .size = h.size, .only = !try download.confirmed(r, all, &unavailable, h) });
+    }
     var finished: std.ArrayList(DoneJson) = .empty;
     if (s) |set| for (try download.finishedWith(r, arena, set.source)) |d| try finished.append(arena, .{ .item = d.held.item, .deletable = d.deletable });
     return .{

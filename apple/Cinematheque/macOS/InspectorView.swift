@@ -36,6 +36,25 @@ struct InspectorView: View {
             if rendition == nil { rendition = detail.flatMap { $0.rendition(for: Playback.items($0, season: tile.season)) } }
         }
         .task(id: tile.id) { await describeEpisodes() }
+        // Asked for by deleting an only copy, here or in an episode's menu.
+        .confirmationDialog(
+            deletionTitle,
+            isPresented: Binding(get: { library.deleting != nil }, set: { if !$0 { library.deleting = nil } }),
+            presenting: library.deleting
+        ) { key in
+            Button("Delete", role: .destructive) { library.removeDownload(key) }
+            Button("Cancel", role: .cancel) {}
+        } message: { key in
+            Text(library.onlyCopies(key) == 1
+                ? "This Mac holds the only copy: no source has another, so once it's deleted, it's gone from the library, on every device."
+                : "This Mac holds the only copies of \(library.onlyCopies(key)) of them: no source has others, so once they're deleted, they're gone from the library, on every device.")
+        }
+    }
+
+    private var deletionTitle: String {
+        guard let key = library.deleting else { return "" }
+        let n = library.onlyCopies(key)
+        return n == 1 ? "Delete the only copy?" : "Delete \(n) only copies?"
     }
 
     private var heading: some View {
@@ -271,10 +290,10 @@ private struct DownloadControls: View {
                         .buttonStyle(.borderless)
                         .help("Keep it on this Mac, however it's watched")
                 }
-                Button("Delete Download", systemImage: "trash") { library.removeDownload(key) }
+                Button("Delete Download", systemImage: "trash") { library.deleteDownload(key) }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
-                    .help(library.done(key)?.deletable == false ? "Delete it from this Mac: the only copy" : "Delete it from this Mac")
+                    .help(library.onlyCopies(key) > 0 ? "Delete it from this Mac: the only copy" : "Delete it from this Mac")
             } else if library.isWanted(key) {
                 ProgressView().controlSize(.small)
                 Text("Downloading…").foregroundStyle(.secondary)
@@ -307,7 +326,7 @@ private struct DownloadControls: View {
                 }
                 if held > 0 {
                     Divider()
-                    Button("Delete Season's Downloads", role: .destructive) { library.removeDownload(key) }
+                    Button("Delete Season's Downloads", role: .destructive) { library.deleteDownload(key) }
                 }
             } label: {
                 Label("Download", systemImage: held > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
@@ -382,7 +401,7 @@ private struct DownloadMenuItems: View {
             } else if library.isKept(key) {
                 Button("Stop Keeping Download") { library.keep(key, false) }
             }
-            Button(library.done(key)?.deletable == false ? "Delete Download (the Only Copy)" : "Delete Download") { library.removeDownload(key) }
+            Button(library.onlyCopies(key) > 0 ? "Delete Download (the Only Copy)…" : "Delete Download") { library.deleteDownload(key) }
         } else if library.isWanted(key) {
             Button("Cancel Download") { library.removeDownload(key) }
         } else {

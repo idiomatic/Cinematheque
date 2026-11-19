@@ -392,7 +392,9 @@ pub fn held(replica: *Replica, arena: std.mem.Allocator, source: library.Source)
 /// Whether another source (not a device's downloads) holds `h`'s file
 /// alike, its rendition and size, and isn't unavailable: so deleting it loses
 /// nothing.
-fn confirmed(replica: *Replica, sources: []const library.Source, unavailable: *const library.UnavailableDirs, h: Held) !bool {
+/// Whether another source holds a download alike (its rendition and size,
+/// not unavailable); if not, it's the only copy.
+pub fn confirmed(replica: *Replica, sources: []const library.Source, unavailable: *const library.UnavailableDirs, h: Held) !bool {
     const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND field >= 'held:' AND field < 'held;' AND length(value) > 0");
     defer s.finalize();
     try s.bindText(1, h.key);

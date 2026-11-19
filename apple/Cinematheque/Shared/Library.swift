@@ -616,6 +616,8 @@ final class Library {
         struct Held: Decodable, Equatable {
             let item: String
             let size: Int
+            /// No other source holds it alike.
+            let only: Bool
         }
 
         struct Wanted: Decodable, Equatable {
@@ -690,13 +692,30 @@ final class Library {
     /// Whether a title, season, or item is wanted, and being fetched if it
     /// isn't held.
     func isWanted(_ key: String) -> Bool {
-        downloads?.wanted.contains { wanted in
-            // The key, or a title or season holding it (`…/e/s01` holds
-            // `…/e/s01e02`).
-            guard key.hasPrefix(wanted.key) else { return false }
-            let rest = key.dropFirst(wanted.key.count)
-            return rest.isEmpty || rest.hasPrefix("/") || (wanted.key.contains("/e/s") && rest.hasPrefix("e"))
-        } ?? false
+        downloads?.wanted.contains { Self.holds(wanted: $0.key, key) } ?? false
+    }
+
+    /// Whether a key is an item's, or a title's or season's holding it
+    /// (`…/e/s01` holds `…/e/s01e02`).
+    private static func holds(wanted: String, _ key: String) -> Bool {
+        guard key.hasPrefix(wanted) else { return false }
+        let rest = key.dropFirst(wanted.count)
+        return rest.isEmpty || rest.hasPrefix("/") || (wanted.contains("/e/s") && rest.hasPrefix("e"))
+    }
+
+    /// How many of a title's, season's, or item's downloads are the only
+    /// copies.
+    func onlyCopies(_ key: String) -> Int {
+        downloads?.held.filter { $0.only && Self.holds(wanted: key, $0.item) }.count ?? 0
+    }
+
+    /// Downloads to delete once confirmed, since they hold only copies.
+    var deleting: String?
+
+    /// Deletes downloads, asking first (`deleting`) if any is the only
+    /// copy: once deleted, it's gone from the library for everyone.
+    func deleteDownload(_ key: String) {
+        if onlyCopies(key) > 0 { deleting = key } else { removeDownload(key) }
     }
 
     /// How many of a series' next episodes this Mac keeps (0: none).
