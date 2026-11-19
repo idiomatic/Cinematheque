@@ -54,7 +54,7 @@ enum Platform {
         #endif
     }
 
-    /// The tallest display's height in pixels, for the rendition to play.
+    /// The tallest display's height in pixels, for the quality to play.
     @MainActor static var displayHeight: CGFloat {
         #if os(macOS)
         NSScreen.screens.map { $0.frame.height * $0.backingScaleFactor }.max() ?? 1080

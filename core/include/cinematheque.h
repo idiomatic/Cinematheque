@@ -45,11 +45,11 @@ char *cq_pair(cq_library *library, const char *url, int join, const char *code);
 char *cq_members(cq_library *library);
 int cq_member(cq_library *library, const char *person_key, int add);
 
-// Sources; rendition and skip may be NULL, for the default or no
+// Sources; quality and skip may be NULL, for the default or no
 // change.
 char *cq_repos(cq_library *library);
-int cq_repo_add(cq_library *library, const char *url, const char *rendition, const char *skip);
-int cq_repo_set(cq_library *library, const char *source, const char *rendition, const char *skip);
+int cq_repo_add(cq_library *library, const char *url, const char *quality, const char *skip);
+int cq_repo_set(cq_library *library, const char *source, const char *quality, const char *skip);
 int cq_repo_remove(cq_library *library, const char *source);
 // Forgets an unavailable directory of a source, as if deleted.
 int cq_remove_unavailable(cq_library *library, const char *source, const char *dir);
@@ -64,14 +64,14 @@ void cq_race_lost(cq_library *library, const char *url);
 // fetched at once, else only as space is needed; either way only once
 // another source holds them, and never kept ones (cq_keep).
 // cq_download wants a title, season
-// (TITLE/e/s01), or item kept, in a rendition (null: the commonest);
+// (TITLE/e/s01), or item kept, in a quality (null: the commonest);
 // cq_download_next downloads a series' next episodes as it's watched (0
 // stops); cq_download_remove
 // deletes and stops wanting; cq_downloads is all of it as JSON;
 // cq_reconcile (long, its own connection) fetches and deletes to
 // match, returning at once with "busy" if one runs, which then runs again.
 int cq_downloads_configure(cq_library *library, const char *dir, const char *served_at, int drop_watched);
-int cq_download(cq_library *library, const char *key, const char *rendition);
+int cq_download(cq_library *library, const char *key, const char *quality);
 int cq_download_remove(cq_library *library, const char *key);
 int cq_download_next(cq_library *library, const char *title_key, int episodes);
 // Keeps a download (an item), so it's never deleted as watched; 0 lets it

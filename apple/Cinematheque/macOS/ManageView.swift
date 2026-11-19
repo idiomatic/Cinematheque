@@ -451,14 +451,14 @@ private struct SourcesPane: View {
     }
 }
 
-/// Adding a source by its address, or editing one; its rendition and the
+/// Adding a source by its address, or editing one; its quality and the
 /// names to skip are advanced.
 private struct SourceSheet: View {
     let source: Source?
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var url = ""
-    @State private var rendition = ""
+    @State private var quality = ""
     @State private var skip = ","
     @State private var advanced = false
 
@@ -476,7 +476,7 @@ private struct SourceSheet: View {
                 }
             }
             Section("Advanced", isExpanded: $advanced) {
-                TextField("Quality", text: $rendition, prompt: Text("From file names"))
+                TextField("Quality", text: $quality, prompt: Text("From file names"))
             }
             if advanced {
                 Footer("Name its quality (e.g., 4K HDR) only if its files' names don't show it.")
@@ -513,9 +513,9 @@ private struct SourceSheet: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button(source == nil ? "Add" : "Save") {
                     if let source {
-                        library.setSource(source.id, rendition: rendition, skip: skip)
+                        library.setSource(source.id, quality: quality, skip: skip)
                     } else {
-                        library.addSource(url, rendition: rendition.isEmpty ? nil : rendition, skip: skip)
+                        library.addSource(url, quality: quality.isEmpty ? nil : quality, skip: skip)
                         Task { await library.crawl() }
                     }
                     dismiss()
@@ -525,9 +525,9 @@ private struct SourceSheet: View {
         }
         .onAppear {
             if let source {
-                rendition = source.rendition
+                quality = source.quality
                 skip = source.skip
-                advanced = !rendition.isEmpty || skip != ","
+                advanced = !quality.isEmpty || skip != ","
             }
         }
     }

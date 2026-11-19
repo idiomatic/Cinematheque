@@ -26,10 +26,10 @@ pub const Parsed = struct {
     edition: ?[]const u8 = null,
     part: ?u16 = null,
     resolution: ?[]const u8 = null,
-    /// The rendition the name's technical tokens describe, canonically:
+    /// The quality the name's technical tokens describe, canonically:
     /// resolution, origin, codec, and dynamic range, in that order (e.g.,
     /// "2160p remux hevc hdr"), or null if the name has none.
-    rendition: ?[]const u8 = null,
+    quality: ?[]const u8 = null,
     extra: ?[]const u8 = null,
     /// A series' special without an episode number (season 0), by its own
     /// title (e.g., "The Gathering"); see `library.parseFile`.
@@ -43,7 +43,7 @@ const extra_folders = [_][]const u8{ "behind the scenes", "deleted scenes", "int
 const extra_suffixes = [_][]const u8{ "-trailer", "-featurette", "-behindthescenes", "-deleted", "-deletedscene", "-interview", "-scene", "-short", "-sample", "-clip", "-other", "-extra" };
 
 /// Tokens that end a scene name's title.
-/// What a technical token says about a rendition, canonically.
+/// What a technical token says about a quality, canonically.
 const Technical = struct {
     const Dimension = enum { resolution, origin, codec, range };
 
@@ -310,7 +310,7 @@ fn scanName(p: *Parsed, name: []const u8, scratch: []u8, used: *usize) void {
             if (!outranked) technical[@intFromEnum(t[0])] = t[1];
         }
     }
-    p.rendition = renditionLabel(&technical, scratch, used);
+    p.quality = qualityLabel(&technical, scratch, used);
     if (part_at) |pa| {
         if (year_at != null and pa < year_at.?) p.part = null else title_end = @min(title_end, pa);
     }
@@ -318,8 +318,8 @@ fn scanName(p: *Parsed, name: []const u8, scratch: []u8, used: *usize) void {
     // Jellyfin's version label: "Title (2010) - Director's Cut".
     if (p.edition == null) if (mem.indexOf(u8, name, " - ")) |dash| if (dash >= title_end) {
         var label = mem.trim(u8, name[dash + 3 ..], " ");
-        // "- 2160p" names a rendition, not a version; "- Director's Cut -
-        // 1080p", a version and a rendition.
+        // "- 2160p" names a quality, not a version; "- Director's Cut -
+        // 1080p", a version and a quality.
         while (mem.lastIndexOf(u8, label, " - ")) |last| {
             if (!allTechnical(label[last + 3 ..])) break;
             label = mem.trimEnd(u8, label[0..last], " ");
@@ -349,7 +349,7 @@ fn allTechnical(text: []const u8) bool {
     return any;
 }
 
-fn renditionLabel(technical: *const [4]?[]const u8, scratch: []u8, used: *usize) ?[]const u8 {
+fn qualityLabel(technical: *const [4]?[]const u8, scratch: []u8, used: *usize) ?[]const u8 {
     const start = used.*;
     for (technical) |part| if (part) |text| {
         if (used.* + text.len + 1 > scratch.len) return null;

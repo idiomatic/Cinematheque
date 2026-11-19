@@ -8,7 +8,7 @@ struct InspectorView: View {
     @Environment(Library.self) private var library
     @Environment(\.play) private var play
     @State private var detail: TitleDetail?
-    @State private var rendition: String?
+    @State private var quality: String?
 
     var body: some View {
         ScrollView {
@@ -33,7 +33,7 @@ struct InspectorView: View {
         }
         .task(id: library.revision) {
             detail = library.detail(tile.key)
-            if rendition == nil { rendition = detail.flatMap { $0.rendition(for: Playback.items($0, season: tile.season)) } }
+            if quality == nil { quality = detail.flatMap { $0.quality(for: Playback.items($0, season: tile.season)) } }
         }
         .task(id: tile.id) { await describeEpisodes() }
         // Asked for by deleting an only copy, here or in an episode's menu.
@@ -69,11 +69,11 @@ struct InspectorView: View {
     private func controls(_ detail: TitleDetail) -> some View {
         let items = Playback.items(detail, season: tile.season)
         let next = Playback.nextItem(detail, season: tile.season)
-        let renditions = Array(Set(items.flatMap { $0.renditions.map(\.label) })).sorted()
+        let qualities = Array(Set(items.flatMap { $0.qualities.map(\.label) })).sorted()
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Button {
-                    if let request = Playback.next(in: detail, season: tile.season, rendition: rendition) { play(request) }
+                    if let request = Playback.next(in: detail, season: tile.season, quality: quality) { play(request) }
                 } label: {
                     Label(Playback.playLabel(next), systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
@@ -82,11 +82,11 @@ struct InspectorView: View {
                 .disabled(next == nil)
             }
             .controlSize(.large)
-            // On a row of its own: renditions' names are long.
-            if renditions.count > 1 {
-                Picker("Quality", selection: $rendition) {
-                    ForEach(renditions, id: \.self) { label in
-                        Text(RenditionChoice.name(label, in: items)).tag(Optional(label))
+            // On a row of its own: qualities' names are long.
+            if qualities.count > 1 {
+                Picker("Quality", selection: $quality) {
+                    ForEach(qualities, id: \.self) { label in
+                        Text(QualityChoice.name(label, in: items)).tag(Optional(label))
                     }
                 }
                 .labelsHidden()
@@ -100,7 +100,7 @@ struct InspectorView: View {
                 lists(detail, items: items).labelStyle(.titleAndIcon)
                 lists(detail, items: items).labelStyle(.iconOnly)
             }
-            DownloadControls(detail: detail, items: items, season: tile.season, rendition: rendition)
+            DownloadControls(detail: detail, items: items, season: tile.season, quality: quality)
         }
     }
 
@@ -145,7 +145,7 @@ struct InspectorView: View {
                 // start there anyway.
                 if Playback.nextIndex(items) != 0 {
                     Button {
-                        if let request = Playback.request(detail, items: items, from: 0, rendition: rendition) { play(request) }
+                        if let request = Playback.request(detail, items: items, from: 0, quality: quality) { play(request) }
                     } label: {
                         Label("Restart", systemImage: "backward.end.fill")
                     }
@@ -156,8 +156,8 @@ struct InspectorView: View {
             }
             .padding(.bottom, 6)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                EpisodeRow(item: item, detail: detail, rendition: rendition) {
-                    if let request = Playback.request(detail, items: items, from: index, rendition: rendition) { play(request) }
+                EpisodeRow(item: item, detail: detail, quality: quality) {
+                    if let request = Playback.request(detail, items: items, from: index, quality: quality) { play(request) }
                 }
                 Divider()
             }
@@ -171,7 +171,7 @@ struct InspectorView: View {
             ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
                 HStack {
                     Button {
-                        if let request = Playback.request(detail, items: [item], from: 0, rendition: rendition) { play(request) }
+                        if let request = Playback.request(detail, items: [item], from: 0, quality: quality) { play(request) }
                     } label: {
                         Image(systemName: item.watched ? "checkmark.circle.fill" : "play.circle")
                             .font(.title3)
@@ -200,7 +200,7 @@ struct InspectorView: View {
 private struct EpisodeRow: View {
     let item: TitleDetail.Item
     let detail: TitleDetail
-    let rendition: String?
+    let quality: String?
     let play: () -> Void
     @Environment(Library.self) private var library
 
@@ -237,7 +237,7 @@ private struct EpisodeRow: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .contextMenu {
-            DownloadMenuItems(key: "\(detail.key)/\(item.key)", rendition: rendition)
+            DownloadMenuItems(key: "\(detail.key)/\(item.key)", quality: quality)
             Divider()
             Button(item.watched ? "Mark as Unwatched" : "Mark as Watched") {
                 library.setWatched("\(detail.key)/\(item.key)", !item.watched)
@@ -267,7 +267,7 @@ private struct DownloadControls: View {
     let detail: TitleDetail
     let items: [TitleDetail.Item]
     let season: Int?
-    let rendition: String?
+    let quality: String?
     @Environment(Library.self) private var library
 
     private static let next = [1, 3, 5, 10]
@@ -302,7 +302,7 @@ private struct DownloadControls: View {
                     .buttonStyle(.borderless)
                     .help("Stop downloading it")
             } else {
-                Button("Download", systemImage: "arrow.down.circle") { library.download(key, rendition: rendition) }
+                Button("Download", systemImage: "arrow.down.circle") { library.download(key, quality: quality) }
                     .buttonStyle(.bordered)
                     .help("Download it to this Mac, to watch without a network")
             }
@@ -318,7 +318,7 @@ private struct DownloadControls: View {
         let next = library.nextEpisodes(detail.key)
         HStack {
             Menu {
-                Button("Download Season") { library.download(key, rendition: rendition) }
+                Button("Download Season") { library.download(key, quality: quality) }
                     .disabled(held == keys.count)
                 Picker("Download Next Episodes", selection: Binding(get: { next }, set: { library.downloadNext(detail.key, episodes: $0) })) {
                     Text("Off").tag(0)
@@ -391,7 +391,7 @@ private struct DownloadMark: View {
 /// An item's download, in its context menu.
 private struct DownloadMenuItems: View {
     let key: String
-    let rendition: String?
+    let quality: String?
     @Environment(Library.self) private var library
 
     var body: some View {
@@ -405,7 +405,7 @@ private struct DownloadMenuItems: View {
         } else if library.isWanted(key) {
             Button("Cancel Download") { library.removeDownload(key) }
         } else {
-            Button("Download") { library.download(key, rendition: rendition) }
+            Button("Download") { library.download(key, quality: quality) }
         }
     }
 }

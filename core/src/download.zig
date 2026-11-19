@@ -9,13 +9,13 @@
 //!
 //! A player's downloads (`reconcile`) go further: its directory is a
 //! source of its own, `managed`, which it serves and no one crawls;
-//! each file fetched is recorded as its copy on the very rendition it
+//! each file fetched is recorded as its copy on the very quality it
 //! came from, so devices see it and copy racing can use it. What it keeps is
 //! this device's (in `local`): items wanted (a title or season wanted is
 //! its items, as of then), and per series, the next N episodes after where
 //! this person is ("next"). A download watched since it was fetched, and not
 //! kept, is done with: deleted once another source is confirmed to
-//! hold it (same rendition and size, not unavailable), at once with
+//! hold it (same quality and size, not unavailable), at once with
 //! `drop_watched`, else as space is needed; the only copy, never. It keeps
 //! `floor_bytes` free.
 
@@ -30,7 +30,7 @@ const Replica = @import("replica.zig").Replica;
 pub const File = struct {
     /// The item's key (e.g., `t/s/firefly/-/e/s01e02`).
     item: []const u8,
-    rendition: []const u8,
+    quality: []const u8,
     /// Where it goes, relative to the directory: its path in the source.
     path: []const u8,
     size: u64,
@@ -40,9 +40,9 @@ pub const File = struct {
 
 /// The files of `key`: a title (`t/m/alien/1979`), a season of a series
 /// (`t/s/firefly/-/e/s01`), or an item (`t/s/firefly/-/e/s01e02`). Each
-/// item's file is of `rendition` if given (items without it are left out),
-/// else of the rendition most of them have, so a season comes alike.
-pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, rendition: ?[]const u8) ![]File {
+/// item's file is of `quality` if given (items without it are left out),
+/// else of the quality most of them have, so a season comes alike.
+pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, quality: ?[]const u8) ![]File {
     const title_end = titleEnd(key) orelse return error.NotFound;
     const d = try library.detail(replica, arena, key[0..title_end]) orelse return error.NotFound;
     const below = if (title_end < key.len) key[title_end + 1 ..] else "";
@@ -54,13 +54,13 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, rendit
     var items: std.ArrayList(library.Item) = .empty;
     for (d.items.items) |item| if (within(item.key, below)) try items.append(arena, item);
     if (items.items.len == 0) return error.NotFound;
-    const label = rendition orelse commonest(items.items);
+    const label = quality orelse commonest(items.items);
 
     var files: std.ArrayList(File) = .empty;
     for (items.items) |item| {
-        const r = for (item.renditions.items) |r| {
+        const r = for (item.qualities.items) |r| {
             if (std.mem.eql(u8, r.label, label)) break r;
-        } else if (rendition != null) continue else item.renditions.items[0];
+        } else if (quality != null) continue else item.qualities.items[0];
         var urls: std.ArrayList([]const u8) = .empty;
         var path: ?[]const u8 = null;
         var size: u64 = 0;
@@ -76,7 +76,7 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, rendit
         };
         try files.append(arena, .{
             .item = try std.fmt.allocPrint(arena, "{s}/{s}", .{ d.key, item.key }),
-            .rendition = r.label,
+            .quality = r.label,
             .path = path orelse continue,
             .size = size,
             .urls = urls.items,
@@ -105,13 +105,13 @@ fn within(item: []const u8, below: []const u8) bool {
     return next == '/' or (std.mem.startsWith(u8, below, "e/s") and std.mem.indexOfAny(u8, below[3..], "e-") == null and (next == 'e' or next == '-'));
 }
 
-/// The rendition most of `items` have, the first such if tied.
+/// The quality most of `items` have, the first such if tied.
 fn commonest(items: []const library.Item) []const u8 {
-    var best: []const u8 = items[0].renditions.items[0].label;
+    var best: []const u8 = items[0].qualities.items[0].label;
     var best_count: usize = 0;
-    for (items) |item| for (item.renditions.items) |r| {
+    for (items) |item| for (item.qualities.items) |r| {
         var count: usize = 0;
-        for (items) |other| for (other.renditions.items) |o| {
+        for (items) |other| for (other.qualities.items) |o| {
             if (std.mem.eql(u8, o.label, r.label)) count += 1;
         };
         if (count > best_count) {
@@ -271,14 +271,14 @@ pub fn settings(replica: *Replica, arena: std.mem.Allocator) !?Settings {
     return .{ .dir = dir, .source = source, .drop_watched = drop.len > 0 };
 }
 
-pub const Want = struct { key: []const u8, rendition: []const u8 };
+pub const Want = struct { key: []const u8, quality: []const u8 };
 
 /// Wants a title's, season's, or item's files kept (see `plan`), in a
-/// rendition (empty for the one most of its items have): each item as of
+/// quality (empty for the one most of its items have): each item as of
 /// now, so one deleted (watched, or by hand) isn't fetched again.
-pub fn want(replica: *Replica, arena: std.mem.Allocator, key: []const u8, rendition: []const u8) !void {
-    for (try plan(replica, arena, key, if (rendition.len > 0) rendition else null)) |f|
-        try replica.setLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ want_prefix, f.item }), f.rendition);
+pub fn want(replica: *Replica, arena: std.mem.Allocator, key: []const u8, quality: []const u8) !void {
+    for (try plan(replica, arena, key, if (quality.len > 0) quality else null)) |f|
+        try replica.setLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ want_prefix, f.item }), f.quality);
 }
 
 /// Keeps a download (an item's full key), so it's never deleted as done
@@ -342,7 +342,7 @@ fn watchedAt(replica: *Replica, arena: std.mem.Allocator, item: []const u8) !?u6
 pub fn wants(replica: *Replica, arena: std.mem.Allocator) ![]Want {
     var out: std.ArrayList(Want) = .empty;
     for (try replica.localKeys(arena, want_prefix)) |k|
-        try out.append(arena, .{ .key = k[want_prefix.len..], .rendition = try replica.local(arena, k) orelse "" });
+        try out.append(arena, .{ .key = k[want_prefix.len..], .quality = try replica.local(arena, k) orelse "" });
     return out.items;
 }
 
@@ -366,7 +366,7 @@ pub fn nexts(replica: *Replica, arena: std.mem.Allocator) ![]Next {
 
 /// A file this device's downloads hold.
 pub const Held = struct {
-    /// Its rendition's key (`<item>/r/<rendition>`).
+    /// Its quality's key (`<item>/r/<quality>`).
     key: []const u8,
     item: []const u8,
     path: []const u8,
@@ -390,9 +390,9 @@ pub fn held(replica: *Replica, arena: std.mem.Allocator, source: library.Source)
 }
 
 /// Whether another source (not a device's downloads) holds `h`'s file
-/// alike, its rendition and size, and isn't unavailable: so deleting it loses
+/// alike, its quality and size, and isn't unavailable: so deleting it loses
 /// nothing.
-/// Whether another source holds a download alike (its rendition and size,
+/// Whether another source holds a download alike (its quality and size,
 /// not unavailable); if not, it's the only copy.
 pub fn confirmed(replica: *Replica, sources: []const library.Source, unavailable: *const library.UnavailableDirs, h: Held) !bool {
     const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND field >= 'held:' AND field < 'held;' AND length(value) > 0");
@@ -544,7 +544,7 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
     var files: std.ArrayList(File) = .empty;
     for (try wants(replica, arena)) |w| {
         if (keys.contains(w.key)) continue;
-        const planned = plan(replica, arena, w.key, if (w.rendition.len > 0) w.rendition else null) catch |err| switch (err) {
+        const planned = plan(replica, arena, w.key, if (w.quality.len > 0) w.quality else null) catch |err| switch (err) {
             error.NotFound => continue,
             else => |e| return e,
         };
@@ -613,7 +613,7 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
         const at = try std.fmt.allocPrint(arena, "{s}{s}", .{ at_prefix, f.item });
         if (fetched == .fetched or try replica.local(arena, at) == null) try replica.setLocal(at, try std.fmt.allocPrint(arena, "{d}", .{wall_ms}));
         const value = try std.fmt.allocPrint(arena, "{s}\t{d}\t{d}", .{ f.path, f.size, @divTrunc(Io.Timestamp.now(io, .real).toMilliseconds(), 1000) });
-        try locked(writer, io, replica, wall_ms, try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ f.item, f.rendition }), s.source, value);
+        try locked(writer, io, replica, wall_ms, try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ f.item, f.quality }), s.source, value);
     }
     return out;
 }
@@ -663,7 +663,7 @@ pub fn remove(io: Io, arena: std.mem.Allocator, replica: *Replica, writer: ?*Io.
     return out.deleted;
 }
 
-test "a title's, season's, or item's files, in the rendition most have" {
+test "a title's, season's, or item's files, in the quality most have" {
     const testing = std.testing;
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -714,7 +714,7 @@ test "fetches a file, resuming a part, and keeps one whole" {
     var memory: race.Memory = .{};
     defer memory.deinit(gpa);
     const live = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/Alien%20(1979)/Alien%20(1979).mp4", .{server.port});
-    const file: File = .{ .item = "t/m/alien/1979/v/-", .rendition = "-", .path = "Alien (1979)/Alien (1979).mp4", .size = content.len, .urls = &.{ "http://127.0.0.1:1/gone.mp4", live } };
+    const file: File = .{ .item = "t/m/alien/1979/v/-", .quality = "-", .path = "Alien (1979)/Alien (1979).mp4", .size = content.len, .urls = &.{ "http://127.0.0.1:1/gone.mp4", live } };
 
     try tmp.dir.createDirPath(io, "out/Alien (1979)");
     var out = try tmp.dir.openDir(io, "out", .{});

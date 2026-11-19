@@ -53,7 +53,7 @@ struct TitleDetail: Codable {
         var unavailable = false
     }
 
-    struct Rendition: Codable, Hashable {
+    struct Quality: Codable, Hashable {
         let label: String
         let name: String
         let copies: [Copy]
@@ -63,7 +63,7 @@ struct TitleDetail: Codable {
         let key: String
         /// An episode's `title`, `description`, and `duration`.
         let fields: [String: String]
-        let renditions: [Rendition]
+        let qualities: [Quality]
         /// This person's progress, in milliseconds.
         let position: Int
         let duration: Int
@@ -108,7 +108,7 @@ struct Source: Codable, Identifiable, Hashable {
 
     let id: String
     let url: String
-    let rendition: String
+    let quality: String
     let skip: String
     let copies: Int
     var unavailable: [Unavailable] = []
@@ -389,12 +389,12 @@ final class Library {
 
     // Managing.
 
-    func addSource(_ url: String, rendition: String?, skip: String?) {
-        check { cq_repo_add($0, url, rendition, skip) }
+    func addSource(_ url: String, quality: String?, skip: String?) {
+        check { cq_repo_add($0, url, quality, skip) }
     }
 
-    func setSource(_ id: String, rendition: String?, skip: String?) {
-        check { cq_repo_set($0, id, rendition, skip) }
+    func setSource(_ id: String, quality: String?, skip: String?) {
+        check { cq_repo_set($0, id, quality, skip) }
     }
 
     func removeSource(_ id: String) { check { cq_repo_remove($0, id) } }
@@ -516,7 +516,7 @@ final class Library {
         }
         folders[folders.count - 1].url = "http://\(host):\(port)/\(prefix)/"
         saveFolders()
-        addSource(folders[folders.count - 1].url, rendition: nil, skip: ",")
+        addSource(folders[folders.count - 1].url, quality: nil, skip: ",")
         await crawl()
     }
 
@@ -586,7 +586,7 @@ final class Library {
             parts.port = port
             guard let moved = parts.string else { continue }
             let old = sources.first { $0.url == folder.url }
-            addSource(moved, rendition: old?.rendition.isEmpty == false ? old?.rendition : nil, skip: old?.skip ?? ",")
+            addSource(moved, quality: old?.quality.isEmpty == false ? old?.quality : nil, skip: old?.skip ?? ",")
             if let old { removeSource(old.id) }
             folders[i].url = moved
         }
@@ -623,7 +623,7 @@ final class Library {
 
         struct Wanted: Decodable, Equatable {
             let key: String
-            let rendition: String
+            let quality: String
         }
 
         struct Next: Decodable, Equatable {
@@ -752,9 +752,9 @@ final class Library {
     var downloadedBytes: Int { downloads?.held.reduce(0) { $0 + $1.size } ?? 0 }
 
     /// Downloads a title, season (`<title>/e/s01`), or item, in the
-    /// rendition given (else the one most items have).
-    func download(_ key: String, rendition: String?) {
-        check { cq_download($0, key, rendition) }
+    /// quality given (else the one most items have).
+    func download(_ key: String, quality: String?) {
+        check { cq_download($0, key, quality) }
         reconcileSoon()
     }
 

@@ -58,7 +58,7 @@ A replica keeps each field's winning operation, in SQLite, and nothing else of t
 * **`devices`:** device keys, interned as small integers.
 * **`version_vector`:** per stream, the highest sequence number covered.
 * **`repair`:** fields a removal dropped, to refetch.
-* **`local`:** the device's own state, which never replicates (crawl snapshots, devices added by address, and downloads: `downloads/dir`, `downloads/source`, `downloads/drop-watched`, `downloads/want/<item>` (a rendition), `downloads/next/<title>` (a count), `downloads/keep/<item>`, and `downloads/at/<item>` (when fetched, in ms, against which the watched mark's clock tells "watched since")).
+* **`local`:** the device's own state, which never replicates (crawl snapshots, devices added by address, and downloads: `downloads/dir`, `downloads/source`, `downloads/drop-watched`, `downloads/want/<item>` (a quality), `downloads/next/<title>` (a count), `downloads/keep/<item>`, and `downloads/at/<item>` (when fetched, in ms, against which the watched mark's clock tells "watched since")).
 
 A losing operation is dropped and never sent again, since it can't change anything.
 
@@ -171,9 +171,9 @@ The library ([library.zig](core/src/library.zig), [art.zig](core/src/art.zig)) w
 |---|---|---|
 | `t/<m\|s>/<title>/<year or ->` | `name`, `year`; `description`, `genre`, `released`, `network`; `art`, `art:s01`..., the cover as a byte range (source, path, offset, length, and the file's stamp, tab-separated); `thumb`, `thumb:s01`..., its ThumbHash in base64 or `-` | Crawls and describing |
 | `.../v/<edition or ->`, `.../e/s03e17`, `.../e/s00-<title>`, `.../p/<n>` | An item's `edition`, `season`, `episode`, `title`, `description`, `duration` (ms) | Crawls and describing |
-| `.../r/<rendition>` | `held:<source>`: path, size, and modification time, tab-separated, or empty once gone | Crawls |
+| `.../r/<quality>` | `held:<source>`: path, size, and modification time, tab-separated, or empty once gone | Crawls |
 | `u/<path>` | `held:<source>`, as above, for files that didn't parse | Crawls |
-| `r/<source>` | `url`, `rendition`, `skip`; `managed` (`1` for a device's downloads, which no one crawls); `absent:<directory>` (relative to it, empty for the whole of it), when a directory that held files was found empty (an unplugged drive's mount point), in ms, or empty once it's back, deleted, forgotten, or a year on | Adding or changing a source; crawls; forgetting |
+| `r/<source>` | `url`, `rendition` (its files' quality, the field's name kept as data), `skip`; `managed` (`1` for a device's downloads, which no one crawls); `absent:<directory>` (relative to it, empty for the whole of it), when a directory that held files was found empty (an unplugged drive's mount point), in ms, or empty once it's back, deleted, forgotten, or a year on | Adding or changing a source; crawls; forgetting |
 | `aliases` | `<title key>`: the title key it's an alias of, or empty | Review |
 | `n/<hex>` | `name`; for a device, `user` (its person's key, hex) | Naming |
 | `p/<person hex>/<item key>` | `position`, `duration` (ms; empty in the first 10 seconds), `watched` (`1`, `0`, or empty) | Playing, by hand (private) |

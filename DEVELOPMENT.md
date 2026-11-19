@@ -13,8 +13,8 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 
 ## Libraries
 
-* **Hierarchy:** bracketed levels of library → kind → title [→ season] [→ episode] [→ version/cut/extra] [→ part] → rendition often have one child; where one does, the UI may skip navigating it.
-* **Renditions:** {720p, 1080p, 4K} H.264 or H.265 in MP4, MKV, or ISO; Apple players can't play MKV or ISO, so the transcoder makes MP4 renditions of them.
+* **Hierarchy:** bracketed levels of library → kind → title [→ season] [→ episode] [→ version/cut/extra] [→ part] → quality often have one child; where one does, the UI may skip navigating it.
+* **Qualities:** {720p, 1080p, 4K} H.264 or H.265 in MP4, MKV, or ISO; Apple players can't play MKV or ISO, so the transcoder makes MP4 qualities of them.
 * **People:** each has any number of named lists.
   * A list's type is watchlist (or "borrowlist," of titles not yet held), smart playlist, or transcode queue.
   * A list's sharing is private,[^private] public, or collaborative, independent of its type.
@@ -47,7 +47,7 @@ Open:
 
 ## Sources
 
-* **Renditions from files:** read a file's rendition from the file itself (e.g., an MP4's tracks), for names that don't show it.
+* **Qualities from files:** read a file's quality from the file itself (e.g., an MP4's tracks), for names that don't show it.
 * **Listings:** also WebDAV `PROPFIND`, and the dates Apache and nginx print in HTML listings, so re-crawls can skip their unchanged directories; an occasional full sweep for files rewritten in place.
 * **Moved files:** matched by size and modification time, which a rename keeps, so progress and lists follow them; where listings lack those, by hashes of files' first and last 64 KiB, taken by byte ranges when first seen.
 * **Range probe:** flag sources that don't answer `Range: bytes=0-0` with 206 (e.g., Python's `http.server`), since players can't stream from them.
@@ -67,7 +67,7 @@ Open:
   * **Other sources:** the outside-metadata provider's art, and covers in Matroska files.
 * **Who's watching:** set-top players are often shared, laptops and handhelds seldom; a shared player holds each of its people's private data, and hides it while several people are watching.
 * **Watching together:** on one screen, offer titles every viewer will accept; apart, offer what the others would avoid.
-* **Downloads** (the command-line app's and the Mac's are built; see [AGENTS.md](AGENTS.md)), still to come: iOS and iPadOS, and Linux and Windows, whose free space the core can't yet read (only macOS's `statfs`); moving files when the folder changes, rather than fetching them again; downloading while the app is closed (with background serving); and keeping a series' next episodes in a rendition of its own, rather than the commonest.
+* **Downloads** (the command-line app's and the Mac's are built; see [AGENTS.md](AGENTS.md)), still to come: iOS and iPadOS, and Linux and Windows, whose free space the core can't yet read (only macOS's `statfs`); moving files when the folder changes, rather than fetching them again; downloading while the app is closed (with background serving); and keeping a series' next episodes in a quality of its own, rather than the commonest.
 
 Open:
 
@@ -91,22 +91,22 @@ A backend device on macOS, Linux, or Windows, also a source.
   * Apple players take H.264 up to High 8-bit, HEVC Main and Main10 tagged `hvc1`, HDR10, HLG, and Dolby Vision profiles 5 and 8; AAC, ALAC, AC-3, E-AC-3, MP3, and FLAC audio; and text subtitles as `mov_text`. DTS and TrueHD audio and image subtitles (PGS, VobSub) must be converted.
   * Output is written with its index first (`-movflags +faststart`), for progressive playback.
 * **MP4 in place:** inspecting MP4s and fixing them without a remux (retagging `hev1` as `hvc1`, moving the index first, editing metadata) come from a separate MP4 parsing and modification project.
-* **Laziness:** transcodes under the person's supervision from transcode queues, so renditions needn't be made in advance (which takes compute and storage a legacy NAS was sized for).
-* **Input and output:** reads input from any source over HTTP, and serves its output as a source. `HandBrakeCLI` reads only local paths, so its input, including disc images, is first copied to a cache by resumable range requests, which also serves several renditions. Input is often offline, on removable media.
+* **Laziness:** transcodes under the person's supervision from transcode queues, so qualities needn't be made in advance (which takes compute and storage a legacy NAS was sized for).
+* **Input and output:** reads input from any source over HTTP, and serves its output as a source. `HandBrakeCLI` reads only local paths, so its input, including disc images, is first copied to a cache by resumable range requests, which also serves several qualities. Input is often offline, on removable media.
 
 ## Other media
 
 The decentralized library generalized for other apps, of books, audiobooks, and music, with Cinematheque one client of it.
 
-* **Split:** a media-neutral core (identity, membership, pairing, replication and sync, discovery, serving, sources and crawling, private streams, lists, progress, covers and placeholders, downloads), with each kind of media a module supplying its names' parser, hierarchy, metadata readers, and renditions. Video's conventions (Plex, Jellyfin, and Kodi naming; editions; the transcoder) become one such module.
+* **Split:** a media-neutral core (identity, membership, pairing, replication and sync, discovery, serving, sources and crawling, private streams, lists, progress, covers and placeholders, downloads), with each kind of media a module supplying its names' parser, hierarchy, metadata readers, and qualities. Video's conventions (Plex, Jellyfin, and Kodi naming; editions; the transcoder) become one such module.
 * **Kinds:** each under a key prefix of its own (`t/<kind>/...`, as movies and series are), with progress in its own units.
   * **Books:** EPUB, PDF, and comics (CBZ); author → series → book → format; progress as a locator (an EPUB CFI, or a page), not milliseconds; metadata from EPUB's OPF and Calibre's `metadata.opf` sidecars.
   * **Audiobooks:** M4B (with chapters), and folders of MP3s; author → series → book → part; progress in milliseconds across parts; the narrator as metadata.
-  * **Music:** artist → album → disc → track; FLAC, ALAC or AAC (M4A), and MP3; tags from Vorbis comments, MP4 atoms, and ID3; play counts and when last played, in place of progress; lossless and lossy as renditions.
+  * **Music:** artist → album → disc → track; FLAC, ALAC or AAC (M4A), and MP3; tags from Vorbis comments, MP4 atoms, and ID3; play counts and when last played, in place of progress; lossless and lossy as qualities.
 * **Pairing UX:** pairing by code, New Devices, and setup as a shared SwiftUI package. Pairing once covers every app on a device: its identity and data directory are shared among the apps (an app group, and a Keychain access group for the seeds).
 * **Lists:** the watchlist generalized, per [Libraries](#libraries): private, shared (read by members), and collaborative (written by members) lists of any kind's titles: reading lists, want-to-hear, and playlists. Playlists are ordered, so collaborative ones need an ordered sequence (Fugue, in [specifications](docs/specifications/README.md)); smart lists are queries over facets.
 * **Covers:** extraction generalized from MP4's `covr`, by range requests, each with its ThumbHash placeholder: ID3's `APIC`, FLAC's `PICTURE` blocks, EPUB's OPF cover item, a comic's first page; and each kind's sidecars (`cover.jpg`, `folder.jpg`, Calibre's `cover.jpg`). PDFs, which need rendering, take a sidecar or none.
-* **Downloads:** generalized from [Players](#players): offline copies per device in a chosen rendition, served to devices nearby from desktop devices; whole albums and audiobooks, and a book's file.
+* **Downloads:** generalized from [Players](#players): offline copies per device in a chosen quality, served to devices nearby from desktop devices; whole albums and audiobooks, and a book's file.
 * **Packaging:** the core as an XCFramework with a Swift package over it (the model, the cover cache, pairing and setup views) for each app; the command-line app crawls and serves every kind.
 
 Open:

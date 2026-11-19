@@ -668,7 +668,7 @@ fn deviceAddress(lib: *Library, arena: std.mem.Allocator, target: []const u8, ad
 // Sources.
 
 /// The sources, as a JSON array of objects with `id`, `url`,
-/// `rendition`, `skip`, `copies`, `managed` (a device's downloads), and
+/// `quality`, `skip`, `copies`, `managed` (a device's downloads), and
 /// `unavailable`, its unavailable directories
 /// (`dir`, relative to it, empty for the whole of it, and `since`, in
 /// milliseconds since the epoch).
@@ -677,7 +677,7 @@ export fn cq_repos(lib: *Library) ?[*:0]u8 {
 }
 
 const AbsenceJson = struct { dir: []const u8, since: u64 };
-const SourceJson = struct { id: []const u8, url: []const u8, rendition: []const u8, skip: []const u8, copies: i64, unavailable: []const AbsenceJson, managed: bool };
+const SourceJson = struct { id: []const u8, url: []const u8, quality: []const u8, skip: []const u8, copies: i64, unavailable: []const AbsenceJson, managed: bool };
 
 fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
     const r = try lib.main();
@@ -686,7 +686,7 @@ fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
     for (list, out) |rp, *o| o.* = .{
         .id = try arena.dupe(u8, &rp.id),
         .url = rp.url,
-        .rendition = rp.layout.rendition,
+        .quality = rp.layout.quality,
         .skip = rp.layout.skip,
         .copies = try library.countCopies(r, arena, rp),
         .managed = rp.managed,
@@ -738,14 +738,14 @@ fn downloadsConfigure(lib: *Library, arena: std.mem.Allocator, dir: []const u8, 
 }
 
 /// Wants a title's, a season's (`<title>/e/s01`), or an item's files kept
-/// on this device (each item as of now), in `rendition` (null or empty:
+/// on this device (each item as of now), in `quality` (null or empty:
 /// the one most items have); `cq_reconcile` fetches them.
-export fn cq_download(lib: *Library, key: [*:0]const u8, rendition: ?[*:0]const u8) c_int {
-    return status(lib, downloadWant, .{ std.mem.span(key), span(rendition) orelse "" });
+export fn cq_download(lib: *Library, key: [*:0]const u8, quality: ?[*:0]const u8) c_int {
+    return status(lib, downloadWant, .{ std.mem.span(key), span(quality) orelse "" });
 }
 
-fn downloadWant(lib: *Library, arena: std.mem.Allocator, key: []const u8, rendition: []const u8) !void {
-    try download.want(try lib.main(), arena, key, rendition);
+fn downloadWant(lib: *Library, arena: std.mem.Allocator, key: []const u8, quality: []const u8) !void {
+    try download.want(try lib.main(), arena, key, quality);
 }
 
 /// Stops keeping a title's, season's, or item's files: deletes those held
@@ -799,7 +799,7 @@ const DownloadsJson = struct {
 /// This device's downloads, as a JSON object: `dir`, `source` (its ID),
 /// and `drop_watched`, as configured (null if not); `held`, the files held
 /// (`item`, `size`, and whether it's the `only` copy, no other source
-/// holding it alike); `wanted` (`key`, `rendition`); `next`, series whose
+/// holding it alike); `wanted` (`key`, `quality`); `next`, series whose
 /// next episodes download (`title`, `episodes`); `watched`, downloads
 /// watched since fetched and not kept, oldest first (`item`, and
 /// `deletable`, once held elsewhere, else the only copy); `kept` items; `free` bytes on its volume, if
@@ -896,13 +896,13 @@ fn removeUnavailable(lib: *Library, arena: std.mem.Allocator, source: []const u8
     _ = try library.removeUnavailable(r, arena, lib.now(), try library.findSource(r, arena, source), dir);
 }
 
-/// Adds a source by URL, as typed, with its rendition and the prefix of
+/// Adds a source by URL, as typed, with its quality and the prefix of
 /// names to skip (each null for the default).
-export fn cq_repo_add(lib: *Library, target: [*:0]const u8, rendition: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
-    return status(lib, sourceAdd, .{ std.mem.span(target), span(rendition), span(skip) });
+export fn cq_repo_add(lib: *Library, target: [*:0]const u8, quality: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
+    return status(lib, sourceAdd, .{ std.mem.span(target), span(quality), span(skip) });
 }
 
-fn sourceAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, rendition: ?[]const u8, skip: ?[]const u8) !void {
+fn sourceAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, quality: ?[]const u8, skip: ?[]const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
     const r = try lib.main();
@@ -910,20 +910,20 @@ fn sourceAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, rendit
     try @import("url.zig").escape(arena, &typed, std.mem.trim(u8, target, " \n"));
     if (!std.mem.endsWith(u8, typed.items, "/")) try typed.append(arena, '/');
     var layout: library.Layout = .{};
-    if (rendition) |v| layout.rendition = v;
+    if (quality) |v| layout.quality = v;
     if (skip) |v| layout.skip = v;
     _ = try library.addSource(r, lib.now(), typed.items, layout);
 }
 
 /// Changes a source's settings, those not null.
-export fn cq_repo_set(lib: *Library, source: [*:0]const u8, rendition: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
-    return status(lib, sourceSet, .{ std.mem.span(source), span(rendition), span(skip) });
+export fn cq_repo_set(lib: *Library, source: [*:0]const u8, quality: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
+    return status(lib, sourceSet, .{ std.mem.span(source), span(quality), span(skip) });
 }
 
-fn sourceSet(lib: *Library, arena: std.mem.Allocator, source: []const u8, rendition: ?[]const u8, skip: ?[]const u8) !void {
+fn sourceSet(lib: *Library, arena: std.mem.Allocator, source: []const u8, quality: ?[]const u8, skip: ?[]const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
-    _ = try library.setSource(try lib.main(), arena, lib.now(), source, rendition, skip);
+    _ = try library.setSource(try lib.main(), arena, lib.now(), source, quality, skip);
 }
 
 /// Removes a source, by ID or URL, and the copies it held.
@@ -1133,7 +1133,7 @@ fn coverJson(arena: std.mem.Allocator, bases: std.StringHashMapUnmanaged(library
 /// `aliases`, `fields` (its metadata, e.g., `description` and `genre`),
 /// `covers` (by field, `art` or `art:s01`...), and `items`, each with its
 /// `key`, `fields` (e.g., an episode's `title`), this person's `position`,
-/// `duration` (milliseconds), and `watched`, and `renditions`, each with
+/// `duration` (milliseconds), and `watched`, and `qualities`, each with
 /// its `label`, `name` (as its sources give it), and `copies`: `url`
 /// (ready to play), `size`, `mtime`, `source`, and `unavailable` (under an
 /// unavailable directory of its source). Null if there's no such title.
@@ -1142,8 +1142,8 @@ export fn cq_title(lib: *Library, key: [*:0]const u8) ?[*:0]u8 {
 }
 
 const CopyJson = struct { url: []const u8, size: u64, mtime: []const u8, source: []const u8, unavailable: bool };
-const RenditionJson = struct { label: []const u8, name: []const u8, copies: []const CopyJson };
-const ItemJson = struct { key: []const u8, fields: std.json.ArrayHashMap([]const u8), renditions: []const RenditionJson, position: u64, duration: u64, watched: bool };
+const QualityJson = struct { label: []const u8, name: []const u8, copies: []const CopyJson };
+const ItemJson = struct { key: []const u8, fields: std.json.ArrayHashMap([]const u8), qualities: []const QualityJson, position: u64, duration: u64, watched: bool };
 
 fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !struct {
     key: []const u8,
@@ -1160,16 +1160,16 @@ fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !struct {
     const bases = try sourceBases(r, arena);
     const items = try arena.alloc(ItemJson, d.items.items.len);
     for (d.items.items, items) |item, *io| {
-        const renditions = try arena.alloc(RenditionJson, item.renditions.items.len);
-        for (item.renditions.items, renditions) |rn, *ro| {
+        const qualities = try arena.alloc(QualityJson, item.qualities.items.len);
+        for (item.qualities.items, qualities) |rn, *ro| {
             const copies = try arena.alloc(CopyJson, rn.copies.items.len);
             var name = rn.label;
             for (rn.copies.items, copies) |h, *c| {
                 const rp = bases.get(h.source);
                 c.* = .{ .url = if (rp) |b| try art.fileUrl(arena, b.url, h.path) else "", .size = h.size, .mtime = h.mtime, .source = h.source, .unavailable = h.unavailable };
-                // The rendition's name as its sources give it.
-                if (rp) |b| if (b.layout.rendition.len > 0) {
-                    name = b.layout.rendition;
+                // The quality's name as its sources give it.
+                if (rp) |b| if (b.layout.quality.len > 0) {
+                    name = b.layout.quality;
                 };
             }
             ro.* = .{ .label = rn.label, .name = name, .copies = copies };
@@ -1177,7 +1177,7 @@ fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !struct {
         io.* = .{
             .key = item.key,
             .fields = .{ .map = item.fields },
-            .renditions = renditions,
+            .qualities = qualities,
             .position = item.progress.position_ms,
             .duration = item.progress.duration_ms,
             .watched = item.progress.watched,

@@ -8,11 +8,11 @@
 //! * below a movie, `/v/<edition>` (`-` for none), then `/p/<part>` if any;
 //!   below a series, `/e/s03e17` (`-e18` for a range), then `/v/<edition>`
 //!   for a version other than the plain one, then `/p/<part>`.
-//! * below either, `/r/<rendition>`, named by the source or else by the
+//! * below either, `/r/<quality>`, named by the source or else by the
 //!   file's name, or `-` if unknown: field `held:<source>` is the
 //!   source's path, size, and modification time, tab-separated, or
 //!   empty once no longer held.
-//! * `r/<source>`: fields `url`, `rendition` (its files' rendition, or
+//! * `r/<source>`: fields `url`, `quality` (its files' quality, or
 //!   empty if unknown), `skip` (the prefix of names to skip), and
 //!   `absent:<directory>` (when it was noticed, in milliseconds), for each
 //!   directory that held files and lists none now, its copies kept.
@@ -33,10 +33,11 @@ const url = @import("url.zig");
 const Blake3 = std.crypto.hash.Blake3;
 
 pub const Layout = struct {
-    /// The rendition of every file in the source (e.g., a HandBrake
+    /// The quality of every file in the source (e.g., a HandBrake
     /// preset's name), or empty if unknown. Reading it from the files
-    /// themselves (e.g., an MP4's tracks) is to come.
-    rendition: []const u8 = "",
+    /// themselves (e.g., an MP4's tracks) is to come. Stored as the
+    /// source's `rendition` field, its name kept as data.
+    quality: []const u8 = "",
     /// Names starting with this are skipped (e.g., housekeeping folders), or
     /// none if empty.
     skip: []const u8 = ",",
@@ -47,7 +48,7 @@ pub const Source = struct {
     url: []const u8,
     layout: Layout,
     /// A device's downloads (`managed`, see download.zig): its copies are
-    /// written as files are fetched, onto the renditions they came from, so
+    /// written as files are fetched, onto the qualities they came from, so
     /// it isn't crawled.
     managed: bool = false,
 };
@@ -142,7 +143,7 @@ pub fn parseFile(arena: std.mem.Allocator, rel: []const u8, series: *const Serie
     var scratch: [1024]u8 = undefined;
     var p = naming.parse(rel, &scratch);
     p.title = try arena.dupe(u8, p.title);
-    if (p.rendition) |r| p.rendition = try arena.dupe(u8, r);
+    if (p.quality) |r| p.quality = try arena.dupe(u8, r);
     if (p.edition) |e| p.edition = try arena.dupe(u8, e);
     const dir = std.fs.path.dirname(rel) orelse return p;
     const numberless = p.kind == .episode and p.episode == null and p.date == null and p.season == 0;
@@ -201,7 +202,7 @@ pub fn addSource(replica: *Replica, wall_ms: u64, target: []const u8, layout: La
     try replica.begin();
     errdefer replica.db.exec("ROLLBACK") catch {};
     try replica.write(wall_ms, key, "url", target);
-    try replica.write(wall_ms, key, "rendition", layout.rendition);
+    try replica.write(wall_ms, key, "rendition", layout.quality);
     try replica.write(wall_ms, key, "skip", layout.skip);
     try replica.commit();
     return id;
@@ -219,15 +220,15 @@ pub fn findSource(replica: *Replica, arena: std.mem.Allocator, which: []const u8
 }
 
 /// Changes a source's settings, those given. Copies move to a new
-/// rendition at the next crawl.
-pub fn setSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, which: []const u8, rendition: ?[]const u8, skip: ?[]const u8) !Source {
+/// quality at the next crawl.
+pub fn setSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, which: []const u8, quality: ?[]const u8, skip: ?[]const u8) !Source {
     var source = try findSource(replica, arena, which);
     const key = try std.fmt.allocPrint(arena, "r/{s}", .{source.id});
     try replica.begin();
     errdefer replica.db.exec("ROLLBACK") catch {};
-    if (rendition) |v| {
+    if (quality) |v| {
         try replica.write(wall_ms, key, "rendition", v);
-        source.layout.rendition = v;
+        source.layout.quality = v;
     }
     if (skip) |v| {
         try replica.write(wall_ms, key, "skip", v);
@@ -327,7 +328,7 @@ pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
         const field = s.blob(1);
         const value = try arena.dupe(u8, s.blob(2));
         if (std.mem.eql(u8, field, "url")) r.url = value //
-        else if (std.mem.eql(u8, field, "rendition")) r.layout.rendition = value //
+        else if (std.mem.eql(u8, field, "rendition")) r.layout.quality = value //
         else if (std.mem.eql(u8, field, "skip")) r.layout.skip = value //
         else if (std.mem.eql(u8, field, "managed")) r.managed = value.len > 0;
     }
@@ -346,7 +347,7 @@ pub const IngestStats = struct {
     copies_added: usize = 0,
     copies_changed: usize = 0,
     copies_removed: usize = 0,
-    /// Files whose rendition another file of the same source already
+    /// Files whose quality another file of the same source already
     /// had.
     duplicates: usize = 0,
     /// Directories that held files and list none now, their copies kept.
@@ -359,7 +360,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
     var stats: IngestStats = .{};
     const held_field = try std.fmt.allocPrint(arena, "held:{s}", .{source.id});
 
-    // What the source holds now: rendition key -> path, size, time.
+    // What the source holds now: quality key -> path, size, time.
     var wanted: std.StringHashMapUnmanaged([]const u8) = .empty;
     var fields: std.StringHashMapUnmanaged(void) = .empty; // title and item fields to ensure
     var titles_seen: std.ArrayList(struct { key: []const u8, name: []const u8, year: ?u16 }) = .empty;
@@ -391,17 +392,17 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
         }
         const owned = p;
         const k = try keys(arena, owned);
-        var rendition = try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ k.item, try renditionOf(arena, source.layout, owned) });
-        // Two files of one rendition in one source are duplicates (or
+        var quality = try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ k.item, try qualityOf(arena, source.layout, owned) });
+        // Two files of one quality in one source are duplicates (or
         // misnamed); keep both, numbered, and count them for review.
-        if (wanted.contains(rendition)) {
+        if (wanted.contains(quality)) {
             stats.duplicates += 1;
             var n: usize = 2;
-            while (wanted.contains(try std.fmt.allocPrint(arena, "{s}~{d}", .{ rendition, n }))) n += 1;
-            rendition = try std.fmt.allocPrint(arena, "{s}~{d}", .{ rendition, n });
+            while (wanted.contains(try std.fmt.allocPrint(arena, "{s}~{d}", .{ quality, n }))) n += 1;
+            quality = try std.fmt.allocPrint(arena, "{s}~{d}", .{ quality, n });
             if (stats.duplicate_example == null) stats.duplicate_example = rel;
         }
-        try wanted.put(arena, rendition, value);
+        try wanted.put(arena, quality, value);
         const gop = try fields.getOrPut(arena, k.title);
         if (!gop.found_existing) try titles_seen.append(arena, .{ .key = k.title, .name = owned.title, .year = owned.year });
         const item_gop = try fields.getOrPut(arena, k.item);
@@ -605,11 +606,11 @@ const Parents = struct {
     }
 };
 
-/// A file's rendition label: the source's, if it names one; else what
+/// A file's quality label: the source's, if it names one; else what
 /// the file's name says (e.g., `2160p-hevc-hdr`); else `-`, unknown.
-pub fn renditionOf(arena: std.mem.Allocator, layout: Layout, p: naming.Parsed) ![]const u8 {
-    if (layout.rendition.len > 0) return normalize(arena, layout.rendition);
-    if (p.rendition) |r| return normalize(arena, r);
+pub fn qualityOf(arena: std.mem.Allocator, layout: Layout, p: naming.Parsed) ![]const u8 {
+    if (layout.quality.len > 0) return normalize(arena, layout.quality);
+    if (p.quality) |r| return normalize(arena, r);
     return "-";
 }
 
@@ -649,15 +650,15 @@ pub const Title = struct {
     year: ?u16,
     /// Episodes or versions below it.
     items: usize = 0,
-    /// Renditions held by at least one source.
-    renditions: usize = 0,
-    /// Distinct rendition labels held.
+    /// Qualities held by at least one source.
+    qualities: usize = 0,
+    /// Distinct quality labels held.
     labels: std.ArrayList([]const u8) = .empty,
     /// The title it's an alias of, if any.
     alias: ?[]const u8 = null,
 };
 
-/// Every title, with counts of its items and held renditions.
+/// Every title, with counts of its items and held qualities.
 pub fn titles(replica: *Replica, arena: std.mem.Allocator) ![]Title {
     var alias_of: std.StringHashMapUnmanaged([]const u8) = .empty;
     {
@@ -691,7 +692,7 @@ pub fn titles(replica: *Replica, arena: std.mem.Allocator) ![]Title {
         }
         if (std.mem.startsWith(u8, field, "held:") and value.len > 0) {
             if (std.mem.indexOf(u8, key, "/r/")) |r| {
-                t.renditions += 1;
+                t.qualities += 1;
                 const label = key[r + 3 ..];
                 for (t.labels.items) |l| {
                     if (std.mem.eql(u8, l, label)) break;
@@ -721,7 +722,7 @@ pub const Copy = struct {
     unavailable: bool = false,
 };
 
-pub const Rendition = struct {
+pub const Quality = struct {
     label: []const u8,
     copies: std.ArrayList(Copy) = .empty,
 };
@@ -729,7 +730,7 @@ pub const Rendition = struct {
 pub const Item = struct {
     /// The key below the title's (e.g., `e/s03e17`, `v/directors-cut`).
     key: []const u8,
-    renditions: std.ArrayList(Rendition) = .empty,
+    qualities: std.ArrayList(Quality) = .empty,
     /// This person's.
     progress: Progress = .{},
     /// Metadata: an episode's `title`, `description`, and `duration`.
@@ -887,13 +888,13 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
             try d.items.append(arena, .{ .key = try arena.dupe(u8, item_key) });
         const item = &d.items.items[d.items.items.len - 1];
         const label = k[r + 3 ..];
-        if (item.renditions.items.len == 0 or !std.mem.eql(u8, item.renditions.items[item.renditions.items.len - 1].label, label))
-            try item.renditions.append(arena, .{ .label = try arena.dupe(u8, label) });
+        if (item.qualities.items.len == 0 or !std.mem.eql(u8, item.qualities.items[item.qualities.items.len - 1].label, label))
+            try item.qualities.append(arena, .{ .label = try arena.dupe(u8, label) });
         var parts = std.mem.splitScalar(u8, value, '\t');
         const path = parts.first();
         const size = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
         const source = field["held:".len..];
-        try item.renditions.items[item.renditions.items.len - 1].copies.append(arena, .{
+        try item.qualities.items[item.qualities.items.len - 1].copies.append(arena, .{
             .source = try arena.dupe(u8, source),
             .path = try arena.dupe(u8, path),
             .size = size,
@@ -925,7 +926,7 @@ pub fn closeMatches(arena: std.mem.Allocator, all: []const Title) ![]Match {
     for (all) |*t| {
         // Titles aliased already, or held by no source (e.g., one
         // dropped), aren't for review.
-        if (t.alias != null or t.renditions == 0) continue;
+        if (t.alias != null or t.qualities == 0) continue;
         const parts = std.mem.splitScalar(u8, t.key, '/');
         var it = parts;
         _ = it.next();
@@ -1019,7 +1020,7 @@ fn editDistance(a: []const u8, b: []const u8, limit: usize) usize {
     return prev[b.len];
 }
 
-/// Renditions held twice by one source: two files that parsed alike,
+/// Qualities held twice by one source: two files that parsed alike,
 /// such as a mislabeled episode or a copy, as `key` and `value` pairs.
 pub fn duplicates(replica: *Replica, arena: std.mem.Allocator) ![]Match {
     var out: std.ArrayList(Match) = .empty;
@@ -1066,14 +1067,14 @@ pub fn aliases(replica: *Replica, arena: std.mem.Allocator) ![]Alias {
 
 pub const Facet = struct { facet: []const u8, value: []const u8, count: usize };
 
-/// Counts of titles by kind, decade, and rendition held.
+/// Counts of titles by kind, decade, and quality held.
 pub fn facets(arena: std.mem.Allocator, all: []const Title) ![]Facet {
     var counts: std.StringArrayHashMapUnmanaged(usize) = .empty;
     for (all) |t| {
-        if (t.alias != null or t.renditions == 0) continue;
+        if (t.alias != null or t.qualities == 0) continue;
         try bump(arena, &counts, if (t.kind == 's') "kind\tseries" else "kind\tmovie");
         if (t.year) |y| try bump(arena, &counts, try std.fmt.allocPrint(arena, "decade\t{d}s", .{y / 10 * 10}));
-        for (t.labels.items) |l| try bump(arena, &counts, try std.fmt.allocPrint(arena, "rendition\t{s}", .{l}));
+        for (t.labels.items) |l| try bump(arena, &counts, try std.fmt.allocPrint(arena, "quality\t{s}", .{l}));
     }
     var out: std.ArrayList(Facet) = .empty;
     var it = counts.iterator();
@@ -1122,7 +1123,7 @@ test "keys follow parsed identity" {
     try testing.expectEqualStrings("t/s/friends/-/e/s04e23", episode.item);
 }
 
-test "renditions come from the source, or else from the file's name" {
+test "qualities come from the source, or else from the file's name" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -1131,10 +1132,10 @@ test "renditions come from the source, or else from the file's name" {
     const sd = naming.parse("Movies/Alien (1979)/Alien (1979) - 720p.mkv", &scratch[0]);
     const uhd = naming.parse("Movies/Alien (1979)/Alien (1979) - 4K HDR.mkv", &scratch[1]);
     try testing.expectEqualStrings((try keys(a, sd)).item, (try keys(a, uhd)).item);
-    try testing.expectEqualStrings("720p", try renditionOf(a, .{}, sd));
-    try testing.expectEqualStrings("2160p-hdr", try renditionOf(a, .{}, uhd));
-    try testing.expectEqualStrings("very-fast-720p30", try renditionOf(a, .{ .rendition = "Very Fast 720p30" }, uhd));
-    try testing.expectEqualStrings("-", try renditionOf(a, .{}, naming.parse("Alien (1979).mkv", &scratch[2])));
+    try testing.expectEqualStrings("720p", try qualityOf(a, .{}, sd));
+    try testing.expectEqualStrings("2160p-hdr", try qualityOf(a, .{}, uhd));
+    try testing.expectEqualStrings("very-fast-720p30", try qualityOf(a, .{ .quality = "Very Fast 720p30" }, uhd));
+    try testing.expectEqualStrings("-", try qualityOf(a, .{}, naming.parse("Alien (1979).mkv", &scratch[2])));
 }
 
 test "close matches" {
@@ -1142,17 +1143,17 @@ test "close matches" {
     defer arena_state.deinit();
     const a = arena_state.allocator();
     const all = [_]Title{
-        .{ .key = "t/m/amélie/2001", .kind = 'm', .name = "Amélie", .year = 2001, .renditions = 1 },
-        .{ .key = "t/m/amelie/2001", .kind = 'm', .name = "Amelie", .year = 2001, .renditions = 1 },
-        .{ .key = "t/m/heat/1995", .kind = 'm', .name = "Heat", .year = 1995, .renditions = 1 },
-        .{ .key = "t/m/heat/1959", .kind = 'm', .name = "Heat", .year = 1959, .renditions = 1 },
-        .{ .key = "t/m/gattaca/1997", .kind = 'm', .name = "Gattaca", .year = 1997, .renditions = 1 },
-        .{ .key = "t/m/gatacca/1997", .kind = 'm', .name = "Gatacca", .year = 1997, .renditions = 1 },
-        .{ .key = "t/m/alien/1979", .kind = 'm', .name = "Alien", .year = 1979, .renditions = 1 },
-        .{ .key = "t/m/alien/1980", .kind = 'm', .name = "Alien", .year = 1980, .renditions = 1 },
-        .{ .key = "t/m/aliens/1986", .kind = 'm', .name = "Aliens", .year = 1986, .renditions = 1 },
-        .{ .key = "t/m/rocky-2/1979", .kind = 'm', .name = "Rocky 2", .year = 1979, .renditions = 1 },
-        .{ .key = "t/m/rocky-3/1979", .kind = 'm', .name = "Rocky 3", .year = 1979, .renditions = 1 },
+        .{ .key = "t/m/amélie/2001", .kind = 'm', .name = "Amélie", .year = 2001, .qualities = 1 },
+        .{ .key = "t/m/amelie/2001", .kind = 'm', .name = "Amelie", .year = 2001, .qualities = 1 },
+        .{ .key = "t/m/heat/1995", .kind = 'm', .name = "Heat", .year = 1995, .qualities = 1 },
+        .{ .key = "t/m/heat/1959", .kind = 'm', .name = "Heat", .year = 1959, .qualities = 1 },
+        .{ .key = "t/m/gattaca/1997", .kind = 'm', .name = "Gattaca", .year = 1997, .qualities = 1 },
+        .{ .key = "t/m/gatacca/1997", .kind = 'm', .name = "Gatacca", .year = 1997, .qualities = 1 },
+        .{ .key = "t/m/alien/1979", .kind = 'm', .name = "Alien", .year = 1979, .qualities = 1 },
+        .{ .key = "t/m/alien/1980", .kind = 'm', .name = "Alien", .year = 1980, .qualities = 1 },
+        .{ .key = "t/m/aliens/1986", .kind = 'm', .name = "Aliens", .year = 1986, .qualities = 1 },
+        .{ .key = "t/m/rocky-2/1979", .kind = 'm', .name = "Rocky 2", .year = 1979, .qualities = 1 },
+        .{ .key = "t/m/rocky-3/1979", .kind = 'm', .name = "Rocky 3", .year = 1979, .qualities = 1 },
     };
     const matches = try closeMatches(a, &all);
     // Held by no source, so not for review.
@@ -1219,7 +1220,7 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
     try t.expectEqualStrings("b", gone[0].dir);
     try t.expectEqual(@as(u64, 3000), gone[0].since_ms);
     const shown = (try detail(&r, arena, "t/m/brazil/1985")).?;
-    try t.expect(shown.items.items[0].renditions.items[0].copies.items[0].unavailable);
+    try t.expect(shown.items.items[0].qualities.items[0].copies.items[0].unavailable);
     // Plugged back in: the marker goes, and nothing else changes.
     try tmp.dir.writeFile(io, .{ .sub_path = "b/Brazil (1985).mp4", .data = "x" });
     stats = (try Fresh.crawl(&r, io, arena, &client, 4000, source)).ingest;
@@ -1288,8 +1289,8 @@ test "state: sources, aliases, progress, and members can be listed, set, and rem
 
     const id = try addSource(&r, 1000, "http://nas.local/Movies/", .{});
     const changed = try setSource(&r, arena, 2000, "http://nas.local/Movies", "4K HEVC", null);
-    try std.testing.expectEqualStrings("4K HEVC", changed.layout.rendition);
-    try std.testing.expectEqualStrings("4K HEVC", (try findSource(&r, arena, &id)).layout.rendition);
+    try std.testing.expectEqualStrings("4K HEVC", changed.layout.quality);
+    try std.testing.expectEqualStrings("4K HEVC", (try findSource(&r, arena, &id)).layout.quality);
     try std.testing.expectEqualStrings(",", (try findSource(&r, arena, &id)).layout.skip);
 
     try addAlias(&r, 3000, "t/m/rogue-protocol/2019", "t/m/rogue-protocol/2018");

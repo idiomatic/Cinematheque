@@ -10,7 +10,7 @@ Every device keeps its own copy of the catalog: the titles, their episodes and v
 
 * **Library:** the shared catalog of titles (movies and series), their episodes and versions, and where each file is.
 * **Source:** anywhere your videos are served over HTTP. Cinematheque never changes a source's files; it only reads its listings.
-* **Quality:** one encoding of a title (e.g., 720p H.264, or 4K HEVC), which the code calls a rendition. The same quality may have copies in several sources; when one copy doesn't load, players try the next.
+* **Quality:** one encoding of a title (e.g., 720p H.264, or 4K HEVC). The same quality may have copies in several sources; when one copy doesn't load, players try the next.
 * **Device:** anything running Cinematheque (an app, or the command-line app), each keeping a copy of the library's catalog (not of its videos). Devices sync directly with each other; there is no server in the middle.
 * **Founder and members:** whoever creates a library founds it, and members add others. The founder can hand the library over to a successor; members can remove others, but not the founder.
 

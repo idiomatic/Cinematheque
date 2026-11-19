@@ -23,12 +23,12 @@ struct MovieView: View {
                     HStack(spacing: 30) {
                         if Playback.nextItem(detail, season: nil)?.inProgress == true {
                             Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: nil, rendition: detail.rendition(for: detail.items), overFromStart: true)
+                                playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items), overFromStart: true)
                             }
                             .labelStyle(.iconOnly)
                         }
                         Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: nil, rendition: detail.rendition(for: detail.items))
+                            playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items))
                         }
                         Marks(detail: detail, items: detail.items)
                     }
@@ -37,7 +37,7 @@ struct MovieView: View {
                             Text("Versions").font(.headline)
                             ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
                                 Button(item.versionName, systemImage: item.watched ? "checkmark.circle.fill" : "play.circle") {
-                                    playing = Playback.request(detail, items: [item], from: 0, rendition: detail.rendition(for: [item]))
+                                    playing = Playback.request(detail, items: [item], from: 0, quality: detail.quality(for: [item]))
                                 }
                             }
                         }
@@ -54,7 +54,7 @@ struct MovieView: View {
         .task(id: library.revision) {
             detail = library.detail(tile.key)
             #if DEBUG
-            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, rendition: detail.rendition(for: detail.items)) }
+            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items)) }
             #endif
         }
         .modifier(PlaysFullScreen(request: $playing))
@@ -112,12 +112,12 @@ struct SeriesView: View {
                     HStack(spacing: 30) {
                         if Playback.nextItem(detail, season: tile.season)?.inProgress == true {
                             Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: tile.season, rendition: detail.rendition(for: items), overFromStart: true)
+                                playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items), overFromStart: true)
                             }
                             .labelStyle(.iconOnly)
                         }
                         Button(Playback.playLabel(Playback.nextItem(detail, season: tile.season)), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: tile.season, rendition: detail.rendition(for: items))
+                            playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items))
                         }
                         Marks(detail: detail, items: items, season: tile.season)
                     }
@@ -127,7 +127,7 @@ struct SeriesView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                             Button {
-                                playing = Playback.request(detail, items: items, from: index, rendition: detail.rendition(for: items))
+                                playing = Playback.request(detail, items: items, from: index, quality: detail.quality(for: items))
                             } label: {
                                 Episode(item: item)
                             }

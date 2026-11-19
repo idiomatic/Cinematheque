@@ -30,10 +30,10 @@ enum Playback {
     /// next unwatched (or its first, if all are watched), with the rest of
     /// the season queued after it; with `overFromStart`, from its beginning
     /// (Start Over).
-    static func next(in detail: TitleDetail, season: Int?, rendition: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
+    static func next(in detail: TitleDetail, season: Int?, quality: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
         let items = items(detail, season: season)
         guard !items.isEmpty else { return nil }
-        return request(detail, items: items, from: nextIndex(items), rendition: rendition, overFromStart: overFromStart)
+        return request(detail, items: items, from: nextIndex(items), quality: quality, overFromStart: overFromStart)
     }
 
     /// Which of `items` Play plays: the latest in progress, else the first
@@ -52,9 +52,9 @@ enum Playback {
 
     /// Plays `items[index]`, where this person left off unless watched or
     /// `overFromStart`, then the rest in order.
-    static func request(_ detail: TitleDetail, items: [TitleDetail.Item], from index: Int, rendition: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
+    static func request(_ detail: TitleDetail, items: [TitleDetail.Item], from index: Int, quality: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
         let queue = items[index...].compactMap { item -> PlayRequest.Entry? in
-            let urls = copies(item, rendition: rendition).compactMap { URL(string: $0.url) }
+            let urls = copies(item, quality: quality).compactMap { URL(string: $0.url) }
             guard let url = urls.first else { return nil }
             return .init(url: url, item: "\(detail.key)/\(item.key)", title: name(item, in: detail), alternates: Array(urls.dropFirst()))
         }
@@ -63,16 +63,16 @@ enum Playback {
         return PlayRequest(url: first.url, item: first.item, start: item.watched || overFromStart ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()), alternates: first.alternates)
     }
 
-    /// The copies to try, in order: the chosen rendition's (if the item has
-    /// it, else its first rendition's), then its other renditions', so one
+    /// The copies to try, in order: the chosen quality's (if the item has
+    /// it, else its first quality's), then its other qualities', so one
     /// on a device that's asleep, or a drive that's unplugged, gives way to
     /// another.
-    static func copies(_ item: TitleDetail.Item, rendition: String?) -> [TitleDetail.Copy] {
-        let chosen = item.renditions.first { $0.label == rendition } ?? item.renditions.first
+    static func copies(_ item: TitleDetail.Item, quality: String?) -> [TitleDetail.Copy] {
+        let chosen = item.qualities.first { $0.label == quality } ?? item.qualities.first
         guard let chosen else { return [] }
-        let all = chosen.copies + item.renditions.filter { $0.label != chosen.label }.flatMap(\.copies)
+        let all = chosen.copies + item.qualities.filter { $0.label != chosen.label }.flatMap(\.copies)
         // A download on this device first, from its file, in whatever
-        // rendition: it's there to play, online or not.
+        // quality: it's there to play, online or not.
         let local = all.compactMap(downloaded)
         let others = all.filter { $0.source != downloads?.source }
         // Those on a drive that isn't there, last.

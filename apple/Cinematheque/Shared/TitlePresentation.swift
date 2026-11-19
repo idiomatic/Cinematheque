@@ -15,9 +15,9 @@ extension TitleDetail {
     /// A movie's description, or a season's (its series').
     var summary: String? { fields["description"] ?? items.first?.fields["description"] }
 
-    /// The rendition to play the items in (see `RenditionChoice.best`).
-    func rendition(for items: [Item]) -> String? {
-        RenditionChoice.best(items)
+    /// The quality to play the items in (see `QualityChoice.best`).
+    func quality(for items: [Item]) -> String? {
+        QualityChoice.best(items)
     }
 }
 
@@ -71,20 +71,20 @@ extension Playback {
     }
 }
 
-/// Which rendition a player plays: one in a format it plays (MP4, MOV, or
+/// Which quality a player plays: one in a format it plays (MP4, MOV, or
 /// M4V; not MKV or ISO), at the most its display shows (`Platform`), else
 /// the least above that.
-enum RenditionChoice {
+enum QualityChoice {
     static func best(_ items: [TitleDetail.Item]) -> String? {
         let limit = Platform.displayHeight >= 2160 ? 2160 : 1080
-        let renditions = items.flatMap(\.renditions)
-        let playable = renditions.filter { r in r.copies.contains { isPlayable($0.url) } }
-        return (playable.isEmpty ? renditions : playable).max { score($0.label, limit) < score($1.label, limit) }?.label
+        let qualities = items.flatMap(\.qualities)
+        let playable = qualities.filter { r in r.copies.contains { isPlayable($0.url) } }
+        return (playable.isEmpty ? qualities : playable).max { score($0.label, limit) < score($1.label, limit) }?.label
     }
 
-    /// A rendition's name for a picker, by its label.
+    /// A quality's name for a picker, by its label.
     static func name(_ label: String, in items: [TitleDetail.Item]) -> String {
-        items.lazy.flatMap(\.renditions).first { $0.label == label }?.name ?? label
+        items.lazy.flatMap(\.qualities).first { $0.label == label }?.name ?? label
     }
 
     private static func isPlayable(_ url: String) -> Bool {

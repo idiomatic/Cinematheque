@@ -120,7 +120,7 @@ pub const Plan = struct {
 /// one file for each, keeping the one already described while its file
 /// is unchanged, else a sidecar image, else an MP4, else any file; jobs for
 /// those to describe, in title order. A title held in several sources
-/// (e.g., one per rendition) is described from one of them.
+/// (e.g., one per quality) is described from one of them.
 pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawled) !Plan {
     var candidates: std.StringArrayHashMapUnmanaged(std.ArrayList(Job)) = .empty;
     for (crawled) |c| {
@@ -650,7 +650,7 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
         }
     }
     for (try library.titles(replica, arena)) |t| {
-        if (t.renditions == 0 or t.alias != null) continue;
+        if (t.qualities == 0 or t.alias != null) continue;
         const own = coverOf(try library.fieldValue(replica, arena, t.key, "art"));
         const own_thumb = if (own != null) thumbOf(try library.fieldValue(replica, arena, t.key, "thumb")) else null;
         if (t.kind != 's') {
