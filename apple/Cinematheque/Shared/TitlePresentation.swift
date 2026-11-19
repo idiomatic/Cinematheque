@@ -94,6 +94,43 @@ enum QualityChoice {
         items.lazy.flatMap(\.qualities).first { $0.label == label }?.name ?? label
     }
 
+    /// Each quality's short name for a picker: its resolution (2160p as 4K),
+    /// with HDR if it says so ("1080p", "4K HDR"); "Other" for one of
+    /// unknown quality; where two would read alike, each with what else its
+    /// full name says, its resolution and options' syntax aside ("720p Very
+    /// Fast"), failing that its full name; and its full name where it gives
+    /// no resolution. The full name is the picker's help.
+    static func shortNames(_ labels: [String], in items: [TitleDetail.Item]) -> [String: String] {
+        func short(_ label: String) -> String {
+            let full = name(label, in: items)
+            if label == "-" { return full == "-" ? "Other" : full }
+            let text = "\(label) \(full)".lowercased()
+            let resolution: String
+            if let match = text.firstMatch(of: /(\d{3,4})p/) {
+                resolution = match.1 == "2160" ? "4K" : "\(match.1)p"
+            } else if text.contains("4k") {
+                resolution = "4K"
+            } else {
+                return full
+            }
+            return text.contains("hdr") || text.contains("dolby vision") || text.contains("dovi") ? "\(resolution) HDR" : resolution
+        }
+        func rest(_ full: String) -> String {
+            full.replacing(/\b\d{3,4}p\d*\b/.ignoresCase(), with: "")
+                .replacing(/--?[\w-]+=/, with: "")
+                .split(separator: " ").joined(separator: " ")
+        }
+        let shorts = labels.map(short)
+        let told = zip(labels, shorts).map { label, s in
+            shorts.filter { $0 == s }.count > 1 ? "\(s) \(rest(name(label, in: items)))".trimmingCharacters(in: .whitespaces) : s
+        }
+        var out: [String: String] = [:]
+        for (label, t) in zip(labels, told) {
+            out[label] = told.filter { $0 == t }.count > 1 ? name(label, in: items) : t
+        }
+        return out
+    }
+
     private static func isPlayable(_ url: String) -> Bool {
         ["mp4", "m4v", "mov"].contains((URL(string: url)?.pathExtension ?? "").lowercased())
     }

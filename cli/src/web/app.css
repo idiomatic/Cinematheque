@@ -84,7 +84,16 @@ h2 { font-size: 20px; margin: 24px 0 12px; }
 .page .art img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .page h1 { margin: 0; font-size: 28px; }
 .facts { color: var(--dim); margin: 4px 0 16px; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; max-width: 80ch; }
+.spacer { flex: 1; }
+/* The marks: toggles set now and then, quieter than what plays. */
+button.mark { background: none; border-color: transparent; color: var(--dim); padding: 7px 8px; }
+button.mark:hover { color: var(--text); }
+button.mark[aria-pressed="true"] { color: var(--text); }
+.heading { display: flex; gap: 12px; align-items: center; margin: 24px 0 4px; max-width: 80ch; }
+.heading h2 { margin: 0; font-size: 17px; }
+.picker { color: var(--dim); font-size: 13px; }
+.picker select, .heading select { margin-left: 4px; padding: 4px 8px; font-size: 13px; }
 button, select {
   font: inherit; padding: 7px 14px; border-radius: 8px; cursor: pointer;
   border: 1px solid color-mix(in srgb, CanvasText 15%, transparent);
@@ -93,12 +102,6 @@ button, select {
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 button:disabled { opacity: 0.4; cursor: default; }
 .description { max-width: 70ch; }
-.seasons { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0; }
-.seasons a {
-  padding: 4px 12px; border-radius: 14px; text-decoration: none; color: inherit;
-  background: var(--raised);
-}
-.seasons a[aria-current="page"] { background: var(--accent); color: #fff; }
 .episodes { list-style: none; padding: 0; margin: 0; max-width: 80ch; }
 .episodes li {
   display: grid; grid-template-columns: 32px 1fr auto; gap: 4px 10px;

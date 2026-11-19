@@ -31,12 +31,17 @@ struct MovieView: View {
                         Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality))
                         }
-                        Marks(detail: detail, items: detail.items)
-                        QualityPicker(detail: detail, items: detail.items, chosen: $quality)
+                        // The marks, quieter than what plays: icons, named
+                        // for VoiceOver.
+                        Marks(detail: detail, items: detail.items).labelStyle(.iconOnly)
                     }
                     if detail.items.count > 1 {
                         VStack(alignment: .leading, spacing: 16) {
-                            Text("Versions").font(.headline)
+                            HStack {
+                                Text("Versions").font(.headline)
+                                Spacer()
+                                QualityPicker(detail: detail, items: detail.items, chosen: $quality)
+                            }
                             ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
                                 Button(item.versionName, systemImage: item.watched ? "checkmark.circle.fill" : "play.circle") {
                                     playing = Playback.request(detail, items: [item], from: 0, quality: detail.quality(for: [item], chosen: quality))
@@ -46,6 +51,10 @@ struct MovieView: View {
                     }
                     if let description = detail.summary {
                         Text(description).lineLimit(8)
+                    }
+                    // A movie of one version: its quality alone, under its description.
+                    if detail.items.count <= 1 {
+                        QualityPicker(detail: detail, items: detail.items, chosen: $quality)
                     }
                 }
             }
@@ -122,13 +131,18 @@ struct SeriesView: View {
                         Button(Playback.playLabel(Playback.nextItem(detail, season: tile.season)), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items, chosen: quality))
                         }
-                        Marks(detail: detail, items: items, season: tile.season)
-                        QualityPicker(detail: detail, items: items, chosen: $quality)
+                        Marks(detail: detail, items: items, season: tile.season).labelStyle(.iconOnly)
                     }
                     if let description = detail.fields["description"] {
                         Text(description).lineLimit(4).foregroundStyle(.secondary)
                     }
                     VStack(alignment: .leading, spacing: 12) {
+                        // The season's quality, in the heading of the episodes it plays.
+                        HStack {
+                            Text("Episodes").font(.headline)
+                            Spacer()
+                            QualityPicker(detail: detail, items: items, chosen: $quality)
+                        }
                         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                             Button {
                                 playing = Playback.request(detail, items: items, from: index, quality: detail.quality(for: items, chosen: quality))
@@ -197,9 +211,10 @@ private struct QualityPicker: View {
     var body: some View {
         let labels = Array(Set(items.flatMap { $0.qualities.map(\.label) })).sorted()
         if labels.count > 1 {
+            let short = QualityChoice.shortNames(labels, in: items)
             Picker(selection: Binding(get: { detail.quality(for: items, chosen: chosen) }, set: { chosen = $0 })) {
                 ForEach(labels, id: \.self) { label in
-                    Text(QualityChoice.name(label, in: items)).tag(Optional(label))
+                    Text(short[label] ?? label).tag(Optional(label))
                 }
             } label: {
                 Label("Quality", systemImage: "slider.horizontal.3")

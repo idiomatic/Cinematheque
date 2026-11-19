@@ -275,6 +275,26 @@ function qualitiesOf(items) {
   return [...found].sort((a, b) => rank(b[0]) - rank(a[0])).map(([label, name]) => ({ label, name }));
 }
 
+/// Each quality's short label: its resolution (2160p as 4K), with HDR if it
+/// says so ("1080p", "4K HDR"), or "Other" for one of unknown quality.
+/// Where two would read alike, each adds what else its full name says, its
+/// resolution and options' syntax aside ("720p Very Fast"); failing that,
+/// its full name.
+function shortNames(qualities) {
+  const short = (q) => {
+    if (q.label === "-") return q.name === "-" ? "Other" : q.name;
+    const text = `${q.label} ${q.name}`;
+    const m = /(\d{3,4})p/i.exec(text);
+    const resolution = m ? (m[1] === "2160" ? "4K" : `${m[1]}p`) : /\b4k\b/i.test(text) ? "4K" : null;
+    if (!resolution) return q.name;
+    return /\b(hdr|dolby ?vision|dovi)\b/i.test(text) ? `${resolution} HDR` : resolution;
+  };
+  const rest = (name) => name.replace(/\b\d{3,4}p\d*\b/gi, "").replace(/--?[\w-]+=/g, "").replace(/\s+/g, " ").trim();
+  const shorts = qualities.map(short);
+  const told = qualities.map((q, i) => shorts.filter((s) => s === shorts[i]).length > 1 ? `${shorts[i]} ${rest(q.name)}`.trim() : shorts[i]);
+  return new Map(qualities.map((q, i) => [q.label, told.filter((t) => t === told[i]).length > 1 ? q.name : told[i]]));
+}
+
 /// The quality chosen on this page, kept per title while the page is open.
 const chosenQuality = new Map();
 
@@ -335,23 +355,29 @@ async function titlePage(key, season) {
     : resuming ? "Resume" : "Play";
 
   const play = (index, fromStart) => playQueue(detail, items, index, quality, fromStart);
+  // Playing, on a row of its own; the marks, quieter, at its end.
   const actions = el("div", { class: "actions" },
     el("button", { class: "primary", type: "button", disabled: !quality, onclick: () => play(next, false) }, "▶ " + nextLabel),
     resuming ? el("button", { type: "button", title: "Play from the beginning", onclick: () => play(next, true) }, "⏮ Start Over") : null,
-    qualities.length > 1 ? el("select", {
-      "aria-label": "Quality",
-      onchange: (e) => { chosenQuality.set(key, e.target.value); route(); },
-    }, qualities.map((q) => el("option", { value: q.label, selected: q.label === quality }, q.name))) : null,
-    el("button", { type: "button", onclick: async () => { await api("watchlist", { key: isSeries ? `${key}#${season}` : key, on: !listed }); await reload(); route(); } },
+    el("span", { class: "spacer" }),
+    el("button", { class: "mark", type: "button", "aria-pressed": listed, onclick: async () => { await api("watchlist", { key: isSeries ? `${key}#${season}` : key, on: !listed }); await reload(); route(); } },
       listed ? "★ On Watchlist" : "☆ Watchlist"),
-    el("button", { type: "button", onclick: async () => {
+    el("button", { class: "mark", type: "button", "aria-pressed": allWatched, onclick: async () => {
       for (const i of items) await api("watched", { item: `${key}/${i.key}`, watched: !allWatched });
       await reload(); route();
     } }, allWatched ? "✓ Watched" : "○ Unwatched"),
   );
   if (!quality) problem("None of its copies plays in a browser (MKV and ISO files don't).");
 
-  const facts = [detail.year, detail.fields.genre, detail.fields.network, isSeries ? seasonName(season) : null,
+  // The quality, by its short label, with its full name as its sources give it.
+  const short = shortNames(qualities);
+  const qualityPicker = qualities.length > 1 ? el("label", { class: "picker" }, "Quality ",
+    el("select", {
+      title: qualities.find((q) => q.label === quality)?.name,
+      onchange: (e) => { chosenQuality.set(key, e.target.value); route(); },
+    }, qualities.map((q) => el("option", { value: q.label, selected: q.label === quality, title: q.name }, short.get(q.label))))) : null;
+
+  const facts = [isSeries ? seasonName(season) : null, detail.year, detail.fields.genre, detail.fields.network,
     !isSeries && items[0]?.fields.duration ? formatTime(Number(items[0].fields.duration)) : null].filter(Boolean).join(" · ");
   const body = [
     el("h1", {}, detail.name),
@@ -360,8 +386,12 @@ async function titlePage(key, season) {
     detail.fields.description && !isSeries ? el("p", { class: "description" }, detail.fields.description) : null,
   ];
   if (isSeries) {
-    body.push(el("div", { class: "seasons" }, seasons.map((s) =>
-      el("a", { href: `#title/${encodeURIComponent(key)}/${s}`, "aria-current": s === season ? "page" : null }, seasonName(s)))));
+    // Which season, and its quality, in the heading of the episodes they choose.
+    const seasonPicker = seasons.length > 1 ? el("select", {
+      "aria-label": "Season",
+      onchange: (e) => { location.hash = `#title/${encodeURIComponent(key)}/${e.target.value}`; },
+    }, seasons.map((s) => el("option", { value: s, selected: s === season }, seasonName(s)))) : null;
+    body.push(el("div", { class: "heading" }, el("h2", {}, "Episodes"), seasonPicker, el("span", { class: "spacer" }), qualityPicker));
     body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", { class: item.watched ? "watched" : null },
       el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n, false) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
@@ -370,11 +400,14 @@ async function titlePage(key, season) {
       item.fields.description ? el("span", { class: "desc" }, item.fields.description) : null,
     ))));
   } else if (items.length > 1) {
+    body.push(el("div", { class: "heading" }, el("h2", {}, "Versions"), el("span", { class: "spacer" }), qualityPicker));
     body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", {},
       el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n, false) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
       el("span", { class: "time" }, ""),
     ))));
+  } else if (qualityPicker) {
+    body.push(el("div", { class: "heading" }, el("span", { class: "spacer" }), qualityPicker));
   }
   describe(detail, items);
   return [el("div", { class: "page" }, art, el("div", {}, body))];

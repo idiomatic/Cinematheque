@@ -27,6 +27,13 @@ struct InspectorView: View {
                     metadata(detail)
                     if tile.season != nil { episodes(detail) }
                     if tile.season == nil, detail.items.count > 1 { versions(detail) }
+                    // A movie of one version: its quality alone, under its details.
+                    if tile.season == nil, detail.items.count <= 1 {
+                        HStack {
+                            Spacer()
+                            qualityPicker(detail.items)
+                        }
+                    }
                 }
             }
             .padding(16)
@@ -69,7 +76,6 @@ struct InspectorView: View {
     private func controls(_ detail: TitleDetail) -> some View {
         let items = Playback.items(detail, season: tile.season)
         let next = Playback.nextItem(detail, season: tile.season)
-        let qualities = Array(Set(items.flatMap { $0.qualities.map(\.label) })).sorted()
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Button {
@@ -82,20 +88,11 @@ struct InspectorView: View {
                 .disabled(next == nil)
             }
             .controlSize(.large)
-            // On a row of its own: qualities' names are long.
-            if qualities.count > 1 {
-                Picker("Quality", selection: $quality) {
-                    ForEach(qualities, id: \.self) { label in
-                        Text(QualityChoice.name(label, in: items)).tag(Optional(label))
-                    }
-                }
-                .labelsHidden()
-                .help("The quality to play")
-            }
             if tile.season == nil, let item = items.first, item.inProgress, item.duration > 0 {
                 progress(item, key: "\(detail.key)/\(item.key)")
             }
-            // Labeled where they fit, else icons alone.
+            // The marks, quieter than what plays: labeled where they fit,
+            // else icons alone.
             ViewThatFits(in: .horizontal) {
                 lists(detail, items: items).labelStyle(.titleAndIcon)
                 lists(detail, items: items).labelStyle(.iconOnly)
@@ -108,7 +105,8 @@ struct InspectorView: View {
             HStack {
                 Marks(detail: detail, items: items, season: tile.season)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
             .controlSize(.small)
             .fixedSize()
     }
@@ -153,6 +151,7 @@ struct InspectorView: View {
                     .controlSize(.small)
                     .help("Play the season from its first episode, the rest queued")
                 }
+                qualityPicker(items)
             }
             .padding(.bottom, 6)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
@@ -167,7 +166,12 @@ struct InspectorView: View {
     /// A movie's versions (e.g., a director's cut), each playable.
     private func versions(_ detail: TitleDetail) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Versions").font(.headline).padding(.bottom, 6)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Versions").font(.headline)
+                Spacer()
+                qualityPicker(detail.items)
+            }
+            .padding(.bottom, 6)
             ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
                 HStack {
                     Button {
@@ -187,6 +191,25 @@ struct InspectorView: View {
                 .padding(.vertical, 6)
                 Divider()
             }
+        }
+    }
+
+    /// The quality to play, when there's a choice, by its short name, in the
+    /// heading of what it plays; its full name, as its sources give it, is its
+    /// help.
+    @ViewBuilder
+    private func qualityPicker(_ items: [TitleDetail.Item]) -> some View {
+        let labels = Array(Set(items.flatMap { $0.qualities.map(\.label) })).sorted()
+        if labels.count > 1 {
+            let short = QualityChoice.shortNames(labels, in: items)
+            Picker("Quality", selection: $quality) {
+                ForEach(labels, id: \.self) { label in
+                    Text(short[label] ?? label).tag(Optional(label))
+                }
+            }
+            .fixedSize()
+            .controlSize(.small)
+            .help(quality.map { QualityChoice.name($0, in: items) } ?? "The quality to play")
         }
     }
 
