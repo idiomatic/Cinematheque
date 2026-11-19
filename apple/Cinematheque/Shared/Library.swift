@@ -911,17 +911,18 @@ final class Library {
     private(set) var sent: Exchange?
     private var syncingQuietly = false
 
-    /// One line telling of the last exchange each way, for diagnosis:
-    /// "Received 3 changes from firefly 1m ago · Sent 12 changes to Den
-    /// just now", counting operations (a field's write each).
+    /// One line telling of the last exchange each way that changed
+    /// something, for diagnosis: "Received 3 changes from firefly 1m ago ·
+    /// Sent 12 changes to Den just now", counting operations (a field's
+    /// write each). Exchanges with nothing new aren't told of.
     var syncLine: String {
         let when = RelativeDateTimeFormatter()
         when.unitsStyle = .abbreviated
         func ago(_ date: Date) -> String { Date.now.timeIntervalSince(date) < 5 ? "just now" : when.localizedString(for: date, relativeTo: .now) }
         var parts: [String] = []
         func changes(_ n: Int) -> String { n == 1 ? "1 change" : "\(n.formatted()) changes" }
-        if let r = received { parts.append((r.count == 0 ? "Nothing new from \(r.device)" : "Received \(changes(r.count)) from \(r.device)") + " " + ago(r.at)) }
-        if let s = sent { parts.append((s.count == 0 ? "Nothing new to \(s.device)" : "Sent \(changes(s.count)) to \(s.device)") + " " + ago(s.at)) }
+        if let r = received { parts.append("Received \(changes(r.count)) from \(r.device) \(ago(r.at))") }
+        if let s = sent { parts.append("Sent \(changes(s.count)) to \(s.device) \(ago(s.at))") }
         return parts.joined(separator: " · ")
     }
 
@@ -1004,8 +1005,10 @@ final class Library {
             return
         }
         let reached = results.filter { $0.error == nil }
-        guard let most = reached.max(by: { $0.new < $1.new }) else { return }
-        received = Exchange(count: reached.reduce(0) { $0 + $1.new }, device: most.device, at: .now)
+        // Only exchanges that changed something are told of.
+        if let most = reached.max(by: { $0.new < $1.new }), most.new > 0 {
+            received = Exchange(count: reached.reduce(0) { $0 + $1.new }, device: most.device, at: .now)
+        }
         // What this device pushed, to the other device it sent most to.
         if let pushed = reached.max(by: { ($0.sent ?? 0) < ($1.sent ?? 0) }), let count = pushed.sent, count > 0 {
             sent = Exchange(count: reached.reduce(0) { $0 + ($1.sent ?? 0) }, device: pushed.device, at: .now)
@@ -1018,7 +1021,9 @@ final class Library {
         let at = Date(timeIntervalSince1970: pushed.at / 1000)
         guard lastPush != at else { return }
         lastPush = at
-        received = Exchange(count: pushed.operations, device: pushed.name ?? String(pushed.device.prefix(8)), at: at)
+        if pushed.operations > 0 {
+            received = Exchange(count: pushed.operations, device: pushed.name ?? String(pushed.device.prefix(8)), at: at)
+        }
         reload()
     }
 
@@ -1036,7 +1041,7 @@ final class Library {
     private func noteServed() {
         guard hasLibrary, let served = decode(Heard?.self, { cq_served($0) }) ?? nil else { return }
         let at = Date(timeIntervalSince1970: served.at / 1000)
-        guard sent?.at != at else { return }
+        guard sent?.at != at, served.operations > 0 else { return }
         sent = Exchange(count: served.operations, device: served.name ?? String(served.device.prefix(8)), at: at)
     }
 
