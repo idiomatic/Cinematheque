@@ -48,7 +48,6 @@ struct CinemathequeApp: App {
 /// served and refreshed (by syncing, then crawling) once a launch.
 struct RootView: View {
     @Environment(Library.self) private var library
-    @Environment(\.scenePhase) private var phase
 
     var body: some View {
         Group {
@@ -66,15 +65,28 @@ struct RootView: View {
             await library.startAtLaunch(device: Platform.deviceName, person: Platform.personName)
             await library.keepInSync()
         }
-        // Back at the front (as an Apple TV app returns from the home screen,
-        // never relaunched), what other devices changed meanwhile.
-        .onChange(of: phase) {
-            #if os(tvOS)
-            // The Mac keeps syncing behind other apps; an Apple TV app in
-            // the background is about to be suspended.
-            library.active = phase == .active
-            #endif
-            if phase == .active { Task { await library.syncQuietly() } }
-        }
+        .background { PhaseWatcher() }
+    }
+}
+
+/// The scene's phase, watched beside the views rather than by their root,
+/// whose every phase change would otherwise redraw them all (the tab bar's
+/// glass, too) while the system snapshots the app going to the background.
+private struct PhaseWatcher: View {
+    @Environment(Library.self) private var library
+    @Environment(\.scenePhase) private var phase
+
+    var body: some View {
+        Color.clear
+            // Back at the front (as an Apple TV app returns from the home
+            // screen, never relaunched), what other devices changed meanwhile.
+            .onChange(of: phase) {
+                #if os(tvOS)
+                // The Mac keeps syncing behind other apps; an Apple TV app in
+                // the background is about to be suspended.
+                library.active = phase == .active
+                #endif
+                if phase == .active { Task { await library.syncQuietly() } }
+            }
     }
 }

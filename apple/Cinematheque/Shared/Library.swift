@@ -926,8 +926,9 @@ final class Library {
         return parts.joined(separator: " · ")
     }
 
-    /// Whether the app is at the front (its scene active).
-    var active = true
+    /// Whether the app is at the front (its scene active); not observed, so
+    /// setting it redraws nothing.
+    @ObservationIgnored var active = true
 
     /// When this device last synced, from which the next quiet sync waits
     /// a minute.

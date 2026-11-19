@@ -1,4 +1,5 @@
 import AVFoundation
+import os
 
 /// Plays a request's queue straight from sources, one item after
 /// another, keeping each item's progress: every 10 seconds of playing (but
@@ -57,16 +58,43 @@ final class PlaybackSession {
     /// Once closed, it doesn't start.
     private var closed = false
 
+    /// Counts sessions, to tell them apart in the log.
+    private static var made = 0
+    private let number: Int = {
+        made += 1
+        return made
+    }()
+
     /// Readies the first item, paused, at the request's start (resuming,
     /// `Platform.replay` before it): loaded, sought, and buffered
     /// (prerolled), so it plays at once.
     func prepare() async {
-        guard let current = player.currentItem, let first = await loaded(await prefer(current)) else { return }
+        let clock = ContinuousClock()
+        var mark = clock.now
+        /// How long since the last step, for the log.
+        func lap() -> String {
+            let now = clock.now
+            defer { mark = now }
+            return (now - mark).formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow))
+        }
+        guard let current = player.currentItem else { return }
+        let preferred = await prefer(current)
+        Self.log.notice("Starting #\(self.number): raced copies in \(lap(), privacy: .public), chose \(self.entries[ObjectIdentifier(preferred)]?.url.host() ?? "?", privacy: .public)")
+        guard let first = await loaded(preferred) else { return }
+        Self.log.notice("Starting #\(self.number): loaded in \(lap(), privacy: .public)")
         guard first.status == .readyToPlay, !closed else { return }
-        if start > 0 { await player.seek(to: CMTime(seconds: max(0, start - Platform.replay), preferredTimescale: 600)) }
+        if start > 0 {
+            await player.seek(to: CMTime(seconds: max(0, start - Platform.replay), preferredTimescale: 600))
+            Self.log.notice("Starting #\(self.number): sought in \(lap(), privacy: .public)")
+        }
         guard !closed else { return }
         _ = await player.preroll(atRate: 1)
+        Self.log.notice("Starting #\(self.number): prerolled in \(lap(), privacy: .public)")
     }
+
+    /// Playback's steps and their times, in the system's log (Xcode's
+    /// console), to tell where a slow start goes.
+    static let log = Logger(subsystem: "com.rbrian.cinematheque", category: "playback")
 
     /// Puts the copy of `playerItem`'s item whose server answers first
     /// (copy racing, `Library.race`) in its place, if that's another copy; returns
