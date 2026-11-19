@@ -335,7 +335,8 @@ private struct Player: NSViewRepresentable {
         view.player = session.player
         curtain.session = session
         let curtain = curtain
-        Task { if await session.begin() { curtain.raise() } }
+        // Raised even if it couldn't load, so AVKit says why, not a black window.
+        Task { _ = await session.begin(); curtain.raise() }
         context.coordinator.session = session
         return view
     }

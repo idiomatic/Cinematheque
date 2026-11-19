@@ -597,7 +597,7 @@ pub const Tile = struct {
     total: u64 = 0,
     started: bool = false,
     /// How many items it holds: a movie's versions and parts, or a season's
-    /// episodes (and their versions and parts).
+    /// episodes (an episode's versions and parts counting once).
     items: usize = 0,
     /// Every copy it has is under an unavailable directory (an unplugged drive's).
     unavailable: bool = false,
@@ -704,7 +704,7 @@ fn tileOf(item: []const u8) ?struct { title: []const u8, season: u16 } {
 
 fn progress(tile: *Tile, items: anytype, heads: anytype, durations: anytype, id: []const u8) void {
     const list = (items.get(id) orelse return).items;
-    tile.items = list.len;
+    tile.items = distinctItems(list);
     // An item of unknown length takes the average of those known (else half
     // an hour, an episode's usual length).
     var known_ms: u64 = 0;
@@ -729,6 +729,26 @@ fn progress(tile: *Tile, items: anytype, heads: anytype, durations: anytype, id:
     }
     tile.watched = list.len > 0 and watched == list.len;
     if (tile.total > 0) tile.progress = @as(f64, @floatFromInt(tile.played)) / @as(f64, @floatFromInt(tile.total));
+}
+
+/// How many items: an episode's versions and parts count as one.
+fn distinctItems(list: []const []const u8) usize {
+    var n: usize = 0;
+    for (list, 0..) |item, i| {
+        const here = withoutVersion(item);
+        const seen = for (list[0..i]) |before| {
+            if (std.mem.eql(u8, withoutVersion(before), here)) break true;
+        } else false;
+        if (!seen) n += 1;
+    }
+    return n;
+}
+
+/// An episode's item key without its version or part (`.../e/s01e02`).
+fn withoutVersion(item: []const u8) []const u8 {
+    const e = std.mem.indexOf(u8, item, "/e/") orelse return item;
+    const end = std.mem.indexOfScalarPos(u8, item, e + 3, '/') orelse return item;
+    return item[0..end];
 }
 
 /// An item's length: its progress's, else its file's metadata's, if known.
@@ -855,4 +875,9 @@ test "a JPEG cover's placeholder is the reference ThumbHash of its DC image" {
     // From evanw/thumbhash's rgbaToThumbHash, given the same 10×15 pixels.
     try std.testing.expectEqualStrings("GRgKfQqDg5CYSIiIeIqnl49oyG92", try placeholder(arena, @embedFile("testdata/pattern.jpg")));
     try std.testing.expectEqualStrings("GRgKfQqDg5CYSIiIeIqnl49oyG92", try placeholder(arena, @embedFile("testdata/pattern-progressive.jpg")));
+}
+
+test "an episode's versions and parts count as one item" {
+    const list = [_][]const u8{ "t/s/x/-/e/s01e01", "t/s/x/-/e/s01e01/v/Extended", "t/s/x/-/e/s01e01/p/2", "t/s/x/-/e/s01e02" };
+    try std.testing.expectEqual(@as(usize, 2), distinctItems(&list));
 }

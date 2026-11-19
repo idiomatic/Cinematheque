@@ -347,7 +347,7 @@ private struct DownloadControls: View {
 
     /// How many next episodes to download, the choices and what's now set.
     private static func choices(including n: Int) -> [Int] {
-        next.contains(n) ? [0] + next : ([0] + next + [n]).sorted()
+        n == 0 || next.contains(n) ? [0] + next : ([0] + next + [n]).sorted()
     }
 
     /// A choice, as the menu and its button say it.

@@ -33,8 +33,8 @@ struct Tile: Codable, Identifiable, Hashable {
     let elapsed: Int
     let runtime: Int
     let started: Bool
-    /// How many items it holds: a season's episodes (and their versions and
-    /// parts), a movie's versions and parts.
+    /// How many items it holds: a season's episodes (an episode's versions
+    /// and parts counting once), a movie's versions and parts.
     let items: Int
     /// Every copy it has is on a drive that isn't there (an unavailable
     /// directory of its source's): shown dimmed.
@@ -294,6 +294,9 @@ final class Library {
         let version = cq_data_version(handle.pointer)
         guard dirty || version < 0 || version != loadedVersion else { return }
         let wrote = dirty
+        // Another connection's commit (a crawl's describing, a sync) may
+        // change a title's details without changing its tile.
+        let committed = version != loadedVersion
         dirty = false
         loadedVersion = version
         let read = decode([Tile].self) { cq_tiles($0) } ?? []
@@ -317,9 +320,9 @@ final class Library {
         reloadDownloads()
         #endif
         // Views of a title's details (which reread them with it) wait for a
-        // change in the tiles, not each reload: a crawl or sync reloads
-        // every second. Local writes and descriptions bump it themselves.
-        if changed || wrote { revision += 1 }
+        // change in the data, not each reload: a crawl or sync reloads at
+        // most every second, and one that changed nothing doesn't.
+        if changed || wrote || committed { revision += 1 }
     }
 
     func detail(_ key: String) -> TitleDetail? {
@@ -569,7 +572,9 @@ final class Library {
     private(set) var unavailableFolders: Set<String> = []
 
     /// Folders that aren't there now.
-    private var foldersNotThere: Set<String> {
+    private var foldersNotThere: Set<String> { Self.missing(folders) }
+
+    nonisolated private static func missing(_ folders: [Folder]) -> Set<String> {
         Set(folders.filter { folder in
             var directory: ObjCBool = false
             return !FileManager.default.fileExists(atPath: folder.path, isDirectory: &directory) || !directory.boolValue
@@ -578,8 +583,12 @@ final class Library {
 
     /// Notes folders that have come back, or gone, for Settings to show.
     private func checkFolders() {
-        let now = foldersNotThere
-        if now != unavailableFolders { unavailableFolders = now }
+        // Off the main actor: a share that's hung can hold a stat for its timeout.
+        let folders = folders
+        Task {
+            let now = await Task.detached { Self.missing(folders) }.value
+            if now != unavailableFolders { unavailableFolders = now }
+        }
     }
 
     private var foldersKey: String { "folders-" + (status?.library ?? "") }
