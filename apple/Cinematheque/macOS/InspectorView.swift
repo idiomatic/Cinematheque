@@ -125,10 +125,12 @@ struct InspectorView: View {
                 // Beside the list it starts, and only where Play wouldn't
                 // start there anyway.
                 if Playback.nextIndex(items) != 0 {
-                    Button("Play from First Episode") {
+                    Button {
                         if let request = Playback.request(detail, items: items, from: 0, rendition: rendition) { play(request) }
+                    } label: {
+                        Label("Restart", systemImage: "backward.end.fill")
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
                     .help("Play the season from its first episode, the rest queued")
                 }
