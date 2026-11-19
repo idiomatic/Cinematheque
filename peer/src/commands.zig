@@ -151,7 +151,7 @@ pub fn source(peer: *Peer, c: Command) !void {
         defer r.close();
         const rp = try lib.findSource(&r, peer.arena, c.rest[0]);
         try peer.out.print("source       {s}\nurl        {s}\nrendition  \"{s}\"\nskip       \"{s}\"\ncopies     {d}\n", .{
-            rp.id, rp.url, rp.layout.rendition, rp.layout.skip, try lib.copies(&r, peer.arena, rp),
+            rp.id, rp.url, rp.layout.rendition, rp.layout.skip, try lib.countCopies(&r, peer.arena, rp),
         });
         for (try lib.absences(&r, peer.arena, &rp.id)) |a|
             try peer.out.print("absent     /{s}, since {d} days ago\n", .{ a.dir, (peer.now() -| a.since_ms) / (24 * 60 * 60 * 1000) });
@@ -230,7 +230,7 @@ pub fn title(peer: *Peer, c: Command) !void {
             for (item.fields.keys(), item.fields.values()) |k, v| try out.print("    {s}: {s}\n", .{ k, v });
             for (item.renditions.items) |rendition| {
                 try out.print("    {s}\n", .{rendition.label});
-                for (rendition.holdings.items) |h| {
+                for (rendition.copies.items) |h| {
                     const base = core.url.decode(try peer.arena.dupe(u8, urls.get(h.source) orelse h.source)) catch h.source;
                     try out.print("      {d:.2} GB  {s}  {s}{s}\n", .{ @as(f64, @floatFromInt(h.size)) / 1e9, h.mtime, base, h.path });
                 }
@@ -410,9 +410,9 @@ fn crawlSources(peer: *Peer, workers: usize, only: ?[]const u8) !void {
         }
         const s = try lib.crawlSource(&r, peer.io, peer.arena, &client, peer.now(), rp, workers);
         const i = s.ingest;
-        try peer.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; holdings {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories absent; {d} ms in all\n", .{
+        try peer.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; copies {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories absent; {d} ms in all\n", .{
             rp.url,         s.crawl.requests, s.crawl.skipped,    s.crawl_ms,         i.files,      i.skipped, i.extras,   i.unparsed,
-            i.titles_added, i.holdings_added, i.holdings_changed, i.holdings_removed, i.duplicates, i.absent,  s.total_ms,
+            i.titles_added, i.copies_added, i.copies_changed, i.copies_removed, i.duplicates, i.absent,  s.total_ms,
         });
         if (i.duplicate_example) |e| try peer.out.print("  e.g., {s}\n", .{e});
         try peer.out.flush();

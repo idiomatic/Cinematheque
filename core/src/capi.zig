@@ -688,7 +688,7 @@ fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
         .url = rp.url,
         .rendition = rp.layout.rendition,
         .skip = rp.layout.skip,
-        .copies = try library.copies(r, arena, rp),
+        .copies = try library.countCopies(r, arena, rp),
         .managed = rp.managed,
         .absent = blk: {
             const list_ = try library.absences(r, arena, &rp.id);
@@ -1135,8 +1135,8 @@ export fn cq_title(lib: *Library, key: [*:0]const u8) ?[*:0]u8 {
     return json(lib, title, .{std.mem.span(key)});
 }
 
-const Copy = struct { url: []const u8, size: u64, mtime: []const u8, source: []const u8, absent: bool };
-const RenditionJson = struct { label: []const u8, name: []const u8, copies: []const Copy };
+const CopyJson = struct { url: []const u8, size: u64, mtime: []const u8, source: []const u8, absent: bool };
+const RenditionJson = struct { label: []const u8, name: []const u8, copies: []const CopyJson };
 const ItemJson = struct { key: []const u8, fields: std.json.ArrayHashMap([]const u8), renditions: []const RenditionJson, position: u64, duration: u64, watched: bool };
 
 fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !struct {
@@ -1156,9 +1156,9 @@ fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !struct {
     for (d.items.items, items) |item, *io| {
         const renditions = try arena.alloc(RenditionJson, item.renditions.items.len);
         for (item.renditions.items, renditions) |rn, *ro| {
-            const copies = try arena.alloc(Copy, rn.holdings.items.len);
+            const copies = try arena.alloc(CopyJson, rn.copies.items.len);
             var name = rn.label;
-            for (rn.holdings.items, copies) |h, *c| {
+            for (rn.copies.items, copies) |h, *c| {
                 const rp = bases.get(h.source);
                 c.* = .{ .url = if (rp) |b| try art.fileUrl(arena, b.url, h.path) else "", .size = h.size, .mtime = h.mtime, .source = h.source, .absent = h.absent };
                 // The rendition's name as its sources give it.

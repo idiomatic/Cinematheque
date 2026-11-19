@@ -1,5 +1,5 @@
 //! The library's domain on top of the replica: keys derived from titles'
-//! parsed identities, sources and their layouts, holdings ingested
+//! parsed identities, sources and their layouts, copies ingested
 //! from crawls, the review of close matches and aliases, and playheads.
 //!
 //! Keys:
@@ -15,7 +15,7 @@
 //! * `r/<source>`: fields `url`, `rendition` (its files' rendition, or
 //!   empty if unknown), `skip` (the prefix of names to skip), and
 //!   `absent:<directory>` (when it was noticed, in milliseconds), for each
-//!   directory that held files and lists none now, its holdings kept.
+//!   directory that held files and lists none now, its copies kept.
 //! * `aliases`: field `<title key>`, value the title key it's an alias of,
 //!   or empty if none.
 //! * `u/<path>`: files that didn't parse, with `held:<source>`.
@@ -46,7 +46,7 @@ pub const Source = struct {
     id: [16]u8,
     url: []const u8,
     layout: Layout,
-    /// A device's downloads (`managed`, see download.zig): its holdings are
+    /// A device's downloads (`managed`, see download.zig): its copies are
     /// written as files are fetched, onto the renditions they came from, so
     /// it isn't crawled.
     managed: bool = false,
@@ -263,7 +263,7 @@ pub fn removeSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, w
 }
 
 /// How many copies a source holds.
-pub fn copies(replica: *Replica, arena: std.mem.Allocator, source: Source) !i64 {
+pub fn countCopies(replica: *Replica, arena: std.mem.Allocator, source: Source) !i64 {
     const s = try replica.db.prepare("SELECT count(*) FROM winners WHERE field = ?1 AND length(value) > 0");
     defer s.finalize();
     try s.bindText(1, try std.fmt.allocPrint(arena, "held:{s}", .{source.id}));
@@ -285,7 +285,7 @@ pub const CrawlStats = struct {
 };
 
 /// Crawls a source, reusing this peer's last crawl of it where its
-/// directories haven't changed, brings the library's holdings in line with
+/// directories haven't changed, brings the library's copies in line with
 /// what it found, and keeps the crawl for next time. Describing what it
 /// found is separate (see `art.plan` and `art.run`), so its titles show
 /// before their covers.
@@ -343,18 +343,18 @@ pub const IngestStats = struct {
     unparsed: usize = 0,
     extras: usize = 0,
     titles_added: usize = 0,
-    holdings_added: usize = 0,
-    holdings_changed: usize = 0,
-    holdings_removed: usize = 0,
+    copies_added: usize = 0,
+    copies_changed: usize = 0,
+    copies_removed: usize = 0,
     /// Files whose rendition another file of the same source already
     /// had.
     duplicates: usize = 0,
-    /// Directories that held files and list none now, their holdings kept.
+    /// Directories that held files and list none now, their copies kept.
     absent: usize = 0,
     duplicate_example: ?[]const u8 = null,
 };
 
-/// Brings the library's holdings for `source` in line with a crawl of it.
+/// Brings the library's copies for `source` in line with a crawl of it.
 pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source: Source, entries: []const crawl.Entry) !IngestStats {
     var stats: IngestStats = .{};
     const held_field = try std.fmt.allocPrint(arena, "held:{s}", .{source.id});
@@ -431,13 +431,13 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
         }
     }
     // A directory that held files and is still listed but holds none (an
-    // unplugged drive's empty mount point) is absent, its holdings kept;
+    // unplugged drive's empty mount point) is absent, its copies kept;
     // one gone from its parent's listing was deleted. Only the topmost of an
     // absent subtree is noted.
     var absent_now: std.StringArrayHashMapUnmanaged(void) = .empty;
     var held = current.valueIterator();
     while (held.next()) |value| {
-        var parents = parentsOf(holdingPath(value.*));
+        var parents = parentsOf(copyPath(value.*));
         while (parents.next()) |dir| {
             if (!listed.contains(dir)) break;
             if (with_files.contains(dir)) continue;
@@ -478,14 +478,14 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
     while (it.next()) |e| {
         const old = current.get(e.key_ptr.*);
         if (old != null and std.mem.eql(u8, old.?, e.value_ptr.*)) continue;
-        if (old == null) stats.holdings_added += 1 else stats.holdings_changed += 1;
+        if (old == null) stats.copies_added += 1 else stats.copies_changed += 1;
         try replica.write(wall_ms, e.key_ptr.*, held_field, e.value_ptr.*);
     }
     var cur = current.iterator();
     removing: while (cur.next()) |e| {
         if (wanted.contains(e.key_ptr.*)) continue;
-        for (kept.items) |dir| if (under(holdingPath(e.value_ptr.*), dir)) continue :removing;
-        stats.holdings_removed += 1;
+        for (kept.items) |dir| if (under(copyPath(e.value_ptr.*), dir)) continue :removing;
+        stats.copies_removed += 1;
         try replica.write(wall_ms, e.key_ptr.*, held_field, "");
     }
     const source_key = try std.fmt.allocPrint(arena, "r/{s}", .{source.id});
@@ -500,7 +500,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
     return stats;
 }
 
-/// How long a directory may be absent before its holdings go, as if it
+/// How long a directory may be absent before its copies go, as if it
 /// were deleted: a year.
 pub const absent_expiry_ms: u64 = 365 * 24 * 60 * 60 * 1000;
 
@@ -545,16 +545,16 @@ pub const Absences = struct {
         return a;
     }
 
-    /// Whether a holding (`value`, as `held:<source>` holds it) is under one of
+    /// Whether a copy (`value`, as `held:<source>` holds it) is under one of
     /// its source's absent directories.
     pub fn has(a: *const Absences, source_id: []const u8, value: []const u8) bool {
         const dirs = a.by_repo.get(source_id) orelse return false;
-        for (dirs.items) |dir| if (under(holdingPath(value), dir)) return true;
+        for (dirs.items) |dir| if (under(copyPath(value), dir)) return true;
         return false;
     }
 };
 
-/// Forgets an absent directory, as if it were deleted: its holdings go,
+/// Forgets an absent directory, as if it were deleted: its copies go,
 /// for every peer. Returns how many.
 pub fn forgetAbsent(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source: Source, dir: []const u8) !usize {
     const d = std.mem.trim(u8, dir, "/");
@@ -564,7 +564,7 @@ pub fn forgetAbsent(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, s
         const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND length(value) > 0");
         defer s.finalize();
         try s.bindText(1, held_field);
-        while (try s.step()) if (under(holdingPath(s.blob(1)), d)) try gone.append(arena, try arena.dupe(u8, s.blob(0)));
+        while (try s.step()) if (under(copyPath(s.blob(1)), d)) try gone.append(arena, try arena.dupe(u8, s.blob(0)));
     }
     try replica.begin();
     errdefer replica.db.exec("ROLLBACK") catch {};
@@ -574,8 +574,8 @@ pub fn forgetAbsent(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, s
     return gone.items.len;
 }
 
-/// A holding's path, before its size and time.
-fn holdingPath(value: []const u8) []const u8 {
+/// A copy's path, before its size and time.
+fn copyPath(value: []const u8) []const u8 {
     return value[0 .. std.mem.indexOfScalar(u8, value, '\t') orelse value.len];
 }
 
@@ -712,7 +712,7 @@ fn prefixSegments(key: []const u8, n: usize) ?usize {
     return if (count == n - 1) key.len else null;
 }
 
-pub const Holding = struct {
+pub const Copy = struct {
     source: []const u8,
     path: []const u8,
     size: u64,
@@ -723,7 +723,7 @@ pub const Holding = struct {
 
 pub const Rendition = struct {
     label: []const u8,
-    holdings: std.ArrayList(Holding) = .empty,
+    copies: std.ArrayList(Copy) = .empty,
 };
 
 pub const Item = struct {
@@ -893,7 +893,7 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
         const path = parts.first();
         const size = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
         const source = field["held:".len..];
-        try item.renditions.items[item.renditions.items.len - 1].holdings.append(arena, .{
+        try item.renditions.items[item.renditions.items.len - 1].copies.append(arena, .{
             .source = try arena.dupe(u8, source),
             .path = try arena.dupe(u8, path),
             .size = size,
@@ -1207,41 +1207,41 @@ test "an unplugged directory is absent, its copies kept; a deleted one's go" {
     };
 
     _ = try Fresh.crawl(&r, io, arena, &client, 2000, source);
-    try t.expectEqual(@as(i64, 2), try copies(&r, arena, source));
+    try t.expectEqual(@as(i64, 2), try countCopies(&r, arena, source));
     // b unplugged: its mount point lists empty. One marker; its copy kept.
     try tmp.dir.deleteFile(io, "b/Brazil (1985).mp4");
     var stats = (try Fresh.crawl(&r, io, arena, &client, 3000, source)).ingest;
     try t.expectEqual(@as(usize, 1), stats.absent);
-    try t.expectEqual(@as(usize, 0), stats.holdings_removed);
-    try t.expectEqual(@as(i64, 2), try copies(&r, arena, source));
+    try t.expectEqual(@as(usize, 0), stats.copies_removed);
+    try t.expectEqual(@as(i64, 2), try countCopies(&r, arena, source));
     var gone = try absences(&r, arena, &source.id);
     try t.expectEqual(@as(usize, 1), gone.len);
     try t.expectEqualStrings("b", gone[0].dir);
     try t.expectEqual(@as(u64, 3000), gone[0].since_ms);
     const shown = (try detail(&r, arena, "t/m/brazil/1985")).?;
-    try t.expect(shown.items.items[0].renditions.items[0].holdings.items[0].absent);
+    try t.expect(shown.items.items[0].renditions.items[0].copies.items[0].absent);
     // Plugged back in: the marker goes, and nothing else changes.
     try tmp.dir.writeFile(io, .{ .sub_path = "b/Brazil (1985).mp4", .data = "x" });
     stats = (try Fresh.crawl(&r, io, arena, &client, 4000, source)).ingest;
     try t.expectEqual(@as(usize, 0), stats.absent);
-    try t.expectEqual(@as(usize, 0), stats.holdings_added + stats.holdings_changed);
+    try t.expectEqual(@as(usize, 0), stats.copies_added + stats.copies_changed);
     try t.expectEqual(@as(usize, 0), (try absences(&r, arena, &source.id)).len);
     // Deleted, b leaves its parent's listing, and its copy goes.
     try tmp.dir.deleteFile(io, "b/Brazil (1985).mp4");
     try tmp.dir.deleteDir(io, "b");
     stats = (try Fresh.crawl(&r, io, arena, &client, 5000, source)).ingest;
-    try t.expectEqual(@as(usize, 1), stats.holdings_removed);
-    try t.expectEqual(@as(i64, 1), try copies(&r, arena, source));
+    try t.expectEqual(@as(usize, 1), stats.copies_removed);
+    try t.expectEqual(@as(i64, 1), try countCopies(&r, arena, source));
     // The whole source listing nothing is the root absent.
     try tmp.dir.deleteFile(io, "a/Alien (1979).mp4");
     stats = (try Fresh.crawl(&r, io, arena, &client, 6000, source)).ingest;
     gone = try absences(&r, arena, &source.id);
     try t.expectEqual(@as(usize, 1), gone.len);
     try t.expectEqualStrings("", gone[0].dir);
-    try t.expectEqual(@as(i64, 1), try copies(&r, arena, source));
+    try t.expectEqual(@as(i64, 1), try countCopies(&r, arena, source));
     // A year on, it's as if deleted.
     stats = (try Fresh.crawl(&r, io, arena, &client, 6000 + absent_expiry_ms, source)).ingest;
-    try t.expectEqual(@as(usize, 1), stats.holdings_removed);
+    try t.expectEqual(@as(usize, 1), stats.copies_removed);
     try t.expectEqual(@as(usize, 0), (try absences(&r, arena, &source.id)).len);
     // Forgotten by hand, too.
     try tmp.dir.writeFile(io, .{ .sub_path = "a/Alien (1979).mp4", .data = "x" });
@@ -1249,7 +1249,7 @@ test "an unplugged directory is absent, its copies kept; a deleted one's go" {
     try tmp.dir.deleteFile(io, "a/Alien (1979).mp4");
     _ = try Fresh.crawl(&r, io, arena, &client, 8000 + absent_expiry_ms, source);
     try t.expectEqual(@as(usize, 1), try forgetAbsent(&r, arena, 9000 + absent_expiry_ms, source, "/"));
-    try t.expectEqual(@as(i64, 0), try copies(&r, arena, source));
+    try t.expectEqual(@as(i64, 0), try countCopies(&r, arena, source));
     try t.expectEqual(@as(usize, 0), (try absences(&r, arena, &source.id)).len);
 
     // A folder served at a path of its own (as the apps serve theirs) that
@@ -1265,11 +1265,11 @@ test "an unplugged directory is absent, its copies kept; a deleted one's go" {
         if (std.mem.endsWith(u8, rp.url, "/movies/")) break rp;
     } else unreachable;
     _ = try Fresh.crawl(&r, io, arena, &client, 10_000, share);
-    try t.expectEqual(@as(i64, 1), try copies(&r, arena, share));
+    try t.expectEqual(@as(i64, 1), try countCopies(&r, arena, share));
     try tmp.dir.rename("share", tmp.dir, "share-away", io);
     stats = (try Fresh.crawl(&r, io, arena, &client, 11_000, share)).ingest;
     try t.expectEqual(@as(usize, 1), stats.absent);
-    try t.expectEqual(@as(i64, 1), try copies(&r, arena, share));
+    try t.expectEqual(@as(i64, 1), try countCopies(&r, arena, share));
     try t.expectEqualStrings("", (try absences(&r, arena, &share.id))[0].dir);
     try tmp.dir.rename("share-away", tmp.dir, "share", io);
     stats = (try Fresh.crawl(&r, io, arena, &client, 12_000, share)).ingest;

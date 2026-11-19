@@ -100,7 +100,7 @@ prints it.
 
   crawl [SOURCE] [--workers WORKERS]
                                crawl every source, or one, and update
-                               holdings, with concurrent workers (16)
+                               copies, with concurrent workers (16)
   sync [URL]                   pull from a peer, or from every peer found
                                or added
   serve [--port PORT] [--media DIR]

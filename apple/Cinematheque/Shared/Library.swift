@@ -763,7 +763,7 @@ final class Library {
 
     /// Tells the core where downloads are kept and served (on the port this
     /// Mac serves on, or last did); a source served at another address
-    /// before (another port) is removed, its holdings recorded afresh as
+    /// before (another port) is removed, its copies recorded afresh as
     /// reconciling finds the files.
     private func configureDownloads(dir: String? = nil, dropWatched: Bool? = nil) {
         guard hasLibrary else { return }

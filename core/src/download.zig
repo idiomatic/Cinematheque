@@ -9,7 +9,7 @@
 //!
 //! A player's downloads (`reconcile`) go further: its directory is a
 //! source of its own, `managed`, which it serves and no one crawls;
-//! each file fetched is recorded as its holding on the very rendition it
+//! each file fetched is recorded as its copy on the very rendition it
 //! came from, so peers see it and copy racing can use it. What it keeps is
 //! this device's (in `local`): items wanted (a title or season wanted is
 //! its items, as of then), and per series, the next N episodes after where
@@ -64,7 +64,7 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, rendit
         var urls: std.ArrayList([]const u8) = .empty;
         var path: ?[]const u8 = null;
         var size: u64 = 0;
-        for ([_]bool{ false, true }) |absent| for (r.holdings.items) |h| {
+        for ([_]bool{ false, true }) |absent| for (r.copies.items) |h| {
             if (h.absent != absent) continue;
             const base = bases.get(h.source) orelse continue;
             if (!safe(h.path)) continue;
@@ -513,7 +513,7 @@ pub const Counter = struct {
 };
 
 /// Brings this device's downloads in line with what it keeps: forgets
-/// holdings whose files are gone (deleted by hand, or a directory changed),
+/// copies whose files are gone (deleted by hand, or a directory changed),
 /// deletes watched episodes of kept series as `Settings.drop_watched` and
 /// space call for, and fetches what's wanted and the next episodes kept,
 /// recording each file as fetched. `writer`, if given, is held around each
@@ -616,7 +616,7 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
     return out;
 }
 
-/// Writes `source`'s holding of `key` as `value` (empty: none), holding
+/// Writes `source`'s copy of `key` as `value` (empty: none), copy
 /// `writer` if given.
 fn locked(writer: ?*Io.Mutex, io: Io, replica: *Replica, wall_ms: u64, key: []const u8, source: library.Source, value: []const u8) !void {
     if (writer) |w| try w.lock(io);
@@ -769,10 +769,10 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     defer memory.deinit(gpa);
     var done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 5, null, null);
     try std.testing.expectEqual(3, done.fetched);
-    var holding = try held(&r, arena, s.source);
-    try std.testing.expectEqual(3, holding.len);
-    try std.testing.expectEqualStrings("t/m/alien/1979/v/-", holding[0].item);
-    try std.testing.expectEqualStrings("t/s/firefly/-/e/s01e02", holding[1].item);
+    var copy = try held(&r, arena, s.source);
+    try std.testing.expectEqual(3, copy.len);
+    try std.testing.expectEqualStrings("t/m/alien/1979/v/-", copy[0].item);
+    try std.testing.expectEqualStrings("t/s/firefly/-/e/s01e02", copy[1].item);
 
     // Episode 2 in progress: it and the 2 after it.
     try library.setPlayhead(&r, arena, 5, keys[2], 60_000, 600_000);
@@ -792,8 +792,8 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     try configure(&r, arena, 8, downloads, "http://hal.local:8008/downloads/", true);
     done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 9, null, null);
     try std.testing.expectEqual(1, done.deleted);
-    holding = try held(&r, arena, s.source);
-    try std.testing.expectEqual(3, holding.len);
+    copy = try held(&r, arena, s.source);
+    try std.testing.expectEqual(3, copy.len);
     try std.testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "downloads/Firefly/S01E02.mp4", .{}));
 
     // Watched, but the only copy (the NAS lost it): listed for a person,

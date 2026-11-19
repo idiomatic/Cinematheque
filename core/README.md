@@ -20,7 +20,7 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 | [jpeg](src/jpeg.zig) | A JPEG's DC coefficients alone: an eighth-size image, for placeholders |
 | [thumbhash](src/thumbhash.zig) | ThumbHash placeholders, encoded and rendered; a port of the MIT-licensed reference |
 | [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s, planned across sources and described by concurrent workers, prioritized titles first; the browsing grid's tiles, with this user's progress and whether begun; the watchlist |
-| [library](src/library.zig) | Keys from titles' parsed identities; sources, crawled into holdings; titles, a title's details, facets, close matches, duplicates, aliases, and playheads |
+| [library](src/library.zig) | Keys from titles' parsed identities; sources, crawled into copies; titles, a title's details, facets, close matches, duplicates, aliases, and playheads |
 | [serve](src/serve.zig) | The source server, with a hook for other requests, such as syncs |
 | [download](src/download.zig) | Downloads: a title's, season's, or item's files, raced among their copies, resumed, into a directory under their sources' paths; a player's downloads kept as a managed source (wanted, and series' next episodes kept), reconciled, with those watched since deleted once held elsewhere (unless pinned) and 20 GB kept free |
 | [race](src/race.zig) | Copy racing: an item's copies in the order to try them, each one's server asked at once, briefly, over `Io`'s networking, and those lately unanswered last |
