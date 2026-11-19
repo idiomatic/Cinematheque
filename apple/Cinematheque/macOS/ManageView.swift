@@ -517,18 +517,61 @@ private struct SourceSheet: View {
     @State private var quality = ""
     @State private var skip = ","
     @State private var advanced = false
+    @FocusState private var typing: Bool
 
     var body: some View {
-        Form {
-            Section {
-                if let source {
-                    LabeledContent("Address", value: source.url.removingPercentEncoding ?? source.url)
-                } else {
-                    TextField("Address", text: $url, prompt: Text("http://nas.local/Video/Movies/"))
+        VStack(spacing: 0) {
+            // A new one's address, as Finder's Connect to Server takes one: a
+            // field the sheet's width, ready to type in.
+            if source == nil {
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField("Server Address", text: $url, prompt: Text("Server Address"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .focused($typing)
+                    // Verbatim, so its example isn't made a link.
+                    Text(verbatim: "The address of a folder of videos on a server, as a browser would open it, such as http://nas.local/Video/Movies/.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-            } footer: {
-                if source == nil {
-                    Text("The address of a folder of videos on a server, as a browser would open it.")
+                .padding([.horizontal, .top], 20)
+                .onAppear { typing = true }
+            }
+            form
+        }
+        .frame(width: 480)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(source == nil ? "Add" : "Save") {
+                    if let source {
+                        library.setSource(source.id, quality: quality, skip: skip)
+                    } else {
+                        library.addSource(url, quality: quality.isEmpty ? nil : quality, skip: skip)
+                        Task { await library.crawl() }
+                    }
+                    dismiss()
+                }
+                .disabled(source == nil && URL(string: url)?.scheme?.hasPrefix("http") != true)
+            }
+        }
+        .onAppear {
+            if let source {
+                quality = source.quality
+                skip = source.skip
+                advanced = !quality.isEmpty || skip != ","
+            }
+        }
+    }
+
+    /// An existing one's address, which can't change, and what can, as
+    /// Settings' forms are.
+    private var form: some View {
+        Form {
+            if let source {
+                Section {
+                    LabeledContent("Address", value: source.url.removingPercentEncoding ?? source.url)
                 }
             }
             Section("Advanced", isExpanded: $advanced) {
@@ -563,29 +606,6 @@ private struct SourceSheet: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(source == nil ? "Add" : "Save") {
-                    if let source {
-                        library.setSource(source.id, quality: quality, skip: skip)
-                    } else {
-                        library.addSource(url, quality: quality.isEmpty ? nil : quality, skip: skip)
-                        Task { await library.crawl() }
-                    }
-                    dismiss()
-                }
-                .disabled(source == nil && URL(string: url)?.scheme?.hasPrefix("http") != true)
-            }
-        }
-        .onAppear {
-            if let source {
-                quality = source.quality
-                skip = source.skip
-                advanced = !quality.isEmpty || skip != ","
-            }
-        }
     }
 }
 // Downloads.
