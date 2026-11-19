@@ -10,36 +10,41 @@
 //! time: long ones wait for each other, and other writes fail with `Busy`
 //! while one runs, but for progress and watchlists, which don't need to.
 
-const std = @import("std");
+pub const std = @import("std");
 
 /// Warnings too, not errors alone (a release build's default), on the
 /// apps' stderr: what's slow says so (copy racing, say).
 pub const std_options: std.Options = .{ .log_level = .warn };
 const Io = std.Io;
-const library = @import("library.zig");
-const art = @import("art.zig");
-const thumbhash = @import("thumbhash.zig");
-const store_ = @import("store.zig");
-const sync = @import("sync.zig");
-const discover = @import("discover.zig");
-const Host = @import("host.zig").Host;
-const race = @import("race.zig");
-const download = @import("download.zig");
-const views = @import("views.zig");
-const serve_ = @import("serve.zig");
-const pair = @import("pair.zig");
-const replica_ = @import("replica.zig");
+pub const library = @import("library.zig");
+pub const art = @import("art.zig");
+pub const thumbhash = @import("thumbhash.zig");
+pub const store_ = @import("store.zig");
+pub const sync = @import("sync.zig");
+pub const discover = @import("discover.zig");
+pub const Host = @import("host.zig").Host;
+pub const race = @import("race.zig");
+pub const download = @import("download.zig");
+pub const views = @import("views.zig");
+pub const pair = @import("pair.zig");
+pub const replica_ = @import("replica.zig");
 const Replica = replica_.Replica;
+// What the library holds of serving, pairing, and syncing, from their parts.
+const Known = @import("capi/long.zig").Known;
+const Serving = @import("capi/serving.zig").Serving;
+const stopServing = @import("capi/serving.zig").stopServing;
+const Pairing = @import("capi/pairing.zig").Pairing;
+const stopPairing = @import("capi/pairing.zig").stopPairing;
 
-const gpa = std.heap.c_allocator;
+pub const gpa = std.heap.c_allocator;
 
-threadlocal var last_error: [256:0]u8 = @splat(0);
+pub threadlocal var last_error: [256:0]u8 = @splat(0);
 
-fn fail(err: anyerror) void {
+pub fn fail(err: anyerror) void {
     _ = std.fmt.bufPrintSentinel(&last_error, "{t}", .{err}, 0) catch {};
 }
 
-const Library = struct {
+pub const Library = struct {
     threaded: Io.Threaded,
     arena_state: std.heap.ArenaAllocator,
     store: store_.Store,
@@ -75,26 +80,26 @@ const Library = struct {
     hold: std.atomic.Value(bool) = .init(false),
     download_mb: std.atomic.Value(u32) = .init(0),
 
-    fn onServed(context: ?*anyopaque, device: [32]u8, operations: usize) void {
+    pub fn onServed(context: ?*anyopaque, device: [32]u8, operations: usize) void {
         const lib: *Library = @ptrCast(@alignCast(context.?));
         lib.served.note(lib, device, operations);
     }
 
-    fn onReceived(context: ?*anyopaque, device: [32]u8, operations: usize) void {
+    pub fn onReceived(context: ?*anyopaque, device: [32]u8, operations: usize) void {
         const lib: *Library = @ptrCast(@alignCast(context.?));
         lib.received.note(lib, device, operations);
     }
 
-    fn io(lib: *Library) Io {
+    pub fn io(lib: *Library) Io {
         return lib.threaded.io();
     }
 
-    fn now(lib: *Library) u64 {
+    pub fn now(lib: *Library) u64 {
         return @intCast(Io.Timestamp.now(lib.io(), .real).toMilliseconds());
     }
 
     /// The main connection, caught up with other connections' writes.
-    fn main(lib: *Library) !*Replica {
+    pub fn main(lib: *Library) !*Replica {
         const r = &(lib.replica orelse return error.NoLibrary);
         try r.refresh();
         return r;
@@ -134,7 +139,7 @@ export fn cq_open(data_dir: ?[*:0]const u8) ?*Library {
     };
 }
 
-fn open(data_dir: ?[*:0]const u8) !*Library {
+pub fn open(data_dir: ?[*:0]const u8) !*Library {
     const lib = try gpa.create(Library);
     errdefer gpa.destroy(lib);
     lib.* = .{ .threaded = .init(gpa, .{}), .arena_state = .init(gpa), .store = undefined };
@@ -170,14 +175,14 @@ export fn cq_close(lib: ?*Library) void {
     gpa.destroy(l);
 }
 
-fn stringify(value: anytype) ![*:0]u8 {
+pub fn stringify(value: anytype) ![*:0]u8 {
     const text = try std.json.Stringify.valueAlloc(gpa, value, .{});
     defer gpa.free(text);
     return (try gpa.dupeSentinel(u8, text, 0)).ptr;
 }
 
 /// Runs `f(lib, arena, args...)`, returning its JSON, or null on failure.
-fn json(lib: *Library, comptime f: anytype, args: anytype) ?[*:0]u8 {
+pub fn json(lib: *Library, comptime f: anytype, args: anytype) ?[*:0]u8 {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const value = @call(.auto, f, .{ lib, arena_state.allocator() } ++ args) catch |err| {
@@ -191,7 +196,7 @@ fn json(lib: *Library, comptime f: anytype, args: anytype) ?[*:0]u8 {
 }
 
 /// Runs `f(lib, arena, args...)`, returning 0, or -1 on failure.
-fn status(lib: *Library, comptime f: anytype, args: anytype) c_int {
+pub fn status(lib: *Library, comptime f: anytype, args: anytype) c_int {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     @call(.auto, f, .{ lib, arena_state.allocator() } ++ args) catch |err| {
@@ -201,19 +206,19 @@ fn status(lib: *Library, comptime f: anytype, args: anytype) c_int {
     return 0;
 }
 
-fn span(text: ?[*:0]const u8) ?[]const u8 {
+pub fn span(text: ?[*:0]const u8) ?[]const u8 {
     return if (text) |t| std.mem.span(t) else null;
 }
 
-const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
-const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
-const NearbyJson = struct { url: []const u8, device: ?[]const u8, host: ?[]const u8 = null, person: ?[]const u8, person_key: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
-const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
-const PairedJson = struct { person: []const u8, device: []const u8 };
+pub const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
+pub const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
+pub const NearbyJson = struct { url: []const u8, device: ?[]const u8, host: ?[]const u8 = null, person: ?[]const u8, person_key: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
+pub const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
+pub const PairedJson = struct { person: []const u8, device: []const u8 };
 /// A source's crawl: what it found, and for diagnosis, how long listing
 /// (`crawl_ms`) and all of it (`total_ms`, recording what was found too)
 /// took, how many listings it read and reused, and how many copies changed.
-const CrawlJson = struct {
+pub const CrawlJson = struct {
     url: []const u8,
     files: usize,
     titles: usize,
@@ -229,18 +234,18 @@ const CrawlJson = struct {
     lately: bool = false,
     manual: bool = false,
 };
-const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, sent: usize = 0, @"error": ?[]const u8 };
-const HeardJson = struct { device: []const u8, name: ?[]const u8, operations: usize, at: u64 };
+pub const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, sent: usize = 0, @"error": ?[]const u8 };
+pub const HeardJson = struct { device: []const u8, name: ?[]const u8, operations: usize, at: u64 };
 
 /// An exchange the server had with a device, recorded on the server's task:
 /// with which device, how many operations, and when.
-const Heard = struct {
+pub const Heard = struct {
     mutex: Io.Mutex = .init,
     device: [32]u8 = @splat(0),
     operations: usize = 0,
     at: u64 = 0,
 
-    fn note(h: *Heard, lib: *Library, device: [32]u8, operations: usize) void {
+    pub fn note(h: *Heard, lib: *Library, device: [32]u8, operations: usize) void {
         h.mutex.lockUncancelable(lib.io());
         defer h.mutex.unlock(lib.io());
         h.device = device;
@@ -249,7 +254,7 @@ const Heard = struct {
     }
 
     /// As JSON, with the device's name if it has one; null if none yet.
-    fn json(h: *Heard, lib: *Library, arena: std.mem.Allocator) !?HeardJson {
+    pub fn json(h: *Heard, lib: *Library, arena: std.mem.Allocator) !?HeardJson {
         h.mutex.lockUncancelable(lib.io());
         const device = h.device;
         const operations = h.operations;
@@ -261,34 +266,34 @@ const Heard = struct {
         return .{ .device = key, .name = library.nameOf(named, key), .operations = operations, .at = at };
     }
 };
-const StatusJson = struct { person: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize, others: usize, crawl_every: u64 = library.default_crawl_hours };
+pub const StatusJson = struct { person: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize, others: usize, crawl_every: u64 = library.default_crawl_hours };
 
 /// How far a long operation has come, in steps of its phase (sources
 /// crawled, movies and seasons described, devices synced); read from any
 /// thread.
-const Steps = struct {
+pub const Steps = struct {
     phase: std.atomic.Value(Phase) = .init(.idle),
     done: std.atomic.Value(u32) = .init(0),
     total: std.atomic.Value(u32) = .init(0),
 
     const Phase = enum(u8) { idle, crawling, describing, syncing };
 
-    fn start(p: *Steps, phase: Phase, total: usize) void {
+    pub fn start(p: *Steps, phase: Phase, total: usize) void {
         p.done.store(0, .monotonic);
         p.total.store(@intCast(total), .monotonic);
         p.phase.store(phase, .release);
     }
 
-    fn step(p: *Steps) void {
+    pub fn step(p: *Steps) void {
         _ = p.done.fetchAdd(1, .monotonic);
     }
 
-    fn finish(p: *Steps) void {
+    pub fn finish(p: *Steps) void {
         p.phase.store(.idle, .release);
     }
 };
 
-const StepsJson = struct { phase: ?[]const u8, done: u32, total: u32 };
+pub const StepsJson = struct { phase: ?[]const u8, done: u32, total: u32 };
 
 /// How far the long operation running has come: a JSON object with `phase`
 /// (`crawling`, `describing`, `syncing`, or null when none runs), and
@@ -297,7 +302,7 @@ export fn cq_steps(lib: *Library) ?[*:0]u8 {
     return json(lib, steps, .{});
 }
 
-fn steps(lib: *Library, _: std.mem.Allocator) !StepsJson {
+pub fn steps(lib: *Library, _: std.mem.Allocator) !StepsJson {
     const phase = lib.steps.phase.load(.acquire);
     return .{
         .phase = if (phase == .idle) null else @tagName(phase),
@@ -306,1126 +311,15 @@ fn steps(lib: *Library, _: std.mem.Allocator) !StepsJson {
     };
 }
 
-// Serving.
-
-/// Serving the library (and folders): the host, and what it needs that
-/// outlives the call that started it.
-const Serving = struct {
-    arena: std.heap.ArenaAllocator,
-    sharing: sync.Sharing,
-    host: Host,
-};
-
-const MountJson = struct { prefix: []const u8, path: []const u8 };
-
-/// Long, but returns once listening: serves this library to devices (their
-/// syncs) and `folders_json`'s folders as sources (a JSON array of
-/// objects with `prefix`, the path they're served at, and `path`), on
-/// `port`, else 8008, else any free port; advertises it by DNS-SD; and
-/// keeps serving, on a thread of its own, until `cq_stop_serving` or
-/// `cq_close`. Serving again restarts it. Returns the port, or -1.
-export fn cq_serve(lib: *Library, port: c_int, folders_json: [*:0]const u8) c_int {
-    return startServing(lib, @intCast(std.math.clamp(port, 0, 65535)), std.mem.span(folders_json)) catch |err| {
-        fail(err);
-        return -1;
-    };
-}
-
-/// Stops serving, if it is.
-export fn cq_stop_serving(lib: *Library) void {
-    stopServing(lib);
-}
-
-fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
-    stopServing(lib);
-    const s = try gpa.create(Serving);
-    errdefer gpa.destroy(s);
-    s.arena = .init(gpa);
-    errdefer s.arena.deinit();
-    const arena = s.arena.allocator();
-    // Copied, since they outlive the caller's string.
-    const folders = try std.json.parseFromSliceLeaky([]const MountJson, arena, folders_json, .{ .allocate = .alloc_always });
-    const mounts = try arena.alloc(serve_.Mount, folders.len);
-    for (folders, mounts) |f, *m| m.* = .{ .prefix = f.prefix, .path = f.path, .index = false };
-    s.sharing = .{
-        .path = try lib.store.replicaPath(arena),
-        .founder = try lib.store.founder(arena),
-        .identity = lib.store.identity,
-        .served = Library.onServed,
-        .received = Library.onReceived,
-        .context = lib,
-    };
-    s.host = .{
-        .io = lib.io(),
-        .gpa = gpa,
-        .options = .{ .host = "0.0.0.0", .port = if (port == 0) 8008 else port, .fallback = true, .mounts = mounts, .handler = s.sharing.handler() },
-        .name = try std.fmt.allocPrintSentinel(arena, "{s}", .{try lib.store.serviceName(arena)}, 0),
-        .txt = try sync.advertisement(arena, try lib.main(), try lib.store.person(), try lib.store.device()),
-    };
-    try s.host.start();
-    lib.serving = s;
-    return s.host.port;
-}
-
-fn stopServing(lib: *Library) void {
-    const s = lib.serving orelse return;
-    s.host.stop();
-    s.arena.deinit();
-    gpa.destroy(s);
-    lib.serving = null;
-}
-
-// Identity and membership.
-
-/// This device, as JSON: `person` (its person's key), `paired` (acting as the
-/// person of another of the person's devices), `library` (the library's ID,
-/// or null if it has none yet), `founder`, `members` (how many), and
-/// `others` (how many other devices its person has, certified or named, and
-/// not removed: none, and leaving takes the person's devices with it), and
-/// `crawl_every` (`cq_crawl_every`'s hours, 0 for Manually).
-export fn cq_status(lib: *Library) ?[*:0]u8 {
-    return json(lib, getStatus, .{});
-}
-
-fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
-    const person = try arena.dupe(u8, &std.fmt.bytesToHex(try lib.store.person(), .lower));
-    const paired = lib.store.paired();
-    const r = lib.main() catch return .{ .person = person, .paired = paired, .library = null, .founder = null, .members = 0, .others = 0 };
-    const me = try lib.store.person();
-    const this = try lib.store.device();
-    var others: std.AutoArrayHashMapUnmanaged([32]u8, void) = .empty;
-    for (try r.devicesOf(arena, me)) |d| try others.put(arena, d, {});
-    // Named by the device that paired it, before it's written a certificate.
-    const hex = std.fmt.bytesToHex(me, .lower);
-    for (try library.names(r, arena)) |n| if (n.person) |u| if (std.mem.eql(u8, u, &hex)) {
-        try others.put(arena, store_.parseKey(n.key) catch continue, {});
-    };
-    _ = others.swapRemove(this);
-    var count: usize = 0;
-    for (others.keys()) |d| {
-        if (try r.revoked(d) == null) count += 1;
-    }
-    return .{
-        .person = person,
-        .paired = paired,
-        .library = try arena.dupe(u8, &std.fmt.bytesToHex(r.library, .lower)),
-        .founder = try arena.dupe(u8, &std.fmt.bytesToHex(r.founder, .lower)),
-        .members = (try r.members(arena)).len,
-        .others = count,
-        .crawl_every = (try library.crawlEvery(r, arena)) orelse 0,
-    };
-}
-
-/// Leaves the library, as a device removed from it does (a sync's result
-/// `error` is `Removed`): stops serving and pairing, and forgets the
-/// library and this device's identity, seeds and replica alike, so it can
-/// pair again as a new device.
-export fn cq_leave(lib: *Library) c_int {
-    return status(lib, leave, .{});
-}
-
-fn leave(lib: *Library, arena: std.mem.Allocator) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    stopServing(lib);
-    stopPairing(lib);
-    if (lib.replica) |*r| r.close();
-    lib.replica = null;
-    lib.known.deinit();
-    lib.known = .{};
-    try lib.store.forget(arena);
-    lib.store = try store_.Store.open(lib.io(), gpa, lib.arena_state.allocator(), lib.store.dir);
-    lib.served = .{};
-    lib.received = .{};
-}
-
-/// Creates a library, founded by this person. (Joining one is by pairing.)
-export fn cq_found(lib: *Library) c_int {
-    return status(lib, found, .{});
-}
-
-fn found(lib: *Library, arena: std.mem.Allocator) !void {
-    try openFounded(lib, arena, try lib.store.person());
-}
-
-/// Opens the library `founder` founded, as this device's.
-fn openFounded(lib: *Library, arena: std.mem.Allocator, founder: [32]u8) !void {
-    if (lib.replica != null) return error.LibraryExists;
-    // Once it has a library, it no longer offers to pair.
-    stopPairing(lib);
-    try lib.store.setFounder(arena, founder);
-    lib.replica = try lib.store.openReplica(lib.arena_state.allocator());
-}
-
-// Pairing: a new device shows a code, and a member's, given it, sends it
-// the library's founder's key, and to pair another of its person's devices,
-// the person's secret too (see pair.zig).
-
-const Pairing = struct {
-    offer: pair.Offer,
-    arena: std.heap.ArenaAllocator,
-    host: Host,
-};
-
-/// On a new device, before it has a library: offers to pair, to be another
-/// of a member's person's devices (`join` zero), or to join as a new member,
-/// serving and advertising by DNS-SD (as `name`, for the other device to
-/// show) until paired or `cq_pair_stop`. Returns its state, as
-/// `cq_pair_check` does, with a new code. Offering again starts over, with
-/// another code.
-export fn cq_pair_offer(lib: *Library, name: [*:0]const u8, join: c_int) ?[*:0]u8 {
-    return json(lib, pairOffer, .{ std.mem.span(name), if (join != 0) pair.Kind.join else pair.Kind.pair });
-}
-
-fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, kind: pair.Kind) !PairJson {
-    if (lib.replica != null) return error.LibraryExists;
-    stopPairing(lib);
-    const p = try gpa.create(Pairing);
-    errdefer gpa.destroy(p);
-    p.offer = .{ .code = pair.newCode(lib.io()), .kind = kind, .person = try lib.store.person(), .device = try lib.store.device() };
-    p.arena = .init(gpa);
-    errdefer p.arena.deinit();
-    const a = p.arena.allocator();
-    p.host = .{
-        .io = lib.io(),
-        .gpa = gpa,
-        .options = .{ .host = "0.0.0.0", .port = 0, .handler = p.offer.handler() },
-        .name = try std.fmt.allocPrintSentinel(a, "{s}", .{try lib.store.serviceName(arena)}, 0),
-        .txt = try discover.txtRecord(a, &.{
-            .{ "pair", @tagName(kind) },
-            .{ "path", pair.path },
-            .{ "name", name[0..@min(name.len, 200)] },
-        }),
-    };
-    try p.host.start();
-    lib.pairing = p;
-    return .{ .code = try arena.dupe(u8, &p.offer.code), .paired = false, .closed = false };
-}
-
-/// On a new device offering to pair: its state, as JSON: `code` (to show,
-/// while it offers), `paired` (it has the library, and if pairing as theirs, its
-/// person, and has stopped offering), and `closed` (it stopped, after too
-/// many wrong codes; offer again for a new one).
-export fn cq_pair_check(lib: *Library) ?[*:0]u8 {
-    return json(lib, pairCheck, .{});
-}
-
-fn pairCheck(lib: *Library, arena: std.mem.Allocator) !PairJson {
-    const p = lib.pairing orelse return .{ .code = null, .paired = lib.replica != null, .closed = lib.replica == null };
-    const received, const closed = p.offer.outcome(lib.io());
-    if (received) |secrets| {
-        const kind = p.offer.kind;
-        stopPairing(lib);
-        if (kind == .pair) try lib.store.pair(arena, &std.fmt.bytesToHex(secrets.person, .lower));
-        try openFounded(lib, arena, secrets.founder);
-        return .{ .code = null, .paired = true, .closed = false };
-    }
-    if (closed) {
-        stopPairing(lib);
-        return .{ .code = null, .paired = false, .closed = true };
-    }
-    return .{ .code = try arena.dupe(u8, &p.offer.code), .paired = false, .closed = false };
-}
-
-/// Stops offering to pair, if it is.
-export fn cq_pair_stop(lib: *Library) void {
-    stopPairing(lib);
-}
-
-fn stopPairing(lib: *Library) void {
-    const p = lib.pairing orelse return;
-    p.host.stop();
-    p.arena.deinit();
-    gpa.destroy(p);
-    lib.pairing = null;
-}
-
-/// Long: pairs the new device offering at `url` (a `pairing` device's, from
-/// `cq_nearby`, offering to `pair` or to `join`, as `join` says), given the
-/// code it shows: sends it the library's founder's key, and if pairingAsYours,
-/// this person's secret, which it takes only if the code is right. Returns
-/// its keys, as JSON: `person` (this person's, once paired; else a new
-/// member's, to be added by `cq_member`) and `device` (to name it by, with
-/// `cq_name`). Fails with
-/// `WrongCode`, or `Closed` once it stopped.
-export fn cq_pair(lib: *Library, url: [*:0]const u8, join: c_int, code: [*:0]const u8) ?[*:0]u8 {
-    return json(lib, pairWith, .{ std.mem.span(url), if (join != 0) pair.Kind.join else pair.Kind.pair, std.mem.span(code) });
-}
-
-fn pairWith(lib: *Library, arena: std.mem.Allocator, url: []const u8, kind: pair.Kind, code: []const u8) !PairedJson {
-    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
-    defer client.deinit();
-    const digits = std.mem.trim(u8, code, " \n");
-    const joined = try pair.send(lib.io(), arena, &client, url, kind, digits, .{ .person = lib.store.identity.person, .founder = try lib.store.founder(arena) });
-    // A paired device acts as this person from now on, not as the one it had.
-    const person = if (kind == .pair) try lib.store.person() else joined.person;
-    return .{
-        .person = try arena.dupe(u8, &std.fmt.bytesToHex(person, .lower)),
-        .device = try arena.dupe(u8, &std.fmt.bytesToHex(joined.device, .lower)),
-    };
-}
-
-/// The members, as a JSON array of objects with `key`, `name` (null if
-/// none's set), `founder`, and `you`.
-export fn cq_members(lib: *Library) ?[*:0]u8 {
-    return json(lib, members, .{});
-}
-
-fn members(lib: *Library, arena: std.mem.Allocator) ![]const MemberJson {
-    const r = try lib.main();
-    const me = try lib.store.person();
-    const list = try r.members(arena);
-    const named = try library.names(r, arena);
-    const out = try arena.alloc(MemberJson, list.len);
-    for (list, out) |m, *o| o.* = .{
-        .key = try arena.dupe(u8, &std.fmt.bytesToHex(m, .lower)),
-        .name = library.nameOf(named, &std.fmt.bytesToHex(m, .lower)),
-        .founder = std.mem.eql(u8, &m, &r.founder),
-        .you = std.mem.eql(u8, &m, &me),
-    };
-    return out;
-}
-
-/// Adds (nonzero `add`) or removes a member, by person key.
-export fn cq_member(lib: *Library, key: [*:0]const u8, add: c_int) c_int {
-    return status(lib, member, .{ std.mem.span(key), add != 0 });
-}
-
-fn member(lib: *Library, _: std.mem.Allocator, key: []const u8, add: bool) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    const r = try lib.main();
-    const person = try store_.parseKey(std.mem.trim(u8, key, " \n"));
-    if (add) try r.addMember(lib.now(), person) else try r.removeMember(lib.now(), person);
-}
-
-// Names and devices.
-
-/// Names this person (`which` "person") or this device ("device"), for every
-/// device to show in place of keys.
-export fn cq_set_name(lib: *Library, which: [*:0]const u8, name: [*:0]const u8) c_int {
-    return status(lib, setName, .{ std.mem.span(which), std.mem.span(name) });
-}
-
-fn setName(lib: *Library, arena: std.mem.Allocator, which: []const u8, name: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    const r = try lib.main();
-    if (std.mem.eql(u8, which, "person"))
-        try library.setName(r, arena, lib.now(), try lib.store.person(), name, null)
-    else if (std.mem.eql(u8, which, "device"))
-        try library.setName(r, arena, lib.now(), try lib.store.device(), name, try lib.store.person())
-    else
-        return error.Usage;
-}
-
-/// Names another device, `device`, as its person's, `person` (as one just
-/// paired, until it names itself); any member may.
-export fn cq_name(lib: *Library, device: [*:0]const u8, person: [*:0]const u8, name: [*:0]const u8) c_int {
-    return status(lib, nameDevice, .{ std.mem.span(device), std.mem.span(person), std.mem.span(name) });
-}
-
-fn nameDevice(lib: *Library, arena: std.mem.Allocator, device: []const u8, person: []const u8, name: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    try library.setName(try lib.main(), arena, lib.now(), try store_.parseKey(device), name, try store_.parseKey(person));
-}
-
-/// This person's devices that have names, as a JSON array of objects with
-/// `key`, `name`, and `you` (this one).
-export fn cq_devices(lib: *Library) ?[*:0]u8 {
-    return json(lib, devices, .{});
-}
-
-fn devices(lib: *Library, arena: std.mem.Allocator) ![]const DeviceJson {
-    const r = try lib.main();
-    const me = std.fmt.bytesToHex(try lib.store.person(), .lower);
-    const this = std.fmt.bytesToHex(try lib.store.device(), .lower);
-    var out: std.ArrayList(DeviceJson) = .empty;
-    for (try library.names(r, arena)) |n| if (n.person) |u| if (std.mem.eql(u8, u, &me)) {
-        // Those removed aren't this person's devices any more.
-        const key = store_.parseKey(n.key) catch continue;
-        if (try r.revoked(key) != null) continue;
-        try out.append(arena, .{ .key = n.key, .name = n.name, .you = std.mem.eql(u8, n.key, &this) });
-    };
-    return out.items;
-}
-
-/// Removes another device (`device`, a key) from the library: its writes
-/// past where this one has seen them are refused everywhere, and it's
-/// served no more. It still holds its person's secret, and could pair again
-/// as a new device.
-export fn cq_remove_device(lib: *Library, device: [*:0]const u8) c_int {
-    return status(lib, removeDevice, .{std.mem.span(device)});
-}
-
-fn removeDevice(lib: *Library, _: std.mem.Allocator, device: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    try (try lib.main()).revokeDevice(lib.now(), try store_.parseKey(device));
-}
-
-/// Removes this device from the library, as it leaves: if `successor` (a
-/// person's key) is given, first handing the library over to them (this
-/// device's person must be the founder, and stays a member); then cutting
-/// off this device's own streams just past these writes, so other devices,
-/// once synced with, take the removal and refuse anything after. Sync, then
-/// `cq_leave`, to finish leaving.
-export fn cq_remove_self(lib: *Library, successor: ?[*:0]const u8) c_int {
-    return status(lib, removeSelf, .{span(successor)});
-}
-
-fn removeSelf(lib: *Library, _: std.mem.Allocator, successor: ?[]const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    try (try lib.main()).removeSelf(lib.now(), if (successor) |s| try store_.parseKey(s) else null);
-}
-
-/// Long (it listens for 2 seconds): the devices found on the network, by
-/// DNS-SD, other than this one, and those added by address, as a JSON
-/// array of objects with `url` (to sync with, or for one `pairing`, to pair
-/// with), `device` and `person` (their names, if advertised), `person` (key),
-/// `ours` (of this library), `member` (its person is one), `added`, and
-/// `pairing` (for a new device offering to pair, by `cq_pair`, what for:
-/// `pair`, to be another of this person's, or `join`, a new member's).
-export fn cq_nearby(lib: *Library) ?[*:0]u8 {
-    return json(lib, nearby, .{});
-}
-
-fn nearby(lib: *Library, arena: std.mem.Allocator) ![]const NearbyJson {
-    var r = try connection(lib, arena);
-    defer r.close();
-    const mine = std.fmt.bytesToHex(r.library, .lower);
-    const own = try lib.store.serviceName(arena);
-    const list = try r.members(arena);
-    var out: std.ArrayList(NearbyJson) = .empty;
-    for (try discover.browse(lib.io(), arena, 2000)) |s| {
-        if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
-        const person = s.get("user");
-        const is_member = if (person) |u| for (list) |m| {
-            if (std.mem.eql(u8, &std.fmt.bytesToHex(m, .lower), u)) break true;
-        } else false else false;
-        try out.append(arena, .{
-            .url = try sync.foundUrl(arena, s),
-            .device = s.get("name"),
-            // As DNS-SD resolved it: an Apple TV's is its own name
-            // (`Not-Your-AppleTV.local`), when tvOS tells apps only "Apple TV".
-            .host = s.host,
-            .person = s.get("person"),
-            .person_key = person,
-            .ours = std.mem.eql(u8, s.get("library") orelse "", &mine),
-            .member = is_member,
-            .added = false,
-            .pairing = s.get("pair"),
-        });
-    }
-    for (try sync.addedAddresses(&r, arena)) |u|
-        try out.append(arena, .{ .url = u, .device = null, .person = null, .person_key = null, .ours = true, .member = true, .added = true, .pairing = null });
-    return out.items;
-}
-
-/// Adds (nonzero `add`) or removes a device by address, such as one off the
-/// network, which syncing then reaches too; on this device only.
-export fn cq_device_address(lib: *Library, target: [*:0]const u8, add: c_int) c_int {
-    return status(lib, deviceAddress, .{ std.mem.span(target), add != 0 });
-}
-
-fn deviceAddress(lib: *Library, arena: std.mem.Allocator, target: []const u8, add: bool) !void {
-    _ = try sync.setAdded(try lib.main(), arena, target, add);
-}
-
-// Sources.
-
-/// The sources, as a JSON array of objects with `id`, `url`,
-/// `quality`, `skip`, `copies`, `managed` (a device's downloads), and
-/// `unavailable`, its unavailable directories
-/// (`dir`, relative to it, empty for the whole of it, and `since`, in
-/// milliseconds since the epoch).
-export fn cq_repos(lib: *Library) ?[*:0]u8 {
-    return json(lib, sources, .{});
-}
-
-const AbsenceJson = struct { dir: []const u8, since: u64 };
-const SourceJson = struct { id: []const u8, url: []const u8, quality: []const u8, skip: []const u8, copies: i64, unavailable: []const AbsenceJson, managed: bool };
-
-fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
-    const r = try lib.main();
-    const list = try library.sources(r, arena);
-    const out = try arena.alloc(SourceJson, list.len);
-    for (list, out) |rp, *o| o.* = .{
-        .id = try arena.dupe(u8, &rp.id),
-        .url = rp.url,
-        .quality = rp.layout.quality,
-        .skip = rp.layout.skip,
-        .copies = try library.countCopies(r, arena, rp),
-        .managed = rp.managed,
-        .unavailable = blk: {
-            const list_ = try library.unavailableDirs(r, arena, &rp.id);
-            const unavailable = try arena.alloc(AbsenceJson, list_.len);
-            for (list_, unavailable) |a, *j| j.* = .{ .dir = a.dir, .since = a.since_ms };
-            break :blk unavailable;
-        },
-    };
-    return out;
-}
-
-/// Long (up to `race.timeout_ms`), on any thread: copy racing. Takes a JSON
-/// array of an item's copies' URLs, in the order a player would try them,
-/// and returns them in the order to try: those whose servers answer, at
-/// once and briefly, first; a server that didn't lately, last (see
-/// race.zig).
-export fn cq_race(lib: *Library, urls_json: [*:0]const u8) ?[*:0]u8 {
-    return json(lib, raceCopies, .{std.mem.span(urls_json)});
-}
-
-fn raceCopies(lib: *Library, arena: std.mem.Allocator, urls_json: []const u8) ![]const []const u8 {
-    const urls = try std.json.parseFromSliceLeaky([]const []const u8, arena, urls_json, .{ .allocate = .alloc_always });
-    return race.order(lib.io(), gpa, arena, &lib.racing, urls, lib.now());
-}
-
-/// Long: looks up the names of the servers of `urls_json` (a JSON array of
-/// URLs, such as the sources'), so copy racing's first race finds them
-/// answered. Any thread.
-export fn cq_race_warm(lib: *Library, urls_json: [*:0]const u8) void {
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    const urls = std.json.parseFromSliceLeaky([]const []const u8, arena, std.mem.span(urls_json), .{ .allocate = .alloc_always }) catch return;
-    race.warm(lib.io(), arena, urls) catch {};
-}
-
-/// Notes that a copy didn't load, so its server is raced last for a while.
-/// Any thread.
-export fn cq_race_lost(lib: *Library, url: [*:0]const u8) void {
-    lib.racing.lost(lib.io(), gpa, std.mem.span(url), lib.now()) catch {};
-}
-
-// Downloads (see download.zig).
-
-/// Sets where this device keeps downloads (`dir`), the URL it serves them
-/// at (made a source of its own, which no one crawls), and whether
-/// downloads watched since fetched are deleted at once (nonzero) or only as
-/// space is needed; either way, only once another source holds them,
-/// and never pinned ones.
-export fn cq_downloads_configure(lib: *Library, dir: [*:0]const u8, served_at: [*:0]const u8, drop_watched: c_int) c_int {
-    return status(lib, downloadsConfigure, .{ std.mem.span(dir), std.mem.span(served_at), drop_watched != 0 });
-}
-
-fn downloadsConfigure(lib: *Library, arena: std.mem.Allocator, dir: []const u8, served_at: []const u8, drop_watched: bool) !void {
-    try lib.writer.lock(lib.io());
-    defer lib.writer.unlock(lib.io());
-    try download.configure(try lib.main(), arena, lib.now(), dir, served_at, drop_watched);
-}
-
-/// Whether watched downloads go at once (else as their space is needed),
-/// as `cq_downloads_configure` sets it; quick, as it takes no writer.
-export fn cq_downloads_drop_watched(lib: *Library, on: c_int) c_int {
-    return status(lib, dropWatched, .{on != 0});
-}
-
-fn dropWatched(lib: *Library, _: std.mem.Allocator, on: bool) !void {
-    try download.setDropWatched(try lib.main(), on);
-}
-
-/// Wants a title's, a season's (`<title>/e/s01`), or an item's files kept
-/// on this device (each item as of now), in `quality` (null or empty:
-/// the one most items have); `cq_reconcile` fetches them.
-export fn cq_download(lib: *Library, key: [*:0]const u8, quality: ?[*:0]const u8) c_int {
-    return status(lib, downloadWant, .{ std.mem.span(key), span(quality) orelse "" });
-}
-
-fn downloadWant(lib: *Library, arena: std.mem.Allocator, key: []const u8, quality: []const u8) !void {
-    try download.want(try lib.main(), arena, key, quality);
-}
-
-/// Stops keeping a title's, season's, or item's files: deletes those held
-/// here, and forgets wanting them.
-export fn cq_download_remove(lib: *Library, key: [*:0]const u8) c_int {
-    return status(lib, downloadRemove, .{std.mem.span(key)});
-}
-
-fn downloadRemove(lib: *Library, arena: std.mem.Allocator, key: []const u8) !void {
-    _ = try download.remove(lib.io(), arena, try lib.main(), &lib.writer, lib.now(), key);
-}
-
-/// Chooses which of a series' episodes download, as it's watched: the
-/// `current` one (in progress, else the next unwatched), the next N after
-/// where this person is (`3`), its `unwatched` ones, a season's
-/// unwatched ones (`s02`), or `all` of them, kept however they're watched;
-/// empty or `0`, none.
-export fn cq_download_next(lib: *Library, title_key: [*:0]const u8, choice: [*:0]const u8) c_int {
-    return status(lib, downloadNext, .{ std.mem.span(title_key), std.mem.span(choice) });
-}
-
-fn downloadNext(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, choice: []const u8) !void {
-    const parsed = download.Choice.parse(choice);
-    if (parsed == null and choice.len > 0 and !std.mem.eql(u8, choice, "0")) return error.InvalidArgument;
-    try download.setNext(try lib.main(), arena, title_key, parsed);
-}
-
-/// What downloading would come to, as a JSON array, one object per choice
-/// in `choices_json` (an array of strings): `choice`, `size` (bytes, of all
-/// its files), and `needed` (of those, what isn't here yet). A choice is a
-/// series' (`key` its title's), as `cq_download_next` takes it, or empty
-/// for `key`'s own files (a title's, season's, or item's) in `quality`
-/// (null: the one most have).
-export fn cq_download_sizes(lib: *Library, key: [*:0]const u8, choices_json: [*:0]const u8, quality: ?[*:0]const u8) ?[*:0]u8 {
-    return json(lib, downloadSizes, .{ std.mem.span(key), std.mem.span(choices_json), span(quality) });
-}
-
-const SizeJson = struct { choice: []const u8, size: u64, needed: u64 };
-
-fn downloadSizes(lib: *Library, arena: std.mem.Allocator, key: []const u8, choices_json: []const u8, quality: ?[]const u8) ![]const SizeJson {
-    const r = try lib.main();
-    const choices = try std.json.parseFromSliceLeaky([]const []const u8, arena, choices_json, .{});
-    const out = try arena.alloc(SizeJson, choices.len);
-    for (choices, out) |c, *o| {
-        const choice = if (c.len == 0) null else download.Choice.parse(c) orelse return error.InvalidArgument;
-        const s = try download.sizeOf(r, arena, key, choice, quality);
-        o.* = .{ .choice = c, .size = s.size, .needed = s.needed };
-    }
-    return out;
-}
-
-/// A series' choice of episodes, as `cq_downloads` tells it.
-const NextJson = struct { title: []const u8, choice: []const u8 };
-
-const HeldJson = struct { item: []const u8, size: u64, only: bool };
-const DoneJson = struct { item: []const u8, deletable: bool };
-
-/// Keeps a download (nonzero), so it's never deleted as watched, or lets
-/// it go.
-export fn cq_keep(lib: *Library, item_key: [*:0]const u8, on: c_int) c_int {
-    return status(lib, keep, .{ std.mem.span(item_key), on != 0 });
-}
-
-fn keep(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, on: bool) !void {
-    try download.setKept(try lib.main(), arena, item_key, on);
-}
-const DownloadsJson = struct {
-    dir: ?[]const u8,
-    source: ?[]const u8,
-    drop_watched: bool,
-    held: []const HeldJson,
-    wanted: []const download.Want,
-    next: []const NextJson,
-    ahead: []const []const u8,
-    watched: []const DoneJson,
-    kept: []const []const u8,
-    free: ?u64,
-    floor: u64,
-    running: bool,
-    done_mb: u32,
-    total_mb: u32,
-    fetching: ?FetchingJson,
-};
-const FetchingJson = struct { item: []const u8, done: u64, size: u64 };
-
-/// This device's downloads, as a JSON object: `dir`, `source` (its ID),
-/// and `drop_watched`, as configured (null if not); `held`, the files held
-/// (`item`, `size`, and whether it's the `only` copy, no other source
-/// holding it alike); `wanted` (`key`, `quality`); `next`, series whose
-/// episodes download as they're watched (`title`, and `choice`, as
-/// `cq_download_next` takes it), and `ahead`, the episodes (full item keys)
-/// they come to now; `watched`, downloads
-/// watched since fetched and not kept, oldest first (`item`, and
-/// `deletable`, once held elsewhere, else the only copy); `kept` items; `free` bytes on its volume, if
-/// known, and the
-/// `floor` kept free; and whether `cq_reconcile` is `running`, with
-/// `done_mb` of `total_mb`, and the file it's `fetching` (`item`, its
-/// `size`, and the bytes `done`, a resumed file's earlier ones too), or
-/// null.
-export fn cq_downloads(lib: *Library) ?[*:0]u8 {
-    return json(lib, downloads, .{});
-}
-
-fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
-    const r = try lib.main();
-    const s = try download.settings(r, arena);
-    var list: std.ArrayList(HeldJson) = .empty;
-    if (s) |set| {
-        const all = try library.sources(r, arena);
-        const unavailable = try library.UnavailableDirs.load(r, arena);
-        for (try download.held(r, arena, set.source)) |h|
-            try list.append(arena, .{ .item = h.item, .size = h.size, .only = !try download.confirmed(r, all, &unavailable, h) });
-    }
-    var finished: std.ArrayList(DoneJson) = .empty;
-    if (s) |set| for (try download.finishedWith(r, arena, set.source)) |d| try finished.append(arena, .{ .item = d.held.item, .deletable = d.deletable });
-    // The episodes each series' next ones come to, as of now, by full key.
-    var ahead: std.ArrayList([]const u8) = .empty;
-    const nexts = try download.nexts(r, arena);
-    const next = try arena.alloc(NextJson, nexts.len);
-    for (nexts, next) |n, *j| {
-        j.* = .{ .title = n.title, .choice = try n.choice.write(arena) };
-        for (try download.ahead(r, arena, n.title, n.choice)) |item|
-            try ahead.append(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ n.title, item }));
-    }
-    return .{
-        .dir = if (s) |set| set.dir else null,
-        .source = if (s) |set| try arena.dupe(u8, &set.source.id) else null,
-        .drop_watched = if (s) |set| set.drop_watched else false,
-        .held = list.items,
-        .wanted = try download.wants(r, arena),
-        .next = next,
-        .ahead = ahead.items,
-        .watched = finished.items,
-        .kept = try download.kept(r, arena),
-        .free = if (s) |set| download.freeBytes(arena, set.dir) else null,
-        .floor = download.floor(),
-        .running = lib.reconciling.load(.acquire),
-        .done_mb = lib.downloaded_mb.load(.monotonic),
-        .total_mb = lib.download_mb.load(.monotonic),
-        .fetching = if (try lib.fetching.get(lib.io(), arena)) |f| .{ .item = f.item, .done = f.done, .size = f.size } else null,
-    };
-}
-
-/// Long, on a connection of its own: brings this device's downloads in line
-/// with what it keeps (see download.zig), fetching, recording, and deleting
-/// as it goes; if one runs already, asks it to run again and returns at
-/// once, with `busy`. Returns a JSON object with `fetched`, `kept`,
-/// `deleted`, `failed`, `no_room` (files left to keep the floor free),
-/// `error`, and `busy`.
-export fn cq_reconcile(lib: *Library) ?[*:0]u8 {
-    return json(lib, reconcile, .{});
-}
-
-const ReconciledJson = struct { fetched: usize = 0, kept: usize = 0, deleted: usize = 0, failed: usize = 0, no_room: usize = 0, held: usize = 0, @"error": ?[]const u8 = null, busy: bool = false };
-
-/// Holds downloads back (nonzero), as while a stream plays, which they'd
-/// slow: none begins, though one under way finishes; or lets them go (then
-/// `cq_reconcile` fetches what waited). Any thread.
-export fn cq_downloads_hold(lib: *Library, on: c_int) void {
-    lib.hold.store(on != 0, .release);
-}
-
-fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
-    lib.reconcile_again.store(true, .release);
-    if (lib.reconciling.swap(true, .acq_rel)) return .{ .busy = true };
-    errdefer lib.reconciling.store(false, .release);
-    var r = try connection(lib, arena);
-    defer r.close();
-    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
-    defer client.deinit();
-    var out: ReconciledJson = .{};
-    while (true) {
-        // Again while asked again (a download wanted meanwhile).
-        while (lib.reconcile_again.swap(false, .acq_rel)) {
-            try r.refresh();
-            const done = try download.reconcile(lib.io(), gpa, arena, &client, &lib.racing, &r, &lib.writer, lib.now(), .{ .done = &lib.downloaded_mb, .total = &lib.download_mb, .fetching = &lib.fetching }, &lib.hold);
-            out.fetched += done.fetched;
-            out.kept = done.kept;
-            out.deleted += done.deleted;
-            out.failed = done.failed;
-            out.no_room = done.no_room;
-            out.held = done.held;
-            out.@"error" = done.@"error";
-        }
-        lib.reconciling.store(false, .release);
-        // A caller may have asked after the last check and found us still
-        // running, so returned busy: take its request up, unless another has.
-        if (!lib.reconcile_again.load(.acquire)) break;
-        if (lib.reconciling.swap(true, .acq_rel)) break;
-    }
-    return out;
-}
-
-/// Forgets an unavailable directory of a source (by ID or URL), as if it
-/// were deleted: its copies go, for every device.
-export fn cq_remove_unavailable(lib: *Library, source: [*:0]const u8, dir: [*:0]const u8) c_int {
-    return status(lib, removeUnavailable, .{ std.mem.span(source), std.mem.span(dir) });
-}
-
-fn removeUnavailable(lib: *Library, arena: std.mem.Allocator, source: []const u8, dir: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    const r = try lib.main();
-    _ = try library.removeUnavailable(r, arena, lib.now(), try library.findSource(r, arena, source), dir);
-}
-
-/// Adds a source by URL, as typed, with its quality and the prefix of
-/// names to skip (each null for the default).
-export fn cq_repo_add(lib: *Library, target: [*:0]const u8, quality: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
-    return status(lib, sourceAdd, .{ std.mem.span(target), span(quality), span(skip) });
-}
-
-fn sourceAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, quality: ?[]const u8, skip: ?[]const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    const r = try lib.main();
-    var typed: std.ArrayList(u8) = .empty;
-    try @import("url.zig").escape(arena, &typed, std.mem.trim(u8, target, " \n"));
-    if (!std.mem.endsWith(u8, typed.items, "/")) try typed.append(arena, '/');
-    var layout: library.Layout = .{};
-    if (quality) |v| layout.quality = v;
-    if (skip) |v| layout.skip = v;
-    _ = try library.addSource(r, lib.now(), typed.items, layout);
-}
-
-/// Changes a source's settings, those not null.
-export fn cq_repo_set(lib: *Library, source: [*:0]const u8, quality: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
-    return status(lib, sourceSet, .{ std.mem.span(source), span(quality), span(skip) });
-}
-
-fn sourceSet(lib: *Library, arena: std.mem.Allocator, source: []const u8, quality: ?[]const u8, skip: ?[]const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    _ = try library.setSource(try lib.main(), arena, lib.now(), source, quality, skip);
-}
-
-/// Removes a source, by ID or URL, and the copies it held.
-export fn cq_repo_remove(lib: *Library, source: [*:0]const u8) c_int {
-    return status(lib, sourceRemove, .{std.mem.span(source)});
-}
-
-fn sourceRemove(lib: *Library, arena: std.mem.Allocator, source: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    _ = try library.removeSource(try lib.main(), arena, lib.now(), source);
-}
-
-// Long operations, each on a connection of its own.
-
-fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
-    return lib.store.openReplica(arena);
-}
-
-/// How often refreshes not asked for (at launch, on a timer) look in the
-/// library's sources, for every device: every `hours` (1, 3, 24, 168), or
-/// 0 for only when asked (Refresh Library), sparing a NAS's disks.
-export fn cq_crawl_every(lib: *Library, hours: c_int) c_int {
-    return status(lib, crawlEvery, .{@as(u64, @intCast(@max(hours, 0)))});
-}
-
-fn crawlEvery(lib: *Library, _: std.mem.Allocator, hours: u64) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    try library.setCrawlEvery(try lib.main(), lib.now(), hours);
-}
-
-/// Long: crawls every source, committing each as it's crawled, then
-/// describes what's new (covers and metadata) with concurrent workers,
-/// committing as it goes and taking prioritized titles (`cq_prioritize`)
-/// first. Returns a JSON array of objects with `url`, `files`, `titles`,
-/// and `error` (null, or why its crawl failed), one per source, with its
-/// times and counts (see `CrawlJson`).
-export fn cq_crawl(lib: *Library) ?[*:0]u8 {
-    return json(lib, crawlAll, .{false});
-}
-
-/// Long: as `cq_crawl`, but for a refresh not asked for (at launch, or on
-/// a timer), once synced: skips sources a device crawled within the
-/// library's interval (`cq_crawl_every`), give or take a 24th of it
-/// (`lately` in their results), whose copies syncing brought; or all of
-/// them, if it's Manually (`manual`).
-export fn cq_crawl_due(lib: *Library) ?[*:0]u8 {
-    return json(lib, crawlAll, .{true});
-}
-
-fn crawlAll(lib: *Library, arena: std.mem.Allocator, due: bool) ![]const CrawlJson {
-    var r = try connection(lib, arena);
-    defer r.close();
-    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
-    defer client.deinit();
-    const list = try library.sources(&r, arena);
-    const out = try arena.alloc(CrawlJson, list.len);
-    const every = try library.crawlEvery(&r, arena);
-    const window = if (every) |hours| library.crawlWindow(lib.io(), hours) else 0;
-    var crawled: std.ArrayList(art.Crawled) = .empty;
-    lib.steps.start(.crawling, list.len);
-    defer lib.steps.finish();
-    for (list, out) |rp, *o| {
-        defer lib.steps.step();
-        if (rp.managed) {
-            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null };
-            continue;
-        }
-        if (due and every == null) {
-            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .manual = true };
-            continue;
-        }
-        if (due and rp.crawledLately(lib.now(), window)) {
-            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .lately = true };
-            continue;
-        }
-        try lib.writer.lock(lib.io());
-        defer lib.writer.unlock(lib.io());
-        try r.refresh();
-        const s = library.crawlSource(&r, lib.io(), arena, &client, lib.now(), rp, 16) catch |err| {
-            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = @errorName(err) };
-            continue;
-        };
-        o.* = .{
-            .url = rp.url,
-            .files = s.ingest.files,
-            .titles = s.ingest.titles_added,
-            .covers = 0,
-            .@"error" = null,
-            .crawl_ms = s.crawl_ms,
-            .total_ms = s.total_ms,
-            .requests = s.crawl.requests,
-            .reused = s.crawl.skipped,
-            .changed = s.ingest.copies_added + s.ingest.copies_changed + s.ingest.copies_removed,
-        };
-        try crawled.append(arena, .{ .source = rp, .entries = s.entries });
-    }
-    const plan = try art.plan(&r, arena, crawled.items);
-    lib.steps.start(.describing, plan.jobs.len);
-    _ = try art.run(lib.io(), &r, arena, &client, lib.now(), plan.jobs, .{
-        .workers = 16,
-        .priority = &lib.priority,
-        .writer = &lib.writer,
-        .done = &lib.steps.done,
-    });
-    return out;
-}
-
-/// Sets the titles to describe first, a JSON array of title keys (e.g., the
-/// tiles on screen); any thread.
-export fn cq_prioritize(lib: *Library, title_keys: [*:0]const u8) c_int {
-    return status(lib, prioritize, .{std.mem.span(title_keys)});
-}
-
-fn prioritize(lib: *Library, arena: std.mem.Allocator, title_keys: []const u8) !void {
-    const keys = try std.json.parseFromSliceLeaky([]const []const u8, arena, title_keys, .{});
-    try lib.priority.set(lib.io(), keys);
-}
-
-/// A number that changes when another connection (a long operation) has
-/// committed changes, so the app knows to reload; -1 on failure.
-export fn cq_data_version(lib: *Library) i64 {
-    const r = &(lib.replica orelse return -1);
-    return r.db.scalar("PRAGMA data_version") catch -1;
-}
-
-/// Long: pulls from the device at `target`, or else from every device of this
-/// library found or added, as a JSON array of objects with `url`, `new`
-/// (operations won), and `error`.
-export fn cq_sync(lib: *Library, target: ?[*:0]const u8) ?[*:0]u8 {
-    return json(lib, syncAll, .{ span(target), false });
-}
-
-/// Long: as `cq_sync` with every device, but with those the last such sync
-/// found nearby (and those added), without looking for two seconds again;
-/// if none has, it looks. For a change to reach other devices at once.
-export fn cq_sync_known(lib: *Library) ?[*:0]u8 {
-    return json(lib, syncAll, .{ null, true });
-}
-
-/// The devices of this library a sync last found nearby.
-const Known = struct {
-    mutex: Io.Mutex = .init,
-    arena: ?std.heap.ArenaAllocator = null,
-    devices: sync.Devices = .{ .urls = &.{}, .names = .empty },
-
-    fn save(k: *Known, io: Io, list: sync.Devices) !void {
-        var next: std.heap.ArenaAllocator = .init(gpa);
-        errdefer next.deinit();
-        const copy = try dupe(next.allocator(), list);
-        k.mutex.lockUncancelable(io);
-        defer k.mutex.unlock(io);
-        k.deinit();
-        k.arena = next;
-        k.devices = copy;
-    }
-
-    /// A copy in `arena`, or null if no sync has looked yet.
-    fn get(k: *Known, io: Io, arena: std.mem.Allocator) !?sync.Devices {
-        k.mutex.lockUncancelable(io);
-        defer k.mutex.unlock(io);
-        if (k.arena == null) return null;
-        return try dupe(arena, k.devices);
-    }
-
-    fn dupe(arena: std.mem.Allocator, list: sync.Devices) !sync.Devices {
-        const urls = try arena.alloc([]const u8, list.urls.len);
-        var names: std.StringHashMapUnmanaged([]const u8) = .empty;
-        for (list.urls, urls) |u, *out| {
-            out.* = try arena.dupe(u8, u);
-            if (list.names.get(u)) |n| try names.put(arena, out.*, try arena.dupe(u8, n));
-        }
-        return .{ .urls = urls, .names = names };
-    }
-
-    fn deinit(k: *Known) void {
-        if (k.arena) |*a| a.deinit();
-        k.arena = null;
-    }
-};
-
-fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8, known: bool) ![]const SyncJson {
-    // Devices are counted once they're found.
-    lib.steps.start(.syncing, 0);
-    defer lib.steps.finish();
-    try lib.writer.lock(lib.io());
-    defer lib.writer.unlock(lib.io());
-    var r = try connection(lib, arena);
-    defer r.close();
-    const reachable = if (target != null)
-        try sync.reachable(lib.io(), arena, &r, try lib.store.serviceName(arena), target)
-    else found: {
-        const seen = (if (known) try lib.known.get(lib.io(), arena) else null) orelse looked: {
-            const fresh = try sync.nearby(lib.io(), arena, &r, try lib.store.serviceName(arena));
-            try lib.known.save(lib.io(), fresh);
-            break :looked fresh;
-        };
-        break :found try sync.withAdded(arena, &r, seen);
-    };
-    const urls = reachable.urls;
-    const names = reachable.names;
-    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
-    defer client.deinit();
-    const out = try arena.alloc(SyncJson, urls.len);
-    lib.steps.start(.syncing, urls.len);
-    for (urls, out) |u, *o| {
-        defer lib.steps.step();
-        const exchanged = sync.exchange(arena, &client, &r, u, lib.now()) catch |err| {
-            o.* = .{ .url = u, .name = names.get(u), .new = 0, .@"error" = @errorName(err) };
-            continue;
-        };
-        o.* = .{ .url = u, .name = names.get(u), .new = exchanged.stats.won, .sent = exchanged.sent, .@"error" = null };
-    }
-    return out;
-}
-
-
-/// The last sync this device served, while serving, as JSON: `device` (the
-/// key of the device that asked), its `name` if it has one, how many
-/// `operations` it was sent, and when (`at`, in milliseconds since the
-/// epoch); or null if none yet.
-export fn cq_served(lib: *Library) ?[*:0]u8 {
-    return json(lib, served, .{});
-}
-
-/// The last push this device took, while serving, as `cq_served` tells of a
-/// sync: from which device, and how many of its operations won; an app
-/// reloads when it changes.
-export fn cq_received(lib: *Library) ?[*:0]u8 {
-    return json(lib, receivedPush, .{});
-}
-
-fn receivedPush(lib: *Library, arena: std.mem.Allocator) !?HeardJson {
-    return lib.received.json(lib, arena);
-}
-
-fn served(lib: *Library, arena: std.mem.Allocator) !?HeardJson {
-    return lib.served.json(lib, arena);
-}
-
-/// Long: reads an item's metadata (an episode's title, description, and
-/// duration) from its first copy, if an MP4.
-export fn cq_describe(lib: *Library, item_key: [*:0]const u8) c_int {
-    return status(lib, describeItem, .{std.mem.span(item_key)});
-}
-
-fn describeItem(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !void {
-    try lib.writer.lock(lib.io());
-    defer lib.writer.unlock(lib.io());
-    var r = try connection(lib, arena);
-    defer r.close();
-    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
-    defer client.deinit();
-    try art.describeItem(&r, arena, &client, lib.now(), item_key);
-}
-
-// Browsing.
-
-/// The grid's tiles, as a JSON array of objects with `key` (the title's),
-/// `name`, `year`, `kind` (`movie` or `series`), `season` (a series', or
-/// null), and `cover` (null, or `url`, `offset`, `length`, and `stamp`, a
-/// byte range to fetch, and what changes when it does), `thumb` (null, or
-/// the cover's placeholder, a ThumbHash in base64, for `cq_thumbhash`), and
-/// this person's `watched` (every item), `progress` (0 to 1, by running time),
-/// `elapsed` and `runtime` (milliseconds played, of how many), and `started`;
-/// `items`, how many it holds; and `unavailable`, whether every copy it has is under an unavailable directory.
-export fn cq_tiles(lib: *Library) ?[*:0]u8 {
-    return json(lib, tiles, .{});
-}
-
-
-fn tiles(lib: *Library, arena: std.mem.Allocator) ![]const views.TileJson {
-    return views.tiles(try lib.main(), arena);
-}
-
-/// One title, as a JSON object with `key`, `name`, `year`, `aliasOf`,
-/// `aliases`, `fields` (its metadata, e.g., `description` and `genre`),
-/// `covers` (by field, `art` or `art:s01`...), and `items`, each with its
-/// `key`, `fields` (e.g., an episode's `title`), this person's `position`,
-/// `duration` (milliseconds), and `watched`, and `qualities`, each with
-/// its `label`, `name` (as its sources give it), and `copies`: `url`
-/// (ready to play), `size`, `mtime`, `source`, and `unavailable` (under an
-/// unavailable directory of its source). Null if there's no such title.
-export fn cq_title(lib: *Library, key: [*:0]const u8) ?[*:0]u8 {
-    return json(lib, title, .{std.mem.span(key)});
-}
-
-fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !views.Title {
-    return views.title(try lib.main(), arena, key);
-}
-
-// This person's private data.
-
-/// Records this person's progress in an item (a title's key and an item's,
-/// e.g., `t/m/alien/1979/v/-`).
-export fn cq_set_progress(lib: *Library, item_key: [*:0]const u8, position_ms: u64, duration_ms: u64) c_int {
-    return status(lib, setProgress, .{ std.mem.span(item_key), position_ms, duration_ms });
-}
-
-fn setProgress(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, position_ms: u64, duration_ms: u64) !void {
-    const r = try privateWriter(lib);
-    defer if (r.locked) lib.writer.unlock(lib.io());
-    try library.setProgress(r.replica, arena, lib.now(), item_key, position_ms, duration_ms);
-}
-
-/// Marks an item watched (nonzero) or not.
-export fn cq_set_watched(lib: *Library, item_key: [*:0]const u8, watched: c_int) c_int {
-    return status(lib, setWatched, .{ std.mem.span(item_key), watched != 0 });
-}
-
-fn setWatched(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, watched: bool) !void {
-    const r = try privateWriter(lib);
-    defer if (r.locked) lib.writer.unlock(lib.io());
-    try library.setWatched(r.replica, arena, lib.now(), item_key, watched);
-}
-
-/// Removes this person's progress in an item: its position and watched mark.
-export fn cq_remove_progress(lib: *Library, item_key: [*:0]const u8) c_int {
-    return status(lib, removeProgress, .{std.mem.span(item_key)});
-}
-
-fn removeProgress(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !void {
-    const r = try privateWriter(lib);
-    defer if (r.locked) lib.writer.unlock(lib.io());
-    try library.removeProgress(r.replica, arena, lib.now(), item_key);
-}
-
-/// What's on this person's watchlist, as a JSON array of keys: a movie's
-/// title key, or a season's tile (`<title key>#<season>`).
-export fn cq_watchlist(lib: *Library) ?[*:0]u8 {
-    return json(lib, getWatchlist, .{});
-}
-
-fn getWatchlist(lib: *Library, arena: std.mem.Allocator) ![]const []const u8 {
-    return art.watchlist(try lib.main(), arena);
-}
-
-/// Adds a movie or a season (as `cq_watchlist` keys them) to this person's
-/// watchlist (nonzero `on`), or removes it.
-export fn cq_set_watchlisted(lib: *Library, title_key: [*:0]const u8, on: c_int) c_int {
-    return status(lib, setWatchlisted, .{ std.mem.span(title_key), on != 0 });
-}
-
-fn setWatchlisted(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, on: bool) !void {
-    const r = try privateWriter(lib);
-    defer if (r.locked) lib.writer.unlock(lib.io());
-    try art.setWatchlisted(r.replica, arena, lib.now(), title_key, on);
-}
-
-/// The main connection, for private writes, which need the writer lock only
-/// for the device's first (whose private stream's certificate is public).
-fn privateWriter(lib: *Library) !struct { replica: *Replica, locked: bool } {
-    const r = try lib.main();
-    if (r.private_seq > 0) return .{ .replica = r, .locked = false };
-    if (!lib.writer.tryLock()) return error.Busy;
-    try r.refresh();
-    return .{ .replica = r, .locked = true };
+// Each part of the interface, its exports kept by importing it.
+comptime {
+    _ = @import("capi/serving.zig");
+    _ = @import("capi/membership.zig");
+    _ = @import("capi/pairing.zig");
+    _ = @import("capi/names.zig");
+    _ = @import("capi/sources.zig");
+    _ = @import("capi/downloads.zig");
+    _ = @import("capi/long.zig");
+    _ = @import("capi/browsing.zig");
+    _ = @import("capi/private.zig");
 }
