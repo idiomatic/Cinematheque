@@ -45,7 +45,7 @@ The other device keeps its state in a directory of its own, its home. By default
 
 State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `alias`, `progress`, `device`, and `agent`. Actions on the whole app are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
 
-* **Options** are named and may come anywhere: `--port PORT`, `--media DIR`, `--rendition NAME`, `--skip PREFIX`, and `--workers WORKERS` take a value. `--leave`, `--watched`, and `--unwatched` are flags. `--home DIR` works with every command.
+* **Options** are named and may come anywhere: `--port PORT`, `--media DIR`, `--quality NAME`, `--skip PREFIX`, and `--workers WORKERS` take a value. `--leave`, `--watched`, and `--unwatched` are flags. `--home DIR` works with every command.
 * **Help:** [usage.txt](src/usage.txt) lists every command, and is the help, built into the binary. `-h` or `--help` prints it all. With a noun or action (`cinematheque source -h`), or for a noun alone, only that one's commands are printed.
 * **Arguments:** keys are 64 hexadecimal digits, as `person show` prints them. Titles and items are keys, as `title list` and `title show` print them (`t/m/alien/1979`, `t/s/firefly/-/e/s01e01`). A source is its ID (16 hexadecimal digits) or its URL.
 * **Exit status:** 0 on success. A command line that isn't one prints the help for its noun (or all of it) and exits with status 2. Any other failure prints `error:` and the error's name (e.g., `error: NoLibrary`, before there's a library), and exits with status 1. Debug builds add a stack trace.
@@ -71,17 +71,17 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 
 ### Sources and crawling
 
-* `source add URL` adds a source. The URL is percent-encoded as typed, and given a trailing slash. `--rendition NAME` names its files' rendition (e.g., a HandBrake preset's), and `--skip PREFIX` skips names beginning with it (default `,`). It prints the source's ID, a hash of its URL.
+* `source add URL` adds a source. The URL is percent-encoded as typed, and given a trailing slash. `--quality NAME` names its files' quality (e.g., a HandBrake preset's), and `--skip PREFIX` skips names beginning with it (default `,`). It prints the source's ID, a hash of its URL.
 * `source list` and `source show SOURCE` print sources' settings; `show` adds how many copies of files the source holds.
-* `source set SOURCE` changes `--rendition` or `--skip`; the next crawl applies it. `source remove SOURCE` removes the source and every copy it had, for every device.
+* `source set SOURCE` changes `--quality` or `--skip`; the next crawl applies it. `source remove SOURCE` removes the source and every copy it had, for every device.
 * A directory that held files and lists none now, as an unplugged drive's mount point does, is unavailable: its copies stay, `crawl` counts it, and `source show` lists it (`unavailable     /archive0001, since 3 days ago`). It clears once the drive is back. `source remove SOURCE --unavailable DIR` removes its copies as if it were deleted, as they go on their own after a year.
 * `crawl [SOURCE]` crawls every source, or one, with 16 concurrent workers unless `--workers` says otherwise. It reuses the last crawl's listing of any directory whose files haven't changed. Each source gets a line of requests, files, titles added, copies changed, and duplicates. Then covers and metadata are described, with one line of totals.
 
 ### Titles
 
-* `title list [TEXT]` (`ls`) prints each title held by some source whose name contains the text, ignoring case. Each line gives its year, kind, episodes or versions, renditions, and key, with `-> TARGET` if it's an alias. A count ends the list.
-* `title show TITLE` (`show`) prints a title's fields, its aliases, and each item: the item's fields, your progress, and per rendition, every copy's size, modification time, and URL.
-* `title download TITLE` fetches a title's files (or a season's, `TITLE/e/s01`, or an item's) into the current directory or `--to DIR`, under their paths in the source, so the directory can be served and added as a source of its own. It takes `--rendition NAME`, else the rendition most of the items have, tries the copy whose server answers first, then the others, and resumes a file cut short (`<path>.part`) by a range request. Mind the size: a 2160p remux runs to 60 GB.
+* `title list [TEXT]` (`ls`) prints each title held by some source whose name contains the text, ignoring case. Each line gives its year, kind, episodes or versions, qualities, and key, with `-> TARGET` if it's an alias. A count ends the list.
+* `title show TITLE` (`show`) prints a title's fields, its aliases, and each item: the item's fields, your progress, and per quality, every copy's size, modification time, and URL.
+* `title download TITLE` fetches a title's files (or a season's, `TITLE/e/s01`, or an item's) into the current directory or `--to DIR`, under their paths in the source, so the directory can be served and added as a source of its own. It takes `--quality NAME`, else the quality most of the items have, tries the copy whose server answers first, then the others, and resumes a file cut short (`<path>.part`) by a range request. Mind the size: a 2160p remux runs to 60 GB.
 * `title review` prints close matches and duplicate files, tab-separated: the reason, then the two titles or files. A summary ends it.
 
   ```
@@ -91,7 +91,7 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
   ```
 
   Some are mistakes to fix in the source; others are different titles (a series and its reboot may share a name). `alias add TITLE TARGET` records that two are the same, `alias remove TITLE` undoes it, and `alias list` prints them. Aliases replicate, so one device records each once for everyone.
-* `title facets` counts titles by kind, decade, and rendition, tab-separated.
+* `title facets` counts titles by kind, decade, and quality, tab-separated.
 
 ### Progress
 
@@ -178,4 +178,4 @@ The library itself, from parsing names to syncing, is the [core](../core/README.
 
 ## On a real source
 
-Crawling a Caddy server on a NAS over Wi-Fi, with a folder per rendition (each added as a source, its rendition named) and tens of thousands of files, took under a second with 32 workers; a second crawl, with nothing changed, took about 1% of the first's requests. Review found a few dozen close matches (mostly years off by one or missing) and duplicate files: `.m4v` and `.mp4` copies, episode codes used twice, and a part beside its whole. A second device synced the library (about 100,000 operations) in under half a second, and an alias reached it as one operation.
+Crawling a Caddy server on a NAS over Wi-Fi, with a folder per quality (each added as a source, its quality named) and tens of thousands of files, took under a second with 32 workers; a second crawl, with nothing changed, took about 1% of the first's requests. Review found a few dozen close matches (mostly years off by one or missing) and duplicate files: `.m4v` and `.mp4` copies, episode codes used twice, and a part beside its whole. A second device synced the library (about 100,000 operations) in under half a second, and an alias reached it as one operation.

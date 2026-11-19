@@ -99,9 +99,9 @@ $cq $b2 library leave
 $cq $b2 library show 2>&1 | grep -q NoLibrary || { echo "FAIL: library leave"; exit 1; }
 
 source=$($cq $a source list | cut -d" " -f1)
-$cq $a source set $source --rendition "Test 720p"
+$cq $a source set $source --quality "Test 720p"
 $cq $a crawl $source --workers 4
-$cq $a source show $source | grep -q 'rendition  "Test 720p"' || { echo "FAIL: source set"; exit 1; }
+$cq $a source show $source | grep -q 'quality    "Test 720p"' || { echo "FAIL: source set"; exit 1; }
 $cq $a show t/m/movie-0003/1923 | grep -q test-720p || { echo "FAIL: source set didn't move copies"; exit 1; }
 # Two devices without --port: one may get 8008, the other must fall back.
 $cq $c serve > $work/c1.log 2>&1 &

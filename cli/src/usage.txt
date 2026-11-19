@@ -52,11 +52,11 @@ device list prints it.
 
   source list                  list sources
   source show SOURCE           show a source
-  source add URL [--rendition NAME] [--skip PREFIX]
-                               add a source: the rendition of its files,
+  source add URL [--quality NAME] [--skip PREFIX]
+                               add a source: the quality of its files,
                                if known, and the prefix of names to skip
                                (default ",")
-  source set SOURCE [--rendition NAME] [--skip PREFIX]
+  source set SOURCE [--quality NAME] [--skip PREFIX]
                                change a source's settings; crawl to apply
   source remove SOURCE --unavailable DIR
                                remove the copies in a directory the source
@@ -71,14 +71,14 @@ device list prints it.
   title list [TEXT]            list titles, or those whose names hold
                                the text (shortcut: ls)
   title show TITLE             show a title: its aliases, episodes or
-                               versions, and where each rendition is
+                               versions, and where each quality is
                                (shortcut: show)
-  title download TITLE [--rendition NAME] [--to DIR]
+  title download TITLE [--quality NAME] [--to DIR]
                                fetch a title's files, or a season's
                                (TITLE/e/s01) or an ITEM's, into a directory
                                (the current one), under their source paths,
                                from whichever copy answers first; in the
-                               rendition given, else the one most items
+                               quality given, else the one most items
                                have; resuming a download cut short
   title review                 list close matches and duplicates
   title facets                 count titles by facet

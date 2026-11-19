@@ -145,17 +145,17 @@ pub fn device(app: *App, c: Command) !void {
 }
 
 pub fn source(app: *App, c: Command) !void {
-    const settings = &.{ "--rendition", "--skip" };
+    const settings = &.{ "--quality", "--skip" };
     if (c.is("list", 0, &.{})) {
         var r = try app.open();
         defer r.close();
         for (try lib.sources(&r, app.arena)) |rp|
-            try app.out.print("{s}  {s}  rendition: \"{s}\", skip: \"{s}\"\n", .{ rp.id, rp.url, rp.layout.rendition, rp.layout.skip });
+            try app.out.print("{s}  {s}  quality: \"{s}\", skip: \"{s}\"\n", .{ rp.id, rp.url, rp.layout.rendition, rp.layout.skip });
     } else if (c.is("show", 1, &.{})) {
         var r = try app.open();
         defer r.close();
         const rp = try lib.findSource(&r, app.arena, c.rest[0]);
-        try app.out.print("source       {s}\nurl        {s}\nrendition  \"{s}\"\nskip       \"{s}\"\ncopies     {d}\n", .{
+        try app.out.print("source     {s}\nurl        {s}\nquality    \"{s}\"\nskip       \"{s}\"\ncopies     {d}\n", .{
             rp.id, rp.url, rp.layout.rendition, rp.layout.skip, try lib.countCopies(&r, app.arena, rp),
         });
         for (try lib.unavailableDirs(&r, app.arena, &rp.id)) |a|
@@ -167,14 +167,14 @@ pub fn source(app: *App, c: Command) !void {
         try core.url.escape(app.arena, &typed, c.rest[0]);
         if (!std.mem.endsWith(u8, typed.items, "/")) try typed.append(app.arena, '/');
         var layout: lib.Layout = .{};
-        if (c.args.get("--rendition")) |v| layout.rendition = v;
+        if (c.args.get("--quality")) |v| layout.rendition = v;
         if (c.args.get("--skip")) |v| layout.skip = v;
         try app.out.print("added source {s}\n", .{try lib.addSource(&r, app.now(), typed.items, layout)});
     } else if (c.is("set", 1, settings) and c.args.count() > 0) {
         var r = try app.open();
         defer r.close();
-        const rp = try lib.setSource(&r, app.arena, app.now(), c.rest[0], c.args.get("--rendition"), c.args.get("--skip"));
-        try app.out.print("{s}  rendition: \"{s}\", skip: \"{s}\"; crawl to apply\n", .{ rp.id, rp.layout.rendition, rp.layout.skip });
+        const rp = try lib.setSource(&r, app.arena, app.now(), c.rest[0], c.args.get("--quality"), c.args.get("--skip"));
+        try app.out.print("{s}  quality: \"{s}\", skip: \"{s}\"; crawl to apply\n", .{ rp.id, rp.layout.rendition, rp.layout.skip });
     } else if (c.is("remove", 1, &.{"--unavailable"}) and c.args.get("--unavailable") != null) {
         var r = try app.open();
         defer r.close();
@@ -207,7 +207,7 @@ pub fn title(app: *App, c: Command) !void {
             shown += 1;
             try out.print("{s}", .{t.name});
             if (t.year) |y| try out.print(" ({d})", .{y});
-            try out.print(" {s}: {d} {s}, {d} renditions [", .{ if (t.kind == 's') "series" else "movie", t.items, if (t.kind == 's') "episodes" else "versions", t.renditions });
+            try out.print(" {s}: {d} {s}, {d} {s} [", .{ if (t.kind == 's') "series" else "movie", t.items, if (t.kind == 's') "episodes" else "versions", t.renditions, if (t.renditions == 1) "quality" else "qualities" });
             for (t.labels.items, 0..) |l, i| try out.print("{s}{s}", .{ if (i > 0) ", " else "", l });
             try out.print("]  {s}{s}{s}\n", .{ t.key, if (t.alias != null) " -> " else "", t.alias orelse "" });
         }
@@ -251,12 +251,12 @@ pub fn title(app: *App, c: Command) !void {
         const dups = try lib.duplicates(&r, app.arena);
         for (dups) |m| try out.print("{s}\t{s}\t{s}\n", .{ m.reason, m.a, m.b });
         try out.print("{d} close matches among {d} titles; {d} duplicate files\n", .{ matches.len, all.len, dups.len });
-    } else if (c.is("download", 1, &.{ "--rendition", "--to" })) {
+    } else if (c.is("download", 1, &.{ "--quality", "--to" })) {
         try download(app, c);
     } else if (c.is("facets", 0, &.{})) {
         var r = try app.open();
         defer r.close();
-        for (try lib.facets(app.arena, try lib.titles(&r, app.arena))) |f| try out.print("{s}\t{s}\t{d}\n", .{ f.facet, f.value, f.count });
+        for (try lib.facets(app.arena, try lib.titles(&r, app.arena))) |f| try out.print("{s}\t{s}\t{d}\n", .{ if (std.mem.eql(u8, f.facet, "rendition")) "quality" else f.facet, f.value, f.count });
     } else return error.Usage;
 }
 
@@ -267,9 +267,9 @@ fn download(app: *App, c: Command) !void {
     const files = blk: {
         var r = try app.open();
         defer r.close();
-        break :blk core.download.plan(&r, app.arena, c.rest[0], c.args.get("--rendition")) catch |err| switch (err) {
+        break :blk core.download.plan(&r, app.arena, c.rest[0], c.args.get("--quality")) catch |err| switch (err) {
             error.NotFound => {
-                try out.print("nothing held for {s}{s}{s}\n", .{ c.rest[0], if (c.args.get("--rendition") != null) " in " else "", c.args.get("--rendition") orelse "" });
+                try out.print("nothing held for {s}{s}{s}\n", .{ c.rest[0], if (c.args.get("--quality") != null) " in " else "", c.args.get("--quality") orelse "" });
                 return err;
             },
             else => |e| return e,

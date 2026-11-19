@@ -18,7 +18,7 @@ One word for each thing, in the spec, the code, the command-line app, and the ap
 * **Share†:** what a device does with its library and folders (its server serves them).
 * **Delete†** takes files off a disk; **remove†** takes something out of a list or the library (as an unavailable folder's videos); **forget†** discards only what's known (as an address added, or where a person stopped).
 * **Keep†:** to spare a download deletion; **download next†:** a series' next episodes, as it's watched.
-* **Rendition** (shown as quality†): one encoding of an item; **version†:** an edition (a director's cut); **origin:** a rendition's Blu-ray, web, DVD, or HDTV token.
+* **Rendition** (shown as quality†, in the apps and the command-line app alike): one encoding of an item; **version†:** an edition (a director's cut); **origin:** a rendition's Blu-ray, web, DVD, or HDTV token.
 * **Sync** and **crawl**, shown as catching up† (with devices) and looking for new videos† (in sources), together Refresh Library†.
 
 ## Components
