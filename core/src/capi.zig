@@ -195,7 +195,7 @@ fn span(text: ?[*:0]const u8) ?[]const u8 {
 const CoverJson = struct { url: []const u8, offset: u64, length: u64, stamp: []const u8 };
 const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
 const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
-const NearbyJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const u8, person_key: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
+const NearbyJson = struct { url: []const u8, device: ?[]const u8, host: ?[]const u8 = null, person: ?[]const u8, person_key: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
 const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
 const PairedJson = struct { person: []const u8, device: []const u8 };
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
@@ -453,7 +453,7 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, kind: pa
 }
 
 /// On a new device offering to pair: its state, as JSON: `code` (to show,
-/// while it offers), `paired` (it has the library, and if pairingAsYours, its
+/// while it offers), `paired` (it has the library, and if pairing as theirs, its
 /// person, and has stopped offering), and `closed` (it stopped, after too
 /// many wrong codes; offer again for a new one).
 export fn cq_pair_check(lib: *Library) ?[*:0]u8 {
@@ -642,6 +642,9 @@ fn nearby(lib: *Library, arena: std.mem.Allocator) ![]const NearbyJson {
         try out.append(arena, .{
             .url = try sync.foundUrl(arena, s),
             .device = s.get("name"),
+            // As DNS-SD resolved it: an Apple TV's is its own name
+            // (`Not-Your-AppleTV.local`), when tvOS tells apps only "Apple TV".
+            .host = s.host,
             .person = s.get("person"),
             .person_key = person,
             .ours = std.mem.eql(u8, s.get("library") orelse "", &mine),

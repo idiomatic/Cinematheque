@@ -147,6 +147,8 @@ struct Device: Codable, Identifiable, Hashable {
 struct NearbyDevice: Codable, Identifiable, Hashable {
     let url: String
     let device: String?
+    /// Its host, as DNS-SD resolved it (`Not-Your-AppleTV.local.`).
+    let host: String?
     let person: String?
     /// Its person's key.
     let person_key: String?
@@ -161,9 +163,29 @@ struct NearbyDevice: Codable, Identifiable, Hashable {
     var id: String { url }
     var pairingAsYours: Bool { pairing == "pair" }
     var joining: Bool { pairing == "join" }
-    /// Its device's and person's names, if they advertise any.
-    var deviceName: String? { device.flatMap { $0.isEmpty ? nil : $0 } }
+    /// Its device's and person's names, if they advertise any. tvOS tells
+    /// apps only a generic name ("Apple TV") without an entitlement Apple
+    /// grants, but its host is named for the Apple TV, so that stands in.
+    var deviceName: String? {
+        let advertised = device.flatMap { $0.isEmpty ? nil : $0 }
+        guard advertised == nil || Self.generic.contains(advertised!), let named = hostName else { return advertised }
+        return named
+    }
     var personName: String? { person.flatMap { $0.isEmpty ? nil : $0 } }
+
+    /// The names devices give apps in place of their own.
+    private static let generic: Set<String> = ["Apple TV", "iPhone", "iPad"]
+
+    /// Its host's name as a person wrote it, near enough
+    /// (`Not-Your-AppleTV.local.` to "Not Your AppleTV"), unless that's
+    /// generic too.
+    private var hostName: String? {
+        guard let host else { return nil }
+        var label = host.hasSuffix(".") ? String(host.dropLast()) : host
+        if label.hasSuffix(".local") { label = String(label.dropLast(6)) }
+        let name = label.replacing("-", with: " ")
+        return name.isEmpty || Self.generic.contains(name) ? nil : name
+    }
 }
 
 /// A device just paired: its person's key and its own.
@@ -376,11 +398,12 @@ final class Library {
     /// writes are refused, and it's served no more.
     func removeDevice(_ key: String) { check { cq_remove_device($0, key) } }
 
-    /// Takes in a device just paired: names it as it advertised itself
-    /// (until it names itself), so it's among its person's devices at once,
-    /// and if it's joining, adds its person as a member.
+    /// Takes in a device just paired: names it as it advertised itself, or
+    /// as its host is named if that's generic (until it names itself), so
+    /// it's among its person's devices at once, and if it's joining, adds
+    /// its person as a member.
     func welcome(_ paired: Paired, from device: NearbyDevice) {
-        if let name = device.device, !name.isEmpty {
+        if let name = device.deviceName {
             check(reload: false) { cq_name($0, paired.device, paired.person, name) }
         }
         if device.joining { check(reload: false) { cq_member($0, paired.person, 1) } }
