@@ -268,7 +268,7 @@ private struct ClearPosition: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help("Forget where you stopped, to play from the beginning")
+            .help("Start from Beginning")
     }
 }
 
