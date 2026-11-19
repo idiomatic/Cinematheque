@@ -4,7 +4,7 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 
 ## Next
 
-* **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (the command-line app's agents can't reach the LAN; see below), an app icon, lists beyond the watchlist, and signing for distribution.
+* **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (the command-line app's agents can't reach the LAN; see below), real artwork for its placeholder icon, lists beyond the watchlist, and signing for distribution.
 * **Command-line app:** commands to name the person and the device, so command-line apps show by name rather than as someone's device.
 * **Settings:** when each device was last seen.
 * **Linux:** running the other device itself there (its experiments ran in a VM).
@@ -80,6 +80,7 @@ What's built is in [AGENTS.md](AGENTS.md); still to come:
 * **Movies:** an alphabetical jump, and filters by decade and genre (facets), since 4,000 covers are a long way by remote; Home's recently added titles.
 * **Purges:** check that a purged replica comes back by syncing and crawling, with the seeds from the Keychain.
 * **People:** tvOS's profiles as library people (Who's watching, under Players).
+* **Icon:** real artwork for the placeholder icons (the Mac's, and tvOS's layered brand assets with the Top Shelf), from [draw-icons.swift](apple/draw-icons.swift).
 * **Later:** a Top Shelf of Continue Watching; covers as artwork in the player's info panel.
 
 ## Transcoder
