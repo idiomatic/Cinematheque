@@ -316,37 +316,37 @@ private struct DownloadControls: View {
         let keys = items.map { "\(detail.key)/\($0.key)" }
         let held = keys.filter(library.isDownloaded).count
         let next = library.nextEpisodes(detail.key)
-        HStack {
-            Menu {
-                Button("Download Season") { library.download(key, quality: quality) }
-                    .disabled(held == keys.count)
+        let state = state(held: held, of: keys.count, next: next)
+        Menu {
+            Button("Download Season") { library.download(key, quality: quality) }
+                .disabled(held == keys.count)
+            Section("Download Next Episodes") {
                 Picker("Download Next Episodes", selection: Binding(get: { next }, set: { library.downloadNext(detail.key, episodes: $0) })) {
                     Text("Off").tag(0)
                     ForEach(Self.next, id: \.self) { n in Text(n == 1 ? "1 Episode" : "\(n) Episodes").tag(n) }
                 }
-                if held > 0 {
-                    Divider()
-                    Button("Delete Season's Downloads", role: .destructive) { library.deleteDownload(key) }
-                }
-            } label: {
-                Label("Download", systemImage: held > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
+                .pickerStyle(.inline)
+                .labelsHidden()
             }
-            .fixedSize()
-            .help("Download the season, or keep the series' next episodes, to watch without a network")
-            if let status = status(held: held, of: keys.count, next: next) {
-                Text(status).font(.caption).foregroundStyle(.secondary)
+            if held > 0 {
+                Divider()
+                Button("Delete Season's Downloads", role: .destructive) { library.deleteDownload(key) }
             }
+        } label: {
+            Label(state ?? "Download", systemImage: state == nil ? "arrow.down.circle" : "arrow.down.circle.fill")
         }
         .controlSize(.small)
+        .fixedSize()
+        .help("Download the season, or keep the series' next episodes, to watch without a network")
     }
 
-    private func status(held: Int, of count: Int, next: Int) -> String? {
+    /// What's downloaded and what will be, as the menu's button says it, or
+    /// nil if nothing is.
+    private func state(held: Int, of count: Int, next: Int) -> String? {
         var parts: [String] = []
-        if held > 0 { parts.append(held == count ? "All downloaded" : "\(held) of \(count) downloaded") }
-        if next > 0 { parts.append(next == 1 ? "downloading the next episode" : "downloading the next \(next)") }
-        guard !parts.isEmpty else { return nil }
-        let text = parts.joined(separator: ", ")
-        return text.prefix(1).uppercased() + text.dropFirst()
+        if held > 0 { parts.append(held == count ? "Downloaded" : "\(held) of \(count) Downloaded") }
+        if next > 0 { parts.append(next == 1 ? "Next Episode" : "Next \(next) Episodes") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
