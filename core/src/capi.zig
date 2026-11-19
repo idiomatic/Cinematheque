@@ -799,15 +799,22 @@ fn downloadRemove(lib: *Library, arena: std.mem.Allocator, key: []const u8) !voi
     _ = try download.remove(lib.io(), arena, try lib.main(), &lib.writer, lib.now(), key);
 }
 
-/// Downloads a series' next `episodes` (after where this person is), as
-/// it's watched; 0 stops.
-export fn cq_download_next(lib: *Library, title_key: [*:0]const u8, episodes: c_int) c_int {
-    return status(lib, downloadNext, .{ std.mem.span(title_key), @as(u32, @intCast(std.math.clamp(episodes, 0, 1000))) });
+/// Chooses which of a series' episodes download, as it's watched: the next
+/// N after where this person is (`3`), its `unwatched` ones, a season's
+/// unwatched ones (`s02`), or `all` of them, kept however they're watched;
+/// empty or `0`, none.
+export fn cq_download_next(lib: *Library, title_key: [*:0]const u8, choice: [*:0]const u8) c_int {
+    return status(lib, downloadNext, .{ std.mem.span(title_key), std.mem.span(choice) });
 }
 
-fn downloadNext(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, episodes: u32) !void {
-    try download.setNext(try lib.main(), arena, title_key, episodes);
+fn downloadNext(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, choice: []const u8) !void {
+    const parsed = download.Choice.parse(choice);
+    if (parsed == null and choice.len > 0 and !std.mem.eql(u8, choice, "0")) return error.InvalidArgument;
+    try download.setNext(try lib.main(), arena, title_key, parsed);
 }
+
+/// A series' choice of episodes, as `cq_downloads` tells it.
+const NextJson = struct { title: []const u8, choice: []const u8 };
 
 const HeldJson = struct { item: []const u8, size: u64, only: bool };
 const DoneJson = struct { item: []const u8, deletable: bool };
@@ -827,7 +834,7 @@ const DownloadsJson = struct {
     drop_watched: bool,
     held: []const HeldJson,
     wanted: []const download.Want,
-    next: []const download.Next,
+    next: []const NextJson,
     ahead: []const []const u8,
     watched: []const DoneJson,
     kept: []const []const u8,
@@ -842,8 +849,9 @@ const DownloadsJson = struct {
 /// and `drop_watched`, as configured (null if not); `held`, the files held
 /// (`item`, `size`, and whether it's the `only` copy, no other source
 /// holding it alike); `wanted` (`key`, `quality`); `next`, series whose
-/// next episodes download (`title`, `episodes`), and `ahead`, the episodes
-/// (full item keys) they come to now; `watched`, downloads
+/// episodes download as they're watched (`title`, and `choice`, as
+/// `cq_download_next` takes it), and `ahead`, the episodes (full item keys)
+/// they come to now; `watched`, downloads
 /// watched since fetched and not kept, oldest first (`item`, and
 /// `deletable`, once held elsewhere, else the only copy); `kept` items; `free` bytes on its volume, if
 /// known, and the
@@ -869,15 +877,19 @@ fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
     // The episodes each series' next ones come to, as of now, by full key.
     var ahead: std.ArrayList([]const u8) = .empty;
     const nexts = try download.nexts(r, arena);
-    for (nexts) |n| for (try download.ahead(r, arena, n.title, n.episodes)) |item|
-        try ahead.append(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ n.title, item }));
+    const next = try arena.alloc(NextJson, nexts.len);
+    for (nexts, next) |n, *j| {
+        j.* = .{ .title = n.title, .choice = try n.choice.write(arena) };
+        for (try download.ahead(r, arena, n.title, n.choice)) |item|
+            try ahead.append(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ n.title, item }));
+    }
     return .{
         .dir = if (s) |set| set.dir else null,
         .source = if (s) |set| try arena.dupe(u8, &set.source.id) else null,
         .drop_watched = if (s) |set| set.drop_watched else false,
         .held = list.items,
         .wanted = try download.wants(r, arena),
-        .next = nexts,
+        .next = next,
         .ahead = ahead.items,
         .watched = finished.items,
         .kept = try download.kept(r, arena),

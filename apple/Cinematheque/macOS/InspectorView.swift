@@ -261,8 +261,11 @@ private struct ClearPosition: View {
     }
 }
 
-/// Downloading to this Mac: a movie (the version Play plays), or a season,
-/// whole or its next episodes as they're watched.
+/// Downloading to this Mac: a movie (the version Play plays), or for a
+/// season, which of its series' episodes download as it's watched, a
+/// choice that changes only when a person picks another; a spinner while
+/// any comes; and deleting them (which sets the choice to Nothing, if it
+/// asks for any of them).
 private struct DownloadControls: View {
     let detail: TitleDetail
     let items: [TitleDetail.Item]
@@ -270,7 +273,7 @@ private struct DownloadControls: View {
     let quality: String?
     @Environment(Library.self) private var library
 
-    private static let next = [1, 3, 5, 10]
+    private static let counts = [1, 3, 5, 10]
 
     var body: some View {
         if let season {
@@ -315,47 +318,54 @@ private struct DownloadControls: View {
         let key = detail.key + String(format: "/e/s%02d", season)
         let keys = items.map { "\(detail.key)/\($0.key)" }
         let held = keys.filter(library.isDownloaded).count
-        let next = library.nextEpisodes(detail.key)
+        let chosen = library.downloadChoice(detail.key)
+        let here = String(format: "s%02d", season)
+        // Whether any of this season's episodes the choice (or a person, one
+        // by one) asks for hasn't come yet.
+        let pending = keys.contains { library.isRequested($0) && !library.isDownloaded($0) }
+        // One row, nothing in it coming or going: the spinner's place kept
+        // while nothing comes, the trash button dimmed while nothing's here.
         HStack {
-            Menu {
-                Picker("Download", selection: Binding(get: { next }, set: { library.downloadNext(detail.key, episodes: $0) })) {
-                    ForEach(Self.choices(including: next), id: \.self) { n in Text(Self.title(n)).tag(n) }
+            Picker("Download", selection: Binding(get: { chosen }, set: { library.chooseDownloads(detail.key, $0) })) {
+                Section {
+                    Text("Nothing").tag("")
+                    ForEach(Self.counts, id: \.self) { n in Text(Self.title(String(n))).tag(String(n)) }
+                    // A count chosen elsewhere (the core takes any).
+                    if Int(chosen).map({ !Self.counts.contains($0) }) ?? false { Text(Self.title(chosen)).tag(chosen) }
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                Divider()
-                Button(season == 0 ? "Download Specials" : "Download Season \(season)") { library.download(key, quality: quality) }
-                    .disabled(held == keys.count)
-                if held > 0 {
-                    Button(season == 0 ? "Delete Specials" : "Delete Season \(season) Episodes", role: .destructive) { library.deleteDownload(key) }
+                Section {
+                    Text(Self.title(here)).tag(here)
+                    // Another season's, as chosen there.
+                    if chosen.hasPrefix("s"), chosen != here { Text(Self.title(chosen)).tag(chosen) }
+                    Text("Unwatched").tag("unwatched")
+                    Text("All").tag("all")
                 }
-            } label: {
-                Label(Self.title(next), systemImage: next > 0 || held > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
             }
+            .pickerStyle(.menu)
             .fixedSize()
-            .help("Download the rest of the season, or the series' next episodes as they're watched, to watch without a network")
-            // Of what's asked for (the season, or the next episodes), how
-            // much has come: gone once it all has.
-            let asked = keys.filter(library.isRequested)
-            let came = asked.filter(library.isDownloaded).count
-            if came < asked.count {
-                Text("\(came) of \(asked.count) downloaded").font(.caption).foregroundStyle(.secondary)
-            }
+            .help("Which of the series' episodes download to this Mac as it's watched, to watch without a network; watched ones go as their space is needed, but for All")
+            ProgressView().controlSize(.mini).opacity(pending ? 1 : 0)
+                .help("Downloading")
+            Button(season == 0 ? "Delete Specials' Downloads" : "Delete Season's Downloads", systemImage: "trash") { library.deleteDownload(key) }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .disabled(held == 0)
+                .help((library.onlyCopies(key) > 0 ? "Delete the season's downloads from this Mac: some are the only copies" : "Delete the season's downloads from this Mac") + (keys.contains { library.isRequested($0) && library.isDownloaded($0) } && !chosen.isEmpty ? "; Download becomes Nothing, so they don't come back" : ""))
         }
         .controlSize(.small)
     }
 
-    /// How many next episodes to download, the choices and what's now set.
-    private static func choices(including n: Int) -> [Int] {
-        n == 0 || next.contains(n) ? [0] + next : ([0] + next + [n]).sorted()
-    }
-
-    /// A choice, as the menu and its button say it.
-    private static func title(_ n: Int) -> String {
-        switch n {
-        case 0: "Download Nothing"
-        case 1: "Download Next Episode"
-        default: "Download Next \(n) Episodes"
+    /// A choice of episodes, as the menu says it: short, read after its
+    /// label ("Download Next 3").
+    private static func title(_ choice: String) -> String {
+        if choice.hasPrefix("s"), let season = Int(choice.dropFirst()) {
+            return season == 0 ? "Unwatched Specials" : "Unwatched in Season \(season)"
+        }
+        switch choice {
+        case "1": return "Next"
+        case "unwatched": return "Unwatched"
+        case "all": return "All"
+        default: return "Next \(choice)"
         }
     }
 }

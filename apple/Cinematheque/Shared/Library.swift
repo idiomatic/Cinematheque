@@ -783,9 +783,12 @@ final class Library {
             let quality: String
         }
 
+        /// A series' choice of episodes to download as it's watched, as
+        /// `cq_download_next` takes it: a count, `unwatched`, a season's
+        /// (`s02`), or `all`.
         struct Next: Decodable, Equatable {
             let title: String
-            let episodes: Int
+            let choice: String
         }
 
         /// Watched since downloaded, and not pinned: `deletable` (waiting
@@ -802,7 +805,7 @@ final class Library {
         let held: [Held]
         let wanted: [Wanted]
         let next: [Next]
-        /// The episodes (full item keys) the series' next ones come to now.
+        /// The episodes (full item keys) the series' choices come to now.
         let ahead: [String]
         let watched: [Done]
         let kept: [String]
@@ -856,7 +859,7 @@ final class Library {
     }
 
     /// Whether an item is asked for: wanted, itself or by its season or
-    /// title, or one of its series' next episodes.
+    /// title, or one of the episodes its series' choice comes to.
     func isRequested(_ item: String) -> Bool {
         isWanted(item) || (downloads?.ahead.contains(item) ?? false)
     }
@@ -879,13 +882,16 @@ final class Library {
     var deleting: String?
 
     /// Deletes downloads, asking first (`deleting`) if any is the only
-    /// copy: once deleted, it's gone from the library for everyone.
+    /// copy: once deleted, it's gone from the library for everyone. If its
+    /// series' choice asks for any of them, the choice becomes Nothing, so
+    /// they aren't fetched again.
     func deleteDownload(_ key: String) {
         if onlyCopies(key) > 0 { deleting = key } else { removeDownload(key) }
     }
 
-    /// How many of a series' next episodes this Mac keeps (0: none).
-    func nextEpisodes(_ title: String) -> Int { downloads?.next.first { $0.title == title }?.episodes ?? 0 }
+    /// Which of a series' episodes this Mac downloads as it's watched (see
+    /// `Downloads.Next`); empty, none.
+    func downloadChoice(_ title: String) -> String { downloads?.next.first { $0.title == title }?.choice ?? "" }
 
     /// The tiles (movies, and seasons) with something downloaded, as of the
     /// last reload.
@@ -925,11 +931,19 @@ final class Library {
 
     /// Deletes a title's, season's, or item's downloads, and stops wanting
     /// them.
-    func removeDownload(_ key: String) { check { cq_download_remove($0, key) } }
+    func removeDownload(_ key: String) {
+        // The series' choice, if it asks for any of them, stopped first.
+        let title = key.split(separator: "/", maxSplits: 4, omittingEmptySubsequences: false).prefix(4).joined(separator: "/")
+        if !downloadChoice(title).isEmpty, downloads?.ahead.contains(where: { Self.holds(wanted: key, $0) }) ?? false {
+            check { cq_download_next($0, title, "") }
+        }
+        check { cq_download_remove($0, key) }
+    }
 
-    /// Keeps a series' next `episodes` downloaded (0: stops).
-    func downloadNext(_ title: String, episodes: Int) {
-        check { cq_download_next($0, title, Int32(episodes)) }
+    /// Chooses which of a series' episodes download as it's watched (see
+    /// `Downloads.Next`); empty, none.
+    func chooseDownloads(_ title: String, _ choice: String) {
+        check { cq_download_next($0, title, choice) }
         reconcileSoon()
     }
 
