@@ -1055,13 +1055,18 @@ final class Library {
 
     /// After a change of this person's (leaving playback, the watchlist, a
     /// watched mark), once changes stop for a second: syncs, which pushes
-    /// it to every device, rather than waiting a minute.
+    /// it to every device, rather than waiting a minute. If a sync or
+    /// another long operation is running, it syncs once that's done, not
+    /// never: a sync under way may have begun before the change.
     func changed() {
         afterChange?.cancel()
         afterChange = Task {
             try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            await syncQuietly()
+            while !Task.isCancelled {
+                if await syncQuietly() { return }
+                guard handle != nil, hasLibrary else { return }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
         }
     }
 
