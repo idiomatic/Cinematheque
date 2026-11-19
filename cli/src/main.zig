@@ -1,4 +1,4 @@
-//! The command-line desktop peer; see usage.txt for its commands.
+//! The command-line app; see usage.txt for its commands.
 
 const std = @import("std");
 const Io = std.Io;
@@ -6,8 +6,8 @@ const core = @import("core");
 const commands = @import("commands.zig");
 const network = @import("network.zig");
 
-/// What every command acts with: this peer's home, and where to print.
-pub const Peer = struct {
+/// What every command acts with: this app's home, and where to print.
+pub const App = struct {
     io: Io,
     gpa: std.mem.Allocator,
     arena: std.mem.Allocator,
@@ -15,15 +15,15 @@ pub const Peer = struct {
     out: *Io.Writer,
     environ: *const std.process.Environ.Map,
 
-    pub fn person(p: *const Peer) ![32]u8 {
+    pub fn person(p: *const App) ![32]u8 {
         return p.store.person();
     }
 
-    pub fn open(p: *const Peer) !core.replica.Replica {
+    pub fn open(p: *const App) !core.replica.Replica {
         return p.store.openReplica(p.arena);
     }
 
-    pub fn now(p: *const Peer) u64 {
+    pub fn now(p: *const App) u64 {
         return @intCast(Io.Timestamp.now(p.io, .real).toMilliseconds());
     }
 };
@@ -114,7 +114,7 @@ pub const Command = struct {
 
 const Noun = struct {
     name: []const u8,
-    run: *const fn (*Peer, Command) anyerror!void,
+    run: *const fn (*App, Command) anyerror!void,
 };
 
 const nouns = [_]Noun{
@@ -126,11 +126,10 @@ const nouns = [_]Noun{
     .{ .name = "alias", .run = commands.alias },
     .{ .name = "progress", .run = commands.progress },
     .{ .name = "device", .run = commands.device },
-    .{ .name = "peer", .run = network.peer },
     .{ .name = "agent", .run = commands.agent },
 };
 
-/// Actions on the whole peer: single words, with arguments but no verb.
+/// Actions on the whole app: single words, with arguments but no verb.
 const actions = [_]Noun{
     .{ .name = "crawl", .run = commands.crawl },
     .{ .name = "sync", .run = network.sync },
@@ -159,7 +158,7 @@ pub fn main(init: std.process.Init) !void {
 
     const dir = args.get("--home") orelse init.environ_map.get("CINEMATHEQUE_HOME") orelse
         try core.store.defaultHome(arena, init.environ_map.get("HOME") orelse return error.NoHome, init.environ_map.get("XDG_DATA_HOME"));
-    var peer: Peer = .{
+    var app: App = .{
         .io = io,
         .gpa = init.gpa,
         .arena = arena,
@@ -171,7 +170,7 @@ pub fn main(init: std.process.Init) !void {
         .{ .verb = "", .rest = w[1..], .args = &args }
     else
         .{ .verb = w[1], .rest = w[2..], .args = &args };
-    run.run(&peer, command) catch |err| switch (err) {
+    run.run(&app, command) catch |err| switch (err) {
         error.Usage => usage(out, w[0]),
         else => return err,
     };

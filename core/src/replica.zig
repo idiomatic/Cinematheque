@@ -1,4 +1,4 @@
-//! One peer's replica of one library, in SQLite: each field's winning
+//! One device's replica of one library, in SQLite: each field's winning
 //! operation, the signed batches that vouch for operations, and a version
 //! vector of what the replica has seen.
 
@@ -52,7 +52,7 @@ const schema =
     \\  device INTEGER PRIMARY KEY,
     \\  seq INTEGER NOT NULL
     \\);
-    \\-- The peer's own state, which doesn't replicate (e.g., crawl snapshots).
+    \\-- The other's own state, which doesn't replicate (e.g., crawl snapshots).
     \\CREATE TABLE IF NOT EXISTS local (
     \\  key TEXT PRIMARY KEY,
     \\  value BLOB NOT NULL
@@ -462,7 +462,7 @@ pub const Replica = struct {
     /// and anything else a private stream writes.
     fn checkPrivate(replica: *Replica, device_key: Device, ops: []const Op, refused: *std.StaticBitSet(merkle.max_leaves)) !void {
         // This device's own private stream is its person's, certificate or
-        // not: a replica rebuilt from peers (e.g., after tvOS purged it) may
+        // not: a replica rebuilt from devices (e.g., after tvOS purged it) may
         // get the stream's batches before the public one carrying its
         // certificate.
         const own = std.mem.eql(u8, &device_key, &replica.private_pair.public_key.toBytes());
@@ -559,7 +559,7 @@ pub const Replica = struct {
     /// Applies a stream's cutoff (a `revoked` field, `stream_hex`, and its
     /// last sequence number that stands): drops the winners the stream
     /// wrote past it, and notes those fields for `repair`, which refetches
-    /// them from a peer that refused those writes.
+    /// them from a device that refused those writes.
     fn cut(replica: *Replica, stream_hex: []const u8, value: []const u8) !void {
         if (value.len != 8) return;
         var stream: Device = undefined;
@@ -641,7 +641,7 @@ pub const Replica = struct {
         replica.founder = (try replica.founderAt(std.math.maxInt(u32))).person;
     }
 
-    /// The peer's own `key`, which doesn't replicate, if set.
+    /// This device's own `key`, which doesn't replicate, if set.
     pub fn local(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?[]u8 {
         const s = try replica.db.prepare("SELECT value FROM local WHERE key = ?1");
         defer s.finalize();
@@ -664,7 +664,7 @@ pub const Replica = struct {
         _ = try s.step();
     }
 
-    /// The peer's own keys starting with `prefix`, in order.
+    /// This device's own keys starting with `prefix`, in order.
     pub fn localKeys(replica: *Replica, arena: std.mem.Allocator, prefix: []const u8) ![]const []const u8 {
         var out: std.ArrayList([]const u8) = .empty;
         const s = try replica.db.prepare("SELECT key FROM local WHERE substr(key, 1, length(?1)) = ?1 ORDER BY key");
@@ -773,7 +773,7 @@ pub const Replica = struct {
         _ = try s.step();
     }
 
-    /// Accepts a batch from another peer with those of its operations being
+    /// Accepts a batch from another device with those of its operations being
     /// sent. `leaves` holds the batch's leaves, except where `ops` fall,
     /// which are rebuilt from the operations themselves; then the root must
     /// match the device's signature before anything is applied.
@@ -972,7 +972,7 @@ pub fn personKeyPair(seed: [32]u8) !Ed25519.KeyPair {
     return Ed25519.KeyPair.generateDeterministic(Identity.from(seed).person);
 }
 
-/// A library's ID derives from its founder, so every peer can tell who
+/// A library's ID derives from its founder, so every device can tell who
 /// founded it.
 pub fn libraryId(founder: Device) op_.Library {
     var out: [32]u8 = undefined;
@@ -1279,7 +1279,7 @@ pub fn sync(arena: std.mem.Allocator, dst: *Replica, src: *Replica) !Stats {
     return stats;
 }
 
-/// Refetches the fields a removal dropped (see `Replica.cut`) from a peer,
+/// Refetches the fields a removal dropped (see `Replica.cut`) from a device,
 /// whose winners exclude the refused writes.
 pub fn repair(dst: *Replica, src: *Replica) !Stats {
     var arena_state = std.heap.ArenaAllocator.init(src.gpa);
@@ -1406,49 +1406,49 @@ fn testPerson(seed: u8) !Device {
     return (try personKeyPair(@splat(seed))).public_key.toBytes();
 }
 
-const Peers = struct {
+const Devices = struct {
     arena_state: std.heap.ArenaAllocator,
     replicas: [3]Replica,
 
     /// Replica 0's person founds the library; `added` of the others' people
     /// are members, and every replica has caught up with replica 0.
-    fn initAdding(peers: *Peers, added: usize) !void {
-        peers.arena_state = .init(testing.allocator);
+    fn initAdding(others: *Devices, added: usize) !void {
+        others.arena_state = .init(testing.allocator);
         const founder = try testPerson(1);
-        for (&peers.replicas, 1..) |*r, seed| {
+        for (&others.replicas, 1..) |*r, seed| {
             r.* = try Replica.open(testing.allocator, testing.io, ":memory:", founder, .from(@splat(@intCast(seed))));
         }
-        for (1..added + 1) |i| try peers.replicas[0].addMember(1, try testPerson(@intCast(i + 1)));
-        for (1..peers.replicas.len) |i| _ = try peers.sync(i, 0);
+        for (1..added + 1) |i| try others.replicas[0].addMember(1, try testPerson(@intCast(i + 1)));
+        for (1..others.replicas.len) |i| _ = try others.sync(i, 0);
     }
 
-    fn init(peers: *Peers) !void {
-        try peers.initAdding(2);
+    fn init(others: *Devices) !void {
+        try others.initAdding(2);
     }
 
-    fn deinit(peers: *Peers) void {
-        for (&peers.replicas) |*r| r.close();
-        peers.arena_state.deinit();
+    fn deinit(others: *Devices) void {
+        for (&others.replicas) |*r| r.close();
+        others.arena_state.deinit();
     }
 
-    fn sync(peers: *Peers, dst: usize, src: usize) !Stats {
-        return replica_sync(peers.arena_state.allocator(), &peers.replicas[dst], &peers.replicas[src]);
+    fn sync(others: *Devices, dst: usize, src: usize) !Stats {
+        return replica_sync(others.arena_state.allocator(), &others.replicas[dst], &others.replicas[src]);
     }
 
-    fn value(peers: *Peers, r: usize, key: []const u8, field: []const u8) ![]const u8 {
-        const s = try peers.replicas[r].db.prepare("SELECT value FROM winners WHERE key = ?1 AND field = ?2");
+    fn value(others: *Devices, r: usize, key: []const u8, field: []const u8) ![]const u8 {
+        const s = try others.replicas[r].db.prepare("SELECT value FROM winners WHERE key = ?1 AND field = ?2");
         defer s.finalize();
         try s.bindText(1, key);
         try s.bindText(2, field);
         if (!try s.step()) return error.Missing;
-        return peers.arena_state.allocator().dupe(u8, s.blob(0));
+        return others.arena_state.allocator().dupe(u8, s.blob(0));
     }
 };
 
 const replica_sync = sync;
 
 test "concurrent writes to one field converge on the later one" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1467,7 +1467,7 @@ test "concurrent writes to one field converge on the later one" {
 }
 
 test "sync sends only what the receiver lacks" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1487,7 +1487,7 @@ test "sync sends only what the receiver lacks" {
 }
 
 test "writes in a transaction share signatures, up to the batch limit" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1506,8 +1506,8 @@ test "writes in a transaction share signatures, up to the batch limit" {
     try testing.expectEqual(try a.digest(), try p.replicas[1].digest());
 }
 
-test "relayed operations reach a third peer, and superseded ones are skipped" {
-    var p: Peers = undefined;
+test "relayed operations reach a third device, and superseded ones are skipped" {
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
 
@@ -1524,7 +1524,7 @@ test "relayed operations reach a third peer, and superseded ones are skipped" {
 }
 
 test "a tampered operation or signature is rejected" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1538,7 +1538,7 @@ test "a tampered operation or signature is rejected" {
 }
 
 test "set membership: concurrent add and remove, then re-add" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1561,7 +1561,7 @@ test "set membership: concurrent add and remove, then re-add" {
 }
 
 test "fetched fields are verified by shared proof" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1582,7 +1582,7 @@ test "fetched fields are verified by shared proof" {
 }
 
 test "batches from devices of people who aren't members are rejected, then accepted once added" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.initAdding(1); // replica 2's person isn't a member
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1603,7 +1603,7 @@ test "batches from devices of people who aren't members are rejected, then accep
 }
 
 test "a device whose certificate doesn't verify writes a fresh one, and its whole stream is accepted" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const c = &p.replicas[2];
@@ -1637,7 +1637,7 @@ test "a device whose certificate doesn't verify writes a fresh one, and its whol
 }
 
 test "a device removed has its later writes refused, though its person stays" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1657,7 +1657,7 @@ test "a device removed has its later writes refused, though its person stays" {
 }
 
 test "an invitation later in the same response admits earlier batches" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.initAdding(1);
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1677,8 +1677,8 @@ test "an invitation later in the same response admits earlier batches" {
     try testing.expectEqualStrings("Relayed", try p.value(1, "t/00002", "name"));
 }
 
-test "a peer that took a removed device's later writes repairs from one that refused them" {
-    var p: Peers = undefined;
+test "a device that took a removed device's later writes repairs from one that refused them" {
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1701,14 +1701,14 @@ test "a peer that took a removed device's later writes repairs from one that ref
 }
 
 test "the founder can't be removed" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     try testing.expectError(error.FounderIsPermanent, p.replicas[1].removeMember(1000, try testPerson(1)));
 }
 
 test "a removed member's writes up to the cutoff stand, and later ones are refused" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1725,8 +1725,8 @@ test "a removed member's writes up to the cutoff stand, and later ones are refus
     try testing.expectError(error.Missing, p.value(0, "t/00002", "name"));
 }
 
-test "a peer that took a removed member's later writes repairs from one that refused them" {
-    var p: Peers = undefined;
+test "a device that took a removed member's later writes repairs from one that refused them" {
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1747,7 +1747,7 @@ test "a peer that took a removed member's later writes repairs from one that ref
     _ = try repair(c, a);
     try testing.expectEqualStrings("before", try p.value(2, "t/00001", "name"));
     try testing.expectError(error.Missing, p.value(2, "t/00002", "name"));
-    // The field a never had stays pending, in case another peer has it.
+    // The field a never had stays pending, in case another device has it.
     try testing.expectEqual(@as(i64, 1), try c.repairsPending());
     // b's later writes stay refused, from b or anyone.
     _ = try p.sync(2, 1);
@@ -1757,7 +1757,7 @@ test "a peer that took a removed member's later writes repairs from one that ref
 }
 
 test "the founder hands over to a successor, who is then permanent" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1778,7 +1778,7 @@ test "the founder hands over to a successor, who is then permanent" {
 }
 
 test "a handover not from the founder is refused" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const b = &p.replicas[1];
@@ -1791,7 +1791,7 @@ test "a handover not from the founder is refused" {
 }
 
 test "a chain of handovers arriving out of order is followed" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1800,7 +1800,7 @@ test "a chain of handovers arriving out of order is followed" {
     try a.handOver(1000, try testPerson(2), false);
     _ = try p.sync(1, 0);
     try b.handOver(2000, try testPerson(3), true);
-    // c learned of a's device before b's, so a fresh peer syncing from c
+    // c learned of a's device before b's, so a fresh device syncing from c
     // gets b's generation 2 ahead of a's generation 1 (devices learned last
     // come first), holds it, then follows the chain.
     _ = try p.sync(2, 1);
@@ -1814,7 +1814,7 @@ test "a chain of handovers arriving out of order is followed" {
 }
 
 test "private data reaches its person's other devices, directly, and no one else" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
@@ -1843,7 +1843,7 @@ test "private data reaches its person's other devices, directly, and no one else
 }
 
 test "private data written by anyone but its person's private stream is refused" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const b = &p.replicas[1];
@@ -1858,7 +1858,7 @@ test "private data written by anyone but its person's private stream is refused"
 }
 
 test "a device that lost its replica gets its own private data back" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const b = &p.replicas[1];
@@ -1866,7 +1866,7 @@ test "a device that lost its replica gets its own private data back" {
     try b.write(1000, "t/m/alien/1979", "name", "Alien");
     try b.writePrivate(2000, key, &.{.{ "position", "1234" }});
     // b2 is b's device again, with its replica lost (as tvOS may purge
-    // one), rebuilt from a peer of its person's.
+    // one), rebuilt from a device of its person's.
     var b2 = try Replica.open(testing.allocator, testing.io, ":memory:", try testPerson(1), .{ .device = @splat(2), .person = Identity.from(@splat(2)).person });
     defer b2.close();
     try testing.expectEqualSlices(u8, &b.device(), &b2.device());
@@ -1880,7 +1880,7 @@ test "a device that lost its replica gets its own private data back" {
 }
 
 test "a device whose first write is private is still certified" {
-    var p: Peers = undefined;
+    var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const b = &p.replicas[1];

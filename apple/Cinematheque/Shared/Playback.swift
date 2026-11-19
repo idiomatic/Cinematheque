@@ -65,7 +65,7 @@ enum Playback {
 
     /// The copies to try, in order: the chosen rendition's (if the item has
     /// it, else its first rendition's), then its other renditions', so one
-    /// on a peer that's asleep, or a drive that's unplugged, gives way to
+    /// on a device that's asleep, or a drive that's unplugged, gives way to
     /// another.
     static func copies(_ item: TitleDetail.Item, rendition: String?) -> [TitleDetail.Copy] {
         let chosen = item.renditions.first { $0.label == rendition } ?? item.renditions.first

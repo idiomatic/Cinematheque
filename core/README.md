@@ -1,6 +1,6 @@
 # Core
 
-Cinematheque's core, a Zig library: the replicated library and what peers need to fill and share it.
+Cinematheque's core, a Zig library: the replicated library and what devices need to fill and share it.
 
 ```sh
 zig build test
@@ -12,7 +12,7 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 
 | Module | What it does |
 |---|---|
-| [replica](src/replica.zig) | Operations in SQLite, signed in Merkle batches; membership, handover, and removal with repair; private streams; the sync frame protocol; repair's fetches with shared proofs; the peer's own state (`local`) |
+| [replica](src/replica.zig) | Operations in SQLite, signed in Merkle batches; membership, handover, and removal with repair; private streams; the sync frame protocol; repair's fetches with shared proofs; the device's own state (`local`) |
 | [sync](src/sync.zig) | Sync over HTTP, gzipped: requests signed by the device and certified by its person, served only to members, without other people's private streams |
 | [crawl](src/crawl.zig) | Listings, detected per source (`INDEX`, Caddy's or nginx's JSON, HTML), and re-crawls that reuse unchanged directories |
 | [naming](src/naming.zig) | The filename parser |
@@ -24,9 +24,9 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 | [serve](src/serve.zig) | The source server, with a hook for other requests, such as syncs |
 | [download](src/download.zig) | Downloads: a title's, season's, or item's files, raced among their copies, resumed, into a directory under their sources' paths; a player's downloads kept as a managed source (wanted, and series' next episodes kept), reconciled, with those watched since deleted once held elsewhere (unless pinned) and 20 GB kept free |
 | [race](src/race.zig) | Copy racing: an item's copies in the order to try them, each one's server asked at once, briefly, over `Io`'s networking, and those lately unanswered last |
-| [host](src/host.zig) | A server on a task of its own, advertised by DNS-SD once it listens, and stopped for sure: the apps' serving and pairing, and the peer's |
-| [discover](src/discover.zig) | DNS-SD: advertising and browsing peers |
-| [store](src/store.zig) | A peer's home: its identity, its library's founder, and its replica |
+| [host](src/host.zig) | A server on a task of its own, advertised by DNS-SD once it listens, and stopped for sure: the apps' serving and pairing, and the other device's |
+| [discover](src/discover.zig) | DNS-SD: advertising and browsing devices |
+| [store](src/store.zig) | A other device's home: its identity, its library's founder, and its replica |
 | [pair](src/pair.zig) | Pairing a new device by a 6-digit code it shows: CPace over the code, then the person's secret and the library's founder sealed with the key it derives |
 | [capi](src/capi.zig) | The C interface: setup, management, long operations on their own connections, browsing, and private data |
 

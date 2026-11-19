@@ -10,8 +10,8 @@ External specifications and papers Cinematheque relies on. They're linked rather
 | A Comprehensive Study of Convergent and Commutative Replicated Data Types (Shapiro et al.) | https://inria.hal.science/inria-00555588 | Defines the registers and sets the replicated data uses. |
 | Delta State Replicated Data Types (Almeida, Shoker, Baquero) | https://arxiv.org/abs/1603.01529 | Shipping winning operations is a delta-state design. |
 | Conflict-Free Replicated Relations, causal-length sets (Yu, Rostad) | https://dl.acm.org/doi/10.1145/3380787.3393678 | Delete and re-add of set elements, such as list entries, with one integer per element. |
-| Making CRDTs Byzantine Fault Tolerant (Kleppmann) | https://martin.kleppmann.com/papers/bft-crdt-papoc22.pdf | Signed, hash-identified operations converge despite untrusted peers. |
-| Byzantine Eventual Consistency and the Fundamental Limits of Peer-to-Peer Databases (Kleppmann, Howard) | https://arxiv.org/abs/2012.00472 | Sync protocol for signed operations. |
+| Making CRDTs Byzantine Fault Tolerant (Kleppmann) | https://martin.kleppmann.com/papers/bft-crdt-papoc22.pdf | Signed, hash-identified operations converge despite untrusted devices. |
+| Byzantine Eventual Consistency and the Fundamental Limits of Device-to-Device Databases (Kleppmann, Howard) | https://arxiv.org/abs/2012.00472 | Sync protocol for signed operations. |
 | Range-Based Set Reconciliation (Meyer) | https://arxiv.org/abs/2212.13567 | Repair sync when version vectors aren't enough. |
 | Negentropy | https://github.com/hoytech/negentropy | Protocol and test vectors for range-based set reconciliation. |
 | Partial Replication of CRDTs (Briot, Urso, Shapiro) | https://hal.science/hal-01287738 | Partial replicas for thin tvOS players. |

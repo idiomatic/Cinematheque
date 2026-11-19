@@ -1,35 +1,36 @@
-//! The peer on the network: serving, syncing, and the peers it finds or
+//! The app on the network: serving, syncing, and the devices it finds or
 //! is given.
 
 const std = @import("std");
 const Io = std.Io;
 const core = @import("core");
 const main = @import("main.zig");
-const Peer = main.Peer;
+const App = main.App;
 const Command = main.Command;
 const Replica = core.replica.Replica;
 
-/// The port peers serve on by default.
+/// The port devices serve on by default.
 const default_port = 8008;
 
-pub fn peer(p: *Peer, c: Command) !void {
-    if (c.is("list", 0, &.{})) {
-        for (try core.discover.browse(p.io, p.arena, 2000)) |s|
-            try p.out.print("{s}  found  {s}, library {s}\n", .{ try core.sync.foundUrl(p.arena, s), s.name, s.get("library") orelse "?" });
-        var r = try p.open();
-        defer r.close();
-        for (try core.sync.addedPeers(&r, p.arena)) |u| try p.out.print("{s}  added\n", .{u});
-    } else if (c.is("add", 1, &.{}) or c.is("remove", 1, &.{})) {
-        var r = try p.open();
-        defer r.close();
-        const add = std.mem.eql(u8, c.verb, "add");
-        const u = try core.sync.setAdded(&r, p.arena, c.rest[0], add);
-        try p.out.print("{s} {s}\n", .{ if (add) "added" else "removed", u });
-    } else return error.Usage;
+/// Devices found nearby (listening for 2 seconds), and addresses added.
+pub fn listNearby(p: *App) !void {
+    for (try core.discover.browse(p.io, p.arena, 2000)) |s|
+        try p.out.print("{s}  nearby  {s}, library {s}\n", .{ try core.sync.foundUrl(p.arena, s), s.name, s.get("library") orelse "?" });
+    var r = try p.open();
+    defer r.close();
+    for (try core.sync.addedAddresses(&r, p.arena)) |u| try p.out.print("{s}  added\n", .{u});
 }
 
-/// `sync [URL]`: pulls from a peer, or from every peer found or added.
-pub fn sync(p: *Peer, c: Command) !void {
+/// Adds the address of a device that can't be found nearby, or forgets one.
+pub fn setAddress(p: *App, target: []const u8, add: bool) !void {
+    var r = try p.open();
+    defer r.close();
+    const u = try core.sync.setAdded(&r, p.arena, target, add);
+    try p.out.print("{s} {s}\n", .{ if (add) "added" else "forgot", u });
+}
+
+/// `sync [URL]`: pulls from a device, or from every device found or added.
+pub fn sync(p: *App, c: Command) !void {
     if (c.rest.len > 1) return error.Usage;
     try c.args.only(&.{});
     try syncAll(p, if (c.rest.len == 1) c.rest[0] else null);
@@ -38,7 +39,7 @@ pub fn sync(p: *Peer, c: Command) !void {
 /// `serve [--port PORT] [--media DIR]`: serves on `PORT`, or on
 /// `default_port` if none, falling back to any free port if that's taken,
 /// and advertises the port it got.
-pub fn serve(p: *Peer, c: Command) !void {
+pub fn serve(p: *App, c: Command) !void {
     if (c.rest.len > 0) return error.Usage;
     try c.args.only(&.{ "--port", "--media" });
     const port = try c.args.port();
@@ -67,7 +68,7 @@ pub fn serve(p: *Peer, c: Command) !void {
     try host.wait();
 }
 
-pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
+pub fn offerPairing(p: *App, kind: core.pair.Kind) !void {
     if (p.store.founder(p.arena)) |_| return error.LibraryExists else |_| {}
     var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .kind = kind, .person = try p.person(), .device = try p.store.device() };
     var host: core.host.Host = .{
@@ -103,19 +104,19 @@ pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
     }
 }
 
-fn serviceName(p: *Peer) ![]const u8 {
+fn serviceName(p: *App) ![]const u8 {
     return p.store.serviceName(p.arena);
 }
 
-/// Syncs both ways with the peer at `target`, or else with every peer of
+/// Syncs both ways with the device at `target`, or else with every device of
 /// this library found or added.
-pub fn syncAll(p: *Peer, target: ?[]const u8) !void {
+pub fn syncAll(p: *App, target: ?[]const u8) !void {
     var r = try p.open();
     defer r.close();
     var client: std.http.Client = .{ .allocator = p.gpa, .io = p.io };
     defer client.deinit();
-    const found = try core.sync.peers(p.io, p.arena, &r, try serviceName(p), target);
-    if (found.urls.len == 0) try p.out.print("no peers of this library found or added\n", .{});
+    const found = try core.sync.reachable(p.io, p.arena, &r, try serviceName(p), target);
+    if (found.urls.len == 0) try p.out.print("no devices of this library found or added\n", .{});
     for (found.urls) |u| {
         const start = Io.Timestamp.now(p.io, .awake);
         const exchanged = core.sync.exchange(p.arena, &client, &r, u, p.now()) catch |err| {

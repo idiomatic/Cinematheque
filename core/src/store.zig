@@ -1,4 +1,4 @@
-//! A peer's home directory: its identity (`identity`, a random seed from
+//! A device's home directory: its identity (`identity`, a random seed from
 //! which its device keys derive, and `person`, its person's seed, shared with the
 //! person's other devices, or else derived from the device's), the founder of
 //! its library, and its replica.
@@ -8,7 +8,7 @@ const Io = std.Io;
 const replica_ = @import("replica.zig");
 const Replica = replica_.Replica;
 
-/// A peer's home unless told otherwise: in Application Support on macOS
+/// A device's home unless told otherwise: in Application Support on macOS
 /// and iOS; in the caches on tvOS, the only place its apps may keep files
 /// (which it may purge); and in the XDG data directory elsewhere.
 pub fn defaultHome(arena: std.mem.Allocator, home: []const u8, xdg_data_home: ?[]const u8) ![]const u8 {
@@ -75,7 +75,7 @@ pub const Store = struct {
         return (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(s.identity.device)).public_key.toBytes();
     }
 
-    /// The name this peer advertises by DNS-SD, and knows itself by when
+    /// The name this device advertises by DNS-SD, and knows itself by when
     /// browsing: its device's key, shortened, so a person's devices are told
     /// apart.
     pub fn serviceName(s: *const Store, arena: std.mem.Allocator) ![]u8 {
@@ -87,7 +87,7 @@ pub const Store = struct {
         return parseKey(std.mem.trim(u8, text, " \n"));
     }
 
-    /// Records the library this peer belongs to, by its founder's key.
+    /// Records the library this device belongs to, by its founder's key.
     pub fn setFounder(s: *const Store, arena: std.mem.Allocator, key: [32]u8) !void {
         const file = try path(arena, s.dir, "library");
         if (Io.Dir.cwd().access(s.io, file, .{})) |_| return error.LibraryExists else |_| {}

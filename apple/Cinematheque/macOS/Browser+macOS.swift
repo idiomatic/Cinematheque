@@ -393,7 +393,7 @@ struct StatusBar: View {
                         ProgressView().controlSize(.small)
                     }
                 } else if library.problem == nil {
-                    // The last exchange with peers each way, for diagnosis
+                    // The last exchange with devices each way, for diagnosis
                     // (making way for a problem, which matters more).
                     Text(library.syncLine)
                         .lineLimit(1)

@@ -25,8 +25,8 @@ struct ManageView: View {
 /// member's: the code it shows, entered here, pairs it (and adds its person,
 /// if joining), and `paired` moves it on.
 private struct PairRow: View {
-    let peer: Peer
-    let paired: (Peer) -> Void
+    let device: NearbyDevice
+    let paired: (NearbyDevice) -> Void
     @Environment(Library.self) private var library
     @State private var code = ""
     @State private var pairing = false
@@ -35,15 +35,15 @@ private struct PairRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Label(peer.deviceName ?? "A new device", systemImage: peer.joining ? "person.crop.circle.badge.plus" : "appletv")
-                Text(peer.joining ? "wants to join" : "wants to pair").foregroundStyle(.secondary)
+                Label(device.deviceName ?? "A new device", systemImage: device.joining ? "person.crop.circle.badge.plus" : "appletv")
+                Text(device.joining ? "wants to join" : "wants to pair").foregroundStyle(.secondary)
                 Spacer()
                 TextField("Code", text: $code, prompt: Text("Code"))
                     .labelsHidden()
                     .font(.body.monospacedDigit())
                     .frame(width: 90)
                     .onSubmit(pair)
-                Button(peer.joining ? "Add" : "Pair", action: pair)
+                Button(device.joining ? "Add" : "Pair", action: pair)
                     .disabled(digits.count != 6 || pairing)
             }
             if let failure {
@@ -58,14 +58,14 @@ private struct PairRow: View {
         guard digits.count == 6, !pairing else { return }
         pairing = true
         Task {
-            let (joined, why) = await library.pair(peer, code: digits)
+            let (joined, why) = await library.pair(device, code: digits)
             failure = why
             pairing = false
             // Out of New Devices, and into Your Devices (or People).
             if let joined {
                 withAnimation {
-                    library.welcome(joined, from: peer)
-                    paired(peer)
+                    library.welcome(joined, from: device)
+                    paired(device)
                 }
             }
         }
@@ -186,12 +186,12 @@ private struct Looking: View {
 /// pair.
 private struct Nearby: ViewModifier {
     @Environment(Library.self) private var library
-    @Binding var peers: [Peer]
+    @Binding var devices: [NearbyDevice]
 
     func body(content: Content) -> some View {
         content.task {
             while !Task.isCancelled {
-                peers = await library.peers()
+                devices = await library.nearby()
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -200,19 +200,19 @@ private struct Nearby: ViewModifier {
 
 private struct PeoplePane: View {
     @Environment(Library.self) private var library
-    @State private var nearby: [Peer] = []
+    @State private var nearby: [NearbyDevice] = []
 
     var body: some View {
         Form {
             Section {
                 ForEach(library.members) { member in MemberRow(member: member) }
-                ForEach(waiting) { peer in
+                ForEach(waiting) { device in
                     HStack {
-                        Label((peer.personName ?? "Someone") + "’s " + (peer.deviceName ?? "device"), systemImage: "person.crop.circle.badge.questionmark")
+                        Label((device.personName ?? "Someone") + "’s " + (device.deviceName ?? "device"), systemImage: "person.crop.circle.badge.questionmark")
                         Text("wants to join").foregroundStyle(.secondary)
                         Spacer()
                         Button("Add") {
-                            if let key = peer.person_key { library.setMember(key, true) }
+                            if let key = device.person_key { library.setMember(key, true) }
                         }
                     }
                 }
@@ -223,12 +223,12 @@ private struct PeoplePane: View {
             }
         }
         .formStyle(.grouped)
-        .modifier(Nearby(peers: $nearby))
+        .modifier(Nearby(devices: $nearby))
     }
 
     /// Devices of this library nearby whose people aren't members yet.
     /// (New devices offering to pair have no library yet.)
-    private var waiting: [Peer] {
+    private var waiting: [NearbyDevice] {
         var seen: Set<String> = []
         return nearby.filter { $0.ours && !$0.member && !$0.added && $0.person_key != nil && seen.insert($0.person_key!).inserted }
     }
@@ -236,7 +236,7 @@ private struct PeoplePane: View {
 
 private struct DevicesPane: View {
     @Environment(Library.self) private var library
-    @State private var nearby: [Peer] = []
+    @State private var nearby: [NearbyDevice] = []
     @State private var sharing = true
     @State private var advanced = false
     @State private var address = ""
@@ -259,8 +259,8 @@ private struct DevicesPane: View {
                     : "Your changes reach your other devices only when this Mac syncs with them.")
             }
             Section {
-                ForEach(nearby.filter { $0.pairing != nil }) { peer in
-                    PairRow(peer: peer) { done in nearby.removeAll { $0.id == done.id } }
+                ForEach(nearby.filter { $0.pairing != nil }) { device in
+                    PairRow(device: device) { done in nearby.removeAll { $0.id == done.id } }
                 }
                 if !nearby.contains(where: { $0.pairing != nil }) { Looking() }
             } header: {
@@ -269,13 +269,13 @@ private struct DevicesPane: View {
                 Text("To add another of your devices, choose I Use Cinematheque on Another Device on it; to add someone, they choose Join Someone's Library on theirs. Either shows a code: enter it here, beside its name.")
             }
             Section("Advanced", isExpanded: $advanced) {
-                ForEach(nearby.filter(\.added)) { peer in
+                ForEach(nearby.filter(\.added)) { device in
                     HStack {
-                        Text(peer.url).lineLimit(1).truncationMode(.middle)
+                        Text(device.url).lineLimit(1).truncationMode(.middle)
                         Spacer()
                         RemoveButton(help: "Stop reaching it by this address") {
-                            library.setPeer(peer.url, false)
-                            Task { nearby = await library.peers() }
+                            library.setDeviceAddress(device.url, false)
+                            Task { nearby = await library.nearby() }
                         }
                     }
                 }
@@ -284,9 +284,9 @@ private struct DevicesPane: View {
                     TextField("Address", text: $address, prompt: Text("http://hal.example.com:8008"))
                         .labelsHidden()
                     Button("Add") {
-                        library.setPeer(address, true)
+                        library.setDeviceAddress(address, true)
                         address = ""
-                        Task { nearby = await library.peers() }
+                        Task { nearby = await library.nearby() }
                     }
                     .disabled(URL(string: address)?.scheme?.hasPrefix("http") != true)
                 }
@@ -296,7 +296,7 @@ private struct DevicesPane: View {
             }
         }
         .formStyle(.grouped)
-        .modifier(Nearby(peers: $nearby))
+        .modifier(Nearby(devices: $nearby))
         .onAppear { sharing = library.sharing }
     }
 }

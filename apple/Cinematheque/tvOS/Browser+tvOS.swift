@@ -171,7 +171,7 @@ private struct SearchView: View {
 /// What a refresh is doing, or what went wrong, in a corner.
 private struct Activity: View {
     @Environment(Library.self) private var library
-    /// Whether to show the last exchange with peers, for a while after it.
+    /// Whether to show the last exchange with devices, for a while after it.
     @State private var showsExchange = false
 
     var body: some View {

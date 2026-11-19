@@ -5,14 +5,14 @@
 //! version vector (see `replica.writeVector`) | signature (64)
 //!
 //! The certificate is the device's person's signature over the device key
-//! (see `Replica.certificate`). The peer answers only members, with its
+//! (see `Replica.certificate`). The other device answers only members, with its
 //! frames (see `replica.writeSync`), in a chunked, gzipped response, leaving
 //! out other people's private streams, and with its own device key and
-//! certificate in headers. The device then pushes what the peer lacks: a
+//! certificate in headers. The device then pushes what the other device lacks: a
 //! second POST (`push_type`), of the request's length (u32) and a request,
-//! then its frames above the peer's vector, gzipped, which the peer applies
-//! as it would a response. So a device that can reach a peer, though the
-//! peer can't reach it (behind a NAT), syncs both ways.
+//! then its frames above the other device's vector, gzipped, which the other device applies
+//! as it would a response. So a device that can reach a device, though the
+//! device can't reach it (behind a NAT), syncs both ways.
 
 const std = @import("std");
 const Io = std.Io;
@@ -25,21 +25,23 @@ const discover = @import("discover.zig");
 const library_ = @import("library.zig");
 const Replica = replica_.Replica;
 
-/// Where peers answer syncs, as they advertise it.
+/// Where devices answer syncs, as they advertise it.
 pub const path = "/sync";
 
-/// Where peers added by URL are kept, in the replica's `local` state: on
+/// Where devices added by URL are kept, in the replica's `local` state: on
 /// this device only.
-const added_prefix = "peer:";
+const added_prefix = "address:";
+/// As they were kept, carried over (see `addedAddresses`).
+const obsolete_added_prefix = "device:";
 
-/// A peer's sync URL, from its base URL or the sync URL itself.
+/// A device's sync URL, from its base URL or the sync URL itself.
 pub fn syncUrl(arena: std.mem.Allocator, target: []const u8) ![]const u8 {
     const t = std.mem.trim(u8, target, " \n");
     if (std.mem.endsWith(u8, t, path)) return t;
     return std.mem.concat(arena, u8, &.{ std.mem.trimEnd(u8, t, "/"), path });
 }
 
-/// What a peer serving `r`'s library advertises by DNS-SD (its TXT
+/// What a device serving `r`'s library advertises by DNS-SD (its TXT
 /// record): the library's ID, the sync path, its person's key, and the names
 /// of this device (`device`) and its person (`person`), if they have them.
 pub fn advertisement(arena: std.mem.Allocator, r: *Replica, person: [32]u8, device: [32]u8) ![]const u8 {
@@ -54,20 +56,24 @@ pub fn advertisement(arena: std.mem.Allocator, r: *Replica, person: [32]u8, devi
     });
 }
 
-/// The sync URL of a peer found nearby.
+/// The sync URL of a device found nearby.
 pub fn foundUrl(arena: std.mem.Allocator, s: discover.Service) ![]const u8 {
     return std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse path });
 }
 
-/// The sync URLs of the peers added by URL.
-pub fn addedPeers(r: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
+/// The sync URLs of the devices added by URL.
+pub fn addedAddresses(r: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
+    for (try r.localKeys(arena, obsolete_added_prefix)) |k| {
+        try r.setLocal(try std.mem.concat(arena, u8, &.{ added_prefix, k[obsolete_added_prefix.len..] }), "");
+        try r.removeLocal(k);
+    }
     const keys = try r.localKeys(arena, added_prefix);
     const urls = try arena.alloc([]const u8, keys.len);
     for (keys, urls) |k, *u| u.* = k[added_prefix.len..];
     return urls;
 }
 
-/// Adds a peer by URL, or removes one added; returns its sync URL.
+/// Adds a device by URL, or removes one added; returns its sync URL.
 pub fn setAdded(r: *Replica, arena: std.mem.Allocator, target: []const u8, add: bool) ![]const u8 {
     const u = try syncUrl(arena, target);
     const key = try std.mem.concat(arena, u8, &.{ added_prefix, u });
@@ -75,16 +81,16 @@ pub fn setAdded(r: *Replica, arena: std.mem.Allocator, target: []const u8, add: 
     return u;
 }
 
-/// The peers to sync with: their sync URLs, and the names of those found
+/// The devices to sync with: their sync URLs, and the names of those found
 /// nearby, as they advertise them.
-pub const Peers = struct {
+pub const Devices = struct {
     urls: []const []const u8,
     names: std.StringHashMapUnmanaged([]const u8),
 };
 
-/// `target` alone, if given; else every peer of `r`'s library found nearby
+/// `target` alone, if given; else every device of `r`'s library found nearby
 /// (but this one, advertised as `own`), then those added that weren't.
-pub fn peers(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8, target: ?[]const u8) !Peers {
+pub fn reachable(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8, target: ?[]const u8) !Devices {
     var urls: std.ArrayList([]const u8) = .empty;
     var names: std.StringHashMapUnmanaged([]const u8) = .empty;
     if (target) |t| {
@@ -100,7 +106,7 @@ pub fn peers(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8, tar
         if (s.get("name")) |n| if (n.len > 0) try names.put(arena, u, n);
     }
     const found = urls.items.len;
-    for (try addedPeers(r, arena)) |u| {
+    for (try addedAddresses(r, arena)) |u| {
         for (urls.items[0..found]) |f| {
             if (std.mem.eql(u8, f, u)) break;
         } else try urls.append(arena, u);
@@ -117,14 +123,14 @@ test "sync URLs" {
     try std.testing.expectEqualStrings("http://hal:8008/sync", try syncUrl(arena, "http://hal:8008/sync"));
 }
 
-/// A push's content type, which a peer too old to take pushes doesn't
+/// A push's content type, which a device too old to take pushes doesn't
 /// know, and so refuses as a request whose signature doesn't verify.
 pub const push_type = "application/x-cinematheque-push";
 const device_header = "x-cinematheque-device";
 const certificate_header = "x-cinematheque-certificate";
 const signature_header = "x-cinematheque-signature";
 
-/// What a peer signs, refusing a removed device, so the device can trust
+/// What a device signs, refusing a removed device, so the device can trust
 /// the news: the library, the device refused, and its request's time.
 fn removedMessage(library: [16]u8, device: [32]u8, time_ms: u64) [20 + 16 + 32 + 8]u8 {
     var out: [20 + 16 + 32 + 8]u8 = undefined;
@@ -274,16 +280,16 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     return true;
 }
 
-/// What came of a sync with a peer: what was pulled, and how many
-/// operations were pushed (none to a peer too old to take pushes).
+/// What came of a sync with a device: what was pulled, and how many
+/// operations were pushed (none to a device too old to take pushes).
 pub const Exchanged = struct {
     stats: replica_.Stats,
     sent: usize = 0,
 };
 
-/// Syncs both ways with the peer at `url` (e.g.,
+/// Syncs both ways with the other device at `url` (e.g.,
 /// `http://perihelion.local:8008/sync`): pulls what `dst` lacks, then pushes
-/// what the peer does, if it's a member's device that takes pushes.
+/// what the other device does, if it's a member's device that takes pushes.
 pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !Exchanged {
     var theirs: std.ArrayList(replica_.Entry) = .empty;
     const pulled = try pull(arena, client, dst, url, now_ms, &theirs);
@@ -291,7 +297,7 @@ pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, u
     const person = pulled.person orelse return out;
     if (!try dst.isMemberPerson(person)) return out;
     out.sent = push(arena, client, dst, url, now_ms, theirs.items, person) catch |err| switch (err) {
-        // A peer too old to take pushes, which still pulls from this one.
+        // A device too old to take pushes, which still pulls from this one.
         error.Refused => 0,
         else => |e| return e,
     };
@@ -300,7 +306,7 @@ pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, u
 
 const Pulled = struct { stats: replica_.Stats, person: ?[32]u8 };
 
-/// Who a peer's response says answered: its device key, certificate, and
+/// Who a device's response says answered: its device key, certificate, and
 /// (refusing a removed device) signature, as headers give them.
 const Named = struct {
     device: ?[32]u8 = null,
@@ -334,10 +340,10 @@ const Named = struct {
 /// signed, over this request, by a device that a member certified and that
 /// `dst` doesn't know to be removed itself. (A member could say so falsely,
 /// but a member could remove it truly.)
-fn removed(dst: *Replica, peer: Named, time_ms: u64) !bool {
-    const device = peer.device orelse return false;
-    const signature = peer.signature orelse return false;
-    const person = peer.person(dst.library) orelse return false;
+fn removed(dst: *Replica, other: Named, time_ms: u64) !bool {
+    const device = other.device orelse return false;
+    const signature = other.signature orelse return false;
+    const person = other.person(dst.library) orelse return false;
     if (std.mem.eql(u8, &device, &dst.device())) return false;
     if (!try dst.isMemberPerson(person) or try dst.revoked(device) != null) return false;
     const key = Ed25519.PublicKey.fromBytes(device) catch return false;
@@ -345,7 +351,7 @@ fn removed(dst: *Replica, peer: Named, time_ms: u64) !bool {
     return true;
 }
 
-/// Pulls from the peer at `url`, collecting its vector into `theirs`, and
+/// Pulls from the other device at `url`, collecting its vector into `theirs`, and
 /// the person its certificate names, if it sent one that verifies.
 fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64, theirs: *std.ArrayList(replica_.Entry)) !Pulled {
     const body = try writeRequest(arena, dst, now_ms);
@@ -359,14 +365,14 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
     try sending.end();
     try request.connection.?.flush();
     var response = try request.receiveHead(&.{});
-    const peer = Named.of(response.head);
+    const other = Named.of(response.head);
     switch (response.head.status) {
         .ok => {},
-        .forbidden => return if (try removed(dst, peer, now_ms)) error.Removed else error.NotAMember,
+        .forbidden => return if (try removed(dst, other, now_ms)) error.Removed else error.NotAMember,
         .bad_request => return error.Refused,
         else => return error.BadStatus,
     }
-    const person = peer.person(dst.library);
+    const person = other.person(dst.library);
     var transfer: [64 * 1024]u8 = undefined;
     var decompress: http.Decompress = undefined;
     const window = try arena.alloc(u8, flate.max_window_len);
@@ -375,7 +381,7 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
     return .{ .stats = stats, .person = person };
 }
 
-/// Pushes to the peer at `url` what `wanted` (its vector) shows it lacks,
+/// Pushes to the other device at `url` what `wanted` (its vector) shows it lacks,
 /// leaving out private streams that aren't `reader`'s (its person's); returns
 /// how many operations it sent. Nothing to send sends nothing.
 fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []const u8, now_ms: u64, wanted: replica_.VersionVector, reader: [32]u8) !usize {

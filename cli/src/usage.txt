@@ -1,17 +1,17 @@
 Usage: cinematheque [--home DIR] NOUN VERB [ARGUMENTS]
        cinematheque [--home DIR] crawl | sync | serve | refresh
 
-The peer keeps its identity and its copy of the catalog in its home:
-~/Library/Application Support/Cinematheque on macOS, and
+The app keeps this device's identity and its copy of the catalog in its
+home: ~/Library/Application Support/Cinematheque on macOS, and
 $XDG_DATA_HOME/cinematheque (~/.local/share/cinematheque) on Linux,
 unless --home or $CINEMATHEQUE_HOME names another directory.
 
 NOUN -h (or NOUN alone) shows only that noun's commands.
 
 PERSON is a person's key, as person show and member list print them;
-TITLE and ITEM are title and item keys, as title list and title show print them;
-SOURCE is a source's ID or URL; DEVICE, a device's key, as device list
-prints it.
+TITLE and ITEM are title and item keys, as title list and title show
+print them; SOURCE is a source's ID or URL; DEVICE, a device's key, as
+device list prints it.
 
   person show                  print this person's key
   person pair                  on a new device, show a code (and the port
@@ -38,9 +38,14 @@ prints it.
   member pair CODE [URL]       admit the person of the new device showing
                                CODE (found nearby, or at URL), sending it
                                the library's founder
-  member remove PERSON           remove a member
+  member remove PERSON         remove a member
 
-  device list                  list this person's devices, by name
+  device list                  list this person's devices, by name; then
+                               devices found nearby, and addresses added
+  device add URL               add the address of a device that can't be
+                               found nearby, such as one off the network,
+                               on this device only
+  device forget URL            forget an address added
   device remove DEVICE         remove one of this person's other devices:
                                what it writes from now on is refused, and
                                it's told so when it next syncs
@@ -53,13 +58,14 @@ prints it.
                                (default ",")
   source set SOURCE [--rendition NAME] [--skip PREFIX]
                                change a source's settings; crawl to apply
-  source forget SOURCE DIR     forget a directory the source shows as unavailable
-                               (one that held files and lists none, as an
-                               unplugged drive's mount point does), as if
-                               it were deleted: its copies go, for every
-                               peer (they do on their own after a year)
+  source forget SOURCE DIR     forget a directory the source shows as
+                               unavailable (one that held files and lists
+                               none, as an unplugged drive's mount point
+                               does), as if it were deleted: its copies go,
+                               for every device (they do on their own after
+                               a year)
   source remove SOURCE         remove a source and the copies it held, for
-                               every peer
+                               every device
 
   title list [TEXT]            list titles, or those whose names hold
                                the text (shortcut: ls)
@@ -88,11 +94,6 @@ prints it.
                                mark an item watched, or not
   progress remove ITEM         forget this person's progress in an item
 
-  peer list                    list peers found on the network, and added
-  peer add URL                 add a peer that can't be found, such as one
-                               off the network, on this device only
-  peer remove URL              remove an added peer
-
   agent show [--port PORT]     on macOS, show the launch agents that serve
                                always, and refresh hourly
   agent add [--port PORT]      install and start them
@@ -101,10 +102,10 @@ prints it.
   crawl [SOURCE] [--workers WORKERS]
                                crawl every source, or one, and update
                                copies, with concurrent workers (16)
-  sync [URL]                   pull from a peer, or from every peer found
-                               or added
+  sync [URL]                   pull from a device, or from every device
+                               found or added
   serve [--port PORT] [--media DIR]
-                               answer peers' syncs, and serve media, on
-                               the port given, else on 8008 or, if that's
-                               taken, any free port
+                               answer other devices' syncs, and serve
+                               media, on the port given, else on 8008 or,
+                               if that's taken, any free port
   refresh                      sync, then crawl

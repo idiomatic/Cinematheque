@@ -1,4 +1,4 @@
-//! Cinematheque's core: the replicated library and what peers need to fill
+//! Cinematheque's core: the replicated library and what devices need to fill
 //! and share it.
 
 pub const replica = @import("replica.zig");

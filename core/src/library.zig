@@ -237,8 +237,8 @@ pub fn setSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, whic
     return source;
 }
 
-/// Removes a source, by ID or URL, from the library, for every peer:
-/// its settings and every copy it held, and this peer's last crawl of it.
+/// Removes a source, by ID or URL, from the library, for every device:
+/// its settings and every copy it held, and this device's last crawl of it.
 /// Returns how many copies it held.
 pub fn removeSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, which: []const u8) !usize {
     const source = try findSource(replica, arena, which);
@@ -284,7 +284,7 @@ pub const CrawlStats = struct {
     total_ms: i64,
 };
 
-/// Crawls a source, reusing this peer's last crawl of it where its
+/// Crawls a source, reusing this device's last crawl of it where its
 /// directories haven't changed, brings the library's copies in line with
 /// what it found, and keeps the crawl for next time. Describing what it
 /// found is separate (see `art.plan` and `art.run`), so its titles show
@@ -555,7 +555,7 @@ pub const UnavailableDirs = struct {
 };
 
 /// Forgets an unavailable directory, as if it were deleted: its copies go,
-/// for every peer. Returns how many.
+/// for every device. Returns how many.
 pub fn forgetUnavailable(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source: Source, dir: []const u8) !usize {
     const d = std.mem.trim(u8, dir, "/");
     const held_field = try std.fmt.allocPrint(arena, "held:{s}", .{source.id});
@@ -1042,7 +1042,7 @@ pub fn duplicates(replica: *Replica, arena: std.mem.Allocator) ![]Match {
     return out.items;
 }
 
-/// Records `from` as an alias of `to`, so every peer merges them alike.
+/// Records `from` as an alias of `to`, so every device merges them alike.
 /// Records `from` as an alias of `to`: two names of one title.
 pub fn addAlias(replica: *Replica, wall_ms: u64, from: []const u8, to: []const u8) !void {
     if (std.mem.eql(u8, from, to)) return error.SameTitle;
@@ -1341,7 +1341,7 @@ test "a numberless file beside a series' episodes is its special, not a movie" {
 }
 
 /// A person's or device's name: `n/<key>`'s `name`, and for a device, `person`,
-/// its person's key. Any member may set one; peers show names, not keys.
+/// its person's key. Any member may set one; devices show names, not keys.
 pub const Name = struct {
     key: []const u8,
     name: []const u8,

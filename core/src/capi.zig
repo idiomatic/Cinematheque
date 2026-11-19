@@ -116,23 +116,23 @@ export fn cq_free(text: ?[*:0]u8) void {
     gpa.free(std.mem.span(t));
 }
 
-/// Opens the peer's home `peer_home`; if null, `$CINEMATHEQUE_HOME`, or else
+/// Opens this device's home `home_dir`; if null, `$CINEMATHEQUE_HOME`, or else
 /// the default. It may not hold a library yet (see `cq_status`).
-export fn cq_open(peer_home: ?[*:0]const u8) ?*Library {
-    return open(peer_home) catch |err| {
+export fn cq_open(home_dir: ?[*:0]const u8) ?*Library {
+    return open(home_dir) catch |err| {
         fail(err);
         return null;
     };
 }
 
-fn open(peer_home: ?[*:0]const u8) !*Library {
+fn open(home_dir: ?[*:0]const u8) !*Library {
     const lib = try gpa.create(Library);
     errdefer gpa.destroy(lib);
     lib.* = .{ .threaded = .init(gpa, .{}), .arena_state = .init(gpa), .store = undefined };
     errdefer lib.threaded.deinit();
     errdefer lib.arena_state.deinit();
     const arena = lib.arena_state.allocator();
-    const dir = if (peer_home orelse std.c.getenv("CINEMATHEQUE_HOME")) |d| try arena.dupe(u8, std.mem.span(d)) else blk: {
+    const dir = if (home_dir orelse std.c.getenv("CINEMATHEQUE_HOME")) |d| try arena.dupe(u8, std.mem.span(d)) else blk: {
         const home = std.c.getenv("HOME") orelse return error.NoHome;
         const xdg = std.c.getenv("XDG_DATA_HOME");
         break :blk try store_.defaultHome(arena, std.mem.span(home), if (xdg) |x| std.mem.span(x) else null);
@@ -195,14 +195,14 @@ fn span(text: ?[*:0]const u8) ?[]const u8 {
 const CoverJson = struct { url: []const u8, offset: u64, length: u64, stamp: []const u8 };
 const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
 const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
-const PeerJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const u8, person_key: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
+const NearbyJson = struct { url: []const u8, device: ?[]const u8, person: ?[]const u8, person_key: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
 const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
 const PairedJson = struct { person: []const u8, device: []const u8 };
 const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
 const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, sent: usize = 0, @"error": ?[]const u8 };
 const HeardJson = struct { device: []const u8, name: ?[]const u8, operations: usize, at: u64 };
 
-/// An exchange the server had with a peer, recorded on the server's task:
+/// An exchange the server had with a device, recorded on the server's task:
 /// with which device, how many operations, and when.
 const Heard = struct {
     mutex: Io.Mutex = .init,
@@ -235,7 +235,7 @@ const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: [
 const StatusJson = struct { person: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
 
 /// How far a long operation has come, in steps of its phase (sources
-/// crawled, movies and seasons described, peers synced); read from any
+/// crawled, movies and seasons described, devices synced); read from any
 /// thread.
 const Steps = struct {
     phase: std.atomic.Value(Phase) = .init(.idle),
@@ -289,7 +289,7 @@ const Serving = struct {
 
 const MountJson = struct { prefix: []const u8, path: []const u8 };
 
-/// Long, but returns once listening: serves this library to peers (their
+/// Long, but returns once listening: serves this library to devices (their
 /// syncs) and `folders_json`'s folders as sources (a JSON array of
 /// objects with `prefix`, the path they're served at, and `path`), on
 /// `port`, else 8008, else any free port; advertises it by DNS-SD; and
@@ -348,7 +348,7 @@ fn stopServing(lib: *Library) void {
 
 // Identity and membership.
 
-/// This peer, as JSON: `person` (its person's key), `paired` (acting as the
+/// This device, as JSON: `person` (its person's key), `paired` (acting as the
 /// person of another of the person's devices), `library` (the library's ID,
 /// or null if it has none yet), `founder`, and `members` (how many).
 export fn cq_status(lib: *Library) ?[*:0]u8 {
@@ -490,8 +490,8 @@ fn stopPairing(lib: *Library) void {
     lib.pairing = null;
 }
 
-/// Long: pairs the new device offering at `url` (a `pairing` peer's, from
-/// `cq_peers`, offering to `pair` or to `join`, as `join` says), given the
+/// Long: pairs the new device offering at `url` (a `pairing` device's, from
+/// `cq_nearby`, offering to `pair` or to `join`, as `join` says), given the
 /// code it shows: sends it the library's founder's key, and if pairingAsYours,
 /// this person's secret, which it takes only if the code is right. Returns
 /// its keys, as JSON: `person` (this person's, once paired; else a new
@@ -549,10 +549,10 @@ fn member(lib: *Library, _: std.mem.Allocator, key: []const u8, add: bool) !void
     if (add) try r.addMember(lib.now(), person) else try r.removeMember(lib.now(), person);
 }
 
-// Names and peers.
+// Names and devices.
 
 /// Names this person (`which` "person") or this device ("device"), for every
-/// peer to show in place of keys.
+/// device to show in place of keys.
 export fn cq_set_name(lib: *Library, which: [*:0]const u8, name: [*:0]const u8) c_int {
     return status(lib, setName, .{ std.mem.span(which), std.mem.span(name) });
 }
@@ -615,24 +615,24 @@ fn removeDevice(lib: *Library, _: std.mem.Allocator, device: []const u8) !void {
     try (try lib.main()).revokeDevice(lib.now(), try store_.parseKey(device));
 }
 
-/// Long (it listens for 2 seconds): the peers found on the network, by
+/// Long (it listens for 2 seconds): the devices found on the network, by
 /// DNS-SD, other than this one, and those added by address, as a JSON
 /// array of objects with `url` (to sync with, or for one `pairing`, to pair
 /// with), `device` and `person` (their names, if advertised), `person` (key),
 /// `ours` (of this library), `member` (its person is one), `added`, and
 /// `pairing` (for a new device offering to pair, by `cq_pair`, what for:
 /// `pair`, to be another of this person's, or `join`, a new member's).
-export fn cq_peers(lib: *Library) ?[*:0]u8 {
-    return json(lib, peers, .{});
+export fn cq_nearby(lib: *Library) ?[*:0]u8 {
+    return json(lib, nearby, .{});
 }
 
-fn peers(lib: *Library, arena: std.mem.Allocator) ![]const PeerJson {
+fn nearby(lib: *Library, arena: std.mem.Allocator) ![]const NearbyJson {
     var r = try connection(lib, arena);
     defer r.close();
     const mine = std.fmt.bytesToHex(r.library, .lower);
     const own = try lib.store.serviceName(arena);
     const list = try r.members(arena);
-    var out: std.ArrayList(PeerJson) = .empty;
+    var out: std.ArrayList(NearbyJson) = .empty;
     for (try discover.browse(lib.io(), arena, 2000)) |s| {
         if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
         const person = s.get("user");
@@ -650,18 +650,18 @@ fn peers(lib: *Library, arena: std.mem.Allocator) ![]const PeerJson {
             .pairing = s.get("pair"),
         });
     }
-    for (try sync.addedPeers(&r, arena)) |u|
+    for (try sync.addedAddresses(&r, arena)) |u|
         try out.append(arena, .{ .url = u, .device = null, .person = null, .person_key = null, .ours = true, .member = true, .added = true, .pairing = null });
     return out.items;
 }
 
-/// Adds (nonzero `add`) or removes a peer by address, such as one off the
+/// Adds (nonzero `add`) or removes a device by address, such as one off the
 /// network, which syncing then reaches too; on this device only.
-export fn cq_peer(lib: *Library, target: [*:0]const u8, add: c_int) c_int {
-    return status(lib, peer, .{ std.mem.span(target), add != 0 });
+export fn cq_device_address(lib: *Library, target: [*:0]const u8, add: c_int) c_int {
+    return status(lib, deviceAddress, .{ std.mem.span(target), add != 0 });
 }
 
-fn peer(lib: *Library, arena: std.mem.Allocator, target: []const u8, add: bool) !void {
+fn deviceAddress(lib: *Library, arena: std.mem.Allocator, target: []const u8, add: bool) !void {
     _ = try sync.setAdded(try lib.main(), arena, target, add);
 }
 
@@ -878,7 +878,7 @@ fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
 }
 
 /// Forgets an unavailable directory of a source (by ID or URL), as if it
-/// were deleted: its copies go, for every peer.
+/// were deleted: its copies go, for every device.
 export fn cq_forget_unavailable(lib: *Library, source: [*:0]const u8, dir: [*:0]const u8) c_int {
     return status(lib, forgetUnavailable, .{ std.mem.span(source), std.mem.span(dir) });
 }
@@ -1001,7 +1001,7 @@ export fn cq_data_version(lib: *Library) i64 {
     return r.db.scalar("PRAGMA data_version") catch -1;
 }
 
-/// Long: pulls from the peer at `target`, or else from every peer of this
+/// Long: pulls from the device at `target`, or else from every device of this
 /// library found or added, as a JSON array of objects with `url`, `new`
 /// (operations won), and `error`.
 export fn cq_sync(lib: *Library, target: ?[*:0]const u8) ?[*:0]u8 {
@@ -1009,14 +1009,14 @@ export fn cq_sync(lib: *Library, target: ?[*:0]const u8) ?[*:0]u8 {
 }
 
 fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]const SyncJson {
-    // Peers are counted once they're found.
+    // Devices are counted once they're found.
     lib.steps.start(.syncing, 0);
     defer lib.steps.finish();
     try lib.writer.lock(lib.io());
     defer lib.writer.unlock(lib.io());
     var r = try connection(lib, arena);
     defer r.close();
-    const reachable = try sync.peers(lib.io(), arena, &r, try lib.store.serviceName(arena), target);
+    const reachable = try sync.reachable(lib.io(), arena, &r, try lib.store.serviceName(arena), target);
     const urls = reachable.urls;
     const names = reachable.names;
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
@@ -1035,7 +1035,7 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]cons
 }
 
 
-/// The last sync this peer served, while serving, as JSON: `device` (the
+/// The last sync this device served, while serving, as JSON: `device` (the
 /// key of the device that asked), its `name` if it has one, how many
 /// `operations` it was sent, and when (`at`, in milliseconds since the
 /// epoch); or null if none yet.
@@ -1043,7 +1043,7 @@ export fn cq_served(lib: *Library) ?[*:0]u8 {
     return json(lib, served, .{});
 }
 
-/// The last push this peer took, while serving, as `cq_served` tells of a
+/// The last push this device took, while serving, as `cq_served` tells of a
 /// sync: from which device, and how many of its operations won; an app
 /// reloads when it changes.
 export fn cq_received(lib: *Library) ?[*:0]u8 {

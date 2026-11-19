@@ -13,7 +13,7 @@ zig build test && zig build --release=fast
 swift playable.swift /tmp/cinematheque-out/*.mp4         # ask AVFoundation
 ```
 
-Needs `ffmpeg`, `ffprobe`, and `HandBrakeCLI` on the path, and the [peer](../../peer/README.md) to serve the samples.
+Needs `ffmpeg`, `ffprobe`, and `HandBrakeCLI` on the path, and the [peer](../../cli/README.md) to serve the samples.
 
 ## Design
 

@@ -1,6 +1,6 @@
 # Architecture
 
-How a Cinematheque library is made of operations: what one is, how devices write, sign, and merge them, how they travel between peers, the HTTP endpoints peers answer, and which keys and fields the library writes. [AGENTS.md](AGENTS.md) states the requirements; this explains how the [core](core/README.md) meets them. The code is the final word: [op.zig](core/src/op.zig), [hlc.zig](core/src/hlc.zig), [merkle.zig](core/src/merkle.zig), [replica.zig](core/src/replica.zig), [sync.zig](core/src/sync.zig), [pair.zig](core/src/pair.zig), and [serve.zig](core/src/serve.zig).
+How a Cinematheque library is made of operations: what one is, how devices write, sign, and merge them, how they travel between devices, the HTTP endpoints devices answer, and which keys and fields the library writes. [AGENTS.md](AGENTS.md) states the requirements; this explains how the [core](core/README.md) meets them. The code is the final word: [op.zig](core/src/op.zig), [hlc.zig](core/src/hlc.zig), [merkle.zig](core/src/merkle.zig), [replica.zig](core/src/replica.zig), [sync.zig](core/src/sync.zig), [pair.zig](core/src/pair.zig), and [serve.zig](core/src/serve.zig).
 
 ## Operations
 
@@ -58,7 +58,7 @@ A replica keeps each field's winning operation, in SQLite, and nothing else of t
 * **`devices`:** device keys, interned as small integers.
 * **`version_vector`:** per stream, the highest sequence number covered.
 * **`repair`:** fields a removal dropped, to refetch.
-* **`local`:** the peer's own state, which never replicates (crawl snapshots, peers added by address, and downloads: `downloads/dir`, `downloads/source`, `downloads/drop-watched`, `downloads/want/<item>` (a rendition), `downloads/next/<title>` (a count), `downloads/keep/<item>`, and `downloads/at/<item>` (when fetched, in ms, against which the watched mark's clock tells "watched since")).
+* **`local`:** the device's own state, which never replicates (crawl snapshots, devices added by address, and downloads: `downloads/dir`, `downloads/source`, `downloads/drop-watched`, `downloads/want/<item>` (a rendition), `downloads/next/<title>` (a count), `downloads/keep/<item>`, and `downloads/at/<item>` (when fetched, in ms, against which the watched mark's clock tells "watched since")).
 
 A losing operation is dropped and never sent again, since it can't change anything.
 
@@ -70,7 +70,7 @@ Receiving an operation:
 2. If it's refused (see [Admission](#admission)), it's counted and skipped.
 3. Otherwise its clock is observed, and it's compared with the field's winner by its kind: if it's newer, it replaces the winner (`won`); else it's dropped (`lost`).
 
-Whatever the order operations arrive in, every replica ends with the same winners, so peers converge without coordinating.
+Whatever the order operations arrive in, every replica ends with the same winners, so devices converge without coordinating.
 
 Two keys act on winning: `revoked` (a removal) drops the removed stream's later writes and notes their fields for repair, and `founders` (a handover) moves the founder along the chain.
 
@@ -95,34 +95,34 @@ A response is applied in one transaction. A batch whose stream isn't admitted ye
 
 ## Sync
 
-Sync runs both ways, started by either side: a device asks a peer for what it lacks, then sends the peer what it lacks. So a device that can reach a peer, though the peer can't reach it (behind a NAT), still syncs both ways, and only one of them need accept connections.
+Sync runs both ways, started by either side: a device asks a device for what it lacks, then sends the other device what it lacks. So a device that can reach another, though that one can't reach it (behind a NAT), still syncs both ways, and only one of them need accept connections.
 
-* **Request:** `POST /sync` with the device key, its certificate, the time, and the version vector, signed by the device (the bytes are in [HTTP endpoints](#post-sync)). The peer answers only a member's device that isn't removed, and only within ten minutes of its own clock.
+* **Request:** `POST /sync` with the device key, its certificate, the time, and the version vector, signed by the device (the bytes are in [HTTP endpoints](#post-sync)). The other device answers only a member's device that isn't removed, and only within ten minutes of its own clock.
 * **Response,** gzipped, as frames:
   * `B`, a batch: device, first sequence number, count, signature, a bitmap of which operations follow, and the leaf hashes of those that don't. That's enough to rebuild the root and check the signature against only what's sent.
   * `O`, one per operation sent: its sequence number, clock, kind, key, field, and value. The library and device are the batch's.
   * `V`, one per stream: the sender's version vector entry, which the receiver adopts.
   * `E`: the end.
-* **What's sent:** for each stream, the winners above the receiver's vector, grouped by batch. Other people's private streams are left out, frames and vector entries alike, so private data never reaches another person's peers.
-* **Push:** the response also names the peer, by its device key and certificate. The device then sends what the peer lacks, by the vector the response ended with: a second `POST /sync`, of a signed request and the same frames, leaving out private streams not the peer's person's, which the peer applies as it would a response. A peer too old to take pushes refuses one, and is only pulled from.
+* **What's sent:** for each stream, the winners above the receiver's vector, grouped by batch. Other people's private streams are left out, frames and vector entries alike, so private data never reaches another person's devices.
+* **Push:** the response also names the other device, by its device key and certificate. The device then sends what the other device lacks, by the vector the response ended with: a second `POST /sync`, of a signed request and the same frames, leaving out private streams not the other device's person's, which the other device applies as it would a response. A device too old to take pushes refuses one, and is only pulled from.
 
 Since only winners are sent, a sync carries the current state of what changed, not its history: progress moved ten times since the last sync is one operation per field.
 
-* **Repair:** a removal drops winners past its cutoff. The fields it dropped are refetched from a peer that refused those writes: just those fields' winners, with one shared proof per batch (the sibling hashes covering all the operations taken from it), so they're verified without the batch's other leaves.
+* **Repair:** a removal drops winners past its cutoff. The fields it dropped are refetched from a device that refused those writes: just those fields' winners, with one shared proof per batch (the sibling hashes covering all the operations taken from it), so they're verified without the batch's other leaves.
 
 The apps' status line ("Received 3 changes from firefly") counts operations: received, the operations that won their fields, and sent, the operations a response or a push carried.
 
 ## HTTP endpoints
 
-Peers speak plain HTTP/1.1, without TLS: operations are signed, and pairing seals what it sends. Integers are little-endian, keys are 32 bytes, and signatures are Ed25519's 64.
+Devices speak plain HTTP/1.1, without TLS: operations are signed, and pairing seals what it sends. Integers are little-endian, keys are 32 bytes, and signatures are Ed25519's 64.
 
 | Endpoint | Answered by | For |
 |---|---|---|
-| `POST /sync` | Every peer that serves | Pulling operations, and pushing them |
+| `POST /sync` | Every device that serves | Pulling operations, and pushing them |
 | `GET` and `POST /pair` | A new device offering to pair | Pairing by code |
-| `GET` and `HEAD` of any other path | A peer serving media | Files, listings, and `INDEX` |
+| `GET` and `HEAD` of any other path | A device serving media | Files, listings, and `INDEX` |
 
-A peer serves on the port given (an app's, the one it got last), else on 8008, or on any free port if that's taken, and advertises `_cinematheque._tcp` by DNS-SD with a TXT record of `library` (its ID, hex), `path` (`/sync`), `user` (hex), `name` (the device's), and `person` (the person's). A new device offering to pair runs a server of its own, on a free port, answering only `/pair`, and advertises `pair` (`pair` or `join`), `path` (`/pair`), and `name` instead.
+A device serves on the port given (an app's, the one it got last), else on 8008, or on any free port if that's taken, and advertises `_cinematheque._tcp` by DNS-SD with a TXT record of `library` (its ID, hex), `path` (`/sync`), `user` (hex), `name` (the device's), and `person` (the person's). A new device offering to pair runs a server of its own, on a free port, answering only `/pair`, and advertises `pair` (`pair` or `join`), `path` (`/pair`), and `name` instead.
 
 ### `POST /sync`
 
@@ -142,11 +142,11 @@ Answers:
   * `O`, an operation: sequence number (u64), clock (u64), kind (u8), then the key, field, and value, each its length (u16, u16, and u32) and bytes.
   * `V`, a version vector entry: stream key (32) and sequence number (u64).
   * `E`: the end.
-  With it, two headers name the peer: `x-cinematheque-device`, its device key, and `x-cinematheque-certificate`, its certificate, each in hex.
-* **400,** the error's name as text: `Malformed`, `BadSignature`, `BadCertificate` (one that doesn't verify for this library), or `Stale` (a time more than ten minutes from the peer's).
-* **403,** `not a member`: the certificate's person isn't a member. Or `removed`, for a device that was removed, with `x-cinematheque-device` and `x-cinematheque-certificate` as above and `x-cinematheque-signature`, the peer's signature (hex) over `cinematheque removed`, the library ID, the asking device's key, and its request's time (u64): proof enough, from a member's device, for the device to leave.
+  With it, two headers name the other device: `x-cinematheque-device`, its device key, and `x-cinematheque-certificate`, its certificate, each in hex.
+* **400,** the error's name as text: `Malformed`, `BadSignature`, `BadCertificate` (one that doesn't verify for this library), or `Stale` (a time more than ten minutes from the other device's).
+* **403,** `not a member`: the certificate's person isn't a member. Or `removed`, for a device that was removed, with `x-cinematheque-device` and `x-cinematheque-certificate` as above and `x-cinematheque-signature`, the other device's signature (hex) over `cinematheque removed`, the library ID, the asking device's key, and its request's time (u64): proof enough, from a member's device, for the device to leave.
 
-A push is a `POST /sync` with `Content-Type: application/x-cinematheque-push`: the request's length (u32) and a request, as above (its vector unused), then frames, as a response's, gzipped. It's answered with 204, once applied, or 400 or 403 as above. A peer too old to take pushes reads the whole body as a request, and refuses it as `BadSignature`.
+A push is a `POST /sync` with `Content-Type: application/x-cinematheque-push`: the request's length (u32) and a request, as above (its vector unused), then frames, as a response's, gzipped. It's answered with 204, once applied, or 400 or 403 as above. A device too old to take pushes reads the whole body as a request, and refuses it as `BadSignature`.
 
 ### `/pair`
 
@@ -157,11 +157,11 @@ Only while a new device offers to pair, for a kind (`pair` or `join`) and the 6-
 
 ### Media
 
-Any other `GET` or `HEAD`, on a peer serving media: the command-line peer's `--media` directory at the root, or each of an app's folders at `/<folder>/`. Paths are percent-decoded, a query is ignored, and a `..` segment is 403. A path outside them all is 404.
+Any other `GET` or `HEAD`, on a device serving media: the command-line app's `--media` directory at the root, or each of an app's folders at `/<folder>/`. Paths are percent-decoded, a query is ignored, and a `..` segment is 403. A path outside them all is 404.
 
 * **Files:** 200 with `Content-Type` (`video/mp4` for `.mp4` and `.m4v`, `video/x-matroska` for `.mkv`, else `application/octet-stream`), `Accept-Ranges: bytes`, and an `ETag` of the modification time and size, in hex (`"<mtime>-<size>"`). A single `Range` (`bytes=a-b`, `bytes=a-`, or `bytes=-n`) is answered with 206 and `Content-Range`; several ranges, or one past the end, with 416 and `Content-Range: bytes */<size>`. An `If-Range` that isn't the current `ETag` gets the whole file.
 * **Directories:** without a trailing slash, 301 to the path with one. With `Accept: application/json`, a listing in Caddy's form: an array of `name`, `size`, `url` (`./` and the percent-encoded name, `/` after a directory's), `mod_time` (RFC 3339, UTC), and `is_dir`; otherwise an HTML `<pre>` of links. Names beginning with `.` are left out.
-* **`INDEX`,** at the root of the command-line peer's media (the apps' folders have none, since they change while served): `text/plain`, a line per file of its path, size, and modification time (Unix seconds), tab-separated, and per directory of its path and `/`, so an empty one (an unplugged drive's mount point) shows it's still there; built when the server starts, and again on a request once it's a minute old; with an `ETag`, so `If-None-Match` gets 304.
+* **`INDEX`,** at the root of the command-line app's media (the apps' folders have none, since they change while served): `text/plain`, a line per file of its path, size, and modification time (Unix seconds), tab-separated, and per directory of its path and `/`, so an empty one (an unplugged drive's mount point) shows it's still there; built when the server starts, and again on a request once it's a minute old; with an `ETag`, so `If-None-Match` gets 304.
 
 ## Keys and fields
 
@@ -183,4 +183,4 @@ The library ([library.zig](core/src/library.zig), [art.zig](core/src/art.zig)) w
 | `revoked` | `<stream hex>`: the last sequence number that stands, u64 | Removing a device, or a member |
 | `founders` | `000001`...: the next founder's key | Handing over |
 
-Title and item keys derive from a file's parsed identity, so peers that crawl the same files write the same keys, and their operations merge field by field instead of duplicating titles.
+Title and item keys derive from a file's parsed identity, so devices that crawl the same files write the same keys, and their operations merge field by field instead of duplicating titles.

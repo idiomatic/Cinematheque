@@ -8,7 +8,7 @@ const Io = std.Io;
 const http = std.http;
 const url = @import("url.zig");
 
-/// Answers requests the server doesn't, such as a peer's `POST /sync`.
+/// Answers requests the server doesn't, such as another device's `POST /sync`.
 pub const Handler = struct {
     context: ?*anyopaque,
     /// Returns false to let the server answer instead.
@@ -57,7 +57,7 @@ const index_max_age_ms = 60 * 1000;
 const Served = struct {
     prefix: []const u8,
     path: []const u8,
-    /// Kept open if it has an `INDEX` (the command-line peer's media);
+    /// Kept open if it has an `INDEX` (the command-line app's media);
     /// else opened for each request, so a folder that goes (a share
     /// unmounted, a drive unplugged) and comes back is served as it is.
     root: ?Io.Dir,

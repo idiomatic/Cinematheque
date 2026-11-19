@@ -5,11 +5,11 @@ import AppKit
 import UIKit
 #endif
 
-/// What differs by platform outside the interface: where the peer's home
+/// What differs by platform outside the interface: where this device's home
 /// is, and the names a device and its person start with.
 enum Platform {
     /// Readies the home, returning it, or nil for the core's default (on
-    /// macOS, the one the command-line peer shares). On tvOS, which may
+    /// macOS, the one the command-line app shares). On tvOS, which may
     /// purge the caches that hold it, first puts back its seeds from the
     /// Keychain.
     static func prepareHome() -> String? {

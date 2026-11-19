@@ -22,8 +22,8 @@ struct SetupFlow: View {
                         .font(.headline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                    if let peer = library.removedBy {
-                        Label("This Apple TV was removed from its library (as \(peer) said). Pair it again to use the library.", systemImage: "exclamationmark.triangle.fill")
+                    if let device = library.removedBy {
+                        Label("This Apple TV was removed from its library (as \(device) said). Pair it again to use the library.", systemImage: "exclamationmark.triangle.fill")
                             .font(.headline)
                     }
                 }

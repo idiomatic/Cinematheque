@@ -14,7 +14,7 @@ pub const Hlc = struct {
         return hlc.last;
     }
 
-    /// Folds in a timestamp received from another peer, so later local
+    /// Folds in a timestamp received from another device, so later local
     /// events order after it.
     pub fn observe(hlc: *Hlc, remote: u64) void {
         hlc.last = @max(hlc.last, remote);

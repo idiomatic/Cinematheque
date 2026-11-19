@@ -10,7 +10,7 @@ const http = std.http;
 
 pub const Image = enum { jpeg, png };
 
-/// Where a cover's bytes are in the file, so any peer can fetch them with
+/// Where a cover's bytes are in the file, so any device can fetch them with
 /// one range request.
 pub const Cover = struct {
     offset: u64,

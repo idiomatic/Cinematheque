@@ -4,12 +4,12 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 
 ## Next
 
-* **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (the command-line peer's agents can't reach the LAN; see below), an app icon, lists beyond the watchlist, and signing for distribution.
-* **Command-line peer:** commands to name the person and the device, so command-line peers show by name rather than as someone's device.
+* **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (the command-line app's agents can't reach the LAN; see below), an app icon, lists beyond the watchlist, and signing for distribution.
+* **Command-line app:** commands to name the person and the device, so command-line apps show by name rather than as someone's device.
 * **Settings:** when each device was last seen.
-* **Linux:** running the peer itself there (its experiments ran in a VM).
+* **Linux:** running the other device itself there (its experiments ran in a VM).
 * **Known issues:**
-  * macOS's Local Network privacy blocks the peer from the LAN (`HostUnreachable`) when run as a launch agent or started by another app, so `agent add`'s agents can't reach a NAS; Terminal and SSH sessions and system daemons are exempt (TN3179). The fix is to run it from a signed app bundle whose `Info.plist` says why it needs the local network, so macOS can ask once (the Mac app serves only while it runs). Until then, a test peer runs in Terminal.
+  * macOS's Local Network privacy blocks the other device from the LAN (`HostUnreachable`) when run as a launch agent or started by another app, so `agent add`'s agents can't reach a NAS; Terminal and SSH sessions and system daemons are exempt (TN3179). The fix is to run it from a signed app bundle whose `Info.plist` says why it needs the local network, so macOS can ask once (the Mac app serves only while it runs). Until then, a test device runs in Terminal.
 
 ## Libraries
 
@@ -25,7 +25,7 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 * **Trust:** each source and transcoder decides whose edits it takes.
   * A source is the canonical store of its metadata; each library's edits are an overlay that the source adopts or ignores, by a per-library switch, decided by the Cinematheque code that manages it.
   * A transcoder likewise chooses which libraries' transcode queues it accepts.
-* **Availability:** the library distinguishes what is reachable now from what is merely known, since desktop peers come and go (sleep, shutdown, travel) and sources may mount removable media.
+* **Availability:** the library distinguishes what is reachable now from what is merely known, since desktop devices come and go (sleep, shutdown, travel) and sources may mount removable media.
 
 Open:
 
@@ -35,14 +35,14 @@ Open:
 
 ## Sync
 
-* **Pairing:** by address in the apps, for a new device off the network (it would show its address with its code, as the command-line peer prints its port); a QR code carrying the code, for a phone app.
+* **Pairing:** by address in the apps, for a new device off the network (it would show its address with its code, as the command-line app prints its port); a QR code carrying the code, for a phone app.
 * **Partial replicas:** tvOS players have only purgeable cache storage, so they may be thin, holding part of a library fetched on demand (by a title's prefix, with shared proofs, as repair fetches fields; a prefix fetch was built and dropped unused after commit `ae9f1d6`) and its facet bitmaps, if rebuilding a whole replica after a purge (see [Apple TV player](#apple-tv-player)) proves too slow.
 * **Repair:** range-based set reconciliation, if catching up by version vectors proves insufficient.
-* **Compaction:** emptied fields stay as tombstones, so a peer that missed the emptying can't revive an older value, and they grow with churn: in a reference library, emptied copies (from removed sources, and keys that parser fixes changed) outnumbered live ones, over a quarter of all winners. Drop a tombstone once every member device's version vector covers it, which needs peers to share the vectors they've seen of others; a device not heard from in long enough could be set aside, at the cost of its stale writes being refused.
+* **Compaction:** emptied fields stay as tombstones, so a device that missed the emptying can't revive an older value, and they grow with churn: in a reference library, emptied copies (from removed sources, and keys that parser fixes changed) outnumbered live ones, over a quarter of all winners. Drop a tombstone once every member device's version vector covers it, which needs devices to share the vectors they've seen of others; a device not heard from in long enough could be set aside, at the cost of its stale writes being refused.
 
 Open:
 
-* **Connectivity beyond the LAN:** sync runs both ways, so a device behind a NAT syncs with a peer it can reach (a hosted server, say), but two devices both behind NATs still can't reach each other, which the direct-connection rule for private data depends on; and sync isn't encrypted, so beyond the LAN it wants a TLS proxy in front of `serve`, or a VPN. Explored in other projects.
+* **Connectivity beyond the LAN:** sync runs both ways, so a device behind a NAT syncs with a device it can reach (a hosted server, say), but two devices both behind NATs still can't reach each other, which the direct-connection rule for private data depends on; and sync isn't encrypted, so beyond the LAN it wants a TLS proxy in front of `serve`, or a VPN. Explored in other projects.
 * **CloudKit:** an alternative to the CRDT, if non-Apple players can use it without a Developer subscription, and if it honors the direct-connection rule for private data.
 
 ## Sources
@@ -52,22 +52,22 @@ Open:
 * **Moved files:** matched by size and modification time, which a rename keeps, so progress and lists follow them; where listings lack those, by hashes of files' first and last 64 KiB, taken by byte ranges when first seen.
 * **Range probe:** flag sources that don't answer `Range: bytes=0-0` with 206 (e.g., Python's `http.server`), since players can't stream from them.
 * **Discovery:** suggest static servers advertising `_http._tcp` or `_webdav._tcp`, and add sources with HTTP person and password.
-* **Management:** by desktop peers, on a source's host or with network filesystem access to it: renaming and checksums; subtitles, cover art (slow to extract and bulky to cache), and text. To libraries, a static server is read-only until Cinematheque code reaches its files.
+* **Management:** by desktop devices, on a source's host or with network filesystem access to it: renaming and checksums; subtitles, cover art (slow to extract and bulky to cache), and text. To libraries, a static server is read-only until Cinematheque code reaches its files.
 
 ## Players
 
 * **Windows:** two POSIX calls remain outside `Io`, each where Zig 0.17's `Io` can't yet do the job, and each needs a Windows path: the server's socket setup (`listen` in serve.zig, since `Io`'s `reuse_address` also sets `SO_REUSEPORT`), and peeking at DNS-SD's socket (`poll` with no wait, in discover.zig, since `Io` can't wait on a foreign socket). Zig 0.17's `Io` also has no connect timeout (it panics), so connecting relies on deadlines around it, as copy racing's.
 * **Platforms:** iOS and iPadOS; Linux and Windows; a web player for low-capacity hosts (e.g., a Raspberry Pi); later Wayland.
-* **Browsing:** by intersections of facets (e.g., new releases, thrillers or mysteries, starring A-listers, English audio), along the title hierarchy, since set-top remotes make typing slow and a library runs to thousands of titles. Full peers query facets in SQLite; thin players hold a bitmap per small facet's value, and posting lists for people.
+* **Browsing:** by intersections of facets (e.g., new releases, thrillers or mysteries, starring A-listers, English audio), along the title hierarchy, since set-top remotes make typing slow and a library runs to thousands of titles. Full devices query facets in SQLite; thin players hold a bitmap per small facet's value, and posting lists for people.
 * **Cover art, still to come** (what's built is in [AGENTS.md](AGENTS.md)):
   * **PNG placeholders:** PNG covers (a fraction of a percent, in a reference library) have none; `std.compress.flate` would decode them.
-  * **Thumbnails from peers:** desktop peers make thumbnails (about 300×450, 20 KB) and serve them by hash (`/art/<hash>/<size>`), so players with no peer near scale originals only as a fallback; and prefetching two screens ahead.
+  * **Thumbnails from devices:** desktop devices make thumbnails (about 300×450, 20 KB) and serve them by hash (`/art/<hash>/<size>`), so players with no device near scale originals only as a fallback; and prefetching two screens ahead.
   * **Scale:** on a Mac with over 4,000 movies, flicking scrolls smoothly, and jumping with the scroll bar loads the covers in view in about half a second; at 6,000 and on iOS and tvOS, fall back to AppKit's and UIKit's collection views if SwiftUI's lazy grids drop frames.
   * **Thumbnail caches** (open): their size per platform (all of them on a Mac, about 120 MB; a budget on iPhone and iPad; purgeable storage on tvOS), and how Linux and Windows decode and scale images.
   * **Other sources:** the outside-metadata provider's art, and covers in Matroska files.
 * **Who's watching:** set-top players are often shared, laptops and handhelds seldom; a shared player holds each of its people's private data, and hides it while several people are watching.
 * **Watching together:** on one screen, offer titles every viewer will accept; apart, offer what the others would avoid.
-* **Downloads** (the command-line peer's and the Mac's are built; see [AGENTS.md](AGENTS.md)), still to come: iOS and iPadOS, and Linux and Windows, whose free space the core can't yet read (only macOS's `statfs`); moving files when the folder changes, rather than fetching them again; downloading while the app is closed (with background serving); and keeping a series' next episodes in a rendition of its own, rather than the commonest.
+* **Downloads** (the command-line app's and the Mac's are built; see [AGENTS.md](AGENTS.md)), still to come: iOS and iPadOS, and Linux and Windows, whose free space the core can't yet read (only macOS's `statfs`); moving files when the folder changes, rather than fetching them again; downloading while the app is closed (with background serving); and keeping a series' next episodes in a rendition of its own, rather than the commonest.
 
 Open:
 
@@ -84,7 +84,7 @@ What's built is in [AGENTS.md](AGENTS.md); still to come:
 
 ## Transcoder
 
-A backend peer on macOS, Linux, or Windows, also a source.
+A backend device on macOS, Linux, or Windows, also a source.
 
 * **Engines:** `ffmpeg` for remuxes and `HandBrakeCLI` for re-encodes, each run as a separate process and never linked, since HandBrake and GPL builds of FFmpeg are GPL, which would bind the players and the shared core, which stay BSD and fit for the App Store. The transcoder drives `HandBrakeCLI` with JSON jobs (`--queue-import-file`) and reads its JSON progress (`--json`), one process per job, so canceling is killing and a crash spares the queue.
 * **Remux first:** when every chosen stream already plays on Apple players, `ffmpeg` copies the streams into MP4, reading the input over HTTP; when only audio or subtitles don't, it copies the video and converts the rest; only a video re-encode, or disc-image input, goes to `HandBrakeCLI`.
@@ -106,8 +106,8 @@ The decentralized library generalized for other apps, of books, audiobooks, and 
 * **Pairing UX:** pairing by code, New Devices, and setup as a shared SwiftUI package. Pairing once covers every app on a device: its identity and home are shared among the apps (an app group, and a Keychain access group for the seeds).
 * **Lists:** the watchlist generalized, per [Libraries](#libraries): private, shared (read by members), and collaborative (written by members) lists of any kind's titles: reading lists, want-to-hear, and playlists. Playlists are ordered, so collaborative ones need an ordered sequence (Fugue, in [specifications](docs/specifications/README.md)); smart lists are queries over facets.
 * **Covers:** extraction generalized from MP4's `covr`, by range requests, each with its ThumbHash placeholder: ID3's `APIC`, FLAC's `PICTURE` blocks, EPUB's OPF cover item, a comic's first page; and each kind's sidecars (`cover.jpg`, `folder.jpg`, Calibre's `cover.jpg`). PDFs, which need rendering, take a sidecar or none.
-* **Downloads:** generalized from [Players](#players): offline copies per device in a chosen rendition, served to peers nearby from desktop peers; whole albums and audiobooks, and a book's file.
-* **Packaging:** the core as an XCFramework with a Swift package over it (the model, the cover cache, pairing and setup views) for each app; the command-line peer crawls and serves every kind.
+* **Downloads:** generalized from [Players](#players): offline copies per device in a chosen rendition, served to devices nearby from desktop devices; whole albums and audiobooks, and a book's file.
+* **Packaging:** the core as an XCFramework with a Swift package over it (the model, the cover cache, pairing and setup views) for each app; the command-line app crawls and serves every kind.
 
 Open:
 

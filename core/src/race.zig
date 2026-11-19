@@ -1,7 +1,7 @@
 //! Copy racing: which of an item's copies a player tries first. Each
 //! copy's server is asked at once, briefly (`HEAD`, `timeout_ms`), and
 //! those that answer go first, in their order, as soon as the best-placed
-//! one has, so a copy on a peer that's asleep costs a second or so rather
+//! one has, so a copy on a device that's asleep costs a second or so rather
 //! than a network timeout; like Happy Eyeballs (RFC 8305), which races a
 //! server's addresses, but over copies on different servers. A server that
 //! didn't answer lately (`remembered_ms`, noted in `Memory`, on this device
@@ -192,7 +192,7 @@ test "copies whose servers answer go first, and one that doesn't is remembered" 
     try std.testing.expect(memory.recent(io, dead, 2000));
     try std.testing.expect(!memory.recent(io, dead, 2000 + remembered_ms));
 
-    // One that takes the connection but never answers, as a peer asleep may
+    // One that takes the connection but never answers, as a device asleep may
     // not, is passed over at the deadline, not waited on.
     var address = try Io.net.IpAddress.parse("127.0.0.1", 0);
     var silent = try address.listen(io, .{});

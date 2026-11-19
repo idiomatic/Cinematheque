@@ -72,8 +72,8 @@ private struct SetupForm: View {
     var body: some View {
         Form {
             Section {
-                if let peer = library.removedBy {
-                    Label("This Mac was removed from its library (as \(peer) said). Pair it again to use the library, or start another.", systemImage: "exclamationmark.triangle.fill")
+                if let device = library.removedBy {
+                    Label("This Mac was removed from its library (as \(device) said). Pair it again to use the library, or start another.", systemImage: "exclamationmark.triangle.fill")
                 }
                 Text("A library of the movies and series your household keeps, shared among your devices.")
                     .foregroundStyle(.secondary)

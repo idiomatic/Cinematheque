@@ -1,5 +1,5 @@
-//! Runs the peer in the background on macOS, as two launch agents: one that
-//! keeps `serve` running, and one that runs `refresh` (sync with peers found,
+//! Runs the app in the background on macOS, as two launch agents: one that
+//! keeps `serve` running, and one that runs `refresh` (sync with devices found,
 //! then crawl) every hour.
 
 const std = @import("std");
@@ -12,14 +12,14 @@ pub const Agent = struct {
     plist: []const u8,
 };
 
-/// The agents' launchd property lists, for `exe` acting on the peer home
-/// `peer_home`, serving on `port` if given, else on the default or a free one.
-pub fn agents(arena: std.mem.Allocator, exe: []const u8, peer_home: []const u8, home: []const u8, port: ?u16) ![2]Agent {
+/// The agents' launchd property lists, for `exe` acting on the home
+/// `home_dir`, serving on `port` if given, else on the default or a free one.
+pub fn agents(arena: std.mem.Allocator, exe: []const u8, home_dir: []const u8, home: []const u8, port: ?u16) ![2]Agent {
     const logs = try std.fmt.allocPrint(arena, "{s}/Library/Logs/Cinematheque", .{home});
     const serve: []const []const u8 = if (port) |p|
-        &.{ exe, "--home", peer_home, "serve", "--port", try std.fmt.allocPrint(arena, "{d}", .{p}) }
+        &.{ exe, "--home", home_dir, "serve", "--port", try std.fmt.allocPrint(arena, "{d}", .{p}) }
     else
-        &.{ exe, "--home", peer_home, "serve" };
+        &.{ exe, "--home", home_dir, "serve" };
     return .{
         .{
             .label = label_prefix ++ ".serve",
@@ -27,7 +27,7 @@ pub fn agents(arena: std.mem.Allocator, exe: []const u8, peer_home: []const u8, 
         },
         .{
             .label = label_prefix ++ ".refresh",
-            .plist = try plist(arena, label_prefix ++ ".refresh", &.{ exe, "--home", peer_home, "refresh" }, logs, "refresh", .hourly),
+            .plist = try plist(arena, label_prefix ++ ".refresh", &.{ exe, "--home", home_dir, "refresh" }, logs, "refresh", .hourly),
         },
     };
 }

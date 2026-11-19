@@ -143,8 +143,8 @@ struct Device: Codable, Identifiable, Hashable {
     var id: String { key }
 }
 
-/// A peer found nearby, or added by address.
-struct Peer: Codable, Identifiable, Hashable {
+/// A device found nearby, or added by address.
+struct NearbyDevice: Codable, Identifiable, Hashable {
     let url: String
     let device: String?
     let person: String?
@@ -230,7 +230,7 @@ final class Library {
     var hasLibrary: Bool { status?.library != nil }
     var paired: Bool { status?.paired ?? false }
 
-    /// Opens the peer's home: `home`, else `CINEMATHEQUE_HOME`, else the
+    /// Opens this device's home: `home`, else `CINEMATHEQUE_HOME`, else the
     /// platform's default (see the core's `defaultHome`).
     init(home: String? = nil) {
         guard let pointer = cq_open(home) else {
@@ -265,18 +265,18 @@ final class Library {
     // Setting up.
 
     /// Why this device last left a library, for setup to say: removed, by a
-    /// peer (as a sync was told, signed), from its library.
+    /// device (as a sync was told, signed), from its library.
     private(set) var removedBy: String?
 
     /// Leaves the library, as a device removed from it must: forgets it and
     /// this device's identity, so setup can pair it again as a new device.
-    func leave(removedBy peer: String) {
+    func leave(removedBy device: String) {
         guard let handle, cq_leave(handle.pointer) == 0 else {
             report(.refresh, "Couldn't leave the library: \(String(cString: cq_error())).")
             return
         }
         Platform.forget()
-        removedBy = peer
+        removedBy = device
         servingPort = nil
         refreshedAtLaunch = false
         problem = nil
@@ -318,14 +318,14 @@ final class Library {
         if let handle { cq_pair_stop(handle.pointer) }
     }
 
-    /// Pairs the new device `peer`, given the code it shows: sends it the
+    /// Pairs the new device `device`, given the code it shows: sends it the
     /// library, and to pair it, this person's secret. Returns who it is
     /// (for `welcome`), or what went wrong, in words.
-    func pair(_ peer: Peer, code: String) async -> (Paired?, String?) {
+    func pair(_ device: NearbyDevice, code: String) async -> (Paired?, String?) {
         guard let handle else { return (nil, "The library isn't open.") }
-        let url = peer.url
-        let join: Int32 = peer.joining ? 1 : 0
-        let name = peer.deviceName ?? "The device"
+        let url = device.url
+        let join: Int32 = device.joining ? 1 : 0
+        let name = device.deviceName ?? "The device"
         let (paired, failure): (Paired?, String?) = await Task.detached {
             guard let text = cq_pair(handle.pointer, url, join, code) else { return (nil, String(cString: cq_error())) }
             defer { cq_free(text) }
@@ -340,7 +340,7 @@ final class Library {
     }
 
     /// Renames another of this person's devices (or this one), for every
-    /// peer: as when its platform won't tell it its own name.
+    /// device: as when its platform won't tell it its own name.
     func renameDevice(_ key: String, _ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let person = status?.person else { return }
@@ -378,11 +378,11 @@ final class Library {
     /// Takes in a device just paired: names it as it advertised itself
     /// (until it names itself), so it's among its person's devices at once,
     /// and if it's joining, adds its person as a member.
-    func welcome(_ paired: Paired, from peer: Peer) {
-        if let name = peer.device, !name.isEmpty {
+    func welcome(_ paired: Paired, from device: NearbyDevice) {
+        if let name = device.device, !name.isEmpty {
             check(reload: false) { cq_name($0, paired.device, paired.person, name) }
         }
-        if peer.joining { check(reload: false) { cq_member($0, paired.person, 1) } }
+        if device.joining { check(reload: false) { cq_member($0, paired.person, 1) } }
         reload()
     }
 
@@ -402,7 +402,7 @@ final class Library {
 
     /// Once a launch, if there's a library: serves it, syncs, names this
     /// device and person if they have no names yet (e.g., the computer's name
-    /// and the account's first name), then crawls (peers may bring its
+    /// and the account's first name), then crawls (devices may bring its
     /// sources to a device that has none yet).
     func startAtLaunch(device: String, person: String? = nil) async {
         guard !refreshedAtLaunch, hasLibrary else { return }
@@ -416,7 +416,7 @@ final class Library {
         if !devices.contains(where: \.you), !device.isEmpty { setName(.device, device); named = true }
         if let person, !person.isEmpty, members.first(where: \.you)?.name == nil { setName(.person, person); named = true }
         // Naming itself is a new device's first write, with its certificate:
-        // its peers hear of it now, not a minute on.
+        // its devices hear of it now, not a minute on.
         if named { changed() }
         let crawled = await long("Looking for new videos") { cq_crawl($0) }
         report(.refresh, synced ?? crawled)
@@ -425,11 +425,11 @@ final class Library {
         #endif
     }
 
-    // Names and peers.
+    // Names and devices.
 
     enum Named: String { case person, device }
 
-    /// Names this person or this device, for every peer to show in place of
+    /// Names this person or this device, for every device to show in place of
     /// keys, and advertises the new name.
     func setName(_ which: Named, _ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -438,19 +438,19 @@ final class Library {
         if servingPort != nil { serve() }
     }
 
-    /// Peers found nearby (listening for 2 seconds) and added by address.
-    func peers() async -> [Peer] {
+    /// Devices found nearby (listening for 2 seconds) and added by address.
+    func nearby() async -> [NearbyDevice] {
         guard let handle else { return [] }
         let data: Data? = await Task.detached {
-            guard let text = cq_peers(handle.pointer) else { return nil }
+            guard let text = cq_nearby(handle.pointer) else { return nil }
             defer { cq_free(text) }
             return Data(bytes: text, count: strlen(text))
         }.value
-        return data.flatMap { try? JSONDecoder().decode([Peer].self, from: $0) } ?? []
+        return data.flatMap { try? JSONDecoder().decode([NearbyDevice].self, from: $0) } ?? []
     }
 
-    /// Adds a peer by address (e.g., one off the network), or removes one.
-    func setPeer(_ url: String, _ add: Bool) { check(reload: false) { cq_peer($0, url, add ? 1 : 0) } }
+    /// Adds a device by address (e.g., one off the network), or removes one.
+    func setDeviceAddress(_ url: String, _ add: Bool) { check(reload: false) { cq_device_address($0, url, add ? 1 : 0) } }
 
     // Folders on this device.
 
@@ -530,7 +530,7 @@ final class Library {
     /// The port this device serves on, while it does.
     private(set) var servingPort: Int?
 
-    /// Serves this library to peers (their syncs, so this device's changes,
+    /// Serves this library to devices (their syncs, so this device's changes,
     /// such as progress, reach them), and this device's folders, while the
     /// app runs, on the port it served on last, so folders' addresses stay
     /// put.
@@ -592,8 +592,8 @@ final class Library {
         saveFolders()
     }
 
-    /// Syncs with peers found or added, then crawls every source: what
-    /// peers have crawled and described arrives first, so crawling then
+    /// Syncs with devices found or added, then crawls every source: what
+    /// devices have crawled and described arrives first, so crawling then
     /// finds little to do.
     func refresh() async {
         let synced = await long("Catching up", results: noteReceived) { cq_sync($0, nil) }
@@ -846,14 +846,14 @@ final class Library {
 
     // Keeping in sync while running, and saying so.
 
-    /// An exchange with peers: how many operations, with whom, and when.
+    /// An exchange with devices: how many operations, with whom, and when.
     struct Exchange: Equatable {
         let count: Int
-        let peer: String
+        let device: String
         let at: Date
     }
 
-    /// What last came in from peers, and what last went out to one.
+    /// What last came in from devices, and what last went out to one.
     private(set) var received: Exchange?
     private(set) var sent: Exchange?
     private var syncingQuietly = false
@@ -867,8 +867,8 @@ final class Library {
         func ago(_ date: Date) -> String { Date.now.timeIntervalSince(date) < 5 ? "just now" : when.localizedString(for: date, relativeTo: .now) }
         var parts: [String] = []
         func changes(_ n: Int) -> String { n == 1 ? "1 change" : "\(n.formatted()) changes" }
-        if let r = received { parts.append((r.count == 0 ? "Nothing new from \(r.peer)" : "Received \(changes(r.count)) from \(r.peer)") + " " + ago(r.at)) }
-        if let s = sent { parts.append((s.count == 0 ? "Nothing new to \(s.peer)" : "Sent \(changes(s.count)) to \(s.peer)") + " " + ago(s.at)) }
+        if let r = received { parts.append((r.count == 0 ? "Nothing new from \(r.device)" : "Received \(changes(r.count)) from \(r.device)") + " " + ago(r.at)) }
+        if let s = sent { parts.append((s.count == 0 ? "Nothing new to \(s.device)" : "Sent \(changes(s.count)) to \(s.device)") + " " + ago(s.at)) }
         return parts.joined(separator: " · ")
     }
 
@@ -881,8 +881,8 @@ final class Library {
     /// While the app runs: syncs quietly a minute after it last synced (as
     /// when it comes to the front), so what other devices change
     /// (progress, the watchlist) arrives without a refresh; reloads at
-    /// once when a peer pushes its changes here; and notes each sync served
-    /// to a peer.
+    /// once when a device pushes its changes here; and notes each sync served
+    /// to a device.
     func keepInSync() async {
         var tick = 0
         while !Task.isCancelled {
@@ -899,7 +899,7 @@ final class Library {
 
     /// After a change of this person's (leaving playback, the watchlist, a
     /// watched mark), once changes stop for a second: syncs, which pushes
-    /// it to every peer, rather than waiting a minute.
+    /// it to every device, rather than waiting a minute.
     func changed() {
         afterChange?.cancel()
         afterChange = Task {
@@ -909,7 +909,7 @@ final class Library {
         }
     }
 
-    /// Syncs with every peer, without showing it as an activity, unless
+    /// Syncs with every device, without showing it as an activity, unless
     /// something else is running; returns whether it did.
     @discardableResult
     func syncQuietly() async -> Bool {
@@ -939,40 +939,40 @@ final class Library {
             let sent: Int?
             let error: String?
 
-            var peer: String {
+            var device: String {
                 let host = URL(string: url)?.host().map { $0.hasSuffix(".local") ? String($0.dropLast(6)) : $0 }
                 return name ?? host ?? url
             }
         }
         lastSync = .now
         guard let results = try? JSONDecoder().decode([Result].self, from: data) else { return }
-        if let peer = results.first(where: { $0.error == "Removed" }) {
-            leave(removedBy: peer.peer)
+        if let device = results.first(where: { $0.error == "Removed" }) {
+            leave(removedBy: device.device)
             return
         }
         let reached = results.filter { $0.error == nil }
         guard let most = reached.max(by: { $0.new < $1.new }) else { return }
-        received = Exchange(count: reached.reduce(0) { $0 + $1.new }, peer: most.peer, at: .now)
-        // What this device pushed, to the peer it sent most to.
+        received = Exchange(count: reached.reduce(0) { $0 + $1.new }, device: most.device, at: .now)
+        // What this device pushed, to the other device it sent most to.
         if let pushed = reached.max(by: { ($0.sent ?? 0) < ($1.sent ?? 0) }), let count = pushed.sent, count > 0 {
-            sent = Exchange(count: reached.reduce(0) { $0 + ($1.sent ?? 0) }, peer: pushed.peer, at: .now)
+            sent = Exchange(count: reached.reduce(0) { $0 + ($1.sent ?? 0) }, device: pushed.device, at: .now)
         }
     }
 
-    /// When a peer has pushed its changes here: reloads, and notes it.
+    /// When a device has pushed its changes here: reloads, and notes it.
     private func notePushed() {
         guard hasLibrary, let pushed = decode(Heard?.self, { cq_received($0) }) ?? nil else { return }
         let at = Date(timeIntervalSince1970: pushed.at / 1000)
         guard lastPush != at else { return }
         lastPush = at
-        received = Exchange(count: pushed.operations, peer: pushed.name ?? String(pushed.device.prefix(8)), at: at)
+        received = Exchange(count: pushed.operations, device: pushed.name ?? String(pushed.device.prefix(8)), at: at)
         reload()
     }
 
-    /// When a peer last pushed here, as `notePushed` last saw it.
+    /// When a device last pushed here, as `notePushed` last saw it.
     private var lastPush: Date?
 
-    /// An exchange the server had with a peer (`cq_served`, `cq_received`).
+    /// An exchange the server had with a device (`cq_served`, `cq_received`).
     private struct Heard: Decodable {
         let device: String
         let name: String?
@@ -984,7 +984,7 @@ final class Library {
         guard hasLibrary, let served = decode(Heard?.self, { cq_served($0) }) ?? nil else { return }
         let at = Date(timeIntervalSince1970: served.at / 1000)
         guard sent?.at != at else { return }
-        sent = Exchange(count: served.operations, peer: served.name ?? String(served.device.prefix(8)), at: at)
+        sent = Exchange(count: served.operations, device: served.name ?? String(served.device.prefix(8)), at: at)
     }
 
     /// Reads an item's metadata from its file, in the background.
@@ -1066,7 +1066,7 @@ final class Library {
     /// server's name and the error in words, and how many more there were.
     /// "Looking for new videos failed for art › Movies › 2160p (and 2 more): the server
     /// has nothing at that address." Each source by its name, if known
-    /// (as Settings shows it, or a peer as it advertised itself), else its
+    /// (as Settings shows it, or a device as it advertised itself), else its
     /// server.
     nonisolated static func describe(_ failed: [(url: String, name: String?, error: String)], _ what: String) -> String? {
         guard let first = failed.first else { return nil }

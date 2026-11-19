@@ -17,9 +17,9 @@ extern "C" {
 
 typedef struct cq_library cq_library;
 
-// Opens the peer's home peer_home; if NULL, $CINEMATHEQUE_HOME, or else the
+// Opens this device's home home_dir; if NULL, $CINEMATHEQUE_HOME, or else the
 // default. It may hold no library yet.
-cq_library *cq_open(const char *peer_home);
+cq_library *cq_open(const char *home_dir);
 void cq_close(cq_library *library);
 
 // Identity and membership.
@@ -34,7 +34,7 @@ int cq_leave(cq_library *library);
 // nonzero) to join as a new member, with a code to show; and checking
 // whether it's paired (taking the library, and if pairingAsYours, the person's
 // secret) or closed (too many wrong codes). On a member's device, long,
-// pairing the one offering at url (a pairing peer's) given its code, which
+// pairing the one offering at url (a pairing device's) given its code, which
 // returns its keys (person, to add a new member by, and device, to name it
 // by with cq_name).
 char *cq_pair_offer(cq_library *library, const char *name, int join);
@@ -83,15 +83,15 @@ char *cq_reconcile(cq_library *library);
 void cq_downloads_hold(cq_library *library, int on);
 
 // Long: crawling every source and describing what's new (committing
-// as it goes, so reload when cq_data_version changes), syncing with a peer (or,
-// if url is NULL, every peer found or added), and reading an item's
+// as it goes, so reload when cq_data_version changes), syncing with a device (or,
+// if url is NULL, every device found or added), and reading an item's
 // metadata from its file.
 char *cq_crawl(cq_library *library);
 char *cq_sync(cq_library *library, const char *url);
-// The last sync this peer served, while serving: which device asked, and
+// The last sync this device served, while serving: which device asked, and
 // how many operations it was sent.
 char *cq_served(cq_library *library);
-// The last push this peer took, while serving: from which device, and how
+// The last push this device took, while serving: from which device, and how
 // many of its operations won.
 char *cq_received(cq_library *library);
 int cq_describe(cq_library *library, const char *item_key);
@@ -126,7 +126,7 @@ int cq_remove_progress(cq_library *library, const char *item_key);
 char *cq_watchlist(cq_library *library);
 int cq_set_watchlisted(cq_library *library, const char *title_key, int on);
 
-// Long, but returns once listening: serves this library to peers and
+// Long, but returns once listening: serves this library to devices and
 // folders as sources (a JSON array of objects with "prefix", the path
 // each is served at, and "path"), on the port given, else 8008, else any
 // free port, advertised by DNS-SD, until stopped or closed. Returns the
@@ -135,16 +135,16 @@ int cq_serve(cq_library *library, int port, const char *folders_json);
 void cq_stop_serving(cq_library *library);
 
 // Names, shown in place of keys: this person's ("user") or this device's
-// ("device"); this person's named devices; peers found nearby (long: it
+// ("device"); this person's named devices; devices found nearby (long: it
 // listens for 2 seconds) and added by address, with their names, whether
 // they're of this library and their people members; and adding (nonzero
-// add) or removing a peer by address, on this device only.
+// add) or removing a device by address, on this device only.
 int cq_name(cq_library *library, const char *device_key, const char *person_key, const char *name);
 int cq_remove_device(cq_library *library, const char *device_key);
 int cq_set_name(cq_library *library, const char *which, const char *name);
 char *cq_devices(cq_library *library);
-char *cq_peers(cq_library *library);
-int cq_peer(cq_library *library, const char *url, int add);
+char *cq_nearby(cq_library *library);
+int cq_device_address(cq_library *library, const char *url, int add);
 
 void cq_free(char *text);
 

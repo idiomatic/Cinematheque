@@ -130,7 +130,7 @@ fn pump(io: Io, ref: c.DNSServiceRef, ms: i64, state: *const State, done: ?usize
     }
 }
 
-/// Browses for Cinematheque peers for `ms` milliseconds, then resolves each.
+/// Browses for Cinematheque devices for `ms` milliseconds, then resolves each.
 pub fn browse(io: Io, arena: std.mem.Allocator, ms: i64) ![]Service {
     var state: State = .{ .arena = arena };
     var ref: c.DNSServiceRef = null;

@@ -10,7 +10,7 @@
 //! A player's downloads (`reconcile`) go further: its directory is a
 //! source of its own, `managed`, which it serves and no one crawls;
 //! each file fetched is recorded as its copy on the very rendition it
-//! came from, so peers see it and copy racing can use it. What it keeps is
+//! came from, so devices see it and copy racing can use it. What it keeps is
 //! this device's (in `local`): items wanted (a title or season wanted is
 //! its items, as of then), and per series, the next N episodes after where
 //! this person is ("next"). A download watched since it was fetched, and not

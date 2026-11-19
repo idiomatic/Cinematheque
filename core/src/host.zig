@@ -1,6 +1,6 @@
 //! A server on a task of its own: it starts, advertises itself by DNS-SD
 //! once it listens, and stops for sure. The C interface's serving and
-//! pairing, and the command-line peer's, are each one.
+//! pairing, and the command-line app's, are each one.
 
 const std = @import("std");
 const Io = std.Io;
@@ -37,7 +37,7 @@ pub const Host = struct {
         }
     }
 
-    /// Waits while it serves, as a peer that does nothing else does.
+    /// Waits while it serves, as a device that does nothing else does.
     pub fn wait(h: *Host) !void {
         return h.future.await(h.io);
     }
