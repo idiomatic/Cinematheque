@@ -308,6 +308,9 @@ private struct SourcesPane: View {
     @State private var selection: Source.ID?
     @State private var editing: Source?
     @State private var adding = false
+    /// A source to remove, once confirmed: removing one takes its copies
+    /// from the library on every device.
+    @State private var removing: Source?
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -339,6 +342,24 @@ private struct SourcesPane: View {
                 TableColumn("Videos") { Text($0.copies.formatted()).monospacedDigit() }
                     .width(70)
                     .alignment(.trailing)
+                // What acts on a source, beside it.
+                TableColumn("") { source in
+                    // A fixed width each, so the symbols (a folder's is wider
+                    // than Safari's) line up down the column.
+                    HStack(spacing: 10) {
+                        Button(openLabel(source), systemImage: library.folder(of: source) == nil ? "safari" : "folder") { open(source) }
+                            .frame(width: 18)
+                            .disabled(!canOpen(source))
+                            .help(library.folder(of: source) == nil ? "See what the server lists, in your browser" : "See the folder in the Finder")
+                        Button("Remove", systemImage: "minus.circle") { removing = source }
+                            .frame(width: 18)
+                            .help("Remove this source, and the copies it holds, for every device")
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                }
+                .width(52)
             }
             .contextMenu(forSelectionType: Source.ID.self) { ids in
                 if let source = library.sources.first(where: { $0.id == ids.first }) {
@@ -346,7 +367,7 @@ private struct SourcesPane: View {
                         .disabled(!canOpen(source))
                     Divider()
                     Button("Edit…") { editing = source }
-                    Button("Remove", role: .destructive) { remove(source) }
+                    Button("Remove…", role: .destructive) { removing = source }
                 }
             } primaryAction: { ids in
                 editing = library.sources.first { $0.id == ids.first }
@@ -356,34 +377,33 @@ private struct SourcesPane: View {
                     .help("Add a folder on this Mac")
                 Button("Add Server…", systemImage: "server.rack") { adding = true }
                     .help("Add a server on your network, such as a NAS, by its address")
-                // A bare minus, as under tables on the Mac.
-                Button("Remove", systemImage: "minus") {
-                    if let source = library.sources.first(where: { $0.id == selection }) { remove(source) }
-                }
-                .labelStyle(.iconOnly)
-                .help("Remove the selected source")
-                .disabled(selection == nil)
-                if let source = selected {
-                    Button(openLabel(source), systemImage: library.folder(of: source) == nil ? "safari" : "folder") { open(source) }
-                        .disabled(!canOpen(source))
-                        .help(library.folder(of: source) == nil ? "See what the server lists, in your browser" : "See the folder in the Finder")
-                }
                 Spacer()
                 if let activity = library.activity {
                     ProgressView().controlSize(.small)
                     Text(activity + "…").foregroundStyle(.secondary)
                 } else {
-                    Button("Refresh Library") { Task { await library.refresh() } }
+                    Button("Library", systemImage: "arrow.clockwise") { Task { await library.refresh() } }
+                        .help("Refresh Library: catch up with your devices, then look for new videos")
                         .disabled(library.sources.isEmpty)
                 }
             }
         }
         .padding()
+        // The one confirmation: removing a source can't be undone but by
+        // adding it again and looking for its videos anew.
+        .confirmationDialog(
+            removing.map { "Remove “\(name(of: $0))”?" } ?? "",
+            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+            presenting: removing
+        ) { source in
+            Button("Remove", role: .destructive) { remove(source) }
+            Button("Cancel", role: .cancel) {}
+        } message: { source in
+            Text(removalMessage(source))
+        }
         .sheet(isPresented: $adding) { SourceSheet(source: nil) }
         .sheet(item: $editing) { SourceSheet(source: $0) }
     }
-
-    private var selected: Source? { library.sources.first { $0.id == selection } }
 
     /// A folder on this Mac opens in the Finder; a server, in the browser,
     /// which shows its listing.
@@ -402,6 +422,16 @@ private struct SourcesPane: View {
         } else if let url = URL(string: source.url) {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func name(of source: Source) -> String {
+        library.folder(of: source)?.name ?? source.displayName
+    }
+
+    private func removalMessage(_ source: Source) -> String {
+        let copies = source.copies == 1 ? "Its one video goes" : "Its \(source.copies.formatted()) videos go"
+        let sharing = library.folder(of: source) == nil ? "" : " This Mac stops sharing the folder."
+        return "\(copies) from the library, on every device, though its files stay where they are.\(sharing) You can add it again."
     }
 
     private func remove(_ source: Source) {
