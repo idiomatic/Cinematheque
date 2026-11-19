@@ -705,10 +705,12 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
     var dir = try Io.Dir.cwd().openDir(io, s.dir, .{});
     defer dir.close(io);
 
-    // Gone by hand: forgotten.
+    // Gone by hand: forgotten. The rest, as recorded, aren't recorded
+    // again, which would write (and sync) an operation per file each time.
+    var recorded: std.StringHashMapUnmanaged(Held) = .empty;
     for (try held(replica, arena, s.source)) |h| {
         const there = if (dir.statFile(io, h.path, .{})) |st| st.size == h.size else |_| false;
-        if (!there) try locked(writer, io, replica, wall_ms, h.key, s.source, "");
+        if (!there) try locked(writer, io, replica, wall_ms, h.key, s.source, "") else try recorded.put(arena, h.key, h);
     }
 
     // Done with: not fetched again; deleted as below.
@@ -802,8 +804,10 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
         if (fetched == .fetched) out.fetched += 1 else out.kept += 1;
         const at = try std.fmt.allocPrint(arena, "{s}{s}", .{ at_prefix, f.item });
         if (fetched == .fetched or try replica.local(arena, at) == null) try replica.setLocal(at, try std.fmt.allocPrint(arena, "{d}", .{wall_ms}));
+        const copy = try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ f.item, f.quality });
+        if (fetched == .kept) if (recorded.get(copy)) |h| if (std.mem.eql(u8, h.path, f.path) and h.size == f.size) continue;
         const value = try std.fmt.allocPrint(arena, "{s}\t{d}\t{d}", .{ f.path, f.size, @divTrunc(Io.Timestamp.now(io, .real).toMilliseconds(), 1000) });
-        try locked(writer, io, replica, wall_ms, try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ f.item, f.quality }), s.source, value);
+        try locked(writer, io, replica, wall_ms, copy, s.source, value);
     }
     return out;
 }
@@ -966,6 +970,12 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     try std.testing.expectEqual(3, copy.len);
     try std.testing.expectEqualStrings("t/m/alien/1979/v/-", copy[0].item);
     try std.testing.expectEqualStrings("t/s/firefly/-/e/s01e02", copy[1].item);
+    // Again, with nothing to do: nothing written.
+    const seq = r.seq;
+    done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 6, null, null);
+    try std.testing.expectEqual(0, done.fetched);
+    try std.testing.expectEqual(3, done.kept);
+    try std.testing.expectEqual(seq, r.seq);
 
     // Episode 2 in progress: it and the 2 after it.
     try library.setProgress(&r, arena, 5, keys[2], 60_000, 600_000);
