@@ -31,20 +31,38 @@ pub const Store = struct {
     /// Opens `dir`, creating it and a new identity if need be.
     pub fn open(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, dir: []const u8) !Store {
         const cwd = Io.Dir.cwd();
-        try cwd.createDirPath(io, dir);
+        _ = try cwd.createDirPathStatus(io, dir, private(0o700));
         const file = try path(arena, dir, "identity");
         var seed: [32]u8 = undefined;
+        // Only a missing file means a new device; any other failure
+        // (out of file descriptors, say) must not replace its identity.
         if (cwd.readFileAlloc(io, file, arena, .limited(128))) |text| {
             _ = try std.fmt.hexToBytes(&seed, std.mem.trim(u8, text, " \n"));
-        } else |_| {
-            io.random(&seed);
-            try cwd.writeFile(io, .{ .sub_path = file, .data = &std.fmt.bytesToHex(seed, .lower) });
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                io.random(&seed);
+                try writeSecret(io, file, &std.fmt.bytesToHex(seed, .lower));
+            },
+            else => |e| return e,
         }
         var identity: replica_.Identity = .from(seed);
         if (cwd.readFileAlloc(io, try path(arena, dir, "user"), arena, .limited(128))) |text| {
             _ = try std.fmt.hexToBytes(&identity.person, std.mem.trim(u8, text, " \n"));
-        } else |_| {}
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return e,
+        }
         return .{ .io = io, .gpa = gpa, .dir = dir, .identity = identity };
+    }
+
+    /// Permissions only the owner has, where the platform has such modes.
+    fn private(mode: std.posix.mode_t) Io.File.Permissions {
+        return if (@hasDecl(Io.File.Permissions, "fromMode")) .fromMode(mode) else .default_file;
+    }
+
+    /// Writes a seed, which only its owner may read.
+    fn writeSecret(io: Io, file: []const u8, data: []const u8) !void {
+        try Io.Dir.cwd().writeFile(io, .{ .sub_path = file, .data = data, .flags = .{ .permissions = private(0o600) } });
     }
 
     /// Makes this device act as the person whose secret `hex` is (as pairing
@@ -52,7 +70,7 @@ pub const Store = struct {
     pub fn pair(s: *Store, arena: std.mem.Allocator, hex: []const u8) !void {
         if (Io.Dir.cwd().access(s.io, try path(arena, s.dir, "replica.db"), .{})) |_| return error.AlreadyInUse else |_| {}
         const secret = try parseKey(hex);
-        try Io.Dir.cwd().writeFile(s.io, .{ .sub_path = try path(arena, s.dir, "user"), .data = &std.fmt.bytesToHex(secret, .lower) });
+        try writeSecret(s.io, try path(arena, s.dir, "user"), &std.fmt.bytesToHex(secret, .lower));
         s.identity.person = secret;
     }
 

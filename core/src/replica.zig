@@ -175,6 +175,9 @@ pub const Replica = struct {
     pending: std.ArrayList(Hash) = .empty,
     pending_first: u64 = 0,
     batching: bool = false,
+    /// The streams' numbering when `begin` started, to restore on `rollback`.
+    begun_seq: u64 = 0,
+    begun_private_seq: u64 = 0,
     /// Whether this connection has checked the device's own certificates,
     /// its stream's and its private stream's, before writing on them.
     checked_certificate: bool = false,
@@ -203,7 +206,9 @@ pub const Replica = struct {
 
     pub fn open(gpa: std.mem.Allocator, io: Io, path: [:0]const u8, founder: Device, identity: Identity) !Replica {
         const db = try sqlite.Db.open(path, io);
-        errdefer db.close();
+        // The replica closes the database once it's built, not before.
+        var built = false;
+        errdefer if (!built) db.close();
         try renameOldTables(db);
         try db.exec(schema);
         var replica: Replica = .{
@@ -232,6 +237,7 @@ pub const Replica = struct {
             .insert_device = try db.prepare("INSERT INTO devices (key) VALUES (?1) RETURNING id"),
             .insert_batch = try db.prepare("INSERT OR IGNORE INTO batches VALUES (?1, ?2, ?3, ?4, ?5, ?6)"),
         };
+        built = true;
         errdefer replica.close();
         const s = try db.prepare("SELECT id, key FROM devices ORDER BY id");
         defer s.finalize();
@@ -328,6 +334,10 @@ pub const Replica = struct {
                 try replica.write(wall_ms, certKey(&cert_key, replica.private_pair.public_key.toBytes()), "private", &try replica.certificate(true));
             }
         }
+        // Stored, numbered, and signed together or not at all, as `writeOp`.
+        const alone = !replica.batching;
+        if (alone) try replica.begin();
+        errdefer if (alone) replica.rollback();
         var leaves: std.ArrayList(Hash) = .empty;
         defer leaves.deinit(replica.gpa);
         const first = replica.private_seq + 1;
@@ -350,6 +360,7 @@ pub const Replica = struct {
         const root = merkle.root(leaves.items);
         try replica.storeBatch(replica.private_own, first, leaves.items, root, (try replica.private_pair.sign(&root, null)).toBytes());
         try replica.advance(replica.private_own, replica.private_seq);
+        if (alone) try replica.commit();
     }
 
     /// Adds `person` to the library's members.
@@ -685,6 +696,18 @@ pub const Replica = struct {
     pub fn begin(replica: *Replica) !void {
         try replica.db.exec("BEGIN IMMEDIATE");
         replica.batching = true;
+        replica.begun_seq = replica.seq;
+        replica.begun_private_seq = replica.private_seq;
+    }
+
+    /// Abandons the transaction `begin` started, and with it the writes it
+    /// numbered, so the streams' numbering matches what's stored.
+    pub fn rollback(replica: *Replica) void {
+        replica.db.exec("ROLLBACK") catch {};
+        replica.batching = false;
+        replica.pending.clearRetainingCapacity();
+        replica.seq = replica.begun_seq;
+        replica.private_seq = replica.begun_private_seq;
     }
 
     pub fn commit(replica: *Replica) !void {
@@ -736,6 +759,15 @@ pub const Replica = struct {
     fn writeOp(replica: *Replica, kind: op_.Kind, wall_ms: u64, key: []const u8, field: []const u8, value: []const u8) !void {
         var own_key: [66]u8 = undefined;
         if (!std.mem.eql(u8, key, certKey(&own_key, replica.device()))) try replica.checkCertificate(wall_ms);
+        if (!replica.batching) {
+            // A write of its own is stored, numbered, and signed together
+            // or not at all, so a failure between can't leave a number
+            // with no batch to prove it.
+            try replica.begin();
+            errdefer replica.rollback();
+            try replica.writeOp(kind, wall_ms, key, field, value);
+            return replica.commit();
+        }
         replica.seq += 1;
         const op: Op = .{
             .library = replica.library,
@@ -1174,7 +1206,7 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs) !Stats {
 
     var stats: Stats = .{};
     try dst.begin();
-    errdefer dst.db.exec("ROLLBACK") catch {};
+    errdefer dst.rollback();
     while (true) {
         const tag = try r.takeByte();
         stats.wire_bytes += 1;
@@ -1332,7 +1364,7 @@ fn fetchFields(dst: *Replica, src: *Replica, fields: []const Field) !Stats {
 
     var stats: Stats = .{};
     try dst.begin();
-    errdefer dst.db.exec("ROLLBACK") catch {};
+    errdefer dst.rollback();
     for (fields) |f| {
         const s = try src.db.prepare(
             \\SELECT kind, key, field, hlc, seq, value, device FROM winners

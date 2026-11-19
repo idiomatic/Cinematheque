@@ -474,7 +474,7 @@ const Runner = struct {
         defer if (r.options.writer) |w| w.unlock(r.io);
         try r.replica.refresh();
         try r.replica.begin();
-        errdefer r.replica.db.exec("ROLLBACK") catch {};
+        errdefer r.replica.rollback();
         for (r.pending.items) |w| try r.replica.write(r.wall_ms, w.key, w.field, w.value);
         try r.replica.commit();
         r.pending.clearRetainingCapacity();
@@ -568,7 +568,7 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
     // Mark it described even if the file says nothing.
     if (writes.items.len == 0) try writes.append(arena, .{ .key = item_key, .field = "duration", .value = "0" });
     try replica.begin();
-    errdefer replica.db.exec("ROLLBACK") catch {};
+    errdefer replica.rollback();
     for (writes.items) |w| try replica.write(wall_ms, w.key, w.field, w.value);
     try replica.commit();
 }

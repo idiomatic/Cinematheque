@@ -200,7 +200,7 @@ pub fn addSource(replica: *Replica, wall_ms: u64, target: []const u8, layout: La
     var key_buf: [18]u8 = undefined;
     const key = try std.fmt.bufPrint(&key_buf, "r/{s}", .{id});
     try replica.begin();
-    errdefer replica.db.exec("ROLLBACK") catch {};
+    errdefer replica.rollback();
     try replica.write(wall_ms, key, "url", target);
     try replica.write(wall_ms, key, "rendition", layout.quality);
     try replica.write(wall_ms, key, "skip", layout.skip);
@@ -225,7 +225,7 @@ pub fn setSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, whic
     var source = try findSource(replica, arena, which);
     const key = try std.fmt.allocPrint(arena, "r/{s}", .{source.id});
     try replica.begin();
-    errdefer replica.db.exec("ROLLBACK") catch {};
+    errdefer replica.rollback();
     if (quality) |v| {
         try replica.write(wall_ms, key, "rendition", v);
         source.layout.quality = v;
@@ -254,7 +254,7 @@ pub fn removeSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, w
     }
     const key = try std.fmt.allocPrint(arena, "r/{s}", .{source.id});
     try replica.begin();
-    errdefer replica.db.exec("ROLLBACK") catch {};
+    errdefer replica.rollback();
     for (held.items) |k| try replica.write(wall_ms, k, field, "");
     // An empty URL marks the source removed.
     for ([_][]const u8{ "url", "rendition", "skip" }) |f| try replica.write(wall_ms, key, f, "");
@@ -457,7 +457,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
     stats.unavailable = kept.items.len;
 
     try replica.begin();
-    errdefer replica.db.exec("ROLLBACK") catch {};
+    errdefer replica.rollback();
     for (titles_seen.items) |t| {
         if (try exists(replica, t.key, "name")) continue;
         stats.titles_added += 1;
@@ -568,7 +568,7 @@ pub fn removeUnavailable(replica: *Replica, arena: std.mem.Allocator, wall_ms: u
         while (try s.step()) if (under(copyPath(s.blob(1)), d)) try gone.append(arena, try arena.dupe(u8, s.blob(0)));
     }
     try replica.begin();
-    errdefer replica.db.exec("ROLLBACK") catch {};
+    errdefer replica.rollback();
     for (gone.items) |key| try replica.write(wall_ms, key, held_field, "");
     try replica.write(wall_ms, try std.fmt.allocPrint(arena, "r/{s}", .{source.id}), try unavailableField(arena, d), "");
     try replica.commit();

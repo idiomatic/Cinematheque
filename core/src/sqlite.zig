@@ -45,7 +45,11 @@ pub const Db = struct {
         errdefer std.heap.c_allocator.destroy(kept);
         kept.* = io;
         var handle: ?*c.sqlite3 = null;
-        if (c.sqlite3_open(path.ptr, &handle) != ok) return error.Sqlite;
+        if (c.sqlite3_open(path.ptr, &handle) != ok) {
+            // SQLite returns a handle even when it fails, for the error.
+            if (handle) |h| _ = c.sqlite3_close_v2(h);
+            return error.Sqlite;
+        }
         _ = c.sqlite3_busy_handler(handle.?, busy, kept);
         return .{ .handle = handle.?, .io = kept };
     }
