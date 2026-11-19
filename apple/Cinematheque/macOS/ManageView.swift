@@ -434,14 +434,21 @@ private struct SourcesPane: View {
                 Button("Add Server…") { adding = true }
                     .help("Add a server on your network, such as a NAS, by its address")
                 Spacer()
-                if let activity = library.activity {
-                    ProgressView().controlSize(.small)
-                    Text(activity + "…").foregroundStyle(.secondary)
-                } else {
-                    Button("Refresh Library") { Task { await library.refresh() } }
-                        .help("Catch up with your devices, then look for new videos")
-                        .disabled(library.sources.isEmpty)
+                // For every device: a NAS's disks spin up for each look.
+                Picker("Look for videos", selection: Binding(get: { library.crawlEvery }, set: { library.setCrawlEvery($0) })) {
+                    ForEach(Library.crawlChoices, id: \.hours) { Text($0.name).tag($0.hours) }
                 }
+                .pickerStyle(.menu)
+                .fixedSize()
+                .help("How often your devices look for new videos as they open, for everyone in the library; Refresh Library looks at once. A NAS's disks spin up each time.")
+                // Nothing in the row comes or goes: the spinner keeps its
+                // place, and the button is dimmed while a refresh runs (its
+                // steps show in the library window's status bar).
+                ProgressView().controlSize(.small).opacity(library.activity == nil ? 0 : 1)
+                    .help(library.activity.map { $0 + "…" } ?? "")
+                Button("Refresh Library") { Task { await library.refresh() } }
+                    .help("Catch up with your devices, then look for new videos")
+                    .disabled(library.sources.isEmpty || library.activity != nil)
             }
         }
         .padding()

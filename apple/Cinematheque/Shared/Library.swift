@@ -217,6 +217,9 @@ struct Status: Codable, Equatable {
     let members: Int
     /// How many other devices this person has, named or not.
     let others: Int
+    /// How often refreshes not asked for look for new videos, in hours; 0,
+    /// only when asked (Refresh Library).
+    let crawl_every: Int
 }
 
 /// The core's handle, shared with long operations on other threads, which
@@ -574,7 +577,9 @@ final class Library {
         // Naming itself is a new device's first write, with its certificate:
         // its devices hear of it now, not a minute on.
         if named { changed() }
-        let crawled = await crawlSources()
+        // Not asked for: sources another device crawled lately, whose
+        // copies syncing brought, aren't crawled again.
+        let crawled = await crawlSources(due: true)
         report(.refresh, synced ?? crawled)
         // The sources' servers' names, looked up now, so the first play's
         // copy racing finds them answered.
@@ -781,13 +786,31 @@ final class Library {
 
     func crawl() async { report(.refresh, await crawlSources()) }
 
-    /// Crawls every source (`cq_crawl`), logging how long each took, and
+    /// How often refreshes not asked for (at launch) look for new videos,
+    /// for every device: hours, or 0 for only on Refresh Library.
+    var crawlEvery: Int { status?.crawl_every ?? 24 }
+
+    func setCrawlEvery(_ hours: Int) {
+        check { cq_crawl_every($0, Int32(hours)) }
+    }
+
+    /// The choices of how often to look, and their names.
+    static let crawlChoices: [(hours: Int, name: String)] = [
+        (0, "Manually"),
+        (1, "Every Hour"),
+        (3, "Every 3 Hours"),
+        (24, "Every Day"),
+        (168, "Every Week"),
+    ]
+
+    /// Crawls every source (`cq_crawl`), or if `due`, those no device
+    /// crawled lately (`cq_crawl_due`), logging how long each took, and
     /// describing after, to tell where a slow crawl goes; returns why it
     /// failed, if it did.
-    private func crawlSources() async -> String? {
+    private func crawlSources(due: Bool = false) async -> String? {
         let clock = ContinuousClock()
         let start = clock.now
-        return await long("Looking for new videos", results: { Self.logCrawl($0, took: clock.now - start) }) { cq_crawl($0) }
+        return await long("Looking for new videos", results: { Self.logCrawl($0, took: clock.now - start) }) { due ? cq_crawl_due($0) : cq_crawl($0) }
     }
 
     /// Crawling's steps and their times, in the system's log (Xcode's
@@ -804,9 +827,19 @@ final class Library {
             let requests: Int?
             let reused: Int?
             let changed: Int?
+            let lately: Bool?
+            let manual: Bool?
         }
         guard let sources = try? JSONDecoder().decode([Crawled].self, from: data) else { return }
         for s in sources {
+            if s.manual == true {
+                crawlLog.notice("Skipped \(s.url, privacy: .public): looked in only on Refresh Library")
+                continue
+            }
+            if s.lately == true {
+                crawlLog.notice("Skipped \(s.url, privacy: .public): a device crawled it in the last day")
+                continue
+            }
             if let error = s.error {
                 crawlLog.notice("Crawled \(s.url, privacy: .public): failed, \(error, privacy: .public)")
                 continue

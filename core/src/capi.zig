@@ -224,6 +224,10 @@ const CrawlJson = struct {
     requests: usize = 0,
     reused: usize = 0,
     changed: usize = 0,
+    /// Not crawled (`cq_crawl_due`): a device did lately, or the library's
+    /// sources are looked in only when asked (`manual`).
+    lately: bool = false,
+    manual: bool = false,
 };
 const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, sent: usize = 0, @"error": ?[]const u8 };
 const HeardJson = struct { device: []const u8, name: ?[]const u8, operations: usize, at: u64 };
@@ -257,7 +261,7 @@ const Heard = struct {
         return .{ .device = key, .name = library.nameOf(named, key), .operations = operations, .at = at };
     }
 };
-const StatusJson = struct { person: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize, others: usize };
+const StatusJson = struct { person: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize, others: usize, crawl_every: u64 = library.default_crawl_hours };
 
 /// How far a long operation has come, in steps of its phase (sources
 /// crawled, movies and seasons described, devices synced); read from any
@@ -377,7 +381,8 @@ fn stopServing(lib: *Library) void {
 /// person of another of the person's devices), `library` (the library's ID,
 /// or null if it has none yet), `founder`, `members` (how many), and
 /// `others` (how many other devices its person has, certified or named, and
-/// not removed: none, and leaving takes the person's devices with it).
+/// not removed: none, and leaving takes the person's devices with it), and
+/// `crawl_every` (`cq_crawl_every`'s hours, 0 for Manually).
 export fn cq_status(lib: *Library) ?[*:0]u8 {
     return json(lib, getStatus, .{});
 }
@@ -407,6 +412,7 @@ fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
         .founder = try arena.dupe(u8, &std.fmt.bytesToHex(r.founder, .lower)),
         .members = (try r.members(arena)).len,
         .others = count,
+        .crawl_every = (try library.crawlEvery(r, arena)) orelse 0,
     };
 }
 
@@ -1083,6 +1089,19 @@ fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
     return lib.store.openReplica(arena);
 }
 
+/// How often refreshes not asked for (at launch, on a timer) look in the
+/// library's sources, for every device: every `hours` (1, 3, 24, 168), or
+/// 0 for only when asked (Refresh Library), sparing a NAS's disks.
+export fn cq_crawl_every(lib: *Library, hours: c_int) c_int {
+    return status(lib, crawlEvery, .{@as(u64, @intCast(@max(hours, 0)))});
+}
+
+fn crawlEvery(lib: *Library, _: std.mem.Allocator, hours: u64) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    try library.setCrawlEvery(try lib.main(), lib.now(), hours);
+}
+
 /// Long: crawls every source, committing each as it's crawled, then
 /// describes what's new (covers and metadata) with concurrent workers,
 /// committing as it goes and taking prioritized titles (`cq_prioritize`)
@@ -1090,16 +1109,27 @@ fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
 /// and `error` (null, or why its crawl failed), one per source, with its
 /// times and counts (see `CrawlJson`).
 export fn cq_crawl(lib: *Library) ?[*:0]u8 {
-    return json(lib, crawlAll, .{});
+    return json(lib, crawlAll, .{false});
 }
 
-fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
+/// Long: as `cq_crawl`, but for a refresh not asked for (at launch, or on
+/// a timer), once synced: skips sources a device crawled within the
+/// library's interval (`cq_crawl_every`), give or take a 24th of it
+/// (`lately` in their results), whose copies syncing brought; or all of
+/// them, if it's Manually (`manual`).
+export fn cq_crawl_due(lib: *Library) ?[*:0]u8 {
+    return json(lib, crawlAll, .{true});
+}
+
+fn crawlAll(lib: *Library, arena: std.mem.Allocator, due: bool) ![]const CrawlJson {
     var r = try connection(lib, arena);
     defer r.close();
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     const list = try library.sources(&r, arena);
     const out = try arena.alloc(CrawlJson, list.len);
+    const every = try library.crawlEvery(&r, arena);
+    const window = if (every) |hours| library.crawlWindow(lib.io(), hours) else 0;
     var crawled: std.ArrayList(art.Crawled) = .empty;
     lib.steps.start(.crawling, list.len);
     defer lib.steps.finish();
@@ -1107,6 +1137,14 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
         defer lib.steps.step();
         if (rp.managed) {
             o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null };
+            continue;
+        }
+        if (due and every == null) {
+            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .manual = true };
+            continue;
+        }
+        if (due and rp.crawledLately(lib.now(), window)) {
+            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .lately = true };
             continue;
         }
         try lib.writer.lock(lib.io());

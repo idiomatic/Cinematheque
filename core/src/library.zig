@@ -51,7 +51,51 @@ pub const Source = struct {
     /// written as files are fetched, onto the qualities they came from, so
     /// it isn't crawled.
     managed: bool = false,
+    /// When a device last crawled it whole (`crawled`, wall-clock
+    /// milliseconds), so others who've synced since needn't again soon.
+    crawled_ms: u64 = 0,
+
+    /// Whether a device crawled it within `window_ms` of `wall_ms` (see
+    /// `crawlWindow`): a refresh, having synced, skips it, as its copies
+    /// are here already.
+    pub fn crawledLately(source: Source, wall_ms: u64, window_ms: u64) bool {
+        return source.crawled_ms > 0 and wall_ms -| source.crawled_ms < window_ms;
+    }
 };
+
+/// How often refreshes not asked for (at launch, on a timer) look for new
+/// videos, in hours, for the whole library (`settings`' `crawl`): 1, 3, 24
+/// (unset), or 168; null, never (Manually), as a consumer NAS's disks spin
+/// up for each crawl, and Refresh Library crawls whenever a person knows
+/// there's something new.
+pub fn crawlEvery(replica: *Replica, arena: std.mem.Allocator) !?u64 {
+    const s = try replica.db.prepare("SELECT value FROM winners WHERE key = 'settings' AND field = 'crawl'");
+    defer s.finalize();
+    const value = if (try s.step()) try arena.dupe(u8, s.blob(0)) else "";
+    if (value.len == 0) return default_crawl_hours;
+    const hours = std.fmt.parseInt(u64, value, 10) catch return default_crawl_hours;
+    return if (hours == 0) null else hours;
+}
+
+pub const default_crawl_hours: u64 = 24;
+
+/// Sets how often refreshes not asked for look for new videos (see
+/// `crawlEvery`): hours, or 0 for Manually.
+pub fn setCrawlEvery(replica: *Replica, wall_ms: u64, hours: u64) !void {
+    var buf: [20]u8 = undefined;
+    try replica.write(wall_ms, "settings", "crawl", try std.fmt.bufPrint(&buf, "{d}", .{hours}));
+}
+
+/// How lately a crawl spares refreshes not asked for theirs: `hours`, give
+/// or take a 24th of it (a day's, an hour), drawn afresh each time so
+/// devices that crawled together don't come due together.
+pub fn crawlWindow(io: Io, hours: u64) u64 {
+    const span = hours * 3600 * 1000;
+    const spread = span / 24;
+    var n: u64 = undefined;
+    io.random(std.mem.asBytes(&n));
+    return span - spread + n % (2 * spread + 1);
+}
 
 /// Lowercases ASCII letters, drops apostrophes and periods, turns other
 /// ASCII punctuation and spaces into single hyphens, and keeps other bytes
@@ -306,6 +350,8 @@ pub fn crawlSource(replica: *Replica, io: Io, arena: std.mem.Allocator, client: 
     var saved: Io.Writer.Allocating = .init(arena);
     try crawl.Snapshot.save(entries.items, &saved.writer);
     try replica.setLocal(key, saved.written());
+    var crawled_at: [20]u8 = undefined;
+    try replica.write(wall_ms, try std.fmt.allocPrint(arena, "r/{s}", .{&source.id}), "crawled", try std.fmt.bufPrint(&crawled_at, "{d}", .{wall_ms}));
     return .{
         .crawl = result,
         .ingest = stats,
@@ -330,7 +376,8 @@ pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
         if (std.mem.eql(u8, field, "url")) r.url = value //
         else if (std.mem.eql(u8, field, "rendition")) r.layout.quality = value //
         else if (std.mem.eql(u8, field, "skip")) r.layout.skip = value //
-        else if (std.mem.eql(u8, field, "managed")) r.managed = value.len > 0;
+        else if (std.mem.eql(u8, field, "managed")) r.managed = value.len > 0 //
+        else if (std.mem.eql(u8, field, "crawled")) r.crawled_ms = std.fmt.parseInt(u64, value, 10) catch 0;
     }
     // Dropped sources have no URL.
     var kept: std.ArrayList(Source) = .empty;
@@ -1098,6 +1145,41 @@ fn bump(arena: std.mem.Allocator, counts: *std.StringArrayHashMapUnmanaged(usize
 }
 
 const testing = std.testing;
+
+test "a crawl records when it was, so refreshes not asked for skip it for a day" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(io, .{ .sub_path = "Alien (1979).mp4", .data = "x" });
+    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path}), .index = false }} } };
+    try server.start();
+    defer server.stop();
+    var client: std.http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+
+    const founder: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
+    defer r.close();
+    _ = try addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
+    try std.testing.expectEqual(@as(?u64, 24), try crawlEvery(&r, arena));
+    try setCrawlEvery(&r, 2, 0);
+    try std.testing.expectEqual(@as(?u64, null), try crawlEvery(&r, arena));
+    try setCrawlEvery(&r, 3, 3);
+    try std.testing.expectEqual(@as(?u64, 3), try crawlEvery(&r, arena));
+    const window = crawlWindow(io, 24);
+    try std.testing.expect(window >= 23 * 3600 * 1000 and window <= 25 * 3600 * 1000);
+    try std.testing.expect(!(try sources(&r, arena))[0].crawledLately(1000, window));
+    const at: u64 = 1_000_000;
+    _ = try crawlSource(&r, io, arena, &client, at, (try sources(&r, arena))[0], 4);
+    const source = (try sources(&r, arena))[0];
+    try std.testing.expectEqual(at, source.crawled_ms);
+    try std.testing.expect(source.crawledLately(at + window - 1, window));
+    try std.testing.expect(!source.crawledLately(at + window, window));
+}
 
 test "normalize and fold" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);

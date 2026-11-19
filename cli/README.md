@@ -104,7 +104,7 @@ Progress is private: it's written on this device's private stream, and travels o
 
 * `serve` answers other devices' syncs (`/sync`) until stopped. It listens on `--port`, or else on 8008, falling back to any free port if 8008 is taken. It advertises the port it got by DNS-SD, with the library, the person, and the names of this device and person. `--media DIR` also serves a directory of videos at `/media/`, so this device is a source too (added as `http://<host>:8008/media/`): byte ranges, listings as JSON or HTML, and an `INDEX` of every file and directory, built at start and again once a minute old when asked for. `--web` serves a web client at the root, for browsing and playing in a browser (see below). It prints a line once listening, and with `--web`, the web client's address.
 * `sync [URL]` syncs both ways with one device, or with every device of this library found nearby or added: it pulls what this device lacks, then pushes what the other does. Each prints a line: operations pulled, how many were new, lost (older than what's held), known, rejected (from a device not yet admitted), and refused (past a cutoff), then batches and size, how many were pushed, and time. A device that can't be reached prints its error, and the rest go on.
-* `refresh` syncs with every device, then crawls every source: the catalog others have already described arrives first, so the crawl finds little to do.
+* `refresh` syncs with every device, then crawls every source no device crawled within the library's interval (every day unless `library set --crawl` says 1, 3, or 168 hours, or `manually`, give or take a 24th of it): the catalog others have already described arrives first, so the crawl finds little to do, and a NAS's disks spin up for crawling no more than chosen, not at every refresh. `--jitter SECONDS` waits a random time up to that first, so devices on timers don't refresh together; `crawl` crawls every source, however lately.
 * `device list` then prints devices found nearby (with their libraries) and addresses added. `device add URL` adds the address of a device that can't be found, such as one beyond a NAT, on this device only; `device forget URL` forgets it. A URL may be a device's base or its `/sync`.
 
 Since `sync` pushes as well as pulls, a device behind a NAT keeps a server it can reach in step both ways, and `serve` on the server takes pushes as it answers pulls.
@@ -119,7 +119,7 @@ On macOS, Local Network privacy decides whether the command-line app may reach o
 
 On macOS, `agent add` installs and starts two launch agents in `~/Library/LaunchAgents`, run with this data directory:
 * `com.rbrian.cinematheque.serve`, kept running: `serve`, on `--port` if given.
-* `com.rbrian.cinematheque.refresh`: `refresh`, at load and hourly.
+* `com.rbrian.cinematheque.refresh`: `refresh --jitter 600`, at load and hourly, each time after a random wait of up to 10 minutes: syncing every hour, crawling as often as the library says.
 
 Both log to `~/Library/Logs/Cinematheque` (`serve.log`, `refresh.log`). `agent add` needs a library first, and replaces agents already running; `agent show` prints their property lists without installing them, and `agent remove` stops and removes them. On Linux, run `serve` and `refresh` with systemd or cron instead.
 

@@ -32,8 +32,13 @@ struct SettingsView: View {
                     Task { await library.refresh() }
                 }
                 .disabled(library.activity != nil || leaving)
+                Picker("Look for New Videos", selection: Binding(get: { library.crawlEvery }, set: { library.setCrawlEvery($0) })) {
+                    ForEach(Library.crawlChoices, id: \.hours) { Text($0.name).tag($0.hours) }
+                }
+                // A row opening its choices, as tvOS's Settings has them.
+                .pickerStyle(.navigationLink)
             } footer: {
-                Text("Catches up with your other devices, then looks for new videos in the library's sources.")
+                Text("Refresh Library catches up with your other devices, then looks for new videos in the library's sources. Otherwise your devices look as often as chosen, as they open; a NAS's disks spin up each time.")
             }
             Section {
                 Button("Leave This Library…", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive, action: askToLeave)

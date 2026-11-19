@@ -27,7 +27,7 @@ pub fn agents(arena: std.mem.Allocator, exe: []const u8, data_dir: []const u8, h
         },
         .{
             .label = label_prefix ++ ".refresh",
-            .plist = try plist(arena, label_prefix ++ ".refresh", &.{ exe, "--data", data_dir, "refresh" }, logs, "refresh", .hourly),
+            .plist = try plist(arena, label_prefix ++ ".refresh", &.{ exe, "--data", data_dir, "refresh", "--jitter", "600" }, logs, "refresh", .hourly),
         },
     };
 }

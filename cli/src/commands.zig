@@ -73,6 +73,20 @@ pub fn library(app: *App, c: Command) !void {
             (try r.members(app.arena)).len,
             hex(try r.digest()),
         });
+        if (try lib.crawlEvery(&r, app.arena)) |hours|
+            try app.out.print("crawl    every {d} hours\n", .{hours})
+        else
+            try app.out.print("crawl    manually\n", .{});
+    } else if (c.is("set", 0, &.{"--crawl"}) and c.args.get("--crawl") != null) {
+        // How often refreshes not asked for look in the sources: hours, or
+        // only when asked.
+        const every = c.args.get("--crawl").?;
+        const hours: u64 = if (std.mem.eql(u8, every, "manually")) 0 else std.fmt.parseInt(u64, every, 10) catch return error.Usage;
+        if (hours != 0 and hours != 1 and hours != 3 and hours != 24 and hours != 168) return error.Usage;
+        var r = try app.open();
+        defer r.close();
+        try lib.setCrawlEvery(&r, app.now(), hours);
+        if (hours == 0) try app.out.print("sources are crawled only when asked\n", .{}) else try app.out.print("sources are crawled every {d} hours\n", .{hours});
     } else if (c.is("join", 0, &.{})) {
         try network.offerPairing(app, .join);
     } else if (c.is("create", 0, &.{})) {
@@ -387,31 +401,51 @@ pub fn agent(app: *App, c: Command) !void {
 pub fn crawl(app: *App, c: Command) !void {
     if (c.rest.len > 1) return error.Usage;
     try c.args.only(&.{"--workers"});
-    try crawlSources(app, try c.args.number("--workers", 16), if (c.rest.len == 1) c.rest[0] else null);
+    try crawlSources(app, try c.args.number("--workers", 16), if (c.rest.len == 1) c.rest[0] else null, false);
 }
 
-/// `refresh`: syncs, then crawls.
+/// `refresh [--jitter SECONDS]`: waits a random time up to the jitter (so
+/// devices on timers don't refresh together), syncs, then crawls the
+/// sources no device crawled within the library's interval (`library set
+/// --crawl`), or none if it's manually.
 pub fn refresh(app: *App, c: Command) !void {
     if (c.rest.len > 0) return error.Usage;
-    try c.args.only(&.{});
+    try c.args.only(&.{"--jitter"});
+    const jitter = if (c.args.get("--jitter") != null) try c.args.number("--jitter", 1) else 0;
+    if (jitter > 0) {
+        var n: u64 = undefined;
+        app.io.random(std.mem.asBytes(&n));
+        try app.io.sleep(.fromMilliseconds(@intCast(n % (@as(u64, jitter) * 1000))), .awake);
+    }
     // Devices' catalog first, already described, so crawling then finds
-    // little to do.
+    // little to do, and sources others crawled lately are skipped.
     try network.syncAll(app, null);
-    try crawlSources(app, 16, null);
+    try crawlSources(app, 16, null, true);
 }
 
 /// Crawls every source, or the one given, then describes what's new: covers
-/// and metadata, with concurrent workers.
-fn crawlSources(app: *App, workers: usize, only: ?[]const u8) !void {
+/// and metadata, with concurrent workers; if `due`, only those no device
+/// crawled lately.
+fn crawlSources(app: *App, workers: usize, only: ?[]const u8, due: bool) !void {
     var r = try app.open();
     defer r.close();
     var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
     defer client.deinit();
     const sources = if (only) |which| &[_]lib.Source{try lib.findSource(&r, app.arena, which)} else try lib.sources(&r, app.arena);
+    const every = try lib.crawlEvery(&r, app.arena);
+    const window = if (every) |hours| lib.crawlWindow(app.io, hours) else 0;
     var crawled: std.ArrayList(core.art.Crawled) = .empty;
     for (sources) |rp| {
         if (rp.managed) {
             try app.out.print("{s}: a device's downloads, not crawled\n", .{rp.url});
+            continue;
+        }
+        if (due and every == null) {
+            try app.out.print("{s}: crawled only when asked (crawl), not now\n", .{rp.url});
+            continue;
+        }
+        if (due and rp.crawledLately(app.now(), window)) {
+            try app.out.print("{s}: crawled within the last {d} hours, not again\n", .{ rp.url, every.? });
             continue;
         }
         const s = try lib.crawlSource(&r, app.io, app.arena, &client, app.now(), rp, workers);
