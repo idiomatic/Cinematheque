@@ -53,8 +53,8 @@ pub fn serve(p: *App, c: Command) !void {
         .identity = p.store.identity,
     };
     // The web client answers after syncs, before the media.
-    var client: web.Web = .{ .path = sharing.path, .founder = sharing.founder, .identity = sharing.identity, .next = sharing.handler() };
-    const handler = if (c.args.has("--web")) client.handler() else sharing.handler();
+    var browsers: web.Web = .{ .path = sharing.path, .founder = sharing.founder, .identity = sharing.identity, .next = sharing.handler(), .own = try serviceName(p) };
+    const handler = if (c.args.has("--web")) browsers.handler() else sharing.handler();
     var r = try p.open();
     const library_hex = std.fmt.bytesToHex(r.library, .lower);
     const txt = try core.sync.advertisement(p.arena, &r, try p.store.person(), try p.store.device());
@@ -70,6 +70,8 @@ pub fn serve(p: *App, c: Command) !void {
         .txt = txt,
     };
     try host.start();
+    var syncing: ?Io.Future(Io.Cancelable!void) = if (c.args.has("--web")) try p.io.concurrent(web.Web.keepInSync, .{ &browsers, p.io, p.gpa }) else null;
+    defer if (syncing) |*f| f.cancel(p.io) catch {};
     try p.out.print("serving library {s} on port {d}{s}{s}, as {s}\n", .{ &library_hex, host.port, if (media != null) " with media from " else "", media orelse "", host.name });
     if (c.args.has("--web")) {
         // As other computers on the network reach it: `firefly.local`.

@@ -28,9 +28,47 @@ pub const Web = struct {
     writer: Io.Mutex = .init,
     /// Servers whose copies didn't answer lately, for copy racing.
     racing: core.race.Memory = .{},
+    /// The DNS-SD name this device advertises, so syncing skips it.
+    own: []const u8,
+    /// When a browser last changed something of this person's (in
+    /// milliseconds), if it hasn't been synced since; else 0.
+    changed: std.atomic.Value(i64) = .init(0),
 
     pub fn handler(w: *Web) core.serve.Handler {
         return .{ .context = w, .function = respond };
+    }
+
+    /// While serving: a second after a browser's change, once changes stop,
+    /// syncs with every device found nearby or added, so the person's other
+    /// devices have it at once, as the apps' changes reach them, rather than
+    /// when they next sync.
+    pub fn keepInSync(w: *Web, io: Io, gpa: std.mem.Allocator) Io.Cancelable!void {
+        while (true) {
+            try io.sleep(.fromMilliseconds(500), .awake);
+            const at = w.changed.load(.acquire);
+            if (at == 0 or @as(i64, @intCast(now(io))) - at < 1000) continue;
+            if (w.changed.cmpxchgStrong(at, 0, .acq_rel, .acquire) != null) continue;
+            w.syncAll(io, gpa) catch |err| switch (err) {
+                error.Canceled => return error.Canceled,
+                else => std.log.warn("syncing after a change: {t}", .{err}),
+            };
+        }
+    }
+
+    fn syncAll(w: *Web, io: Io, gpa: std.mem.Allocator) !void {
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        try w.writer.lock(io);
+        defer w.writer.unlock(io);
+        var r = try open(w, io, gpa);
+        defer r.close();
+        var client: http.Client = .{ .allocator = gpa, .io = io };
+        defer client.deinit();
+        const found = try core.sync.reachable(io, arena, &r, w.own, null);
+        for (found.urls) |u| _ = core.sync.exchange(arena, &client, &r, u, now(io)) catch |err| {
+            std.log.warn("syncing with {s} after a change: {t}", .{ u, err });
+        };
     }
 };
 
@@ -150,6 +188,9 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
         defer client.deinit();
         try core.art.describeItem(&r, arena, &client, now(io), p.item);
     } else return error.NotFound;
+    // Shared metadata (an episode described) needs no hurry; the rest is
+    // this person's, for their other devices.
+    if (!std.mem.eql(u8, name, "describe")) w.changed.store(@intCast(now(io)), .release);
     return sendJson(arena, request, true);
 }
 
