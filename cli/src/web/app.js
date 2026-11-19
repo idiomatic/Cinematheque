@@ -240,7 +240,14 @@ async function titlePage(key, season) {
   const artCover = detail.covers[isSeries ? `art:s${String(season).padStart(2, "0")}` : "art"] || detail.covers.art;
   const art = el("div", { class: `art${isSeries ? " square" : ""}` });
   if (tile?.thumb && tile.thumb !== "-") art.style.backgroundImage = `url("${thumbURL(tile.thumb)}")`;
-  if (artCover) art.append(el("img", { alt: "", src: coverURL(artCover) }));
+  if (artCover) {
+    // As a tile's: shown once loaded, else gone, leaving its placeholder.
+    const img = el("img", { alt: "", src: coverURL(artCover) });
+    img.style.visibility = "hidden";
+    img.onload = () => { img.style.visibility = ""; };
+    img.onerror = () => img.remove();
+    art.append(img);
+  }
 
   const next = nextIndex(items);
   const resuming = items[next] && items[next].position > 0 && !items[next].watched;

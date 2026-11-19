@@ -33,6 +33,9 @@ pub const Web = struct {
     /// When a browser last changed something of this person's (in
     /// milliseconds), if it hasn't been synced since; else 0.
     changed: std.atomic.Value(i64) = .init(0),
+    /// Whether a source's server has been unreachable for a cover yet, said
+    /// once, so a page of placeholders without covers says why.
+    unreachable_said: std.atomic.Value(bool) = .init(false),
 
     pub fn handler(w: *Web) core.serve.Handler {
         return .{ .context = w, .function = respond };
@@ -233,7 +236,16 @@ fn cover(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
     var client: http.Client = .{ .allocator = gpa, .io = io };
     defer client.deinit();
     const range = try std.fmt.allocPrint(arena, "bytes={d}-{d}", .{ offset, offset + length - 1 });
-    var req = try client.request(.GET, try std.Uri.parse(u), .{ .extra_headers = &.{.{ .name = "range", .value = range }} });
+    var req = client.request(.GET, try std.Uri.parse(u), .{ .extra_headers = &.{.{ .name = "range", .value = range }} }) catch |err| {
+        if (!w.unreachable_said.swap(true, .acq_rel)) {
+            const host = if (std.Uri.parse(u)) |uri| (if (uri.host) |h| h.percent_encoded else "?") else |_| "?";
+            std.log.warn("covers from {s} can't be had: {t}{s}", .{ host, err, if (err == error.HostUnreachable and @import("builtin").os.tag == .macos)
+                " (on macOS, start it from an app allowed Local Network, in System Settings › Privacy & Security, such as Terminal; some apps' built-in terminals aren't, even when the app is)"
+            else
+                "" });
+        }
+        return err;
+    };
     defer req.deinit();
     try req.sendBodiless();
     var redirect: [8 * 1024]u8 = undefined;
