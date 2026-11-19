@@ -161,12 +161,14 @@ struct CoverGrid: View {
                     }
                 }
             }
-            .padding(20)
+            .padding(Self.margin)
         }
         .scrollPosition($position)
         // The last row clears the status bar floating over the grid.
         .contentMargins(.bottom, StatusBar.height, for: .scrollContent)
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { _, _ in
+        // Only when the rows reflow, not at every width an animation (the
+        // inspector's) passes through.
+        .onGeometryChange(for: Int.self, of: { Self.columns($0.size.width) }) { _, _ in
             if let top = anchor.top { scroll(to: top) }
         }
         .task {
@@ -206,8 +208,19 @@ struct CoverGrid: View {
         }
     }
 
+    /// A tile's width, the same at every grid width, so a change in width
+    /// (the inspector opening, say) reflows whole tiles and resizes none.
+    nonisolated private static let cell: CGFloat = 148
+    nonisolated private static let gutter: CGFloat = 18
+    nonisolated private static let margin: CGFloat = 20
+
+    /// How many tiles fit across a grid this wide.
+    nonisolated private static func columns(_ width: CGFloat) -> Int {
+        max(1, Int((width - 2 * margin + gutter) / (cell + gutter)))
+    }
+
     private func grid(_ tiles: [Tile], aspect: Double) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 18, alignment: .top)], alignment: .leading, spacing: 22) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.cell, maximum: Self.cell), spacing: Self.gutter, alignment: .top)], alignment: .leading, spacing: 22) {
             ForEach(tiles) { tile in
                 // Selecting at once, not after the double-click interval.
                 TileView(tile: tile, aspect: aspect, selected: selection == tile.id)
