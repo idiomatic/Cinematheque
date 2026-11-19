@@ -204,6 +204,7 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
         const stream = listener.accept(io) catch |err| {
             if (err == error.Canceled) return err;
             std.log.err("accept: {t}", .{err});
+            if (options.stop) |stop| if (stop.load(.acquire)) return;
             io.sleep(.fromMilliseconds(200), .awake) catch return error.Canceled;
             continue;
         };

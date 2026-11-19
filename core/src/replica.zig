@@ -285,8 +285,8 @@ pub const Replica = struct {
     /// (or none) is written afresh, checked once a connection.
     fn checkCertificate(replica: *Replica, wall_ms: u64) !void {
         if (replica.checked_certificate) return;
-        replica.checked_certificate = true;
         if (!try replica.ownCertified(false)) try replica.certify(wall_ms);
+        replica.checked_certificate = true;
     }
 
     /// Rewrites this device's certificates that it holds but that don't
@@ -342,11 +342,11 @@ pub const Replica = struct {
         // The private stream's certificate travels on the device's own.
         try replica.checkCertificate(wall_ms);
         if (!replica.checked_private_certificate) {
-            replica.checked_private_certificate = true;
             if (!try replica.ownCertified(true)) {
                 var cert_key: [66]u8 = undefined;
                 try replica.write(wall_ms, certKey(&cert_key, replica.private_pair.public_key.toBytes()), "private", &try replica.certificate(true));
             }
+            replica.checked_private_certificate = true;
         }
         // Stored, numbered, and signed together or not at all, as `writeOp`.
         const alone = !replica.batching;
@@ -746,6 +746,13 @@ pub const Replica = struct {
         replica.pending.clearRetainingCapacity();
         replica.seq = replica.begun_seq;
         replica.private_seq = replica.begun_private_seq;
+        // What the transaction learned that went with it: devices it
+        // interned (whose ids the table will hand out again), and whether
+        // the certificates were checked (their writes may have been undone).
+        const known = replica.db.scalar("SELECT coalesce(max(id), 0) FROM devices") catch 0;
+        while (replica.keys.items.len > known) _ = replica.ids.remove(replica.keys.pop().?);
+        replica.checked_certificate = false;
+        replica.checked_private_certificate = false;
     }
 
     pub fn commit(replica: *Replica) !void {
@@ -1591,6 +1598,15 @@ pub fn writeRepair(src: *Replica, arena: std.mem.Allocator, fields: []const Fiel
         try found.append(arena, .{ .id = id, .op = op });
     }
     std.mem.sort(Found, found.items, {}, foundBefore);
+    // A request may name a field more than once, but an operation is
+    // proved once: duplicates would break a proof, or overrun its indices.
+    var kept: usize = 0;
+    for (found.items) |f| {
+        if (kept > 0 and found.items[kept - 1].id == f.id and found.items[kept - 1].op.seq == f.op.seq) continue;
+        found.items[kept] = f;
+        kept += 1;
+    }
+    found.items.len = kept;
 
     const gpa = src.gpa;
     var leaves: std.ArrayList(Hash) = .empty;
@@ -2408,4 +2424,36 @@ test "a device's write after a restart, or a clock step back, doesn't lose to it
     try testing.expectEqualStrings("second", s.blob(1));
     try testing.expect(try s.step());
     try testing.expectEqualStrings("y", s.blob(1));
+}
+
+test "a repair request naming a field again and again is answered once" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const a = &p.replicas[0];
+    try a.write(1000, "t/00001", "name", "Metropolis");
+    var cert: [66]u8 = undefined;
+    _ = try fetchFields(&p.replicas[2], a, &.{.{ .key = certKey(&cert, a.device()), .field = "user" }});
+    const same: [merkle.max_leaves + 5]Field = @splat(.{ .key = "t/00001", .field = "name" });
+    const stats = try fetchFields(&p.replicas[2], a, &same);
+    try testing.expectEqual(@as(usize, 1), stats.won);
+}
+
+test "a rolled-back transaction forgets the devices it learned of" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const a = &p.replicas[0];
+    const known = a.keys.items.len;
+    try a.begin();
+    const stranger: Device = @splat(0x42);
+    const id = try a.deviceId(stranger);
+    try testing.expectEqual(@as(i64, @intCast(known + 1)), id);
+    a.rollback();
+    try testing.expectEqual(known, a.keys.items.len);
+    try testing.expect(a.ids.get(stranger) == null);
+    // The id is handed out again, to another device, and means that one.
+    const other: Device = @splat(0x43);
+    try testing.expectEqual(id, try a.deviceId(other));
+    try testing.expectEqual(other, try a.keyOf(id));
 }
