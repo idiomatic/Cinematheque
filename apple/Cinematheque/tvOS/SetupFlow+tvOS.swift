@@ -18,7 +18,7 @@ struct SetupFlow: View {
                         .foregroundStyle(.tint)
                     Text("Cinematheque")
                         .font(.largeTitle.weight(.bold))
-                    Text("The movies and shows your household keeps, shared among your devices.")
+                    Text("The movies and series your household keeps, shared among your devices.")
                         .font(.headline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)

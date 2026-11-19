@@ -319,7 +319,7 @@ private struct SourcesPane: View {
                     if let folder = library.folder(of: repo) {
                         let missing = library.missingFolders.contains(folder.prefix)
                         Label {
-                            Text(folder.name) + Text(missing ? "  not found on this Mac" : "  on this Mac").foregroundStyle(.secondary)
+                            Text(folder.name) + Text(missing ? "  unavailable on this Mac" : "  on this Mac").foregroundStyle(.secondary)
                         } icon: {
                             Image(systemName: missing ? "folder.badge.questionmark" : "folder")
                         }
@@ -373,7 +373,7 @@ private struct SourcesPane: View {
                     ProgressView().controlSize(.small)
                     Text(activity + "…").foregroundStyle(.secondary)
                 } else {
-                    Button("Look for New Videos") { Task { await library.refresh() } }
+                    Button("Refresh Library") { Task { await library.refresh() } }
                         .disabled(library.repositories.isEmpty)
                 }
             }

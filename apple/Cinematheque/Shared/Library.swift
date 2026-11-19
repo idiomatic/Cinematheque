@@ -234,7 +234,7 @@ final class Library {
     /// platform's default (see the core's `defaultHome`).
     init(home: String? = nil) {
         guard let pointer = cq_open(home) else {
-            problem = "Couldn't open the peer's home (\(String(cString: cq_error())))."
+            problem = "Couldn't open Cinematheque's data (\(String(cString: cq_error())))."
             return
         }
         handle = Handle(pointer: pointer)
@@ -411,14 +411,14 @@ final class Library {
         // Syncing before writing anything: a device whose replica was lost
         // (as tvOS may purge one) learns its own writes back, and so where
         // its numbering left off, before it writes again.
-        let synced = await long("Syncing", results: noteReceived) { cq_sync($0, nil) }
+        let synced = await long("Catching up", results: noteReceived) { cq_sync($0, nil) }
         var named = false
         if !devices.contains(where: \.you), !device.isEmpty { setName(.device, device); named = true }
         if let user, !user.isEmpty, members.first(where: \.you)?.name == nil { setName(.user, user); named = true }
         // Naming itself is a new device's first write, with its certificate:
         // its peers hear of it now, not a minute on.
         if named { changed() }
-        let crawled = await long("Crawling") { cq_crawl($0) }
+        let crawled = await long("Looking for new videos") { cq_crawl($0) }
         report(.refresh, synced ?? crawled)
         #if os(macOS)
         reconcileSoon()
@@ -596,17 +596,17 @@ final class Library {
     /// peers have crawled and described arrives first, so crawling then
     /// finds little to do.
     func refresh() async {
-        let synced = await long("Syncing", results: noteReceived) { cq_sync($0, nil) }
-        let crawled = await long("Crawling") { cq_crawl($0) }
+        let synced = await long("Catching up", results: noteReceived) { cq_sync($0, nil) }
+        let crawled = await long("Looking for new videos") { cq_crawl($0) }
         report(.refresh, synced ?? crawled)
         #if os(macOS)
         reconcileSoon()
         #endif
     }
 
-    func crawl() async { report(.refresh, await long("Crawling") { cq_crawl($0) }) }
+    func crawl() async { report(.refresh, await long("Looking for new videos") { cq_crawl($0) }) }
 
-    func sync(_ url: String? = nil) async { report(.refresh, await long("Syncing", results: noteReceived) { cq_sync($0, url) }) }
+    func sync(_ url: String? = nil) async { report(.refresh, await long("Catching up", results: noteReceived) { cq_sync($0, url) }) }
 
     #if os(macOS)
     // Downloads, this Mac's (see the core's download.zig): kept in a folder
@@ -623,7 +623,7 @@ final class Library {
             let rendition: String
         }
 
-        struct Kept: Decodable, Equatable {
+        struct Next: Decodable, Equatable {
             let title: String
             let episodes: Int
         }
@@ -641,9 +641,9 @@ final class Library {
         let drop_watched: Bool
         let held: [Held]
         let wanted: [Wanted]
-        let kept: [Kept]
+        let next: [Next]
         let watched: [Done]
-        let pinned: [String]
+        let kept: [String]
         let free: Int?
         let floor: Int
         let running: Bool
@@ -700,7 +700,7 @@ final class Library {
     }
 
     /// How many of a series' next episodes this Mac keeps (0: none).
-    func keptEpisodes(_ title: String) -> Int { downloads?.kept.first { $0.title == title }?.episodes ?? 0 }
+    func nextEpisodes(_ title: String) -> Int { downloads?.next.first { $0.title == title }?.episodes ?? 0 }
 
     /// The tiles (movies, and seasons) with something downloaded, as of the
     /// last reload.
@@ -713,10 +713,10 @@ final class Library {
     /// A download watched since, if this item is.
     func done(_ item: String) -> Downloads.Done? { downloads?.watched.first { $0.item == item } }
 
-    func isPinned(_ item: String) -> Bool { downloads?.pinned.contains(item) ?? false }
+    func isKept(_ item: String) -> Bool { downloads?.kept.contains(item) ?? false }
 
     /// Keeps a download however it's watched, or lets it go once watched.
-    func pin(_ item: String, _ on: Bool) { check { cq_pin($0, item, on ? 1 : 0) } }
+    func keep(_ item: String, _ on: Bool) { check { cq_keep($0, item, on ? 1 : 0) } }
 
     private static func tiles(of items: [String]) -> Set<String> {
         Set(items.compactMap { item in
@@ -743,8 +743,8 @@ final class Library {
     func removeDownload(_ key: String) { check { cq_download_remove($0, key) } }
 
     /// Keeps a series' next `episodes` downloaded (0: stops).
-    func keep(_ title: String, episodes: Int) {
-        check { cq_keep($0, title, Int32(episodes)) }
+    func downloadNext(_ title: String, episodes: Int) {
+        check { cq_download_next($0, title, Int32(episodes)) }
         reconcileSoon()
     }
 
@@ -1064,7 +1064,7 @@ final class Library {
 
     /// A long operation's failures in a sentence: the first, by its
     /// server's name and the error in words, and how many more there were.
-    /// "Crawling failed for art › Movies › 2160p (and 2 more): the server
+    /// "Looking for new videos failed for art › Movies › 2160p (and 2 more): the server
     /// has nothing at that address." Each source by its name, if known
     /// (as Settings shows it, or a peer as it advertised itself), else its
     /// server.
@@ -1087,7 +1087,7 @@ final class Library {
         case "ConnectionTimedOut", "Timeout": "it didn't answer in time"
         case "UnknownHostName", "NameServerFailure", "TemporaryNameServerFailure": "no server by that name was found"
         case "NetworkUnreachable", "HostUnreachable": "it can't be reached from this network"
-        case "NotAMember": "it isn't a member of this library"
+        case "NotAMember": "that device isn't part of this library"
         default:
             // "ConnectionResetByPeer" to "connection reset by peer".
             error.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.lowercased()

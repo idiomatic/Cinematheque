@@ -758,27 +758,27 @@ fn downloadRemove(lib: *Library, arena: std.mem.Allocator, key: []const u8) !voi
     _ = try download.remove(lib.io(), arena, try lib.main(), &lib.writer, lib.now(), key);
 }
 
-/// Keeps a series' next `episodes` (after where this user is) downloaded;
-/// 0 stops.
-export fn cq_keep(lib: *Library, title_key: [*:0]const u8, episodes: c_int) c_int {
-    return status(lib, keep, .{ std.mem.span(title_key), @as(u32, @intCast(std.math.clamp(episodes, 0, 1000))) });
+/// Downloads a series' next `episodes` (after where this person is), as
+/// it's watched; 0 stops.
+export fn cq_download_next(lib: *Library, title_key: [*:0]const u8, episodes: c_int) c_int {
+    return status(lib, downloadNext, .{ std.mem.span(title_key), @as(u32, @intCast(std.math.clamp(episodes, 0, 1000))) });
 }
 
-fn keep(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, episodes: u32) !void {
-    try download.setKeep(try lib.main(), arena, title_key, episodes);
+fn downloadNext(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, episodes: u32) !void {
+    try download.setNext(try lib.main(), arena, title_key, episodes);
 }
 
 const HeldJson = struct { item: []const u8, size: u64 };
 const DoneJson = struct { item: []const u8, deletable: bool };
 
-/// Pins a download (nonzero), so it's never deleted as watched, or unpins
-/// it.
-export fn cq_pin(lib: *Library, item_key: [*:0]const u8, on: c_int) c_int {
-    return status(lib, pin, .{ std.mem.span(item_key), on != 0 });
+/// Keeps a download (nonzero), so it's never deleted as watched, or lets
+/// it go.
+export fn cq_keep(lib: *Library, item_key: [*:0]const u8, on: c_int) c_int {
+    return status(lib, keep, .{ std.mem.span(item_key), on != 0 });
 }
 
-fn pin(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, on: bool) !void {
-    try download.setPin(try lib.main(), arena, item_key, on);
+fn keep(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, on: bool) !void {
+    try download.setKept(try lib.main(), arena, item_key, on);
 }
 const DownloadsJson = struct {
     dir: ?[]const u8,
@@ -786,9 +786,9 @@ const DownloadsJson = struct {
     drop_watched: bool,
     held: []const HeldJson,
     wanted: []const download.Want,
-    kept: []const download.Keep,
+    next: []const download.Next,
     watched: []const DoneJson,
-    pinned: []const []const u8,
+    kept: []const []const u8,
     free: ?u64,
     floor: u64,
     running: bool,
@@ -798,10 +798,10 @@ const DownloadsJson = struct {
 
 /// This device's downloads, as a JSON object: `dir`, `repository` (its ID),
 /// and `drop_watched`, as configured (null if not); `held`, the files held
-/// (`item`, `size`); `wanted` (`key`, `rendition`); `kept`, series kept
-/// (`title`, `episodes`); `watched`, downloads watched since fetched and
-/// not pinned, oldest first (`item`, and `deletable`, once held elsewhere,
-/// else the only copy); `pinned` items; `free` bytes on its volume, if
+/// (`item`, `size`); `wanted` (`key`, `rendition`); `next`, series whose
+/// next episodes download (`title`, `episodes`); `watched`, downloads
+/// watched since fetched and not kept, oldest first (`item`, and
+/// `deletable`, once held elsewhere, else the only copy); `kept` items; `free` bytes on its volume, if
 /// known, and the
 /// `floor` kept free; and whether `cq_reconcile` is `running`, with
 /// `done_mb` of `total_mb`.
@@ -811,6 +811,7 @@ export fn cq_downloads(lib: *Library) ?[*:0]u8 {
 
 fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
     const r = try lib.main();
+    try download.purgeObsolete(r, arena);
     const s = try download.settings(r, arena);
     var list: std.ArrayList(HeldJson) = .empty;
     if (s) |set| for (try download.held(r, arena, set.repo)) |h| try list.append(arena, .{ .item = h.item, .size = h.size });
@@ -822,9 +823,9 @@ fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
         .drop_watched = if (s) |set| set.drop_watched else false,
         .held = list.items,
         .wanted = try download.wants(r, arena),
-        .kept = try download.keeps(r, arena),
+        .next = try download.nexts(r, arena),
         .watched = finished.items,
-        .pinned = try download.pins(r, arena),
+        .kept = try download.kept(r, arena),
         .free = if (s) |set| download.freeBytes(arena, set.dir) else null,
         .floor = download.floor(),
         .running = lib.reconciling.load(.acquire),

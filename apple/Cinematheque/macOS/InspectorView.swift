@@ -234,7 +234,7 @@ private struct ClearPosition: View {
     @Environment(Library.self) private var library
 
     var body: some View {
-        Button("Clear Progress", systemImage: "arrow.counterclockwise.circle.fill") { library.clearPosition(key) }
+        Button("Start from Beginning", systemImage: "arrow.counterclockwise.circle.fill") { library.clearPosition(key) }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
@@ -243,7 +243,7 @@ private struct ClearPosition: View {
 }
 
 /// Downloading to this Mac: a movie (the version Play plays), or a season,
-/// whole or its next episodes kept.
+/// whole or its next episodes as they're watched.
 private struct DownloadControls: View {
     let detail: TitleDetail
     let items: [TitleDetail.Item]
@@ -251,7 +251,7 @@ private struct DownloadControls: View {
     let rendition: String?
     @Environment(Library.self) private var library
 
-    private static let kept = [1, 3, 5, 10]
+    private static let next = [1, 3, 5, 10]
 
     var body: some View {
         if let season {
@@ -267,11 +267,11 @@ private struct DownloadControls: View {
             if library.isDownloaded(key) {
                 DownloadState(key: key)
                 if library.done(key) != nil {
-                    Button("Keep") { library.pin(key, true) }
+                    Button("Keep") { library.keep(key, true) }
                         .buttonStyle(.borderless)
                         .help("Keep it on this Mac, however it's watched")
                 }
-                Button("Remove Download", systemImage: "trash") { library.removeDownload(key) }
+                Button("Delete Download", systemImage: "trash") { library.removeDownload(key) }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .help(library.done(key)?.deletable == false ? "Delete it from this Mac: the only copy" : "Delete it from this Mac")
@@ -296,35 +296,35 @@ private struct DownloadControls: View {
         let key = detail.key + String(format: "/e/s%02d", season)
         let keys = items.map { "\(detail.key)/\($0.key)" }
         let held = keys.filter(library.isDownloaded).count
-        let kept = library.keptEpisodes(detail.key)
+        let next = library.nextEpisodes(detail.key)
         HStack {
             Menu {
                 Button("Download Season") { library.download(key, rendition: rendition) }
                     .disabled(held == keys.count)
-                Picker("Keep Next Episodes", selection: Binding(get: { kept }, set: { library.keep(detail.key, episodes: $0) })) {
+                Picker("Download Next Episodes", selection: Binding(get: { next }, set: { library.downloadNext(detail.key, episodes: $0) })) {
                     Text("Off").tag(0)
-                    ForEach(Self.kept, id: \.self) { n in Text(n == 1 ? "1 Episode" : "\(n) Episodes").tag(n) }
+                    ForEach(Self.next, id: \.self) { n in Text(n == 1 ? "1 Episode" : "\(n) Episodes").tag(n) }
                 }
                 if held > 0 {
                     Divider()
-                    Button("Remove Season's Downloads", role: .destructive) { library.removeDownload(key) }
+                    Button("Delete Season's Downloads", role: .destructive) { library.removeDownload(key) }
                 }
             } label: {
                 Label("Download", systemImage: held > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
             }
             .fixedSize()
             .help("Download the season, or keep the series' next episodes, to watch without a network")
-            if let status = status(held: held, of: keys.count, kept: kept) {
+            if let status = status(held: held, of: keys.count, next: next) {
                 Text(status).font(.caption).foregroundStyle(.secondary)
             }
         }
         .controlSize(.small)
     }
 
-    private func status(held: Int, of count: Int, kept: Int) -> String? {
+    private func status(held: Int, of count: Int, next: Int) -> String? {
         var parts: [String] = []
         if held > 0 { parts.append(held == count ? "All downloaded" : "\(held) of \(count) downloaded") }
-        if kept > 0 { parts.append(kept == 1 ? "keeping the next episode" : "keeping the next \(kept)") }
+        if next > 0 { parts.append(next == 1 ? "downloading the next episode" : "downloading the next \(next)") }
         guard !parts.isEmpty else { return nil }
         let text = parts.joined(separator: ", ")
         return text.prefix(1).uppercased() + text.dropFirst()
@@ -342,7 +342,7 @@ private struct DownloadState: View {
             Label(done.deletable ? "Watched: goes when space is needed" : "Watched, and the only copy", systemImage: done.deletable ? "hourglass.circle.fill" : "exclamationmark.circle.fill")
                 .foregroundStyle(done.deletable ? Color.secondary : Color.orange)
         } else {
-            Label(library.isPinned(key) ? "Downloaded, kept" : "Downloaded", systemImage: "arrow.down.circle.fill")
+            Label(library.isKept(key) ? "Downloaded, kept" : "Downloaded", systemImage: "arrow.down.circle.fill")
                 .foregroundStyle(.secondary)
         }
     }
@@ -362,7 +362,7 @@ private struct DownloadMark: View {
         } else if library.isDownloaded(key) {
             Image(systemName: "arrow.down.circle.fill")
                 .foregroundStyle(.secondary)
-                .help(library.isPinned(key) ? "Downloaded to this Mac, and kept" : "Downloaded to this Mac")
+                .help(library.isKept(key) ? "Downloaded to this Mac, and kept" : "Downloaded to this Mac")
         } else if library.isWanted(key) {
             ProgressView().controlSize(.mini).help("Downloading")
         }
@@ -378,9 +378,9 @@ private struct DownloadMenuItems: View {
     var body: some View {
         if library.isDownloaded(key) {
             if library.done(key) != nil {
-                Button("Keep Download") { library.pin(key, true) }
-            } else if library.isPinned(key) {
-                Button("Stop Keeping Download") { library.pin(key, false) }
+                Button("Keep Download") { library.keep(key, true) }
+            } else if library.isKept(key) {
+                Button("Stop Keeping Download") { library.keep(key, false) }
             }
             Button(library.done(key)?.deletable == false ? "Delete Download (the Only Copy)" : "Delete Download") { library.removeDownload(key) }
         } else if library.isWanted(key) {

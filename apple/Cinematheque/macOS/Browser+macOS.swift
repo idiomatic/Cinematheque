@@ -222,7 +222,7 @@ struct CoverGrid: View {
                     .contextMenu {
                         // Forgets its playheads (positions and watched marks).
                         if tile.played {
-                            Button(shelf == .watched ? "Remove from Watched" : shelf == .inProgress ? "Remove from In Progress" : "Clear Progress") { library.removeFromPlayed(tile) }
+                            Button(shelf == .watched ? "Remove from Watched" : shelf == .inProgress ? "Remove from In Progress" : "Mark as Unwatched") { library.removeFromPlayed(tile) }
                         }
                     }
             }
@@ -419,16 +419,16 @@ struct StatusBar: View {
         }
     }
 
-    /// "Crawling 3 of 6 repositories", "Covers 1,200 of 5,000" (covers and
-    /// details found), "Syncing with 1 of 2 peers", or what's running.
+    /// "Looking in 3 of 6 sources", "Covers 1,200 of 5,000" (covers and
+    /// details found), "Catching up with 1 of 2 devices", or what's running.
     static func describe(_ activity: String, _ p: Library.Progress?) -> String {
         guard let p, let phase = p.phase else { return activity + "…" }
         let done = min(p.done + (phase == "describing" ? 0 : 1), p.total).formatted()
         let total = p.total.formatted()
         return switch phase {
-        case "crawling": "Crawling \(done) of \(total) \(p.total == 1 ? "repository" : "repositories")…"
+        case "crawling": "Looking in \(done) of \(total) \(p.total == 1 ? "source" : "sources")…"
         case "describing": p.total == 0 ? "Covers…" : "Covers \(p.done.formatted()) of \(total)"
-        case "syncing": p.total == 0 ? "Looking for peers…" : "Syncing with \(done) of \(total) \(p.total == 1 ? "peer" : "peers")…"
+        case "syncing": p.total == 0 ? "Looking for devices…" : "Catching up with \(done) of \(total) \(p.total == 1 ? "device" : "devices")…"
         default: activity + "…"
         }
     }

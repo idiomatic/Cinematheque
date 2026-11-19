@@ -13,8 +13,8 @@
 //! came from, so peers see it and copy racing can use it. What it keeps is
 //! this device's (in `local`): items wanted (a title or season wanted is
 //! its items, as of then), and per series, the next N episodes after where
-//! this user is ("keep"). A download watched since it was fetched, and not
-//! pinned, is done with: deleted once another repository is confirmed to
+//! this user is ("next"). A download watched since it was fetched, and not
+//! kept, is done with: deleted once another repository is confirmed to
 //! hold it (same rendition and size, not absent), at once with
 //! `drop_watched`, else as space is needed; the only copy, never. It keeps
 //! `floor_bytes` free.
@@ -220,8 +220,10 @@ const dir_key = "downloads/dir";
 const repo_key = "downloads/repo";
 const drop_key = "downloads/drop-watched";
 const want_prefix = "downloads/want/";
+const next_prefix = "downloads/next/";
 const keep_prefix = "downloads/keep/";
-const pin_prefix = "downloads/pin/";
+/// Obsolete: series counts and pins as they were named, purged.
+const obsolete_prefixes = [_][]const u8{ "downloads/pin/", "downloads/keep/t/" };
 const at_prefix = "downloads/at/";
 
 /// Free space a download never goes below.
@@ -279,20 +281,31 @@ pub fn want(replica: *Replica, arena: std.mem.Allocator, key: []const u8, rendit
         try replica.setLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ want_prefix, f.item }), f.rendition);
 }
 
-/// Pins a download (an item's full key), so it's never deleted as done
-/// with, or unpins it.
-pub fn setPin(replica: *Replica, arena: std.mem.Allocator, item: []const u8, on: bool) !void {
-    const k = try std.fmt.allocPrint(arena, "{s}{s}", .{ pin_prefix, item });
+/// Keeps a download (an item's full key), so it's never deleted as done
+/// with, or lets it go.
+pub fn setKept(replica: *Replica, arena: std.mem.Allocator, item: []const u8, on: bool) !void {
+    const k = try std.fmt.allocPrint(arena, "{s}{s}", .{ keep_prefix, item });
     if (on) try replica.setLocal(k, "1") else try replica.removeLocal(k);
 }
 
-pub fn pins(replica: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
+/// The downloads kept, however they're watched.
+pub fn kept(replica: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
-    for (try replica.localKeys(arena, pin_prefix)) |k| try out.append(arena, k[pin_prefix.len..]);
+    for (try replica.localKeys(arena, keep_prefix)) |k| try out.append(arena, k[keep_prefix.len..]);
     return out.items;
 }
 
-/// A download watched since it was fetched, and not pinned: `deletable`
+/// Purges this device's download settings under names no longer used.
+pub fn purgeObsolete(replica: *Replica, arena: std.mem.Allocator) !void {
+    for (obsolete_prefixes) |prefix| for (try replica.localKeys(arena, prefix)) |k| {
+        // A title (four segments) under keep/ was a series count; an item
+        // there is a download kept, as named now.
+        if (std.mem.eql(u8, prefix, "downloads/keep/t/") and titleEnd(k[keep_prefix.len..]) != k.len - keep_prefix.len) continue;
+        try replica.removeLocal(k);
+    };
+}
+
+/// A download watched since it was fetched, and not kept: `deletable`
 /// once another repository holds it alike; else it's the only copy, for a
 /// person to delete or keep. Oldest fetched first.
 pub const Done = struct { held: Held, deletable: bool, fetched_ms: u64 };
@@ -302,7 +315,7 @@ pub fn finishedWith(replica: *Replica, arena: std.mem.Allocator, repo: library.R
     const absences = try library.Absences.load(replica, arena);
     var out: std.ArrayList(Done) = .empty;
     for (try held(replica, arena, repo)) |h| {
-        if (try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ pin_prefix, h.item })) != null) continue;
+        if (try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ keep_prefix, h.item })) != null) continue;
         const at = std.fmt.parseInt(u64, try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ at_prefix, h.item })) orelse "0", 10) catch 0;
         const watched_ms = try watchedAt(replica, arena, h.item) orelse continue;
         if (watched_ms <= at) continue;
@@ -333,20 +346,20 @@ pub fn wants(replica: *Replica, arena: std.mem.Allocator) ![]Want {
     return out.items;
 }
 
-pub const Keep = struct { title: []const u8, episodes: u32 };
+pub const Next = struct { title: []const u8, episodes: u32 };
 
-/// Keeps a series' next `episodes` downloaded (0: none).
-pub fn setKeep(replica: *Replica, arena: std.mem.Allocator, title: []const u8, episodes: u32) !void {
-    const k = try std.fmt.allocPrint(arena, "{s}{s}", .{ keep_prefix, title });
+/// Downloads a series' next `episodes` (0: none), as it's watched.
+pub fn setNext(replica: *Replica, arena: std.mem.Allocator, title: []const u8, episodes: u32) !void {
+    const k = try std.fmt.allocPrint(arena, "{s}{s}", .{ next_prefix, title });
     if (episodes == 0) return replica.removeLocal(k);
     try replica.setLocal(k, try std.fmt.allocPrint(arena, "{d}", .{episodes}));
 }
 
-pub fn keeps(replica: *Replica, arena: std.mem.Allocator) ![]Keep {
-    var out: std.ArrayList(Keep) = .empty;
-    for (try replica.localKeys(arena, keep_prefix)) |k| {
+pub fn nexts(replica: *Replica, arena: std.mem.Allocator) ![]Next {
+    var out: std.ArrayList(Next) = .empty;
+    for (try replica.localKeys(arena, next_prefix)) |k| {
         const n = std.fmt.parseInt(u32, try replica.local(arena, k) orelse "0", 10) catch 0;
-        if (n > 0) try out.append(arena, .{ .title = k[keep_prefix.len..], .episodes = n });
+        if (n > 0) try out.append(arena, .{ .title = k[next_prefix.len..], .episodes = n });
     }
     return out.items;
 }
@@ -538,7 +551,7 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
             try files.append(arena, f);
         };
     }
-    for (try keeps(replica, arena)) |k| for (try ahead(replica, arena, k.title, k.episodes)) |item| {
+    for (try nexts(replica, arena)) |k| for (try ahead(replica, arena, k.title, k.episodes)) |item| {
         const full = try std.fmt.allocPrint(arena, "{s}/{s}", .{ k.title, item });
         if (keys.contains(full)) continue;
         const planned = plan(replica, arena, full, null) catch continue;
@@ -613,19 +626,19 @@ fn locked(writer: ?*Io.Mutex, io: Io, replica: *Replica, wall_ms: u64, key: []co
     try replica.write(wall_ms, key, try std.fmt.bufPrint(&field, "held:{s}", .{&repo.id}), value);
 }
 
-/// Deletes a download, and forgets wanting, fetching, and pinning it.
+/// Deletes a download, and forgets wanting, fetching, and keeping it.
 fn delete(io: Io, arena: std.mem.Allocator, dir: Io.Dir, replica: *Replica, writer: ?*Io.Mutex, wall_ms: u64, repo: library.Repository, h: Held, out: *Reconciled) !void {
     dir.deleteFile(io, h.path) catch |err| switch (err) {
         error.FileNotFound => {},
         else => |e| return e,
     };
     try locked(writer, io, replica, wall_ms, h.key, repo, "");
-    for ([_][]const u8{ want_prefix, at_prefix, pin_prefix }) |prefix|
+    for ([_][]const u8{ want_prefix, at_prefix, keep_prefix }) |prefix|
         try replica.removeLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, h.item }));
     out.deleted += 1;
 }
 
-/// Stops keeping a title's, season's, or item's files: deletes those this
+/// Stops downloading a title's, season's, or item's files: deletes those this
 /// device's downloads hold, and forgets wanting them.
 pub fn remove(io: Io, arena: std.mem.Allocator, replica: *Replica, writer: ?*Io.Mutex, wall_ms: u64, key: []const u8) !usize {
     const s = try settings(replica, arena) orelse return error.NoDownloads;
@@ -746,7 +759,7 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     const s = (try settings(&r, arena)).?;
     try std.testing.expect(s.repo.managed);
     try want(&r, arena, "t/m/alien/1979", "");
-    try setKeep(&r, arena, "t/s/firefly/-", 2);
+    try setNext(&r, arena, "t/s/firefly/-", 2);
     // Episode 1 watched: 2 and 3 are next.
     try library.setWatched(&r, arena, 4, keys[1], true);
 
@@ -784,7 +797,7 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     try std.testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "downloads/Firefly/S01E02.mp4", .{}));
 
     // Watched, but the only copy (the NAS lost it): listed for a person,
-    // never deleted; pinned, not listed.
+    // never deleted; kept, not listed.
     try r.write(12, "t/m/alien/1979/v/-/r/-", nas_field, "");
     try library.setWatched(&r, arena, 13, keys[0], true);
     var finished = try finishedWith(&r, arena, s.repo);
@@ -792,13 +805,13 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     try std.testing.expect(!finished[0].deletable);
     _ = try reconcile(io, gpa, arena, &client, &memory, &r, null, 14, null, null);
     try std.testing.expect(tmp.dir.statFile(io, "downloads/Alien (1979).mp4", .{}) != error.FileNotFound);
-    try setPin(&r, arena, keys[0], true);
+    try setKept(&r, arena, keys[0], true);
     finished = try finishedWith(&r, arena, s.repo);
     try std.testing.expectEqual(0, finished.len);
 
     // Deleted by hand: forgotten. Removed: deleted, and no longer wanted.
     try tmp.dir.deleteFile(io, "downloads/Firefly/S01E04.mp4");
-    try setKeep(&r, arena, "t/s/firefly/-", 0);
+    try setNext(&r, arena, "t/s/firefly/-", 0);
     _ = try reconcile(io, gpa, arena, &client, &memory, &r, null, 10, null, null);
     try std.testing.expectEqual(2, (try held(&r, arena, s.repo)).len);
     try std.testing.expectEqual(1, try remove(io, arena, &r, null, 11, "t/m/alien/1979"));
