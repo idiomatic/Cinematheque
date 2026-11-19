@@ -236,13 +236,28 @@ final class PlaybackSession {
     }
 
     /// Tells the library whether this streams now (playing, not from a
-    /// file), so downloads wait rather than slow it.
+    /// file), so downloads wait rather than slow it; and while it plays,
+    /// keeps the display awake.
     private func noteStreaming() {
         #if os(macOS)
+        let playing = !closed && player.timeControlStatus == .playing
         let file = player.currentItem.flatMap { ($0.asset as? AVURLAsset)?.url.isFileURL } ?? false
-        library.streaming(self, !closed && player.timeControlStatus == .playing && !file)
+        library.streaming(self, playing && !file)
+        // AVPlayer's own (preventsDisplaySleepDuringVideoPlayback) didn't
+        // hold: the display dimmed and slept mid-movie on battery.
+        if playing, awake == nil {
+            awake = ProcessInfo.processInfo.beginActivity(options: [.idleDisplaySleepDisabled, .userInitiated], reason: "Playing a video")
+        } else if !playing, let activity = awake {
+            ProcessInfo.processInfo.endActivity(activity)
+            awake = nil
+        }
         #endif
     }
+
+    #if os(macOS)
+    /// Held while it plays: the display doesn't dim or sleep.
+    private var awake: NSObjectProtocol?
+    #endif
 
     /// Stops where it is, as when its window closes.
     func close() {
