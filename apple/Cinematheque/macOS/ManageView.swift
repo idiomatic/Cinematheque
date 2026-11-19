@@ -429,17 +429,17 @@ private struct SourcesPane: View {
                 editing = library.sources.first { $0.id == ids.first }
             }
             HStack {
-                Button("Add Folder…", systemImage: "folder.badge.plus") { chooseFolder() }
+                Button("Add Folder…") { chooseFolder() }
                     .help("Add a folder on this Mac")
-                Button("Add Server…", systemImage: "server.rack") { adding = true }
+                Button("Add Server…") { adding = true }
                     .help("Add a server on your network, such as a NAS, by its address")
                 Spacer()
                 if let activity = library.activity {
                     ProgressView().controlSize(.small)
                     Text(activity + "…").foregroundStyle(.secondary)
                 } else {
-                    Button("Library", systemImage: "arrow.clockwise") { Task { await library.refresh() } }
-                        .help("Refresh Library: catch up with your devices, then look for new videos")
+                    Button("Refresh Library") { Task { await library.refresh() } }
+                        .help("Catch up with your devices, then look for new videos")
                         .disabled(library.sources.isEmpty)
                 }
             }
