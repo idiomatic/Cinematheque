@@ -59,8 +59,9 @@ extension Playback {
     }
 
     /// Start Over, beside Resume: the symbol of a button that plays what
-    /// Resume would, from its beginning.
-    static let startOverSymbol = "backward.fill"
+    /// Resume would, from its beginning (to the start, as the Mac's Restart,
+    /// not rewinding).
+    static let startOverSymbol = "backward.end.fill"
 
     /// "Play", "Resume", "Play Episode 3", "Resume Special".
     static func playLabel(_ next: TitleDetail.Item?) -> String {

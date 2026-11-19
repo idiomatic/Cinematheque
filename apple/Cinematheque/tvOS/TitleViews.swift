@@ -25,7 +25,6 @@ struct MovieView: View {
                             Button("Start Over", systemImage: Playback.startOverSymbol) {
                                 playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items), overFromStart: true)
                             }
-                            .labelStyle(.iconOnly)
                         }
                         Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items))
@@ -114,7 +113,6 @@ struct SeriesView: View {
                             Button("Start Over", systemImage: Playback.startOverSymbol) {
                                 playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items), overFromStart: true)
                             }
-                            .labelStyle(.iconOnly)
                         }
                         Button(Playback.playLabel(Playback.nextItem(detail, season: tile.season)), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items))
