@@ -1,6 +1,6 @@
 //! Pairing a new device with a library's member's by a short code: the new
 //! device shows a 6-digit code, and the other, given it, sends the library's
-//! founder's key, and to link one of its user's own devices, the user's
+//! founder's key, and to pair one of its user's own devices, the user's
 //! secret too, sealed with a key only a device that knows the code can
 //! derive; the new device answers with its user's key and its own, sealed
 //! the same way, so a new member's can be added, and the device named, at
@@ -29,9 +29,9 @@ pub const max_failures = 3;
 
 pub const Code = [6]u8;
 
-/// What an offer is for: linking another of the user's devices (it gets
+/// What an offer is for: pairingAsYours another of the user's devices (it gets
 /// the user's secret), or a new member's joining (it doesn't).
-pub const Kind = enum { link, join };
+pub const Kind = enum { pair, join };
 
 /// What's sent: the user's seed (its secret; zeros when joining) and the
 /// library's founder's key.
@@ -259,7 +259,7 @@ pub fn send(io: Io, arena: std.mem.Allocator, client: *http.Client, url: []const
     const theirs = challenge[sid_length..][0..32].*;
     const share = try Share.init(io, code, kind, sid);
     const key = try sessionKey(share, theirs, sid, share.point, theirs);
-    const sent: Secrets = .{ .user = if (kind == .link) secrets.user else @splat(0), .founder = secrets.founder };
+    const sent: Secrets = .{ .user = if (kind == .pair) secrets.user else @splat(0), .founder = secrets.founder };
     const body = sid ++ share.point ++ seal(key, sent);
 
     var request = try client.request(.POST, uri, .{});
@@ -293,21 +293,21 @@ fn answerFor(io: Io, challenge: [challenge_length]u8, kind: Kind, code: []const 
 test "the right code pairs, and the reply carries the new user; wrong ones count" {
     const io = std.testing.io;
     const secrets: Secrets = .{ .user = @splat(7), .founder = @splat(9) };
-    var offer: Offer = .{ .code = "042917".*, .kind = .link, .user = @splat(3), .device = @splat(4) };
+    var offer: Offer = .{ .code = "042917".*, .kind = .pair, .user = @splat(3), .device = @splat(4) };
 
     for (0..max_failures - 1) |_| {
         const c = try offer.challenge(io);
-        const wrong, _ = try answerFor(io, c, .link, "042918", secrets);
+        const wrong, _ = try answerFor(io, c, .pair, "042918", secrets);
         try std.testing.expectError(error.WrongCode, offer.answer(io, &wrong));
     }
     // An answer to an attempt since replaced is refused, uncounted.
     const stale = try offer.challenge(io);
     _ = try offer.challenge(io);
-    const late, _ = try answerFor(io, stale, .link, "042917", secrets);
+    const late, _ = try answerFor(io, stale, .pair, "042917", secrets);
     try std.testing.expectError(error.NoAttempt, offer.answer(io, &late));
 
     const c = try offer.challenge(io);
-    const right, const key = try answerFor(io, c, .link, "042917", secrets);
+    const right, const key = try answerFor(io, c, .pair, "042917", secrets);
     const reply = try offer.answer(io, &right);
     try std.testing.expectEqualDeep(Joined{ .user = @splat(3), .device = @splat(4) }, try openReply(key, &reply));
     const got, const closed = offer.outcome(io);
@@ -316,20 +316,20 @@ test "the right code pairs, and the reply carries the new user; wrong ones count
     try std.testing.expectError(error.Closed, offer.challenge(io));
 }
 
-test "an offer to join isn't taken as one to link" {
+test "an offer to join isn't taken as one to pair" {
     const io = std.testing.io;
     var offer: Offer = .{ .code = "123456".*, .kind = .join, .user = @splat(3), .device = @splat(4) };
     const c = try offer.challenge(io);
-    const linking, _ = try answerFor(io, c, .link, "123456", .{ .user = @splat(7), .founder = @splat(9) });
-    try std.testing.expectError(error.WrongCode, offer.answer(io, &linking));
+    const pairingAsYours, _ = try answerFor(io, c, .pair, "123456", .{ .user = @splat(7), .founder = @splat(9) });
+    try std.testing.expectError(error.WrongCode, offer.answer(io, &pairingAsYours));
 }
 
 test "too many wrong codes close it" {
     const io = std.testing.io;
-    var offer: Offer = .{ .code = "111111".*, .kind = .link, .user = @splat(3), .device = @splat(4) };
+    var offer: Offer = .{ .code = "111111".*, .kind = .pair, .user = @splat(3), .device = @splat(4) };
     for (0..max_failures) |_| {
         const c = try offer.challenge(io);
-        const wrong, _ = try answerFor(io, c, .link, "222222", .{ .user = @splat(1), .founder = @splat(2) });
+        const wrong, _ = try answerFor(io, c, .pair, "222222", .{ .user = @splat(1), .founder = @splat(2) });
         try std.testing.expectError(error.WrongCode, offer.answer(io, &wrong));
     }
     _, const closed = offer.outcome(io);

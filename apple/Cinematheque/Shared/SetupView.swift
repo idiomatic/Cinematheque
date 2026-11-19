@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The first run, on every platform: being yourself here, by linking this
+/// The first run, on every platform: being yourself here, by pairingAsYours this
 /// device to another of yours (first, if so), then starting a library or
 /// joining one. On tvOS, as tvOS apps set up: a few large choices, each
 /// a screen of its own (`SetupFlow`); elsewhere, one form.
@@ -66,7 +66,7 @@ struct OfferedCode: View {
 #if !os(tvOS)
 private struct SetupForm: View {
     @Environment(Library.self) private var library
-    /// The offer showing its code, if any: to join (true) or to link.
+    /// The offer showing its code, if any: to join (true) or to pair.
     @State private var joining: Bool?
 
     var body: some View {
@@ -119,7 +119,7 @@ private struct SetupForm: View {
         #if DEBUG
         // `CINEMATHEQUE_TAB` names a step, as on tvOS: an offer to show.
         .onAppear {
-            if joining == nil, let step = Launch.tab { joining = step == "joinOther" ? true : step == "link" ? false : nil }
+            if joining == nil, let step = Launch.tab { joining = step == "joinOther" ? true : step == "pair" ? false : nil }
         }
         #endif
     }

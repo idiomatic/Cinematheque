@@ -17,7 +17,7 @@ enum Launch {
     }
 
     /// `CINEMATHEQUE_TAB`: a shelf to start on (`movies`, `series`, ...;
-    /// tvOS), or in setup, a step (`link` or `joinOther`), offering its code
+    /// tvOS), or in setup, a step (`pair` or `joinOther`), offering its code
     /// (both platforms).
     static var tab: String? { env["CINEMATHEQUE_TAB"] }
 

@@ -232,7 +232,7 @@ const Heard = struct {
     }
 };
 const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, unavailable: bool };
-const StatusJson = struct { user: []const u8, linked: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
+const StatusJson = struct { user: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
 
 /// How far a long operation has come, in steps of its phase (sources
 /// crawled, movies and seasons described, peers synced); read from any
@@ -348,7 +348,7 @@ fn stopServing(lib: *Library) void {
 
 // Identity and membership.
 
-/// This peer, as JSON: `user` (its user's key), `linked` (acting as the
+/// This peer, as JSON: `user` (its user's key), `paired` (acting as the
 /// user of another of the user's devices), `library` (the library's ID,
 /// or null if it has none yet), `founder`, and `members` (how many).
 export fn cq_status(lib: *Library) ?[*:0]u8 {
@@ -357,11 +357,11 @@ export fn cq_status(lib: *Library) ?[*:0]u8 {
 
 fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
     const user = try arena.dupe(u8, &std.fmt.bytesToHex(try lib.store.user(), .lower));
-    const linked = lib.store.linked();
-    const r = lib.main() catch return .{ .user = user, .linked = linked, .library = null, .founder = null, .members = 0 };
+    const paired = lib.store.paired();
+    const r = lib.main() catch return .{ .user = user, .paired = paired, .library = null, .founder = null, .members = 0 };
     return .{
         .user = user,
-        .linked = linked,
+        .paired = paired,
         .library = try arena.dupe(u8, &std.fmt.bytesToHex(r.library, .lower)),
         .founder = try arena.dupe(u8, &std.fmt.bytesToHex(r.founder, .lower)),
         .members = (try r.members(arena)).len,
@@ -408,7 +408,7 @@ fn openFounded(lib: *Library, arena: std.mem.Allocator, founder: [32]u8) !void {
 }
 
 // Pairing: a new device shows a code, and a member's, given it, sends it
-// the library's founder's key, and to link another of its user's devices,
+// the library's founder's key, and to pair another of its user's devices,
 // the user's secret too (see pair.zig).
 
 const Pairing = struct {
@@ -424,7 +424,7 @@ const Pairing = struct {
 /// `cq_pair_check` does, with a new code. Offering again starts over, with
 /// another code.
 export fn cq_pair_offer(lib: *Library, name: [*:0]const u8, join: c_int) ?[*:0]u8 {
-    return json(lib, pairOffer, .{ std.mem.span(name), if (join != 0) pair.Kind.join else pair.Kind.link });
+    return json(lib, pairOffer, .{ std.mem.span(name), if (join != 0) pair.Kind.join else pair.Kind.pair });
 }
 
 fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, kind: pair.Kind) !PairJson {
@@ -453,7 +453,7 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, kind: pa
 }
 
 /// On a new device offering to pair: its state, as JSON: `code` (to show,
-/// while it offers), `paired` (it has the library, and if linking, its
+/// while it offers), `paired` (it has the library, and if pairingAsYours, its
 /// user, and has stopped offering), and `closed` (it stopped, after too
 /// many wrong codes; offer again for a new one).
 export fn cq_pair_check(lib: *Library) ?[*:0]u8 {
@@ -466,7 +466,7 @@ fn pairCheck(lib: *Library, arena: std.mem.Allocator) !PairJson {
     if (received) |secrets| {
         const kind = p.offer.kind;
         stopPairing(lib);
-        if (kind == .link) try lib.store.link(arena, &std.fmt.bytesToHex(secrets.user, .lower));
+        if (kind == .pair) try lib.store.pair(arena, &std.fmt.bytesToHex(secrets.user, .lower));
         try openFounded(lib, arena, secrets.founder);
         return .{ .code = null, .paired = true, .closed = false };
     }
@@ -491,15 +491,15 @@ fn stopPairing(lib: *Library) void {
 }
 
 /// Long: pairs the new device offering at `url` (a `pairing` peer's, from
-/// `cq_peers`, offering to `link` or to `join`, as `join` says), given the
-/// code it shows: sends it the library's founder's key, and if linking,
+/// `cq_peers`, offering to `pair` or to `join`, as `join` says), given the
+/// code it shows: sends it the library's founder's key, and if pairingAsYours,
 /// this user's secret, which it takes only if the code is right. Returns
-/// its keys, as JSON: `user` (this user's, once linked; else a new
+/// its keys, as JSON: `user` (this user's, once paired; else a new
 /// member's, to be added by `cq_member`) and `device` (to name it by, with
 /// `cq_name`). Fails with
 /// `WrongCode`, or `Closed` once it stopped.
 export fn cq_pair(lib: *Library, url: [*:0]const u8, join: c_int, code: [*:0]const u8) ?[*:0]u8 {
-    return json(lib, pairWith, .{ std.mem.span(url), if (join != 0) pair.Kind.join else pair.Kind.link, std.mem.span(code) });
+    return json(lib, pairWith, .{ std.mem.span(url), if (join != 0) pair.Kind.join else pair.Kind.pair, std.mem.span(code) });
 }
 
 fn pairWith(lib: *Library, arena: std.mem.Allocator, url: []const u8, kind: pair.Kind, code: []const u8) !PairedJson {
@@ -507,8 +507,8 @@ fn pairWith(lib: *Library, arena: std.mem.Allocator, url: []const u8, kind: pair
     defer client.deinit();
     const digits = std.mem.trim(u8, code, " \n");
     const joined = try pair.send(lib.io(), arena, &client, url, kind, digits, .{ .user = lib.store.identity.user, .founder = try lib.store.founder(arena) });
-    // A linked device acts as this user from now on, not as the one it had.
-    const user = if (kind == .link) try lib.store.user() else joined.user;
+    // A paired device acts as this user from now on, not as the one it had.
+    const user = if (kind == .pair) try lib.store.user() else joined.user;
     return .{
         .user = try arena.dupe(u8, &std.fmt.bytesToHex(user, .lower)),
         .device = try arena.dupe(u8, &std.fmt.bytesToHex(joined.device, .lower)),
@@ -621,7 +621,7 @@ fn removeDevice(lib: *Library, _: std.mem.Allocator, device: []const u8) !void {
 /// with), `device` and `person` (their names, if advertised), `user` (key),
 /// `ours` (of this library), `member` (its user is one), `added`, and
 /// `pairing` (for a new device offering to pair, by `cq_pair`, what for:
-/// `link`, to be another of this user's, or `join`, a new member's).
+/// `pair`, to be another of this user's, or `join`, a new member's).
 export fn cq_peers(lib: *Library) ?[*:0]u8 {
     return json(lib, peers, .{});
 }

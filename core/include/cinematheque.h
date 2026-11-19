@@ -30,9 +30,9 @@ int cq_found(cq_library *library);
 // "Removed"), forgetting it and this device's identity, to pair afresh.
 int cq_leave(cq_library *library);
 // Pairing: on a new device, before it has a library, offering to pair
-// (serving and advertising as name), to link it to a member's user or (join
+// (serving and advertising as name), to pair it to a member's user or (join
 // nonzero) to join as a new member, with a code to show; and checking
-// whether it's paired (taking the library, and if linking, the user's
+// whether it's paired (taking the library, and if pairingAsYours, the user's
 // secret) or closed (too many wrong codes). On a member's device, long,
 // pairing the one offering at url (a pairing peer's) given its code, which
 // returns its keys (user, to add a new member by, and device, to name it

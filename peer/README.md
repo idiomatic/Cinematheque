@@ -35,7 +35,7 @@ The peer keeps its state in a directory of its own, its home. By default that's 
 | File | Holds |
 |---|---|
 | `identity` | The device's random seed, from which its keys derive |
-| `user` | The user's seed, once this device is linked to another of the user's; until then, the user's seed derives from the device's |
+| `user` | The user's seed, once this device is paired as another of the user's; until then, the user's seed derives from the device's |
 | `library` | The library's founder's user key, once this device has a library |
 | `replica.db` | The replica: the library's operations, and in its `local` table, what's this device's alone (crawl snapshots, and peers added by URL) |
 
@@ -57,8 +57,8 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `m
 ### Users and libraries
 
 * `user show` prints this user's key, as `member remove` and `library handover` take it.
-* `user pair`, on a new device without a library, prints a 6-digit code, and the port it listens on, and waits. Meanwhile it serves `/pair` on that port and advertises itself (`pair=link`, named by `$HOST`). `user pair CODE` on one of the user's devices finds it nearby, or at the URL given, and sends it the user's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its user.
-* `library create` founds a library with this user as founder, and prints its ID. `library join` offers a code, as `user pair` does, for a member's `member pair CODE`. Pairing is the only way to join or link, so the user's seed is never shown.
+* `user pair`, on a new device without a library, prints a 6-digit code, and the port it listens on, and waits. Meanwhile it serves `/pair` on that port and advertises itself (`pair=pair`, named by `$HOST`). `user pair CODE` on one of the user's devices finds it nearby, or at the URL given, and sends it the user's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its user.
+* `library create` founds a library with this user as founder, and prints its ID. `library join` offers a code, as `user pair` does, for a member's `member pair CODE`. Pairing is the only way to pair or join, so the user's seed is never shown.
 * `library show` prints the library's ID, founder, member count, and digest. The digest is a hash of every field's winning value, so two peers that have synced fully print the same one.
 * `library handover USER` makes a member the founder; this user stays a member unless `--leave`. Only the founder may.
 
@@ -171,7 +171,7 @@ What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 * [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync` and `pullAll`, which find peers by DNS-SD and in `local` (`peer:URL`); `peer`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
 * [agent.zig](src/agent.zig): the launch agents' property lists, installed and removed by `launchctl bootstrap` and `bootout`.
 * [usage.txt](src/usage.txt): the commands and the help.
-* [test.sh](test.sh): the end-to-end test. Peers on one computer, each with a home of its own, found a library and serve a generated source as media. They crawl, pair (to join, and to link one to another's user) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that progress travel only between the user's devices.
+* [test.sh](test.sh): the end-to-end test. Peers on one computer, each with a home of its own, found a library and serve a generated source as media. They crawl, pair (to join, and to be another of a user's devices) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that progress travel only between the user's devices.
 * [test/gen.zig](test/gen.zig): the test source's generator (`gen DIR [DIVISOR]`): a media tree at the library's full scale, or a fraction of it, named as Plex and Jellyfin expect, of sparse files that take no disk space.
 
 The library itself, from parsing names to syncing, is the [core](../core/README.md)'s; how its operations work is in [ARCHITECTURE.md](../ARCHITECTURE.md).

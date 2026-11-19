@@ -18,7 +18,7 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 * **Users:** each has any number of named lists.
   * A list's type is watchlist (or "borrowlist," of titles not yet held), smart playlist, or transcode queue.
   * A list's sharing is private,[^private] public, or collaborative, independent of its type.
-  * Several users may link a shared player.
+  * Several users may pair a shared player.
 * **Outside metadata** (plots, images, cast, ratings, trailer links, outside IDs) is provided to Cinematheque, never fetched by it: as JSON, or by a command it invokes with a title's identity, which answers in JSON. The provider is delivered separately, and the JSON's form is yet to be specified. Local trailer files come from sources.
 * **Correlation:** a file maps to an outside title by, in order: an ID tag in its path, an NFO sidecar's `<uniqueid>`, then whatever the provider makes of its parsed title, year, and episode; doubtful matches go to the user. An outside ID, once known, is recorded beside the title, and titles whose keys differ but whose IDs match are merged.
 * **Outside data:** IDs and correlations replicate freely; what providers supply may be bound by its sources' terms, so it replicates only among the players of the user whose provider supplied it.

@@ -84,7 +84,7 @@ pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
     try host.start();
     defer host.stop();
     try p.out.print("{s} {s}\n", .{ switch (kind) {
-        .link => "on another of your devices, pair this one with the code",
+        .pair => "on another of your devices, pair this one with the code",
         .join => "on a member's device, let this one join with the code",
     }, offer.code });
     // For a device that can't find this one nearby, as `pair CODE URL`.
@@ -94,7 +94,7 @@ pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
         try p.io.sleep(.fromSeconds(1), .awake);
         const received, const closed = offer.outcome(p.io);
         if (received) |secrets| {
-            if (kind == .link) try p.store.link(p.arena, &std.fmt.bytesToHex(secrets.user, .lower));
+            if (kind == .pair) try p.store.pair(p.arena, &std.fmt.bytesToHex(secrets.user, .lower));
             try p.store.setFounder(p.arena, secrets.founder);
             try p.out.print("paired: this device acts as user {s}, in the library {s} founded\n", .{ std.fmt.bytesToHex(try p.user(), .lower), std.fmt.bytesToHex(secrets.founder, .lower) });
             return;

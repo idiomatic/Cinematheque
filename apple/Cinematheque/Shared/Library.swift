@@ -156,10 +156,10 @@ struct Peer: Codable, Identifiable, Hashable {
     let member: Bool
     let added: Bool
     /// For a new device offering to pair (`url` is where to pair it), what
-    /// for: `link`, to be another of this user's, or `join`, a new member's.
+    /// for: `pair`, to be another of this user's, or `join`, a new member's.
     let pairing: String?
     var id: String { url }
-    var linking: Bool { pairing == "link" }
+    var pairingAsYours: Bool { pairing == "pair" }
     var joining: Bool { pairing == "join" }
     /// Its device's and person's names, if they advertise any.
     var deviceName: String? { device.flatMap { $0.isEmpty ? nil : $0 } }
@@ -185,7 +185,7 @@ struct Folder: Codable, Identifiable, Hashable {
 struct Status: Codable {
     let user: String
     /// Acting as the user of another of the user's devices.
-    let linked: Bool
+    let paired: Bool
     let library: String?
     let founder: String?
     let members: Int
@@ -228,7 +228,7 @@ final class Library {
     private(set) var revision = 0
 
     var hasLibrary: Bool { status?.library != nil }
-    var linked: Bool { status?.linked ?? false }
+    var paired: Bool { status?.paired ?? false }
 
     /// Opens the peer's home: `home`, else `CINEMATHEQUE_HOME`, else the
     /// platform's default (see the core's `defaultHome`).
@@ -319,7 +319,7 @@ final class Library {
     }
 
     /// Pairs the new device `peer`, given the code it shows: sends it the
-    /// library, and to link it, this user's secret. Returns who it is
+    /// library, and to pair it, this user's secret. Returns who it is
     /// (for `welcome`), or what went wrong, in words.
     func pair(_ peer: Peer, code: String) async -> (Paired?, String?) {
         guard let handle else { return (nil, "The library isn't open.") }

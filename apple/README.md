@@ -3,7 +3,7 @@
 The players for Apple devices, in SwiftUI, on the [core](../core/README.md) through its C interface:
 
 * **macOS** (macOS 15 or later): it sets up and manages a library, browses it by cover art, and plays copies straight from their sources, keeping the user's progress and watchlist. It opens the peer's home (`CINEMATHEQUE_HOME`, or the default), which it shares with the [peer](../peer/README.md).
-* **Apple TV** (tvOS 18 or later): it links to a user and joins their library, syncs with peers and crawls the sources itself, browses by cover art with the remote, and plays full screen, keeping progress by the same rules.
+* **Apple TV** (tvOS 18 or later): it pairs as a person's device or joins their library, syncs with peers and crawls the sources itself, browses by cover art with the remote, and plays full screen, keeping progress by the same rules.
 
 ## Building
 
@@ -51,7 +51,7 @@ macOS:
 Apple TV:
 
 * [Keys.swift](Cinematheque/tvOS/Keys.swift): the home's seeds kept in the Keychain, since tvOS may purge the caches that hold the home.
-* [SetupFlow+tvOS.swift](Cinematheque/tvOS/SetupFlow+tvOS.swift): setting up as tvOS apps do: the app's name over three large choices, each step a screen of its own; linking to another device and joining someone's library each show a pairing code (`PairingStep`).
+* [SetupFlow+tvOS.swift](Cinematheque/tvOS/SetupFlow+tvOS.swift): setting up as tvOS apps do: the app's name over three large choices, each step a screen of its own; pairing as another device and joining someone's library each show a pairing code (`PairingStep`).
 * [Browser+tvOS.swift](Cinematheque/tvOS/Browser+tvOS.swift): `Browser`: the tab bar, Home's rows, the poster grid, search, and what a refresh is doing.
 * [TitleViews.swift](Cinematheque/tvOS/TitleViews.swift): a movie's page and a series', with their marks and episodes; seasons' covers fit whole in their squares (`CoverImage`'s `fit`).
 * [TVPlayer.swift](Cinematheque/tvOS/TVPlayer.swift): the playback session full screen in `AVPlayerViewController`, with titles and descriptions for its info panel.

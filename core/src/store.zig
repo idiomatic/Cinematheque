@@ -49,7 +49,7 @@ pub const Store = struct {
 
     /// Makes this device act as the user whose secret `hex` is (as pairing
     /// sends it), before it opens or joins a library.
-    pub fn link(s: *Store, arena: std.mem.Allocator, hex: []const u8) !void {
+    pub fn pair(s: *Store, arena: std.mem.Allocator, hex: []const u8) !void {
         if (Io.Dir.cwd().access(s.io, try path(arena, s.dir, "replica.db"), .{})) |_| return error.AlreadyInUse else |_| {}
         const secret = try parseKey(hex);
         try Io.Dir.cwd().writeFile(s.io, .{ .sub_path = try path(arena, s.dir, "user"), .data = &std.fmt.bytesToHex(secret, .lower) });
@@ -64,9 +64,9 @@ pub const Store = struct {
         return (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(s.identity.user)).public_key.toBytes();
     }
 
-    /// Whether this device acts as another device's user (`link`), rather
+    /// Whether this device acts as another device's user (`pair`), rather
     /// than the one its own seed derives.
-    pub fn linked(s: *const Store) bool {
+    pub fn paired(s: *const Store) bool {
         return !std.mem.eql(u8, &s.identity.user, &replica_.Identity.from(s.identity.device).user);
     }
 

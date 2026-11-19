@@ -4,7 +4,7 @@ import SwiftUI
 /// Setting up on an Apple TV, as tvOS apps do: the app's name over a few
 /// large choices, each a screen of its own with one thing to enter.
 struct SetupFlow: View {
-    enum Step: String, Hashable { case link, joinOther }
+    enum Step: String, Hashable { case pair, joinOther }
 
     @Environment(Library.self) private var library
     @State private var path: [Step] = []
@@ -28,7 +28,7 @@ struct SetupFlow: View {
                     }
                 }
                 VStack(spacing: 24) {
-                    NavigationLink(value: Step.link) { Choice("I Use Cinematheque on Another Device") }
+                    NavigationLink(value: Step.pair) { Choice("I Use Cinematheque on Another Device") }
                     NavigationLink(value: Step.joinOther) { Choice("Join Someone's Library") }
                     Button { library.found() } label: { Choice("Start a New Library") }
                 }
@@ -40,7 +40,7 @@ struct SetupFlow: View {
             #endif
             .navigationDestination(for: Step.self) { step in
                 switch step {
-                case .link:
+                case .pair:
                     PairingStep(
                         join: false,
                         title: "Pair with Your Mac",

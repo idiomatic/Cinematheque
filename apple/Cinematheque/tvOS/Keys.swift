@@ -4,7 +4,7 @@ import Security
 
 /// Keeps the home's seeds in the Keychain, since tvOS may purge the caches
 /// that hold the home: `identity` (the device's), `user` (the user's, once
-/// linked), and `library` (its founder's key). The replica is rebuilt by
+/// paired), and `library` (its founder's key). The replica is rebuilt by
 /// syncing and crawling; these are not.
 enum Keys {
     private static let files = ["identity", "user", "library"]
@@ -25,7 +25,7 @@ enum Keys {
         }
     }
 
-    /// Keeps any seed the home has gained (e.g., on linking or joining).
+    /// Keeps any seed the home has gained (e.g., on pairingAsYours or joining).
     static func save() {
         for name in files {
             guard let data = try? Data(contentsOf: home.appending(path: name)), read(name) != data else { continue }

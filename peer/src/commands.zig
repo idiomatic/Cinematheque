@@ -19,9 +19,9 @@ pub fn user(peer: *Peer, c: Command) !void {
     if (c.is("show", 0, &.{})) {
         try peer.out.print("{s}\n", .{hex(try peer.user())});
     } else if (c.is("pair", 0, &.{})) {
-        try network.offerPairing(peer, .link);
+        try network.offerPairing(peer, .pair);
     } else if (c.is("pair", 1, &.{}) or c.is("pair", 2, &.{})) {
-        _ = try pairWith(peer, c, .link);
+        _ = try pairWith(peer, c, .pair);
     } else return error.Usage;
 }
 
@@ -36,8 +36,8 @@ fn pairWith(peer: *Peer, c: Command, kind: core.pair.Kind) ![32]u8 {
         .user = peer.store.identity.user,
         .founder = try peer.store.founder(peer.arena),
     });
-    // A linked device acts as this user from now on, not as the one it had.
-    const acting = if (kind == .link) try peer.user() else joined.user;
+    // A paired device acts as this user from now on, not as the one it had.
+    const acting = if (kind == .pair) try peer.user() else joined.user;
     if (new.name.len > 0) {
         var r = try peer.open();
         defer r.close();
