@@ -1,12 +1,12 @@
 #if os(tvOS)
 import SwiftUI
 
-/// The tab bar: Home, Movies, Series, Watchlist, and Search, each a
-/// navigation stack opening titles' detail pages.
+/// The tab bar: Home, Movies, Series, Watchlist, Played, Settings, and
+/// Search, each shelf a navigation stack opening titles' detail pages.
 struct Browser: View {
-    /// A tab: a shelf, or search.
+    /// A tab: a shelf, search, or settings.
     enum Tab: Hashable {
-        case shelf(Shelf), search
+        case shelf(Shelf), search, settings
     }
 
     @Environment(Library.self) private var library
@@ -27,15 +27,24 @@ struct Browser: View {
                     }
                 }
             }
+            // Symbols alone, so every tab fits; Settings before Search, as
+            // tvOS shows no tab after search's.
+            SwiftUI.Tab(value: Tab.settings) {
+                NavigationStack { SettingsView() }
+            } label: {
+                Image(systemName: "gearshape").accessibilityLabel("Settings")
+            }
             SwiftUI.Tab(value: Tab.search, role: .search) {
                 Stack { SearchView() }
+            } label: {
+                Image(systemName: "magnifyingglass").accessibilityLabel("Search")
             }
         }
         .overlay(alignment: .bottomTrailing) { Activity() }
         .task { TVPlayer.warmUp() }
         #if DEBUG
         .onAppear {
-            if let name = Launch.tab { tab = name == "search" ? .search : Shelf(rawValue: name).map(Tab.shelf) ?? tab }
+            if let name = Launch.tab { tab = name == "search" ? .search : name == "settings" ? .settings : Shelf(rawValue: name).map(Tab.shelf) ?? tab }
         }
         #endif
     }

@@ -256,7 +256,7 @@ const Heard = struct {
         return .{ .device = key, .name = library.nameOf(named, key), .operations = operations, .at = at };
     }
 };
-const StatusJson = struct { person: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
+const StatusJson = struct { person: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize, others: usize };
 
 /// How far a long operation has come, in steps of its phase (sources
 /// crawled, movies and seasons described, devices synced); read from any
@@ -374,7 +374,9 @@ fn stopServing(lib: *Library) void {
 
 /// This device, as JSON: `person` (its person's key), `paired` (acting as the
 /// person of another of the person's devices), `library` (the library's ID,
-/// or null if it has none yet), `founder`, and `members` (how many).
+/// or null if it has none yet), `founder`, `members` (how many), and
+/// `others` (how many other devices its person has, certified or named, and
+/// not removed: none, and leaving takes the person's devices with it).
 export fn cq_status(lib: *Library) ?[*:0]u8 {
     return json(lib, getStatus, .{});
 }
@@ -382,13 +384,28 @@ export fn cq_status(lib: *Library) ?[*:0]u8 {
 fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
     const person = try arena.dupe(u8, &std.fmt.bytesToHex(try lib.store.person(), .lower));
     const paired = lib.store.paired();
-    const r = lib.main() catch return .{ .person = person, .paired = paired, .library = null, .founder = null, .members = 0 };
+    const r = lib.main() catch return .{ .person = person, .paired = paired, .library = null, .founder = null, .members = 0, .others = 0 };
+    const me = try lib.store.person();
+    const this = try lib.store.device();
+    var others: std.AutoArrayHashMapUnmanaged([32]u8, void) = .empty;
+    for (try r.devicesOf(arena, me)) |d| try others.put(arena, d, {});
+    // Named by the device that paired it, before it's written a certificate.
+    const hex = std.fmt.bytesToHex(me, .lower);
+    for (try library.names(r, arena)) |n| if (n.person) |u| if (std.mem.eql(u8, u, &hex)) {
+        try others.put(arena, store_.parseKey(n.key) catch continue, {});
+    };
+    _ = others.swapRemove(this);
+    var count: usize = 0;
+    for (others.keys()) |d| {
+        if (try r.revoked(d) == null) count += 1;
+    }
     return .{
         .person = person,
         .paired = paired,
         .library = try arena.dupe(u8, &std.fmt.bytesToHex(r.library, .lower)),
         .founder = try arena.dupe(u8, &std.fmt.bytesToHex(r.founder, .lower)),
         .members = (try r.members(arena)).len,
+        .others = count,
     };
 }
 
@@ -639,6 +656,22 @@ fn removeDevice(lib: *Library, _: std.mem.Allocator, device: []const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
     try (try lib.main()).revokeDevice(lib.now(), try store_.parseKey(device));
+}
+
+/// Removes this device from the library, as it leaves: if `successor` (a
+/// person's key) is given, first handing the library over to them (this
+/// device's person must be the founder, and stays a member); then cutting
+/// off this device's own streams just past these writes, so other devices,
+/// once synced with, take the removal and refuse anything after. Sync, then
+/// `cq_leave`, to finish leaving.
+export fn cq_remove_self(lib: *Library, successor: ?[*:0]const u8) c_int {
+    return status(lib, removeSelf, .{span(successor)});
+}
+
+fn removeSelf(lib: *Library, _: std.mem.Allocator, successor: ?[]const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    try (try lib.main()).removeSelf(lib.now(), if (successor) |s| try store_.parseKey(s) else null);
 }
 
 /// Long (it listens for 2 seconds): the devices found on the network, by

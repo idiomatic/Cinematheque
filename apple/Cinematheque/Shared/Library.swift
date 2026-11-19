@@ -215,6 +215,8 @@ struct Status: Codable, Equatable {
     let library: String?
     let founder: String?
     let members: Int
+    /// How many other devices this person has, named or not.
+    let others: Int
 }
 
 /// The core's handle, shared with long operations on other threads, which
@@ -340,12 +342,63 @@ final class Library {
     /// Leaves the library, as a device removed from it must: forgets it and
     /// this device's identity, so setup can pair it again as a new device.
     func leave(removedBy device: String) {
+        guard forget() else { return }
+        removedBy = device
+    }
+
+    /// Leaves the library of this person's own accord (the Apple TV's
+    /// Settings): removes this device from it, handing the library over to
+    /// `successor` first if this is the founder's only device, then syncs so
+    /// other devices hear of it, and forgets it all, for setup to pair it
+    /// anew. Unless no one else is in the library, a device must hear of it
+    /// before this one forgets, else they'd list it for good: so it syncs
+    /// first, to know one can be reached, and if the sync after removing
+    /// fails anyway, leaving again (the removal written once) tries again.
+    /// Returns why it couldn't, if it couldn't.
+    func leaveLibrary(successor: String?, alone: Bool) async -> String? {
+        guard let handle else { return nil }
+        afterChange?.cancel()
+        // Once a refresh or quiet sync under way is done (it holds the
+        // writer), starting none meanwhile.
+        leavingLibrary = true
+        defer { leavingLibrary = false }
+        while activity != nil || syncingQuietly {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        if !alone {
+            let unreachable = "None of the library's other devices could be reached, so they wouldn't hear this one left. Try again while one is on."
+            guard await Self.reachesAny(handle) else { return unreachable }
+            let removed: String? = await Task.detached {
+                cq_remove_self(handle.pointer, successor) == 0 ? nil : String(cString: cq_error())
+            }.value
+            if let removed { return "Couldn't leave the library: \(Self.reason(removed))." }
+            guard await Self.reachesAny(handle) else { return unreachable }
+        }
+        guard forget() else { return "Couldn't leave the library: \(Self.reason(String(cString: cq_error())))." }
+        removedBy = nil
+        return nil
+    }
+
+    /// Syncs with every device found or added, off the main thread; returns
+    /// whether any was reached.
+    private nonisolated static func reachesAny(_ handle: Handle) async -> Bool {
+        await Task.detached {
+            guard let text = cq_sync(handle.pointer, nil) else { return false }
+            defer { cq_free(text) }
+            struct Result: Decodable { let error: String? }
+            let results = (try? JSONDecoder().decode([Result].self, from: Data(bytes: text, count: strlen(text)))) ?? []
+            return results.contains { $0.error == nil }
+        }.value
+    }
+
+    /// Forgets the library and this device's identity, and all that came of
+    /// them; returns whether it could.
+    private func forget() -> Bool {
         guard let handle, cq_leave(handle.pointer) == 0 else {
             report(.refresh, "Couldn't leave the library: \(Self.reason(String(cString: cq_error()))).")
-            return
+            return false
         }
         Platform.forget()
-        removedBy = device
         servingPort = nil
         refreshedAtLaunch = false
         problem = nil
@@ -376,6 +429,7 @@ final class Library {
         #endif
         dirty = true
         reload()
+        return true
     }
 
     /// Creates a library, founded by this person; joining one is by pairing.
@@ -1106,6 +1160,8 @@ final class Library {
     private var lastSync = Date.distantPast
     /// Syncing after a change, once changes stop for a moment.
     private var afterChange: Task<Void, Never>?
+    /// Leaving the library, so no quiet sync starts.
+    private var leavingLibrary = false
 
     /// While the app runs: syncs quietly a minute after it last synced (as
     /// when it comes to the front), so what other devices change
@@ -1153,7 +1209,7 @@ final class Library {
     /// those the last sync found (`cq_sync_known`), not looking again.
     @discardableResult
     func syncQuietly(known: Bool = false) async -> Bool {
-        guard let handle, hasLibrary, activity == nil, !syncingQuietly else { return false }
+        guard let handle, hasLibrary, activity == nil, !syncingQuietly, !leavingLibrary else { return false }
         syncingQuietly = true
         defer { syncingQuietly = false }
         lastSync = .now

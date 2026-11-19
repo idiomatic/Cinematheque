@@ -531,6 +531,48 @@ pub const Replica = struct {
         try replica.revokeStreams(wall_ms, device_key);
     }
 
+    /// Removes this device from the library, as it leaves: first, if it's
+    /// the founder's, handing the library over to `successor` (the founder
+    /// staying a member); then cutting off its own streams just past these
+    /// writes, in one transaction, so other devices take the removal (and
+    /// the handover) and refuse anything after. Once removed, it does
+    /// nothing, so leaving can be tried again until a sync reaches another
+    /// device. (`revokeDevice` refuses this device: cut off where it is, its
+    /// own removal would be past the cut.)
+    pub fn removeSelf(replica: *Replica, wall_ms: u64, successor: ?Device) !void {
+        if (try replica.revoked(replica.device()) != null) return;
+        try replica.begin();
+        errdefer replica.rollback();
+        if (successor) |s| try replica.handOver(wall_ms, s, true);
+        // A certificate this writes first would be numbered before the cut.
+        try replica.checkCertificate(wall_ms);
+        var arena_state = std.heap.ArenaAllocator.init(replica.gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        // Its private streams, whose certificates it wrote, where they are.
+        var private: std.ArrayList(struct { stream: Device, seq: u64 }) = .empty;
+        {
+            const s = try replica.db.prepare("SELECT key FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private' AND device = ?1");
+            defer s.finalize();
+            try s.bindInt(1, try replica.deviceId(replica.device()));
+            while (try s.step()) {
+                var stream: Device = undefined;
+                _ = std.fmt.hexToBytes(&stream, s.blob(0)[2..]) catch continue;
+                try private.append(arena, .{ .stream = stream, .seq = 0 });
+            }
+        }
+        for (private.items) |*p| p.seq = try replica.seen(try replica.deviceId(p.stream));
+        var seq: [8]u8 = undefined;
+        for (private.items) |p| {
+            std.mem.writeInt(u64, &seq, p.seq, .little);
+            try replica.write(wall_ms, "revoked", &std.fmt.bytesToHex(p.stream, .lower), &seq);
+        }
+        // Its own stream's cut comes last, taking in this write itself.
+        std.mem.writeInt(u64, &seq, replica.seq + 1, .little);
+        try replica.write(wall_ms, "revoked", &std.fmt.bytesToHex(replica.device(), .lower), &seq);
+        try replica.commit();
+    }
+
     /// Cuts off a device's streams, its own and its private one, where this
     /// replica has seen them (`revoked`, a field per stream); merging it
     /// drops what the stream wrote past there (see `cut`).
@@ -2057,6 +2099,43 @@ test "a device removed has its later writes refused, though its person stays" {
     try testing.expectError(error.Missing, p.value(1, "t/00002", "name"));
     try testing.expect(try c.isMemberPerson(c.personKey()));
     try testing.expectError(error.ThisDevice, a.revokeDevice(4000, a.device()));
+}
+
+test "a device removing itself has its removal taken, and its later writes refused" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const c = &p.replicas[2];
+
+    try c.write(1000, "t/00001", "name", "Before");
+    try c.removeSelf(2000, null);
+    try c.write(3000, "t/00002", "name", "After");
+    try c.removeSelf(4000, null); // Again, as a retried leave: nothing.
+    const stats = try p.sync(0, 2);
+    try testing.expect(stats.refused > 0);
+    try testing.expectEqualStrings("Before", try p.value(0, "t/00001", "name"));
+    try testing.expectError(error.Missing, p.value(0, "t/00002", "name"));
+    // The removal reaches a device that hears of it only from another, and
+    // the write after it doesn't, even from the removed device itself.
+    _ = try p.sync(1, 0);
+    _ = try p.sync(1, 2);
+    try testing.expectEqualStrings("Before", try p.value(1, "t/00001", "name"));
+    try testing.expectError(error.Missing, p.value(1, "t/00002", "name"));
+}
+
+test "a founder's device removing itself hands the library over first" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const a = &p.replicas[0];
+    const b = &p.replicas[1];
+
+    try a.removeSelf(2000, b.personKey());
+    _ = try p.sync(1, 0);
+    try testing.expectEqual(b.personKey(), b.founder);
+    try a.write(3000, "t/00003", "name", "After");
+    try testing.expect((try p.sync(1, 0)).refused > 0);
+    try testing.expectError(error.Missing, p.value(1, "t/00003", "name"));
 }
 
 test "an invitation later in the same response admits earlier batches" {

@@ -156,6 +156,10 @@ void cq_stop_serving(cq_library *library);
 // add) or removing a device by address, on this device only.
 int cq_name(cq_library *library, const char *device_key, const char *person_key, const char *name);
 int cq_remove_device(cq_library *library, const char *device_key);
+// Removes this device from the library, as it leaves: handing it over to
+// successor (a person's key; NULL for none) first, if this person founded
+// it; other devices take the removal once synced with. Then cq_leave.
+int cq_remove_self(cq_library *library, const char *successor);
 int cq_set_name(cq_library *library, const char *which, const char *name);
 char *cq_devices(cq_library *library);
 char *cq_nearby(cq_library *library);

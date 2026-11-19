@@ -39,6 +39,16 @@ enum Launch {
     }
     private static var played = false
 
+    /// `CINEMATHEQUE_LEAVE`, once a launch (tvOS, on Settings): presses
+    /// Leave This Library… (`ask`), or presses it and confirms (`confirm`,
+    /// the first other member taking over if it asks who).
+    static var leave: String? {
+        guard !left else { return nil }
+        left = true
+        return env["CINEMATHEQUE_LEAVE"]
+    }
+    private static var left = false
+
     /// `CINEMATHEQUE_ITEM`: the item the URL played is a copy of, for its
     /// progress (macOS).
     static var item: String? { env["CINEMATHEQUE_ITEM"] }
