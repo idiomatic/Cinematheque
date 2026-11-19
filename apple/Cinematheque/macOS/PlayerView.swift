@@ -28,6 +28,9 @@ struct WindowPlayer: View {
     /// over the picture, and for 3 seconds after, or while it rests on Back.
     @State private var showsBack = false
     @State private var onBack = false
+    /// How far below the window's top its buttons' centers are, which the
+    /// row's text centers on.
+    @State private var buttonsMid: CGFloat = 14
     @State private var lastMove = Date.distantPast
     @State private var curtain = Curtain()
 
@@ -58,7 +61,8 @@ struct WindowPlayer: View {
                         HStack {
                             Button(action: leave) {
                                 Label("Back", systemImage: "chevron.backward")
-                                    .font(.callout.weight(.medium))
+                                    // The size of a window's title.
+                                    .font(.body.weight(.medium))
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 3)
@@ -73,7 +77,7 @@ struct WindowPlayer: View {
                         // Past the window's buttons.
                         .padding(.leading, 76)
                     }
-                    .frame(height: HidesToolbar.titleBarHeight)
+                    .frame(height: buttonsMid * 2)
                 }
                 // In the title bar's row, not beneath it.
                 .ignoresSafeArea()
@@ -81,7 +85,7 @@ struct WindowPlayer: View {
                 .allowsHitTesting(showsBack)
                 .animation(.easeInOut(duration: 0.25), value: showsBack)
             }
-            .background(HidesToolbar(showsButtons: showsBack))
+            .background(HidesToolbar(showsButtons: showsBack, buttonsMid: $buttonsMid))
             .navigationTitle(title.isEmpty ? request.title : title)
     }
 
@@ -102,7 +106,8 @@ private struct NowPlaying: View {
         let parts = title.split(separator: " · ", maxSplits: 1).map(String.init)
         if let name = parts.first {
             (Text(name).fontWeight(.semibold) + Text(parts.count > 1 ? "  " + parts[1] : "").foregroundStyle(.white.opacity(0.75)))
-                .font(.callout)
+                // The size of a window's title.
+                .font(.body)
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -120,9 +125,9 @@ private struct NowPlaying: View {
 private struct HidesToolbar: NSViewRepresentable {
     /// Whether the window's buttons show, fading as playback's controls do.
     let showsButtons: Bool
-
-    /// The title bar's height, with its toolbar hidden.
-    static let titleBarHeight: CGFloat = 28
+    /// How far below the window's top its buttons' centers are, as the
+    /// window lays them out (not a guess at the title bar's height).
+    @Binding var buttonsMid: CGFloat
 
     private static let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
 
@@ -165,6 +170,11 @@ private struct HidesToolbar: NSViewRepresentable {
                 }
             }
             coordinator.hide()
+            if let close = window.standardWindowButton(.closeButton), close.window != nil {
+                let center = close.convert(NSPoint(x: close.bounds.midX, y: close.bounds.midY), to: nil)
+                let mid = (window.frame.height - center.y).rounded()
+                if abs(mid - buttonsMid) >= 0.5 { buttonsMid = mid }
+            }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.25
                 for type in Self.buttons { window.standardWindowButton(type)?.animator().alphaValue = showsButtons ? 1 : 0 }
