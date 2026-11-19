@@ -16,7 +16,7 @@ struct SetupView: View {
 
 /// A new device's offer to pair, until paired (the app then leaves setup):
 /// its code, to enter on a member's device, and waiting; or, after too many
-/// wrong codes, asking for a new one. Linking (`join` false) brings this
+/// wrong codes, asking for a new one. Pairing (`join` false) brings this
 /// device its person and the library; joining, the library, and membership.
 struct OfferedCode: View {
     let join: Bool
@@ -29,12 +29,10 @@ struct OfferedCode: View {
     var body: some View {
         VStack(spacing: size / 4) {
             if let code = state?.code {
-                // In two groups of three, to read at a distance.
-                Text(code.prefix(3) + " " + code.suffix(3))
-                    .font(.system(size: size, weight: .semibold, design: .rounded).monospacedDigit())
-                    .padding(.horizontal, size * 0.4)
-                    .padding(.vertical, size / 7)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: size / 6))
+                // As the other device's field takes it, a digit a box.
+                CodeBoxes(digits: code, size: size)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Pairing code \(code.map(String.init).joined(separator: " "))")
                 HStack {
                     ProgressView()
                         #if os(macOS)
@@ -60,6 +58,45 @@ struct OfferedCode: View {
                 if let checked = library.checkPairing() { state = checked }
             }
         }
+    }
+}
+
+/// A pairing code's six digits, a squircle each, in two groups of three
+/// (as codes are read): filled as far as `digits` goes, the rest empty,
+/// so the boxes show how long a code is before it's typed. The box the
+/// next digit goes in is ringed if `caret`.
+struct CodeBoxes: View {
+    static let length = 6
+    let digits: String
+    /// The digits' point size; the boxes scale with it.
+    var size: CGFloat
+    var caret = false
+
+    var body: some View {
+        HStack(spacing: size * 0.4) {
+            group(0..<3)
+            group(3..<6)
+        }
+    }
+
+    private func group(_ range: Range<Int>) -> some View {
+        HStack(spacing: size * 0.14) {
+            ForEach(range, id: \.self) { box($0) }
+        }
+    }
+
+    private func box(_ i: Int) -> some View {
+        let digit = i < digits.count ? String(digits[digits.index(digits.startIndex, offsetBy: i)]) : ""
+        let shape = RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+        return Text(digit)
+            .font(.system(size: size, weight: .semibold, design: .rounded).monospacedDigit())
+            .frame(width: size * 1.1, height: size * 1.45)
+            .background(.quaternary, in: shape)
+            .overlay {
+                if caret, i == min(digits.count, Self.length - 1) {
+                    shape.strokeBorder(Color.accentColor, lineWidth: max(2, size / 12))
+                }
+            }
     }
 }
 
