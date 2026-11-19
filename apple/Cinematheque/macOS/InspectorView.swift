@@ -77,38 +77,38 @@ struct InspectorView: View {
         let items = Playback.items(detail, season: tile.season)
         let next = Playback.nextItem(detail, season: tile.season)
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Button {
-                    if let request = Playback.next(in: detail, season: tile.season, quality: quality) { play(request) }
-                } label: {
-                    Label(Playback.playLabel(next), systemImage: "play.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(next == nil)
+            // Play filling its row, the marks beside it, quieter: labeled
+            // where they fit, else icons alone.
+            ViewThatFits(in: .horizontal) {
+                playRow(detail, next: next, items: items, labeled: true)
+                playRow(detail, next: next, items: items, labeled: false)
             }
-            .controlSize(.large)
             if tile.season == nil, let item = items.first, item.inProgress, item.duration > 0 {
                 progress(item, key: "\(detail.key)/\(item.key)")
-            }
-            // The marks, quieter than what plays: labeled where they fit,
-            // else icons alone.
-            ViewThatFits(in: .horizontal) {
-                lists(detail, items: items).labelStyle(.titleAndIcon)
-                lists(detail, items: items).labelStyle(.iconOnly)
             }
             DownloadControls(detail: detail, items: items, season: tile.season, quality: quality)
         }
     }
 
-    private func lists(_ detail: TitleDetail, items: [TitleDetail.Item]) -> some View {
+    private func playRow(_ detail: TitleDetail, next: TitleDetail.Item?, items: [TitleDetail.Item], labeled: Bool) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                if let request = Playback.next(in: detail, season: tile.season, quality: quality) { play(request) }
+            } label: {
+                Label(Playback.playLabel(next), systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(next == nil)
             HStack {
                 Marks(detail: detail, items: items, season: tile.season)
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .controlSize(.small)
+            .labelStyle(.titleAndIconOrIconOnly(labeled))
             .fixedSize()
+        }
     }
 
     private func progress(_ item: TitleDetail.Item, key: String) -> some View {
@@ -349,6 +349,7 @@ private struct DownloadControls: View {
                 .help(fits(size) ? "Download it to this Mac, to watch without a network" : "Download it to this Mac: more than the space downloads may take now")
             ProgressView().controlSize(.mini).opacity(coming ? 1 : 0)
                 .help("Downloading")
+            Spacer()
             Button(coming ? "Cancel Download" : "Delete Download", systemImage: "trash") {
                 if coming { library.removeDownload(key) } else { library.deleteDownload(key) }
             }
@@ -411,6 +412,7 @@ private struct DownloadControls: View {
             .help("Which of the series' episodes download to this Mac as it's watched, to watch without a network; watched ones go as their space is needed, but for All")
             ProgressView().controlSize(.mini).opacity(pending ? 1 : 0)
                 .help("Downloading")
+            Spacer()
             Button(season == 0 ? "Delete Specials' Downloads" : "Delete Season's Downloads", systemImage: "trash") { library.deleteDownload(key) }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
@@ -479,5 +481,18 @@ struct DownloadMenuItems: View {
             Button("Download") { library.download(key, quality: quality) }
         }
     }
+}
+
+/// Labeled, or icons alone.
+private struct TitleAndIconOrIconOnly: LabelStyle {
+    let labeled: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        if labeled { Label(configuration) } else { Label(configuration).labelStyle(.iconOnly) }
+    }
+}
+
+extension LabelStyle where Self == TitleAndIconOrIconOnly {
+    static func titleAndIconOrIconOnly(_ labeled: Bool) -> TitleAndIconOrIconOnly { .init(labeled: labeled) }
 }
 #endif
