@@ -220,7 +220,8 @@ pub fn keys(arena: std.mem.Allocator, p: naming.Parsed) !Keys {
         if (p.special) |name| {
             try item.print(arena, "/e/s00-{s}", .{try normalize(arena, name)});
         } else if (p.date) |d| {
-            try item.print(arena, "/e/{s}", .{d});
+            // A season a year (see `naming.parse`): `/e/s2024e0312`.
+            try item.print(arena, "/e/s{s}e{s}{s}", .{ d[0..4], d[5..7], d[8..10] });
         } else {
             try item.print(arena, "/e/s{d:0>2}e{d:0>2}", .{ p.season orelse 0, p.episode orelse 0 });
             if (p.last_episode) |last| try item.print(arena, "-e{d:0>2}", .{last});
@@ -1416,6 +1417,8 @@ test "a numberless file beside a series' episodes is its special, not a movie" {
     try std.testing.expectEqual(naming.Kind.episode, special.kind);
     try std.testing.expectEqualStrings("The Gathering", special.special.?);
     try std.testing.expectEqualStrings("t/s/babylon-5/-/e/s00-the-gathering", (try keys(arena, special)).item);
+    const dated = try parseFile(arena, "Kurzgesagt/Kurzgesagt 2024-03-12 [youtube-ab_2019-xyz].mp4", &series);
+    try std.testing.expectEqualStrings("t/s/kurzgesagt/-/e/s2024e0312", (try keys(arena, dated)).item);
     const specials_folder = try parseFile(arena, "Firefly/Specials/Firefly Here Is How It Was.mkv", &series);
     try std.testing.expectEqualStrings("Here Is How It Was", specials_folder.special.?);
     // A movie in its own folder stays one.

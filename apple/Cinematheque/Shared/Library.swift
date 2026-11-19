@@ -82,6 +82,12 @@ struct TitleDetail: Codable {
             return key.hasPrefix("e/s") && numbers.count >= 2 ? (numbers[0], numbers[1]) : nil
         }
 
+        /// A dated episode's air date (`e/s2024e0312`, a season a year).
+        var airDate: Date? {
+            guard let e = episode, e.season >= 1000 else { return nil }
+            return DateComponents(calendar: .current, year: e.season, month: e.number / 100, day: e.number % 100).date
+        }
+
         /// A version's name: its edition as written, or "Standard".
         var versionName: String {
             fields["edition"] ?? (key.hasPrefix("v/-") ? "Standard" : key.dropFirst(2).replacingOccurrences(of: "-", with: " ").capitalized)

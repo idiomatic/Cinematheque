@@ -34,8 +34,9 @@ extension TitleDetail.Item {
     /// Begun but not finished.
     var inProgress: Bool { !watched && position > 0 }
 
-    /// "3. Title", or a special's title alone.
+    /// "3. Title", or a special's or dated episode's title alone.
     var episodeName: String {
+        if let airDate { return fields["title"] ?? airDate.formatted(.dateTime.month(.wide).day()) }
         let number = episode?.number ?? 0
         let title = fields["title"] ?? (number == 0 ? "Special" : "Episode \(number)")
         return number == 0 ? title : "\(number). \(title)"
@@ -69,10 +70,11 @@ extension Playback {
     /// rewinding).
     static let startOverSymbol = "backward.end.fill"
 
-    /// "Play", "Resume", "Play Episode 3", "Resume Special".
+    /// "Play", "Resume", "Play Episode 3", "Resume Special", "Play March 12".
     static func playLabel(_ next: TitleDetail.Item?) -> String {
         guard let next else { return "Play" }
         let verb = next.inProgress ? "Resume" : "Play"
+        if let date = next.airDate { return "\(verb) \(date.formatted(.dateTime.month(.wide).day()))" }
         if let e = next.episode { return e.number == 0 ? "\(verb) Special" : "\(verb) Episode \(e.number)" }
         return verb
     }

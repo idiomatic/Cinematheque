@@ -115,6 +115,9 @@ enum Playback {
         if let e = item.episode, e.season == 0, e.number == 0 {
             return "\(detail.name) · " + (item.fields["title"] ?? "Special")
         }
+        if let date = item.airDate {
+            return "\(detail.name) · \(date.formatted(date: .long, time: .omitted))" + (item.fields["title"].map { " · \($0)" } ?? "")
+        }
         if let e = item.episode {
             return "\(detail.name) · S\(e.season)E\(e.number)" + (item.fields["title"].map { " · \($0)" } ?? "")
         }

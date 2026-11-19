@@ -162,6 +162,13 @@ pub fn parse(path: []const u8, scratch: []u8) Parsed {
     // A file in a season folder, or with an episode number, is an episode
     // of the series named by the folder above the season's.
     if (p.kind != .extra and p.episode != null or p.date != null) p.kind = .episode;
+    // A dated episode is of a season a year, as Plex has it, numbered by
+    // month and day (0312), so its episodes go in date order.
+    if (p.date) |d| if (p.episode == null) {
+        p.season = std.fmt.parseInt(u16, d[0..4], 10) catch null;
+        p.episode = std.fmt.parseInt(u16, d[5..7], 10) catch 0;
+        p.episode.? = p.episode.? * 100 + (std.fmt.parseInt(u16, d[8..10], 10) catch 0);
+    };
     if (p.kind == .episode or season_folder != null) {
         const series_index = if (season_folder) |i| (if (i > 0) i - 1 else null) else if (folders.len > 0) folders.len - 1 else null;
         if (series_index) |i| {
@@ -405,6 +412,7 @@ fn tag(p: *Parsed, body: []const u8) bool {
     else if (ascii.eqlIgnoreCase(key, "imdb") or ascii.eqlIgnoreCase(key, "imdbid")) p.imdb = value //
     else if (ascii.eqlIgnoreCase(key, "tvdb") or ascii.eqlIgnoreCase(key, "tvdbid")) p.tvdb = value //
     else if (ascii.eqlIgnoreCase(key, "edition")) p.edition = value //
+    else if (ascii.eqlIgnoreCase(key, "youtube")) {} // yt-dlp's video ID, read only so it isn't taken for a year
     else return false;
     return true;
 }
@@ -452,7 +460,7 @@ fn episodeMarker(p: *Parsed, s: []const u8) ?usize {
     return i;
 }
 
-/// `2026.11.16` or `2026-11-16`, for daily shows.
+/// `2026.11.16` or `2026-11-16`, for daily shows (and YouTube channels).
 fn airDate(p: *Parsed, s: []const u8) ?usize {
     if (s.len < 10) return null;
     const sep = s[4];

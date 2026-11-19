@@ -257,6 +257,14 @@ function episodeCode(key) {
   return m ? { season: Number(m[1]), number: m[2] == null ? null : Number(m[2]) } : null;
 }
 
+/// A dated episode's air date (`e/s2024e0312`, a season a year), as
+/// "March 12".
+function airDate(code) {
+  if (!code || code.season < 1000 || code.number == null) return null;
+  const date = new Date(code.season, Math.floor(code.number / 100) - 1, code.number % 100);
+  return date.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+}
+
 function itemsOf(detail, season) {
   if (season == null) return detail.items;
   return detail.items
@@ -324,6 +332,7 @@ function itemTitle(detail, item) {
   const name = item.fields.title;
   if (!code) return item.key.startsWith("v/-") ? detail.name : `${detail.name} (${item.fields.edition || item.key.slice(2)})`;
   if (code.season === 0) return name || "Special";
+  if (airDate(code)) return name || airDate(code);
   return `${code.number}. ${name || "Episode " + code.number}`;
 }
 
@@ -366,7 +375,7 @@ async function titlePage(key, season) {
   const listed = library.watchlist.has(isSeries ? `${key}#${season}` : key);
   const allWatched = items.length > 0 && items.every((i) => i.watched);
   const nextLabel = !items[next] ? "Play" : isSeries
-    ? `${resuming ? "Resume" : "Play"} ${episodeCode(items[next].key).season === 0 ? "Special" : "Episode " + episodeCode(items[next].key).number}`
+    ? `${resuming ? "Resume" : "Play"} ${episodeCode(items[next].key).season === 0 ? "Special" : airDate(episodeCode(items[next].key)) ?? "Episode " + episodeCode(items[next].key).number}`
     : resuming ? "Resume" : "Play";
 
   const play = (index) => playQueue(detail, items, index, quality);
