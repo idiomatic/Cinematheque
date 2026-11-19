@@ -114,6 +114,10 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
     /// The window whose display mode it asked for, to give back.
     private weak var window: UIWindow?
     private var leaving = false
+    /// Paused as the app went to the background, to come back paused.
+    private var parked = false
+    private var observers: [NSObjectProtocol] = []
+    private var resuming: NSKeyValueObservation?
     /// The one shown, kept while it is.
     private static var shown: TVPlayer?
 
@@ -128,6 +132,48 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         // lose the seconds the switch blanks the screen.
         controller.appliesPreferredDisplayCriteriaAutomatically = false
         session.player.volume = 0
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.park() }
+            },
+            center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.unpark() }
+            },
+        ]
+    }
+
+    /// Going to the background (the TV button), it pauses, silent, so it
+    /// comes back paused rather than playing at once, at full volume.
+    private func park() {
+        guard !leaving else { return }
+        parked = true
+        session.player.pause()
+        session.player.volume = 0
+        PlaybackSession.log.notice("Paused for the background")
+    }
+
+    /// Back from the background, it stays paused: AVKit plays again a
+    /// moment after (if it saw it playing as the app went), which is paused
+    /// at once. Played after that, its sound rises, as at a start.
+    private func unpark() {
+        guard parked, !leaving else { return }
+        session.player.pause()
+        let clock = ContinuousClock()
+        let back = clock.now
+        resuming = session.player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+            let status = player.timeControlStatus
+            MainActor.assumeIsolated {
+                guard let self, status == .playing else { return }
+                if clock.now - back < .seconds(1) {
+                    PlaybackSession.log.notice("Held paused on return")
+                    return player.pause()
+                }
+                self.parked = false
+                self.resuming = nil
+                self.session.ramp(to: 1, over: .seconds(Platform.fade))
+            }
+        }
     }
 
     /// Once it's on screen (its views made in its window, not before, which
@@ -218,6 +264,8 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
                     // page simply there.
                     await switching?()
                     PlaybackSession.log.notice("Left")
+                    self.observers.forEach(NotificationCenter.default.removeObserver)
+                    self.resuming = nil
                     Self.shown = nil
                     self.gone()
                 }
