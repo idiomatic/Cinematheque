@@ -205,9 +205,14 @@ const shelves = {
     const t = matching(library.tiles.filter((t) => library.watchlist.has(listKey(t)))).sort(byName);
     return t.length ? shelfGrid(t) : [empty("Nothing on your watchlist.")];
   },
-  played: () => {
-    const t = matching(library.tiles.filter((t) => t.started || t.watched)).sort(byName);
-    return t.length ? shelfGrid(t) : [empty("Nothing played yet.")];
+  // Played, split in two, as the Mac's sidebar has it.
+  "in-progress": () => {
+    const t = matching(library.tiles.filter(onShelf["in-progress"])).sort(byName);
+    return t.length ? shelfGrid(t) : [empty("What you're watching shows here.")];
+  },
+  watched: () => {
+    const t = matching(library.tiles.filter(onShelf.watched)).sort(byName);
+    return t.length ? shelfGrid(t) : [empty("What you've watched shows here.")];
   },
 };
 
@@ -221,7 +226,8 @@ const onShelf = {
   movies: (t) => t.kind === "movie",
   series: (t) => t.kind === "series",
   watchlist: (t) => library.watchlist.has(listKey(t)),
-  played: (t) => t.started || t.watched,
+  "in-progress": (t) => t.started && !t.watched,
+  watched: (t) => t.watched,
 };
 
 /// How many a shelf holds, for the status line, as the Mac's says it:
@@ -619,7 +625,8 @@ addEventListener("keydown", (e) => {
   e.preventDefault();
 });
 
-// Routing: #home, #movies, #series, #watchlist, #played, #title/<key>[/<season>].
+// Routing: #home, #movies, #series, #watchlist, #in-progress, #watched,
+// #title/<key>[/<season>].
 
 async function route() {
   const mine = ++showing;

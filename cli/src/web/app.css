@@ -33,8 +33,10 @@ nav a[aria-current="page"] { background: var(--raised); }
   background: Canvas; color: inherit; font: inherit;
 }
 
-main { padding: 8px 24px 64px; }
+/* Room above the first row, as the Mac's grid has. */
+main { padding: 28px 24px 64px; }
 h2 { font-size: 20px; margin: 24px 0 12px; }
+main > h2:first-child { margin-top: 0; }
 .empty { color: var(--dim); margin-top: 48px; text-align: center; }
 
 .grid {
