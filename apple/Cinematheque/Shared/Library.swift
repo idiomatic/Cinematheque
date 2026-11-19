@@ -1,6 +1,7 @@
 import CCinematheque
 import Foundation
 import Observation
+import os
 #if os(macOS)
 import SystemConfiguration
 #endif
@@ -519,7 +520,7 @@ final class Library {
         // Naming itself is a new device's first write, with its certificate:
         // its devices hear of it now, not a minute on.
         if named { changed() }
-        let crawled = await long("Looking for new videos") { cq_crawl($0) }
+        let crawled = await crawlSources()
         report(.refresh, synced ?? crawled)
         // The sources' servers' names, looked up now, so the first play's
         // copy racing finds them answered.
@@ -717,14 +718,51 @@ final class Library {
     /// finds little to do.
     func refresh() async {
         let synced = await long("Catching up", results: noteReceived) { cq_sync($0, nil) }
-        let crawled = await long("Looking for new videos") { cq_crawl($0) }
+        let crawled = await crawlSources()
         report(.refresh, synced ?? crawled)
         #if os(macOS)
         reconcileSoon()
         #endif
     }
 
-    func crawl() async { report(.refresh, await long("Looking for new videos") { cq_crawl($0) }) }
+    func crawl() async { report(.refresh, await crawlSources()) }
+
+    /// Crawls every source (`cq_crawl`), logging how long each took, and
+    /// describing after, to tell where a slow crawl goes; returns why it
+    /// failed, if it did.
+    private func crawlSources() async -> String? {
+        let clock = ContinuousClock()
+        let start = clock.now
+        return await long("Looking for new videos", results: { Self.logCrawl($0, took: clock.now - start) }) { cq_crawl($0) }
+    }
+
+    /// Crawling's steps and their times, in the system's log (Xcode's
+    /// console, or `log stream`).
+    static let crawlLog = Logger(subsystem: "com.rbrian.cinematheque", category: "crawl")
+
+    private static func logCrawl(_ data: Data, took: Duration) {
+        struct Crawled: Decodable {
+            let url: String
+            let files: Int
+            let error: String?
+            let crawl_ms: Int?
+            let total_ms: Int?
+            let requests: Int?
+            let reused: Int?
+            let changed: Int?
+        }
+        guard let sources = try? JSONDecoder().decode([Crawled].self, from: data) else { return }
+        for s in sources {
+            if let error = s.error {
+                crawlLog.notice("Crawled \(s.url, privacy: .public): failed, \(error, privacy: .public)")
+                continue
+            }
+            let total = Duration.milliseconds(s.total_ms ?? 0), listing = Duration.milliseconds(s.crawl_ms ?? 0)
+            crawlLog.notice("Crawled \(s.url, privacy: .public) in \(total.logged, privacy: .public): listing \(listing.logged, privacy: .public) (\(s.requests ?? 0) read, \(s.reused ?? 0) reused), recording \((total - listing).logged, privacy: .public); \(s.files) files, \(s.changed ?? 0) copies changed")
+        }
+        let crawling = Duration.milliseconds(sources.reduce(0) { $0 + ($1.total_ms ?? 0) })
+        crawlLog.notice("Looked for new videos in \(took.logged, privacy: .public): \(sources.count) sources in \(crawling.logged, privacy: .public), then describing (and the rest) \((took - crawling).logged, privacy: .public)")
+    }
 
     func sync(_ url: String? = nil) async { report(.refresh, await long("Catching up", results: noteReceived) { cq_sync($0, url) }) }
 

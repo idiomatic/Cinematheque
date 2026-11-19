@@ -127,6 +127,7 @@ One word for each thing, in the spec, the code, the command-line app, and the ap
 
 ## Debugging
 
+* The apps log to the system's log (Xcode's console), under `com.rbrian.cinematheque`: playback's steps and their times (`playback`), and each crawl's, per source (listing, how many listings read and reused, and recording) and describing after (`crawl`), from `cq_crawl`'s results.
 * Debug builds take launch options for driving the app unattended (in a VM by `open --env`; in the tvOS simulator by `simctl launch`, each prefixed `SIMCTL_CHILD_`): `CINEMATHEQUE_CODE_FILE` (a file each pairing code offered is written to, for a test to send from another device), `CINEMATHEQUE_SELECT` (a tile, e.g., `t/s/firefly/-#1`: selected on macOS, its title's page opened on tvOS), `CINEMATHEQUE_TAB` (tvOS: a tab, `movies`, `series`, ...; on both, in setup, a step, `pair` or `joinOther`, offering its code), `CINEMATHEQUE_DOWNLOAD_FLOOR` (the free space downloads keep, in bytes, for a VM's small disk; any build, read by the core), `CINEMATHEQUE_PLAY` (once a launch: a URL to play on macOS, with `CINEMATHEQUE_ITEM`, its item key, for its progress; any value on tvOS, to play the opened title).
 
 ## Implementation

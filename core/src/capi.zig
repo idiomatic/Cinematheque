@@ -209,7 +209,21 @@ const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
 const NearbyJson = struct { url: []const u8, device: ?[]const u8, host: ?[]const u8 = null, person: ?[]const u8, person_key: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
 const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
 const PairedJson = struct { person: []const u8, device: []const u8 };
-const CrawlJson = struct { url: []const u8, files: usize, titles: usize, covers: usize, @"error": ?[]const u8 };
+/// A source's crawl: what it found, and for diagnosis, how long listing
+/// (`crawl_ms`) and all of it (`total_ms`, recording what was found too)
+/// took, how many listings it read and reused, and how many copies changed.
+const CrawlJson = struct {
+    url: []const u8,
+    files: usize,
+    titles: usize,
+    covers: usize,
+    @"error": ?[]const u8,
+    crawl_ms: i64 = 0,
+    total_ms: i64 = 0,
+    requests: usize = 0,
+    reused: usize = 0,
+    changed: usize = 0,
+};
 const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, sent: usize = 0, @"error": ?[]const u8 };
 const HeardJson = struct { device: []const u8, name: ?[]const u8, operations: usize, at: u64 };
 
@@ -989,7 +1003,8 @@ fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
 /// describes what's new (covers and metadata) with concurrent workers,
 /// committing as it goes and taking prioritized titles (`cq_prioritize`)
 /// first. Returns a JSON array of objects with `url`, `files`, `titles`,
-/// and `error` (null, or why its crawl failed), one per source.
+/// and `error` (null, or why its crawl failed), one per source, with its
+/// times and counts (see `CrawlJson`).
 export fn cq_crawl(lib: *Library) ?[*:0]u8 {
     return json(lib, crawlAll, .{});
 }
@@ -1017,7 +1032,18 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
             o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = @errorName(err) };
             continue;
         };
-        o.* = .{ .url = rp.url, .files = s.ingest.files, .titles = s.ingest.titles_added, .covers = 0, .@"error" = null };
+        o.* = .{
+            .url = rp.url,
+            .files = s.ingest.files,
+            .titles = s.ingest.titles_added,
+            .covers = 0,
+            .@"error" = null,
+            .crawl_ms = s.crawl_ms,
+            .total_ms = s.total_ms,
+            .requests = s.crawl.requests,
+            .reused = s.crawl.skipped,
+            .changed = s.ingest.copies_added + s.ingest.copies_changed + s.ingest.copies_removed,
+        };
         try crawled.append(arena, .{ .source = rp, .entries = s.entries });
     }
     const plan = try art.plan(&r, arena, crawled.items);
