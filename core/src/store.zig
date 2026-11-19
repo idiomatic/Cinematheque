@@ -1,6 +1,6 @@
 //! A peer's home directory: its identity (`identity`, a random seed from
-//! which its device keys derive, and `user`, its user's seed, shared with the
-//! user's other devices, or else derived from the device's), the founder of
+//! which its device keys derive, and `person`, its person's seed, shared with the
+//! person's other devices, or else derived from the device's), the founder of
 //! its library, and its replica.
 
 const std = @import("std");
@@ -42,32 +42,32 @@ pub const Store = struct {
         }
         var identity: replica_.Identity = .from(seed);
         if (cwd.readFileAlloc(io, try path(arena, dir, "user"), arena, .limited(128))) |text| {
-            _ = try std.fmt.hexToBytes(&identity.user, std.mem.trim(u8, text, " \n"));
+            _ = try std.fmt.hexToBytes(&identity.person, std.mem.trim(u8, text, " \n"));
         } else |_| {}
         return .{ .io = io, .gpa = gpa, .dir = dir, .identity = identity };
     }
 
-    /// Makes this device act as the user whose secret `hex` is (as pairing
+    /// Makes this device act as the person whose secret `hex` is (as pairing
     /// sends it), before it opens or joins a library.
     pub fn pair(s: *Store, arena: std.mem.Allocator, hex: []const u8) !void {
         if (Io.Dir.cwd().access(s.io, try path(arena, s.dir, "replica.db"), .{})) |_| return error.AlreadyInUse else |_| {}
         const secret = try parseKey(hex);
         try Io.Dir.cwd().writeFile(s.io, .{ .sub_path = try path(arena, s.dir, "user"), .data = &std.fmt.bytesToHex(secret, .lower) });
-        s.identity.user = secret;
+        s.identity.person = secret;
     }
 
     fn path(arena: std.mem.Allocator, dir: []const u8, name: []const u8) ![]u8 {
         return std.fmt.allocPrint(arena, "{s}/{s}", .{ dir, name });
     }
 
-    pub fn user(s: *const Store) ![32]u8 {
-        return (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(s.identity.user)).public_key.toBytes();
+    pub fn person(s: *const Store) ![32]u8 {
+        return (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(s.identity.person)).public_key.toBytes();
     }
 
-    /// Whether this device acts as another device's user (`pair`), rather
+    /// Whether this device acts as another device's person (`pair`), rather
     /// than the one its own seed derives.
     pub fn paired(s: *const Store) bool {
-        return !std.mem.eql(u8, &s.identity.user, &replica_.Identity.from(s.identity.device).user);
+        return !std.mem.eql(u8, &s.identity.person, &replica_.Identity.from(s.identity.device).person);
     }
 
     /// This device's key.
@@ -76,7 +76,7 @@ pub const Store = struct {
     }
 
     /// The name this peer advertises by DNS-SD, and knows itself by when
-    /// browsing: its device's key, shortened, so a user's devices are told
+    /// browsing: its device's key, shortened, so a person's devices are told
     /// apart.
     pub fn serviceName(s: *const Store, arena: std.mem.Allocator) ![]u8 {
         return std.fmt.allocPrint(arena, "cinematheque-{s}", .{std.fmt.bytesToHex(try s.device(), .lower)[0..8]});

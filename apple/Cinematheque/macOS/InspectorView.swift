@@ -2,7 +2,7 @@
 import SwiftUI
 
 /// A tile's details: a larger cover, its metadata, playing it, and its
-/// place in this user's lists.
+/// place in this person's lists.
 struct InspectorView: View {
     let tile: Tile
     @Environment(Library.self) private var library
@@ -227,7 +227,7 @@ private struct EpisodeRow: View {
     }
 }
 
-/// Beside a progress meter: forgets where this user stopped, so the item
+/// Beside a progress meter: forgets where this person stopped, so the item
 /// plays from the beginning.
 private struct ClearPosition: View {
     let key: String

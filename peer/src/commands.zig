@@ -15,9 +15,9 @@ fn hex(key: [32]u8) [64]u8 {
     return std.fmt.bytesToHex(key, .lower);
 }
 
-pub fn user(peer: *Peer, c: Command) !void {
+pub fn person(peer: *Peer, c: Command) !void {
     if (c.is("show", 0, &.{})) {
-        try peer.out.print("{s}\n", .{hex(try peer.user())});
+        try peer.out.print("{s}\n", .{hex(try peer.person())});
     } else if (c.is("pair", 0, &.{})) {
         try network.offerPairing(peer, .pair);
     } else if (c.is("pair", 1, &.{}) or c.is("pair", 2, &.{})) {
@@ -27,17 +27,17 @@ pub fn user(peer: *Peer, c: Command) !void {
 
 /// Pairs the new device showing the code `c.rest[0]` (found nearby, or at
 /// `c.rest[1]`), offering for `kind`, and names it as it advertised itself;
-/// returns its user's key.
+/// returns its person's key.
 fn pairWith(peer: *Peer, c: Command, kind: core.pair.Kind) ![32]u8 {
     const new: Offering = if (c.rest.len == 2) .{ .url = c.rest[1], .name = "" } else try offering(peer, kind);
     var client: std.http.Client = .{ .allocator = peer.gpa, .io = peer.io };
     defer client.deinit();
     const joined = try core.pair.send(peer.io, peer.arena, &client, new.url, kind, c.rest[0], .{
-        .user = peer.store.identity.user,
+        .person = peer.store.identity.person,
         .founder = try peer.store.founder(peer.arena),
     });
-    // A paired device acts as this user from now on, not as the one it had.
-    const acting = if (kind == .pair) try peer.user() else joined.user;
+    // A paired device acts as this person from now on, not as the one it had.
+    const acting = if (kind == .pair) try peer.person() else joined.person;
     if (new.name.len > 0) {
         var r = try peer.open();
         defer r.close();
@@ -76,7 +76,7 @@ pub fn library(peer: *Peer, c: Command) !void {
     } else if (c.is("join", 0, &.{})) {
         try network.offerPairing(peer, .join);
     } else if (c.is("create", 0, &.{})) {
-        try peer.store.setFounder(peer.arena, try peer.user());
+        try peer.store.setFounder(peer.arena, try peer.person());
         var r = try peer.open();
         defer r.close();
         try peer.out.print("created library {s}\n", .{std.fmt.bytesToHex(r.library, .lower)});
@@ -96,7 +96,7 @@ pub fn member(peer: *Peer, c: Command) !void {
     if (c.is("list", 0, &.{})) {
         var r = try peer.open();
         defer r.close();
-        const me = try peer.user();
+        const me = try peer.person();
         for (try r.members(peer.arena)) |m| {
             try peer.out.print("{s}", .{hex(m)});
             if (std.mem.eql(u8, &m, &r.founder)) try peer.out.print("  founder", .{});
@@ -117,7 +117,7 @@ pub fn member(peer: *Peer, c: Command) !void {
     } else return error.Usage;
 }
 
-/// This user's devices, by name; removing one cuts it off (see
+/// This person's devices, by name; removing one cuts it off (see
 /// `Replica.revokeDevice`).
 pub fn device(peer: *Peer, c: Command) !void {
     if (c.is("list", 0, &.{})) {
@@ -125,8 +125,8 @@ pub fn device(peer: *Peer, c: Command) !void {
         defer r.close();
         const this = try peer.store.device();
         const named = try lib.names(&r, peer.arena);
-        // Every device certified for this user, named or not.
-        for (try r.devicesOf(peer.arena, try peer.user())) |d| {
+        // Every device certified for this person, named or not.
+        for (try r.devicesOf(peer.arena, try peer.person())) |d| {
             if (try r.revoked(d) != null) continue;
             const key = hex(d);
             try peer.out.print("{s}  {s}{s}\n", .{ key, lib.nameOf(named, &key) orelse "(unnamed)", if (std.mem.eql(u8, &d, &this)) "  this device" else "" });

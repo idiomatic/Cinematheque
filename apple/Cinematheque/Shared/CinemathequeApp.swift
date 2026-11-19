@@ -63,7 +63,7 @@ struct RootView: View {
         // Again once set up.
         .task(id: library.hasLibrary) {
             Platform.keep()
-            await library.startAtLaunch(device: Platform.deviceName, user: Platform.userName)
+            await library.startAtLaunch(device: Platform.deviceName, person: Platform.personName)
             await library.keepInSync()
         }
         // Back at the front (as an Apple TV app returns from the home screen,

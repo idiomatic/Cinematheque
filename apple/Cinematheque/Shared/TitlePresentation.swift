@@ -35,7 +35,7 @@ extension TitleDetail.Item {
         return number == 0 ? title : "\(number). \(title)"
     }
 
-    /// A symbol of how far this user has watched it.
+    /// A symbol of how far this person has watched it.
     var progressSymbol: String {
         watched ? "checkmark.circle.fill" : (inProgress ? "circle.lefthalf.filled" : "circle")
     }

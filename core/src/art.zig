@@ -583,7 +583,7 @@ pub const Tile = struct {
     cover: ?Cover = null,
     /// The cover's placeholder, a ThumbHash in base64.
     thumb: ?[]const u8 = null,
-    /// This user's: whether every item is watched; how much of its running
+    /// This person's: whether every item is watched; how much of its running
     /// time has been played, in milliseconds (each watched item whole, so
     /// one stopped in its last 5% counts in full, and each item partway to
     /// its position), of how much (`total`, an item of unknown length
@@ -727,16 +727,16 @@ fn coverOf(value: ?[]const u8) ?Cover {
 }
 
 fn watchlistKey(replica: *Replica, arena: std.mem.Allocator) ![]u8 {
-    return std.fmt.allocPrint(arena, "p/{s}/watchlist", .{std.fmt.bytesToHex(replica.userKey(), .lower)});
+    return std.fmt.allocPrint(arena, "p/{s}/watchlist", .{std.fmt.bytesToHex(replica.personKey(), .lower)});
 }
 
-/// Adds a title to this user's watchlist, or removes it; private to the
-/// user's devices.
+/// Adds a title to this person's watchlist, or removes it; private to the
+/// person's devices.
 pub fn setWatchlisted(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, title_key: []const u8, on: bool) !void {
     try replica.writePrivate(wall_ms, try watchlistKey(replica, arena), &.{.{ title_key, if (on) "1" else "" }});
 }
 
-/// The titles on this user's watchlist.
+/// The titles on this person's watchlist.
 pub fn watchlist(replica: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
     const s = try replica.db.prepare("SELECT field FROM winners WHERE key = ?1 AND value = CAST('1' AS BLOB) ORDER BY field");
@@ -756,7 +756,7 @@ test "covers round-trip, and a season without one takes its series'" {
     try std.testing.expectEqual(c.offset, back.offset);
     try std.testing.expectEqualStrings(c.stamp, back.stamp);
 
-    const founder = (try @import("replica.zig").userKeyPair(@splat(1))).public_key.toBytes();
+    const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
     var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
     try r.write(1, "t/s/firefly/-", "name", "Firefly");
@@ -801,7 +801,7 @@ test "a title in several sources is described once, from its best file, and kept
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try @import("replica.zig").userKeyPair(@splat(1))).public_key.toBytes();
+    const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
     var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
     const a: library.Source = .{ .id = "aaaaaaaaaaaaaaaa".*, .url = "http://nas/720/", .layout = .{} };

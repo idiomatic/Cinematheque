@@ -27,8 +27,8 @@ cleanup() {
 }
 trap cleanup EXIT
 digest() { $peer "$@" library show | awk '/^digest/ { print $2 }' }
-# Pairs a new device ($1, a home) offering by $2 (`user pair` or `library
-# join`) with a member's ($3), which sends the code by $4 (`user pair` or
+# Pairs a new device ($1, a home) offering by $2 (`person pair` or `library
+# join`) with a member's ($3), which sends the code by $4 (`person pair` or
 # `member pair`), at the port the offer prints.
 pair() {
     local log=$work/pair.log
@@ -69,20 +69,20 @@ $peer $b sync http://127.0.0.1:8191 | grep -q " [1-9][0-9]* pushed" || { echo "F
 $peer $a alias list | grep -q "movie-0004/1924 -> " || { echo "FAIL: B's push didn't reach A"; exit 1; }
 
 pair $work/c "library join" $work/a "member pair"
-$peer $a member remove $($peer $c user show)
+$peer $a member remove $($peer $c person show)
 $peer $c sync http://127.0.0.1:8191 | grep -q NotAMember || { echo "FAIL: a removed member was served"; exit 1; }
 
 item=t/m/movie-0003/1923/v/-
-pair $work/b2 "user pair" $work/b "user pair"
+pair $work/b2 "person pair" $work/b "person pair"
 $peer $b progress set $item 600 6000
-# B's pushes to A, another user's device, leave out B's progress.
+# B's pushes to A, another person's device, leave out B's progress.
 $peer $b sync http://127.0.0.1:8191
-$peer $a show ${item%/v/-} | grep -q " at " && { echo "FAIL: B pushed its progress to another user"; exit 1; }
+$peer $a show ${item%/v/-} | grep -q " at " && { echo "FAIL: B pushed its progress to another person"; exit 1; }
 $peer $b serve --port 8192 > $work/b.log 2>&1 &
 b_pid=$!
 sleep 1
 $peer $a sync http://127.0.0.1:8192
-$peer $a show ${item%/v/-} | grep -q " at " && { echo "FAIL: another user got B's progress"; exit 1; }
+$peer $a show ${item%/v/-} | grep -q " at " && { echo "FAIL: another person got B's progress"; exit 1; }
 $peer $b2 sync http://127.0.0.1:8191
 $peer $b2 show ${item%/v/-} | grep -q " at " && { echo "FAIL: B2 got B's progress through A"; exit 1; }
 $peer $b2 sync http://127.0.0.1:8192

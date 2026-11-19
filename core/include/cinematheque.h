@@ -24,25 +24,25 @@ void cq_close(cq_library *library);
 
 // Identity and membership.
 char *cq_status(cq_library *library);
-// Creates a library, founded by this user; joining one is by pairing.
+// Creates a library, founded by this person; joining one is by pairing.
 int cq_found(cq_library *library);
 // Leaves the library, as a device removed from it does (a sync's error is
 // "Removed"), forgetting it and this device's identity, to pair afresh.
 int cq_leave(cq_library *library);
 // Pairing: on a new device, before it has a library, offering to pair
-// (serving and advertising as name), to pair it to a member's user or (join
+// (serving and advertising as name), to pair it to a member's person or (join
 // nonzero) to join as a new member, with a code to show; and checking
-// whether it's paired (taking the library, and if pairingAsYours, the user's
+// whether it's paired (taking the library, and if pairingAsYours, the person's
 // secret) or closed (too many wrong codes). On a member's device, long,
 // pairing the one offering at url (a pairing peer's) given its code, which
-// returns its keys (user, to add a new member by, and device, to name it
+// returns its keys (person, to add a new member by, and device, to name it
 // by with cq_name).
 char *cq_pair_offer(cq_library *library, const char *name, int join);
 char *cq_pair_check(cq_library *library);
 void cq_pair_stop(cq_library *library);
 char *cq_pair(cq_library *library, const char *url, int join, const char *code);
 char *cq_members(cq_library *library);
-int cq_member(cq_library *library, const char *user_key, int add);
+int cq_member(cq_library *library, const char *person_key, int add);
 
 // Sources; rendition and skip may be NULL, for the default or no
 // change.
@@ -118,7 +118,7 @@ char *cq_title(cq_library *library, const char *key);
 // 0, or -1 if it isn't one. Any thread.
 int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *height);
 
-// This user's private data: progress in items (e.g.,
+// This person's private data: progress in items (e.g.,
 // "t/m/alien/1979/v/-"), and the watchlist of titles.
 int cq_set_progress(cq_library *library, const char *item_key, unsigned long long position_ms, unsigned long long duration_ms);
 int cq_set_watched(cq_library *library, const char *item_key, int watched);
@@ -134,12 +134,12 @@ int cq_set_watchlisted(cq_library *library, const char *title_key, int on);
 int cq_serve(cq_library *library, int port, const char *folders_json);
 void cq_stop_serving(cq_library *library);
 
-// Names, shown in place of keys: this user's ("user") or this device's
-// ("device"); this user's named devices; peers found nearby (long: it
+// Names, shown in place of keys: this person's ("user") or this device's
+// ("device"); this person's named devices; peers found nearby (long: it
 // listens for 2 seconds) and added by address, with their names, whether
-// they're of this library and their users members; and adding (nonzero
+// they're of this library and their people members; and adding (nonzero
 // add) or removing a peer by address, on this device only.
-int cq_name(cq_library *library, const char *device_key, const char *user_key, const char *name);
+int cq_name(cq_library *library, const char *device_key, const char *person_key, const char *name);
 int cq_remove_device(cq_library *library, const char *device_key);
 int cq_set_name(cq_library *library, const char *which, const char *name);
 char *cq_devices(cq_library *library);

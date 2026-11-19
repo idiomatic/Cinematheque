@@ -78,7 +78,7 @@ Peers find each other on your network, and while an app runs, it serves the libr
 
 ## Privacy
 
-Cinematheque has no accounts and no central server, and nothing leaves your devices except to the peers you sync with and the sources you add. What you've watched, and where you stopped, syncs only among your own devices, directly, never through anyone else's. It's kept from other users, not hardened against someone with access to a device that holds it.
+Cinematheque has no accounts and no central server, and nothing leaves your devices except to the peers you sync with and the sources you add. What you've watched, and where you stopped, syncs only among your own devices, directly, never through anyone else's. It's kept from other people, not hardened against someone with access to a device that holds it.
 
 ## For developers
 

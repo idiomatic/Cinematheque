@@ -152,7 +152,7 @@ struct SeriesView: View {
     }
 }
 
-/// An episode's row: its number and title, its runtime, and this user's
+/// An episode's row: its number and title, its runtime, and this person's
 /// progress in it.
 private struct Episode: View {
     let item: TitleDetail.Item

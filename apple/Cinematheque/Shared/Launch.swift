@@ -9,7 +9,7 @@ enum Launch {
     private static var env: [String: String] { ProcessInfo.processInfo.environment }
 
     /// `CINEMATHEQUE_CODE_FILE`: a file to write each pairing code this
-    /// device offers to, so a test can send it (`user pair CODE` or
+    /// device offers to, so a test can send it (`person pair CODE` or
     /// `member pair CODE` from another device).
     static func note(code: String?) {
         guard let path = env["CINEMATHEQUE_CODE_FILE"], let code else { return }

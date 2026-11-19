@@ -118,15 +118,15 @@ pub const Batch = struct {
 };
 
 /// A device's secrets: its own seed, from which its device keys derive, and
-/// its user's, which the user's devices share.
+/// its person's, which the person's devices share.
 pub const Identity = struct {
     device: [32]u8,
-    user: [32]u8,
+    person: [32]u8,
 
-    /// A device's identity when its user has no other devices yet: the
-    /// user's seed derives from the device's.
+    /// A device's identity when its person has no other devices yet: the
+    /// person's seed derives from the device's.
     pub fn from(device_seed: [32]u8) Identity {
-        return .{ .device = device_seed, .user = derive("cinematheque user", device_seed) };
+        return .{ .device = device_seed, .person = derive("cinematheque user", device_seed) };
     }
 };
 
@@ -143,20 +143,20 @@ pub const Replica = struct {
     gpa: std.mem.Allocator,
     db: sqlite.Db,
     library: op_.Library,
-    /// The user who created the library, from whom its ID derives.
+    /// The person who created the library, from whom its ID derives.
     genesis: Device,
     /// The founder now: the genesis founder, or the last successor in the
     /// chain of handovers. The founder is always a member and can't be
     /// removed.
     founder: Device,
-    /// The user this device acts for, who certifies its key.
-    user: Ed25519.KeyPair,
+    /// The person this device acts for, who certifies its key.
+    person: Ed25519.KeyPair,
     key_pair: Ed25519.KeyPair,
     own: i64,
     seq: u64,
     /// The device's private stream: its own key, numbering, and batches, for
-    /// its user's private data (`p/<user>/...`), which replicates only among
-    /// that user's devices.
+    /// its person's private data (`p/<person>/...`), which replicates only among
+    /// that person's devices.
     private_pair: Ed25519.KeyPair,
     private_own: i64 = 0,
     private_seq: u64 = 0,
@@ -185,7 +185,7 @@ pub const Replica = struct {
     insert_batch: sqlite.Stmt,
 
     /// Opens a replica of the library `founder` created, as the device and
-    /// user `identity` gives. A device writes its certificate with its first
+    /// person `identity` gives. A device writes its certificate with its first
     /// write, so devices that only read never need one.
     /// Renames tables from replicas made before their names changed (`vv`
     /// became `version_vector`). Another process opening the replica may
@@ -208,7 +208,7 @@ pub const Replica = struct {
             .library = libraryId(founder),
             .genesis = founder,
             .founder = founder,
-            .user = try Ed25519.KeyPair.generateDeterministic(identity.user),
+            .person = try Ed25519.KeyPair.generateDeterministic(identity.person),
             .key_pair = try Ed25519.KeyPair.generateDeterministic(identity.device),
             .private_pair = try Ed25519.KeyPair.generateDeterministic(derive("cinematheque private", identity.device)),
             .own = 0,
@@ -237,18 +237,18 @@ pub const Replica = struct {
         replica.private_own = try replica.deviceId(replica.private_pair.public_key.toBytes());
         replica.private_seq = try replica.seen(replica.private_own);
         replica.repairing = try replica.repairsPending() > 0;
-        replica.founder = (try replica.founderAt(std.math.maxInt(u32))).user;
+        replica.founder = (try replica.founderAt(std.math.maxInt(u32))).person;
         return replica;
     }
 
-    /// The user's key and signature over `"cinematheque device" | library |
+    /// The person's key and signature over `"cinematheque device" | library |
     /// device key`, or, for a private stream, `"cinematheque private" |
     /// library | key`.
     pub fn certificate(replica: *const Replica, private: bool) ![96]u8 {
         const key = if (private) replica.private_pair.public_key.toBytes() else replica.device();
-        const sig = try replica.user.sign(&certMessage(replica.library, key, private), null);
+        const sig = try replica.person.sign(&certMessage(replica.library, key, private), null);
         var value: [96]u8 = undefined;
-        value[0..32].* = replica.user.public_key.toBytes();
+        value[0..32].* = replica.person.public_key.toBytes();
         value[32..].* = sig.toBytes();
         return value;
     }
@@ -295,23 +295,23 @@ pub const Replica = struct {
     }
 
     /// Whether this device's own certificate, or its private stream's, as
-    /// held, is valid for this library and names its user. Its own writes
+    /// held, is valid for this library and names its person. Its own writes
     /// pass without one, so only others would notice one that isn't, by
     /// refusing every write on the stream (as an older build's may be).
     fn ownCertified(replica: *Replica, private: bool) !bool {
         const key = if (private) replica.private_pair.public_key.toBytes() else replica.device();
         const c = try replica.certified(key, &.{}) orelse return false;
-        return c.private == private and std.mem.eql(u8, &c.user, &replica.userKey());
+        return c.private == private and std.mem.eql(u8, &c.person, &replica.personKey());
     }
 
-    pub fn userKey(replica: *const Replica) Device {
-        return replica.user.public_key.toBytes();
+    pub fn personKey(replica: *const Replica) Device {
+        return replica.person.public_key.toBytes();
     }
 
-    /// Writes `fields` of the private `key` (which must be this user's,
-    /// `p/<user>/...`) as one batch of the device's private stream.
+    /// Writes `fields` of the private `key` (which must be this person's,
+    /// `p/<person>/...`) as one batch of the device's private stream.
     pub fn writePrivate(replica: *Replica, wall_ms: u64, key: []const u8, fields: []const [2][]const u8) !void {
-        const hex = std.fmt.bytesToHex(replica.userKey(), .lower);
+        const hex = std.fmt.bytesToHex(replica.personKey(), .lower);
         if (!std.mem.startsWith(u8, key, "p/") or !std.mem.startsWith(u8, key[2..], &hex) or key.len < 67 or key[66] != '/')
             return error.NotPrivate;
         try replica.flush();
@@ -348,24 +348,24 @@ pub const Replica = struct {
         try replica.advance(replica.private_own, replica.private_seq);
     }
 
-    /// Adds `user` to the library's members.
-    pub fn addMember(replica: *Replica, wall_ms: u64, user: Device) !void {
-        try replica.setMember(wall_ms, "members", &std.fmt.bytesToHex(user, .lower), true);
+    /// Adds `person` to the library's members.
+    pub fn addMember(replica: *Replica, wall_ms: u64, person: Device) !void {
+        try replica.setMember(wall_ms, "members", &std.fmt.bytesToHex(person, .lower), true);
     }
 
     /// Hands the library over to `successor`, who becomes a member if not
-    /// one already; this user stays a member if `stay`. Only the founder may.
+    /// one already; this person stays a member if `stay`. Only the founder may.
     pub fn handOver(replica: *Replica, wall_ms: u64, successor: Device, stay: bool) !void {
-        const me = replica.user.public_key.toBytes();
+        const me = replica.person.public_key.toBytes();
         if (!std.mem.eql(u8, &me, &replica.founder)) return error.NotFounder;
-        if (!try replica.isMemberUser(successor)) try replica.addMember(wall_ms, successor);
+        if (!try replica.isMemberPerson(successor)) try replica.addMember(wall_ms, successor);
         if (stay) try replica.addMember(wall_ms, me);
         const now = try replica.founderAt(std.math.maxInt(u32));
         var field: [10]u8 = undefined;
         try replica.write(wall_ms, "founders", try std.fmt.bufPrint(&field, "{d:0>6}", .{now.generation + 1}), &successor);
     }
 
-    const Founder = struct { user: Device, generation: u32 };
+    const Founder = struct { person: Device, generation: u32 };
 
     /// Follows the chain of handovers held (`founders`, fields numbered
     /// from 1, each naming a successor and written by a device of the
@@ -380,11 +380,11 @@ pub const Replica = struct {
             try s.bindText(1, try std.fmt.bufPrint(&field, "{d:0>6}", .{n + 1}));
             if (!try s.step() or s.blob(1).len != 32) break;
             const author = replica.keys.items[@intCast(s.int(0) - 1)];
-            const user = try replica.certifiedUser(author, &.{}) orelse break;
-            if (!std.mem.eql(u8, &user, &holder)) break;
+            const person = try replica.certifiedPerson(author, &.{}) orelse break;
+            if (!std.mem.eql(u8, &person, &holder)) break;
             holder = s.blob(1)[0..32].*;
         }
-        return .{ .user = holder, .generation = n };
+        return .{ .person = holder, .generation = n };
     }
 
     /// Checks a batch's handovers: each must come from the founder of the
@@ -395,23 +395,23 @@ pub const Replica = struct {
         for (ops, 0..) |op, i| {
             if (!std.mem.eql(u8, op.key, "founders")) continue;
             const n = std.fmt.parseInt(u32, op.field, 10) catch 0;
-            const author = try replica.certifiedUser(device_key, ops);
+            const author = try replica.certifiedPerson(device_key, ops);
             if (n == 0 or op.value.len != 32 or author == null) {
                 refused.set(i);
                 continue;
             }
             const before = try replica.founderAt(n - 1);
             if (before.generation < n - 1) return error.Unauthorized;
-            if (!std.mem.eql(u8, &author.?, &before.user)) refused.set(i);
+            if (!std.mem.eql(u8, &author.?, &before.person)) refused.set(i);
         }
     }
 
-    pub fn isMemberUser(replica: *Replica, user: Device) !bool {
-        return std.mem.eql(u8, &user, &replica.founder) or
-            try replica.isMember("members", &std.fmt.bytesToHex(user, .lower));
+    pub fn isMemberPerson(replica: *Replica, person: Device) !bool {
+        return std.mem.eql(u8, &person, &replica.founder) or
+            try replica.isMember("members", &std.fmt.bytesToHex(person, .lower));
     }
 
-    /// What a device's batches may hold: everything (its user is a
+    /// What a device's batches may hold: everything (its person is a
     /// member), nothing yet (no certificate naming a member), or, for a
     /// removed device (or a removed member's), writes through its cutoff.
     const Admission = union(enum) { all, none, through: u64 };
@@ -421,13 +421,13 @@ pub const Replica = struct {
         if (std.mem.eql(u8, &device_key, &replica.private_pair.public_key.toBytes())) return .all;
         const c = try replica.certified(device_key, ops) orelse return .none;
         if (try replica.revoked(device_key)) |seq| return .{ .through = seq };
-        if (try replica.isMemberUser(c.user)) return .all;
+        if (try replica.isMemberPerson(c.person)) return .all;
         return .none;
     }
 
-    pub const Certified = struct { user: Device, private: bool };
+    pub const Certified = struct { person: Device, private: bool };
 
-    /// The user whose valid certificate, from `ops` or already held, names
+    /// The person whose valid certificate, from `ops` or already held, names
     /// `device_key`, and whether it names a private stream.
     pub fn certified(replica: *Replica, device_key: Device, ops: []const Op) !?Certified {
         var key_buf: [66]u8 = undefined;
@@ -448,42 +448,42 @@ pub const Replica = struct {
                 };
             }
             const c = cert orelse continue;
-            if (verifyCertificate(replica.library, device_key, private, c)) |user| return .{ .user = user, .private = private };
+            if (verifyCertificate(replica.library, device_key, private, c)) |person| return .{ .person = person, .private = private };
         }
         return null;
     }
 
-    fn certifiedUser(replica: *Replica, device_key: Device, ops: []const Op) !?Device {
+    fn certifiedPerson(replica: *Replica, device_key: Device, ops: []const Op) !?Device {
         const c = try replica.certified(device_key, ops) orelse return null;
-        return if (c.private) null else c.user;
+        return if (c.private) null else c.person;
     }
 
-    /// Refuses private data written by anyone but its user's private stream,
+    /// Refuses private data written by anyone but its person's private stream,
     /// and anything else a private stream writes.
     fn checkPrivate(replica: *Replica, device_key: Device, ops: []const Op, refused: *std.StaticBitSet(merkle.max_leaves)) !void {
-        // This device's own private stream is its user's, certificate or
+        // This device's own private stream is its person's, certificate or
         // not: a replica rebuilt from peers (e.g., after tvOS purged it) may
         // get the stream's batches before the public one carrying its
         // certificate.
         const own = std.mem.eql(u8, &device_key, &replica.private_pair.public_key.toBytes());
-        const c: ?Certified = if (own) .{ .user = replica.userKey(), .private = true } else try replica.certified(device_key, ops);
+        const c: ?Certified = if (own) .{ .person = replica.personKey(), .private = true } else try replica.certified(device_key, ops);
         for (ops, 0..) |op, i| {
             const is_private = std.mem.startsWith(u8, op.key, "p/");
             if (c != null and c.?.private) {
-                const hex = std.fmt.bytesToHex(c.?.user, .lower);
+                const hex = std.fmt.bytesToHex(c.?.person, .lower);
                 if (!is_private or op.key.len < 67 or !std.mem.eql(u8, op.key[2..66], &hex) or op.key[66] != '/') refused.set(i);
             } else if (is_private) refused.set(i);
         }
     }
 
-    /// Devices certified for `user`, by the certificates held.
-    pub fn devicesOf(replica: *Replica, arena: std.mem.Allocator, user: Device) ![]Device {
+    /// Devices certified for `person`, by the certificates held.
+    pub fn devicesOf(replica: *Replica, arena: std.mem.Allocator, person: Device) ![]Device {
         var out: std.ArrayList(Device) = .empty;
         const s = try replica.db.prepare("SELECT key, value FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'user'");
         defer s.finalize();
         while (try s.step()) {
             const value = s.blob(1);
-            if (value.len != 96 or !std.mem.eql(u8, value[0..32], &user)) continue;
+            if (value.len != 96 or !std.mem.eql(u8, value[0..32], &person)) continue;
             var dev: Device = undefined;
             _ = std.fmt.hexToBytes(&dev, s.blob(0)[2..]) catch continue;
             try out.append(arena, dev);
@@ -491,11 +491,11 @@ pub const Replica = struct {
         return out.items;
     }
 
-    /// Removes one device (of this user's, or any member's) without its
-    /// user: its streams, its own and its private one, are cut off where
+    /// Removes one device (of this person's, or any member's) without its
+    /// person: its streams, its own and its private one, are cut off where
     /// this replica has seen them, so writes through there stand and later
-    /// ones are refused, and it's served no more. It still holds its user's
-    /// secret, so it isn't kept out of the user's other devices' data that
+    /// ones are refused, and it's served no more. It still holds its person's
+    /// secret, so it isn't kept out of the person's other devices' data that
     /// it already has, and could pair afresh as another device.
     pub fn revokeDevice(replica: *Replica, wall_ms: u64, device_key: Device) !void {
         if (std.mem.eql(u8, &device_key, &replica.device())) return error.ThisDevice;
@@ -541,17 +541,17 @@ pub const Replica = struct {
         return std.mem.readInt(u64, value[0..8], .little);
     }
 
-    /// Removes `user` from the library, and cuts off each of their devices
+    /// Removes `person` from the library, and cuts off each of their devices
     /// as `revokeDevice` does: their writes up to what this replica has
     /// seen stand; later ones are refused. A device the remover didn't
-    /// know isn't admitted, its user no longer a member. The founder (as
+    /// know isn't admitted, its person no longer a member. The founder (as
     /// handed over, if it was) can't be removed.
-    pub fn removeMember(replica: *Replica, wall_ms: u64, user: Device) !void {
-        if (std.mem.eql(u8, &user, &replica.founder)) return error.FounderIsPermanent;
+    pub fn removeMember(replica: *Replica, wall_ms: u64, person: Device) !void {
+        if (std.mem.eql(u8, &person, &replica.founder)) return error.FounderIsPermanent;
         var arena_state = std.heap.ArenaAllocator.init(replica.gpa);
         defer arena_state.deinit();
-        try replica.setMember(wall_ms, "members", &std.fmt.bytesToHex(user, .lower), false);
-        for (try replica.devicesOf(arena_state.allocator(), user)) |dev| {
+        try replica.setMember(wall_ms, "members", &std.fmt.bytesToHex(person, .lower), false);
+        for (try replica.devicesOf(arena_state.allocator(), person)) |dev| {
             if (!std.mem.eql(u8, &dev, &replica.device())) try replica.revokeStreams(wall_ms, dev);
         }
     }
@@ -638,7 +638,7 @@ pub const Replica = struct {
         try replica.internAdded();
         replica.seq = try replica.seen(replica.own);
         replica.private_seq = try replica.seen(replica.private_own);
-        replica.founder = (try replica.founderAt(std.math.maxInt(u32))).user;
+        replica.founder = (try replica.founderAt(std.math.maxInt(u32))).person;
     }
 
     /// The peer's own `key`, which doesn't replicate, if set.
@@ -702,7 +702,7 @@ pub const Replica = struct {
         try replica.writeOp(.causal_length, wall_ms, key, element, &value);
     }
 
-    /// The library's members: the founder, then the users added and not
+    /// The library's members: the founder, then the people added and not
     /// removed.
     pub fn members(replica: *Replica, arena: std.mem.Allocator) ![]Device {
         var out: std.ArrayList(Device) = .empty;
@@ -711,8 +711,8 @@ pub const Replica = struct {
         defer s.finalize();
         while (try s.step()) {
             if (op_.causalLength(s.blob(1)) % 2 == 0) continue;
-            const user = parseHex(s.blob(0)) orelse continue;
-            if (!std.mem.eql(u8, &user, &replica.founder)) try out.append(arena, user);
+            const person = parseHex(s.blob(0)) orelse continue;
+            if (!std.mem.eql(u8, &person, &replica.founder)) try out.append(arena, person);
         }
         return out.items;
     }
@@ -872,7 +872,7 @@ pub const Replica = struct {
         try u.bindBlob(7, op.value);
         _ = try u.step();
         if (std.mem.eql(u8, op.key, "revoked")) try replica.cut(op.field, op.value);
-        if (std.mem.eql(u8, op.key, "founders")) replica.founder = (try replica.founderAt(std.math.maxInt(u32))).user;
+        if (std.mem.eql(u8, op.key, "founders")) replica.founder = (try replica.founderAt(std.math.maxInt(u32))).person;
         return .won;
     }
 
@@ -901,11 +901,11 @@ pub const Replica = struct {
         _ = try u.step();
     }
 
-    /// The version vector without other users' private streams than `reader`'s.
+    /// The version vector without other people's private streams than `reader`'s.
     pub fn readableVector(replica: *Replica, arena: std.mem.Allocator, reader: Device) !VersionVector {
         var out: std.ArrayList(Entry) = .empty;
         for (try replica.versionVector(arena)) |entry| {
-            if (try replica.certified(entry.device, &.{})) |c| if (c.private and !std.mem.eql(u8, &c.user, &reader)) continue;
+            if (try replica.certified(entry.device, &.{})) |c| if (c.private and !std.mem.eql(u8, &c.person, &reader)) continue;
             try out.append(arena, entry);
         }
         return out.items;
@@ -966,10 +966,10 @@ pub const Replica = struct {
     }
 };
 
-/// The user keys of a device's identity when the user's seed derives from the
+/// The person keys of a device's identity when the person's seed derives from the
 /// device's (see `Identity.from`).
-pub fn userKeyPair(seed: [32]u8) !Ed25519.KeyPair {
-    return Ed25519.KeyPair.generateDeterministic(Identity.from(seed).user);
+pub fn personKeyPair(seed: [32]u8) !Ed25519.KeyPair {
+    return Ed25519.KeyPair.generateDeterministic(Identity.from(seed).person);
 }
 
 /// A library's ID derives from its founder, so every peer can tell who
@@ -1001,10 +1001,10 @@ fn parseHex(hex: []const u8) ?Device {
     return out;
 }
 
-/// The user a certificate names, if its signature holds.
+/// The person a certificate names, if its signature holds.
 pub fn verifyCertificate(library: op_.Library, device_key: Device, private: bool, cert: [96]u8) ?Device {
-    const user = Ed25519.PublicKey.fromBytes(cert[0..32].*) catch return null;
-    Ed25519.Signature.fromBytes(cert[32..96].*).verify(&certMessage(library, device_key, private), user) catch return null;
+    const person = Ed25519.PublicKey.fromBytes(cert[0..32].*) catch return null;
+    Ed25519.Signature.fromBytes(cert[32..96].*).verify(&certMessage(library, device_key, private), person) catch return null;
     return cert[0..32].*;
 }
 
@@ -1062,7 +1062,7 @@ pub fn readVector(arena: std.mem.Allocator, r: *std.Io.Reader) !VersionVector {
 
 const Row = struct { seq: u64, hlc: u64, kind: op_.Kind, key: []const u8, field: []const u8, value: []const u8 };
 
-/// `reader` is the user the response is for: other users' private streams
+/// `reader` is the person the response is for: other people's private streams
 /// (and their places in the version vector) are left out.
 pub fn writeSync(src: *Replica, arena: std.mem.Allocator, wanted: VersionVector, reader: Device, w: *std.Io.Writer) !usize {
     var sent: usize = 0;
@@ -1272,7 +1272,7 @@ pub fn sync(arena: std.mem.Allocator, dst: *Replica, src: *Replica) !Stats {
     const wanted = try readVector(arena, &request_reader);
 
     var response: std.Io.Writer.Allocating = .init(arena);
-    _ = try writeSync(src, arena, wanted, dst.userKey(), &response.writer);
+    _ = try writeSync(src, arena, wanted, dst.personKey(), &response.writer);
     var response_reader: std.Io.Reader = .fixed(response.written());
     var stats = try readSync(dst, &response_reader, null);
     stats.wire_bytes = request.written().len + response.written().len;
@@ -1402,23 +1402,23 @@ fn fetchFields(dst: *Replica, src: *Replica, fields: []const Field) !Stats {
 
 const testing = std.testing;
 
-fn testUser(seed: u8) !Device {
-    return (try userKeyPair(@splat(seed))).public_key.toBytes();
+fn testPerson(seed: u8) !Device {
+    return (try personKeyPair(@splat(seed))).public_key.toBytes();
 }
 
 const Peers = struct {
     arena_state: std.heap.ArenaAllocator,
     replicas: [3]Replica,
 
-    /// Replica 0's user founds the library; `added` of the others' users
+    /// Replica 0's person founds the library; `added` of the others' people
     /// are members, and every replica has caught up with replica 0.
     fn initAdding(peers: *Peers, added: usize) !void {
         peers.arena_state = .init(testing.allocator);
-        const founder = try testUser(1);
+        const founder = try testPerson(1);
         for (&peers.replicas, 1..) |*r, seed| {
             r.* = try Replica.open(testing.allocator, testing.io, ":memory:", founder, .from(@splat(@intCast(seed))));
         }
-        for (1..added + 1) |i| try peers.replicas[0].addMember(1, try testUser(@intCast(i + 1)));
+        for (1..added + 1) |i| try peers.replicas[0].addMember(1, try testPerson(@intCast(i + 1)));
         for (1..peers.replicas.len) |i| _ = try peers.sync(i, 0);
     }
 
@@ -1581,9 +1581,9 @@ test "fetched fields are verified by shared proof" {
     try testing.expectError(error.SignatureVerificationFailed, fetchFields(&p.replicas[2], a, &.{.{ .key = "t/00003", .field = "f30" }}));
 }
 
-test "batches from devices of users who aren't members are rejected, then accepted once added" {
+test "batches from devices of people who aren't members are rejected, then accepted once added" {
     var p: Peers = undefined;
-    try p.initAdding(1); // replica 2's user isn't a member
+    try p.initAdding(1); // replica 2's person isn't a member
     defer p.deinit();
     const a = &p.replicas[0];
     const c = &p.replicas[2];
@@ -1593,9 +1593,9 @@ test "batches from devices of users who aren't members are rejected, then accept
     try testing.expect(rejected.rejected > 0);
     try testing.expectError(error.Missing, p.value(1, "t/00001", "name"));
 
-    // a adds c's user; b hears of it from a, then accepts c's writes,
+    // a adds c's person; b hears of it from a, then accepts c's writes,
     // since b didn't claim them in its version vector.
-    try a.addMember(2000, try testUser(3));
+    try a.addMember(2000, try testPerson(3));
     _ = try p.sync(1, 0);
     const accepted = try p.sync(1, 2);
     try testing.expectEqual(@as(usize, 0), accepted.rejected);
@@ -1610,8 +1610,8 @@ test "a device whose certificate doesn't verify writes a fresh one, and its whol
 
     // c's stream starts with a certificate signed for another library.
     var key: [66]u8 = undefined;
-    const sig = try c.user.sign(&certMessage(libraryId(@splat(9)), c.device(), false), null);
-    try c.write(0, certKey(&key, c.device()), "user", &(c.userKey() ++ sig.toBytes()));
+    const sig = try c.person.sign(&certMessage(libraryId(@splat(9)), c.device(), false), null);
+    try c.write(0, certKey(&key, c.device()), "user", &(c.personKey() ++ sig.toBytes()));
     c.checked_certificate = true; // As an older build would, c doesn't check.
     try c.write(1000, "t/00001", "name", "Metropolis");
     try testing.expect((try p.sync(1, 2)).rejected > 0);
@@ -1628,7 +1628,7 @@ test "a device whose certificate doesn't verify writes a fresh one, and its whol
     // even when it writes only private data.
     c.checked_certificate = false;
     c.hlc = .{};
-    try c.writePrivate(2000, try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/x/2000/v/-", .{std.fmt.bytesToHex(c.userKey(), .lower)}), &.{.{ "position", "60000" }});
+    try c.writePrivate(2000, try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/x/2000/v/-", .{std.fmt.bytesToHex(c.personKey(), .lower)}), &.{.{ "position", "60000" }});
     try c.write(2000, "t/00002", "name", "Nosferatu");
     const stats = try p.sync(1, 2);
     try testing.expectEqual(@as(usize, 0), stats.rejected);
@@ -1636,7 +1636,7 @@ test "a device whose certificate doesn't verify writes a fresh one, and its whol
     try testing.expectEqualStrings("Nosferatu", try p.value(1, "t/00002", "name"));
 }
 
-test "a device removed has its later writes refused, though its user stays" {
+test "a device removed has its later writes refused, though its person stays" {
     var p: Peers = undefined;
     try p.init();
     defer p.deinit();
@@ -1652,7 +1652,7 @@ test "a device removed has its later writes refused, though its user stays" {
     try testing.expect(stats.refused > 0);
     try testing.expectEqualStrings("Before", try p.value(1, "t/00001", "name"));
     try testing.expectError(error.Missing, p.value(1, "t/00002", "name"));
-    try testing.expect(try c.isMemberUser(c.userKey()));
+    try testing.expect(try c.isMemberPerson(c.personKey()));
     try testing.expectError(error.ThisDevice, a.revokeDevice(4000, a.device()));
 }
 
@@ -1663,11 +1663,11 @@ test "an invitation later in the same response admits earlier batches" {
     const a = &p.replicas[0];
     const c = &p.replicas[2];
 
-    // a learns c's writes before inviting c's user, so a rejects them;
+    // a learns c's writes before inviting c's person, so a rejects them;
     // after inviting, a takes them on the next sync.
     try c.write(1000, "t/00002", "name", "Relayed");
     try testing.expect((try p.sync(0, 2)).rejected > 0);
-    try a.addMember(2000, try testUser(3));
+    try a.addMember(2000, try testPerson(3));
     _ = try p.sync(0, 2);
     // b, fresh, gets c's batches and a's invitation in one response from a,
     // in whatever order the devices come.
@@ -1697,14 +1697,14 @@ test "a peer that took a removed device's later writes repairs from one that ref
     try testing.expectEqual(@as(i64, 1), try c.repairsPending());
     _ = try repair(c, a);
     try testing.expectEqualStrings("before", try p.value(2, "t/00001", "name"));
-    try testing.expect(try c.isMemberUser(b.userKey()));
+    try testing.expect(try c.isMemberPerson(b.personKey()));
 }
 
 test "the founder can't be removed" {
     var p: Peers = undefined;
     try p.init();
     defer p.deinit();
-    try testing.expectError(error.FounderIsPermanent, p.replicas[1].removeMember(1000, try testUser(1)));
+    try testing.expectError(error.FounderIsPermanent, p.replicas[1].removeMember(1000, try testPerson(1)));
 }
 
 test "a removed member's writes up to the cutoff stand, and later ones are refused" {
@@ -1716,7 +1716,7 @@ test "a removed member's writes up to the cutoff stand, and later ones are refus
 
     try b.write(1000, "t/00001", "name", "before");
     _ = try p.sync(0, 1);
-    try a.removeMember(2000, try testUser(2));
+    try a.removeMember(2000, try testPerson(2));
     try b.write(3000, "t/00001", "name", "after");
     try b.write(3000, "t/00002", "name", "new");
     const stats = try p.sync(0, 1);
@@ -1735,7 +1735,7 @@ test "a peer that took a removed member's later writes repairs from one that ref
 
     try b.write(1000, "t/00001", "name", "before");
     _ = try p.sync(0, 1);
-    try a.removeMember(2000, try testUser(2));
+    try a.removeMember(2000, try testPerson(2));
     try b.write(3000, "t/00001", "name", "after");
     try b.write(3000, "t/00002", "name", "new");
     // c hears from b before hearing of the removal, so takes the later writes.
@@ -1764,17 +1764,17 @@ test "the founder hands over to a successor, who is then permanent" {
     const b = &p.replicas[1];
     const c = &p.replicas[2];
 
-    try a.handOver(1000, try testUser(2), true);
+    try a.handOver(1000, try testPerson(2), true);
     _ = try p.sync(1, 0);
     _ = try p.sync(2, 0);
-    for (&p.replicas) |*r| try testing.expectEqual(try testUser(2), r.founder);
+    for (&p.replicas) |*r| try testing.expectEqual(try testPerson(2), r.founder);
     // The former founder, still a member, can be removed, but not the new one.
-    try testing.expectError(error.FounderIsPermanent, a.removeMember(2000, try testUser(2)));
-    try b.removeMember(2000, try testUser(1));
+    try testing.expectError(error.FounderIsPermanent, a.removeMember(2000, try testPerson(2)));
+    try b.removeMember(2000, try testPerson(1));
     _ = try p.sync(2, 1);
-    try testing.expect(!try c.isMemberUser(try testUser(1)));
+    try testing.expect(!try c.isMemberPerson(try testPerson(1)));
     // Only the founder may hand over.
-    try testing.expectError(error.NotFounder, c.handOver(3000, try testUser(3), true));
+    try testing.expectError(error.NotFounder, c.handOver(3000, try testPerson(3), true));
 }
 
 test "a handover not from the founder is refused" {
@@ -1784,10 +1784,10 @@ test "a handover not from the founder is refused" {
     const b = &p.replicas[1];
 
     // b forges generation 1, naming itself.
-    try b.write(1000, "founders", "000001", &(try testUser(2)));
+    try b.write(1000, "founders", "000001", &(try testPerson(2)));
     const stats = try p.sync(0, 1);
     try testing.expectEqual(@as(usize, 1), stats.refused);
-    try testing.expectEqual(try testUser(1), p.replicas[0].founder);
+    try testing.expectEqual(try testPerson(1), p.replicas[0].founder);
 }
 
 test "a chain of handovers arriving out of order is followed" {
@@ -1797,36 +1797,36 @@ test "a chain of handovers arriving out of order is followed" {
     const a = &p.replicas[0];
     const b = &p.replicas[1];
 
-    try a.handOver(1000, try testUser(2), false);
+    try a.handOver(1000, try testPerson(2), false);
     _ = try p.sync(1, 0);
-    try b.handOver(2000, try testUser(3), true);
+    try b.handOver(2000, try testPerson(3), true);
     // c learned of a's device before b's, so a fresh peer syncing from c
     // gets b's generation 2 ahead of a's generation 1 (devices learned last
     // come first), holds it, then follows the chain.
     _ = try p.sync(2, 1);
-    var d = try Replica.open(testing.allocator, testing.io, ":memory:", try testUser(1), .from(@splat(9)));
+    var d = try Replica.open(testing.allocator, testing.io, ":memory:", try testPerson(1), .from(@splat(9)));
     defer d.close();
     const stats = try replica_sync(p.arena_state.allocator(), &d, &p.replicas[2]);
     try testing.expect(stats.deferred > 0);
-    try testing.expectEqual(try testUser(3), d.founder);
+    try testing.expectEqual(try testPerson(3), d.founder);
     // a left the library when handing over.
-    try testing.expect(!try d.isMemberUser(try testUser(1)));
+    try testing.expect(!try d.isMemberPerson(try testPerson(1)));
 }
 
-test "private data reaches its user's other devices, directly, and no one else" {
+test "private data reaches its person's other devices, directly, and no one else" {
     var p: Peers = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
-    // b2 is another device of b's user.
-    var b2 = try Replica.open(testing.allocator, testing.io, ":memory:", try testUser(1), .{ .device = @splat(42), .user = Identity.from(@splat(2)).user });
+    // b2 is another device of b's person.
+    var b2 = try Replica.open(testing.allocator, testing.io, ":memory:", try testPerson(1), .{ .device = @splat(42), .person = Identity.from(@splat(2)).person });
     defer b2.close();
-    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.userKey(), .lower)});
+    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.personKey(), .lower)});
 
     try b.write(1000, "t/m/alien/1979", "name", "Alien");
     try b.writePrivate(2000, key, &.{ .{ "position", "1234" }, .{ "duration", "7000" } });
-    // a, another user, gets b's public writes but not its private ones.
+    // a, another person, gets b's public writes but not its private ones.
     _ = try p.sync(0, 1);
     try testing.expectEqualStrings("Alien", try p.value(0, "t/m/alien/1979", "name"));
     try testing.expectError(error.Missing, p.value(0, key, "position"));
@@ -1842,18 +1842,18 @@ test "private data reaches its user's other devices, directly, and no one else" 
     try testing.expectEqualStrings("1234", s.blob(0));
 }
 
-test "private data written by anyone but its user's private stream is refused" {
+test "private data written by anyone but its person's private stream is refused" {
     var p: Peers = undefined;
     try p.init();
     defer p.deinit();
     const b = &p.replicas[1];
     const c = &p.replicas[2];
     // c forges into b's private data, from its public stream.
-    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.userKey(), .lower)});
+    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.personKey(), .lower)});
     try c.write(1000, key, "position", "1");
     const stats = try p.sync(0, 2);
     try testing.expectEqual(@as(usize, 1), stats.refused);
-    // And writePrivate takes only this user's keys.
+    // And writePrivate takes only this person's keys.
     try testing.expectError(error.NotPrivate, c.writePrivate(1000, key, &.{.{ "position", "1" }}));
 }
 
@@ -1862,12 +1862,12 @@ test "a device that lost its replica gets its own private data back" {
     try p.init();
     defer p.deinit();
     const b = &p.replicas[1];
-    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.userKey(), .lower)});
+    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.personKey(), .lower)});
     try b.write(1000, "t/m/alien/1979", "name", "Alien");
     try b.writePrivate(2000, key, &.{.{ "position", "1234" }});
     // b2 is b's device again, with its replica lost (as tvOS may purge
-    // one), rebuilt from a peer of its user's.
-    var b2 = try Replica.open(testing.allocator, testing.io, ":memory:", try testUser(1), .{ .device = @splat(2), .user = Identity.from(@splat(2)).user });
+    // one), rebuilt from a peer of its person's.
+    var b2 = try Replica.open(testing.allocator, testing.io, ":memory:", try testPerson(1), .{ .device = @splat(2), .person = Identity.from(@splat(2)).person });
     defer b2.close();
     try testing.expectEqualSlices(u8, &b.device(), &b2.device());
     const stats = try replica_sync(p.arena_state.allocator(), &b2, b);
@@ -1884,18 +1884,18 @@ test "a device whose first write is private is still certified" {
     try p.init();
     defer p.deinit();
     const b = &p.replicas[1];
-    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.userKey(), .lower)});
+    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.personKey(), .lower)});
     try b.writePrivate(1000, key, &.{.{ "position", "1" }});
     const stats = try p.sync(0, 1);
     try testing.expectEqual(@as(usize, 0), stats.rejected);
-    try testing.expect(try p.replicas[0].certifiedUser(b.device(), &.{}) != null);
+    try testing.expect(try p.replicas[0].certifiedPerson(b.device(), &.{}) != null);
 }
 
 test "two connections writing in turn, refreshing first, never reuse a sequence number" {
     const path = "/tmp/cinematheque-refresh-test.db";
     std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
     defer std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
-    const founder = (try userKeyPair(@splat(1))).public_key.toBytes();
+    const founder = (try personKeyPair(@splat(1))).public_key.toBytes();
     var a = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
     defer a.close();
     var b = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));

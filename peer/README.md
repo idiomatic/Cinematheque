@@ -35,39 +35,39 @@ The peer keeps its state in a directory of its own, its home. By default that's 
 | File | Holds |
 |---|---|
 | `identity` | The device's random seed, from which its keys derive |
-| `user` | The user's seed, once this device is paired as another of the user's; until then, the user's seed derives from the device's |
-| `library` | The library's founder's user key, once this device has a library |
+| `user` | The person's seed, once this device is paired as another of the person's; until then, the person's seed derives from the device's |
+| `library` | The library's founder's person key, once this device has a library |
 | `replica.db` | The replica: the library's operations, and in its `local` table, what's this device's alone (crawl snapshots, and peers added by URL) |
 
-`identity` and `user` are secrets: anyone with the user's seed can act as the user. Don't copy a home to another device, since each device needs its own identity; pair the other device instead.
+`identity` and `user` are secrets: anyone with the person's seed can act as the person. Don't copy a home to another device, since each device needs its own identity; pair the other device instead.
 
 ## The command line
 
-State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `member`, `source`, `title`, `alias`, `progress`, `peer`, and `agent`. Actions on the whole peer are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
+State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `alias`, `progress`, `peer`, and `agent`. Actions on the whole peer are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
 
 * **Options** are named and may come anywhere: `--port PORT`, `--media DIR`, `--rendition NAME`, `--skip PREFIX`, and `--workers WORKERS` take a value. `--leave`, `--watched`, and `--unwatched` are flags. `--home DIR` works with every command.
 * **Help:** [usage.txt](src/usage.txt) lists every command, and is the help, built into the binary. `-h` or `--help` prints it all. With a noun or action (`cinematheque source -h`), or for a noun alone, only that one's commands are printed.
-* **Arguments:** keys are 64 hexadecimal digits, as `user show` prints them. Titles and items are keys, as `title list` and `title show` print them (`t/m/alien/1979`, `t/s/firefly/-/e/s01e01`). A source is its ID (16 hexadecimal digits) or its URL.
+* **Arguments:** keys are 64 hexadecimal digits, as `person show` prints them. Titles and items are keys, as `title list` and `title show` print them (`t/m/alien/1979`, `t/s/firefly/-/e/s01e01`). A source is its ID (16 hexadecimal digits) or its URL.
 * **Exit status:** 0 on success. A command line that isn't one prints the help for its noun (or all of it) and exits with status 2. Any other failure prints `error:` and the error's name (e.g., `error: NoLibrary`, before there's a library), and exits with status 1. Debug builds add a stack trace.
 
 ## Commands
 
 [usage.txt](src/usage.txt) has their syntax; this says what each does and prints.
 
-### Users and libraries
+### People and libraries
 
-* `user show` prints this user's key, as `member remove` and `library handover` take it.
-* `user pair`, on a new device without a library, prints a 6-digit code, and the port it listens on, and waits. Meanwhile it serves `/pair` on that port and advertises itself (`pair=pair`, named by `$HOST`). `user pair CODE` on one of the user's devices finds it nearby, or at the URL given, and sends it the user's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its user.
-* `library create` founds a library with this user as founder, and prints its ID. `library join` offers a code, as `user pair` does, for a member's `member pair CODE`. Pairing is the only way to pair or join, so the user's seed is never shown.
+* `person show` prints this person's key, as `member remove` and `library handover` take it.
+* `person pair`, on a new device without a library, prints a 6-digit code, and the port it listens on, and waits. Meanwhile it serves `/pair` on that port and advertises itself (`pair=pair`, named by `$HOST`). `person pair CODE` on one of the person's devices finds it nearby, or at the URL given, and sends it the person's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its person.
+* `library create` founds a library with this person as founder, and prints its ID. `library join` offers a code, as `person pair` does, for a member's `member pair CODE`. Pairing is the only way to pair or join, so the person's seed is never shown.
 * `library show` prints the library's ID, founder, member count, and digest. The digest is a hash of every field's winning value, so two peers that have synced fully print the same one.
-* `library handover USER` makes a member the founder; this user stays a member unless `--leave`. Only the founder may.
+* `library handover PERSON` makes a member the founder; this person stays a member unless `--leave`. Only the founder may.
 
 ### Members
 
 * `member list` prints the members' keys, marking the founder and you.
-* `member pair CODE [URL]` admits the user of a new device offering to join, and sends it the library's founder.
-* `device list` prints this user's devices (named or not), and `device remove DEVICE` removes one: its later writes are refused, and when it next syncs it's told so, signed, and prints that it should `library leave`, which forgets the library and its identity so it can pair again as a new device.
-* `member remove USER` removes a member, except the founder. Their devices' writes up to what this peer has seen stand; later ones are refused everywhere.
+* `member pair CODE [URL]` admits the person of a new device offering to join, and sends it the library's founder.
+* `device list` prints this person's devices (named or not), and `device remove DEVICE` removes one: its later writes are refused, and when it next syncs it's told so, signed, and prints that it should `library leave`, which forgets the library and its identity so it can pair again as a new device.
+* `member remove PERSON` removes a member, except the founder. Their devices' writes up to what this peer has seen stand; later ones are refused everywhere.
 
 ### Sources and crawling
 
@@ -95,14 +95,14 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `user`, `library`, `m
 
 ### Progress
 
-* `progress list [TITLE]` prints this user's progress, or a title's: each item, whether watched, and where it's at.
+* `progress list [TITLE]` prints this person's progress, or a title's: each item, whether watched, and where it's at.
 * `progress set ITEM POSITION DURATION` records a position, in seconds. The core's rules apply: within the last 5% marks the item watched, and within the first 10 seconds clears the position. `progress set ITEM --watched` (or `--unwatched`) marks it by hand, and `progress remove ITEM` forgets it.
 
-Progress are private: they're written on this device's private stream, and travel only directly between the user's devices.
+Progress are private: they're written on this device's private stream, and travel only directly between the person's devices.
 
 ### Peers, syncing, and serving
 
-* `serve` answers other peers' syncs (`/sync`) until stopped. It listens on `--port`, or else on 8008, falling back to any free port if 8008 is taken. It advertises the port it got by DNS-SD, with the library, the user, and the names of this device and user. `--media DIR` also serves a directory of videos at the root, so the peer is a source too: byte ranges, listings as JSON or HTML, and an `INDEX` of every file and directory, built at start and again once a minute old when asked for. It prints a line once listening.
+* `serve` answers other peers' syncs (`/sync`) until stopped. It listens on `--port`, or else on 8008, falling back to any free port if 8008 is taken. It advertises the port it got by DNS-SD, with the library, the person, and the names of this device and person. `--media DIR` also serves a directory of videos at the root, so the peer is a source too: byte ranges, listings as JSON or HTML, and an `INDEX` of every file and directory, built at start and again once a minute old when asked for. It prints a line once listening.
 * `sync [URL]` syncs both ways with one peer, or with every peer of this library found nearby or added: it pulls what this peer lacks, then pushes what the other does. Each prints a line: operations pulled, how many were new, lost (older than what's held), known, rejected (from a device not yet admitted), and refused (past a cutoff), then batches and size, how many were pushed, and time. A peer that can't be reached prints its error, and the rest go on.
 * `refresh` syncs with every peer, then crawls every source: the catalog others have already described arrives first, so the crawl finds little to do.
 * `peer list` prints peers found nearby (with their libraries) and peers added. `peer add URL` adds a peer that can't be found, such as one beyond a NAT, on this device only; `peer remove URL` forgets it. A URL may be a peer's base or its `/sync`.
@@ -128,9 +128,9 @@ cinematheque title review
 cinematheque agent add            # serve, and refresh hourly
 
 # on perihelion, another of your devices
-cinematheque user pair            # prints a code, waits
+cinematheque person pair            # prints a code, waits
 # on hal
-cinematheque user pair CODE
+cinematheque person pair CODE
 
 # on art, someone else's device
 cinematheque library join         # prints a code, waits
@@ -161,17 +161,17 @@ cinematheque peer add http://hal.example.net:8008
 
 What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 
-* The peer can't name users or devices; the apps do, and the names reach the peer by sync.
+* The peer can't name people or devices; the apps do, and the names reach the peer by sync.
 * There's no Windows build yet.
 
 ## Sources
 
 * [main.zig](src/main.zig): the command line. `Args` parses words and options (an option not among the flags takes the next word as its value) and expands the `ls` and `show` shortcuts. `Command.is` matches a verb, its arity, and the options it allows. The nouns and actions are tables of functions, and `help` prints a noun's or action's part of [usage.txt](src/usage.txt), which it embeds. It opens the home and the `Peer` every command acts with (the store, the output, and the clock), and turns `error.Usage` into help and status 2.
-* [commands.zig](src/commands.zig): the state nouns, a function each (`user`, `library`, `member`, `source`, `title`, `alias`, `progress`, `agent`), sending pairing codes (`pairWith`, which finds the one device offering nearby), and `crawl` and `refresh`, which crawl sources and then describe them.
+* [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `source`, `title`, `alias`, `progress`, `agent`), sending pairing codes (`pairWith`, which finds the one device offering nearby), and `crawl` and `refresh`, which crawl sources and then describe them.
 * [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync` and `pullAll`, which find peers by DNS-SD and in `local` (`peer:URL`); `peer`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
 * [agent.zig](src/agent.zig): the launch agents' property lists, installed and removed by `launchctl bootstrap` and `bootout`.
 * [usage.txt](src/usage.txt): the commands and the help.
-* [test.sh](test.sh): the end-to-end test. Peers on one computer, each with a home of its own, found a library and serve a generated source as media. They crawl, pair (to join, and to be another of a user's devices) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that progress travel only between the user's devices.
+* [test.sh](test.sh): the end-to-end test. Peers on one computer, each with a home of its own, found a library and serve a generated source as media. They crawl, pair (to join, and to be another of a person's devices) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that progress travel only between the person's devices.
 * [test/gen.zig](test/gen.zig): the test source's generator (`gen DIR [DIVISOR]`): a media tree at the library's full scale, or a fraction of it, named as Plex and Jellyfin expect, of sparse files that take no disk space.
 
 The library itself, from parsing names to syncing, is the [core](../core/README.md)'s; how its operations work is in [ARCHITECTURE.md](../ARCHITECTURE.md).

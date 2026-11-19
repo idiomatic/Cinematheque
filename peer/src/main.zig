@@ -15,8 +15,8 @@ pub const Peer = struct {
     out: *Io.Writer,
     environ: *const std.process.Environ.Map,
 
-    pub fn user(p: *const Peer) ![32]u8 {
-        return p.store.user();
+    pub fn person(p: *const Peer) ![32]u8 {
+        return p.store.person();
     }
 
     pub fn open(p: *const Peer) !core.replica.Replica {
@@ -118,7 +118,7 @@ const Noun = struct {
 };
 
 const nouns = [_]Noun{
-    .{ .name = "user", .run = commands.user },
+    .{ .name = "person", .run = commands.person },
     .{ .name = "library", .run = commands.library },
     .{ .name = "member", .run = commands.member },
     .{ .name = "source", .run = commands.source },

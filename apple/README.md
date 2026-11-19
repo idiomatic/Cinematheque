@@ -2,7 +2,7 @@
 
 The players for Apple devices, in SwiftUI, on the [core](../core/README.md) through its C interface:
 
-* **macOS** (macOS 15 or later): it sets up and manages a library, browses it by cover art, and plays copies straight from their sources, keeping the user's progress and watchlist. It opens the peer's home (`CINEMATHEQUE_HOME`, or the default), which it shares with the [peer](../peer/README.md).
+* **macOS** (macOS 15 or later): it sets up and manages a library, browses it by cover art, and plays copies straight from their sources, keeping the person's progress and watchlist. It opens the peer's home (`CINEMATHEQUE_HOME`, or the default), which it shares with the [peer](../peer/README.md).
 * **Apple TV** (tvOS 18 or later): it pairs as a person's device or joins their library, syncs with peers and crawls the sources itself, browses by cover art with the remote, and plays full screen, keeping progress by the same rules.
 
 ## Building
@@ -37,8 +37,8 @@ Shared:
 * [TitlePresentation.swift](Cinematheque/Shared/TitlePresentation.swift): how titles and items read on every platform (facts, runtimes, episode names, Play and Resume labels, and Start Over's rewind symbol, before Resume), the rendition to play (`RenditionChoice`: the best format the player plays, up to its display's resolution), `CoverMarks`, a cover's star (on the watchlist) and check (watched, on green, since tvOS's accent color is white), and `Marks`, the watchlist and watched buttons, the latter showing its state (Watched or Unwatched), which pressing toggles.
 * [SetupView.swift](Cinematheque/Shared/SetupView.swift): the first run: pairing by a code this device shows (`OfferedCode`, polling the core until paired), to be another of your devices or to join someone's library, or creating a library, as a form on the Mac, and on tvOS as `SetupFlow`.
 * [Shelf.swift](Cinematheque/Shared/Shelf.swift): the shelves (Home, those begun and not watched; Movies; Series; Watchlist; Played, a smart folder of everything with progress, from which a tile's context menu removes its progress): their names, symbols, tiles (a series' by season), search, counts, and what an empty one says; and one tile per title, for browsers that show a series as one. The Mac's In Progress and Watched split Played (it has no Home), and its Downloaded is its only.
-* [CinemathequeApp.swift](Cinematheque/Shared/CinemathequeApp.swift): the app, for both platforms: its library, opened from the platform's home; the root view, showing no home, setting up, or browsing, and at launch and once set up, naming this device and user, serving, and refreshing; and on macOS, player windows, Settings, and Refresh Library (⌘R), which syncs, then crawls.
-* [Platform.swift](Cinematheque/Shared/Platform.swift): what differs by platform outside the interface: the home (on tvOS, with its seeds kept in the Keychain), and the device's and user's default names.
+* [CinemathequeApp.swift](Cinematheque/Shared/CinemathequeApp.swift): the app, for both platforms: its library, opened from the platform's home; the root view, showing no home, setting up, or browsing, and at launch and once set up, naming this device and person, serving, and refreshing; and on macOS, player windows, Settings, and Refresh Library (⌘R), which syncs, then crawls.
+* [Platform.swift](Cinematheque/Shared/Platform.swift): what differs by platform outside the interface: the home (on tvOS, with its seeds kept in the Keychain), and the device's and person's default names.
 * [Launch.swift](Cinematheque/Shared/Launch.swift), in debug builds only: launch options for driving the app unattended (see [AGENTS.md](../AGENTS.md)).
 
 macOS:

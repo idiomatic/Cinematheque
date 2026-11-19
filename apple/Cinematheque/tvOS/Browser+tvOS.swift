@@ -120,7 +120,7 @@ struct PosterGrid: View {
     }
 }
 
-/// A cover that opens its title, with this user's progress, and its name
+/// A cover that opens its title, with this person's progress, and its name
 /// below.
 struct Poster: View {
     let tile: Tile

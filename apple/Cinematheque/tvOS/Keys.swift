@@ -3,7 +3,7 @@ import Foundation
 import Security
 
 /// Keeps the home's seeds in the Keychain, since tvOS may purge the caches
-/// that hold the home: `identity` (the device's), `user` (the user's, once
+/// that hold the home: `identity` (the device's), `person` (the person's, once
 /// paired), and `library` (its founder's key). The replica is rebuilt by
 /// syncing and crawling; these are not.
 enum Keys {

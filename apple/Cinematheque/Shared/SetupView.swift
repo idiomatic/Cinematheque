@@ -17,7 +17,7 @@ struct SetupView: View {
 /// A new device's offer to pair, until paired (the app then leaves setup):
 /// its code, to enter on a member's device, and waiting; or, after too many
 /// wrong codes, asking for a new one. Linking (`join` false) brings this
-/// device its user and the library; joining, the library, and membership.
+/// device its person and the library; joining, the library, and membership.
 struct OfferedCode: View {
     let join: Bool
     var size: CGFloat = 140

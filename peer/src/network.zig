@@ -50,7 +50,7 @@ pub fn serve(p: *Peer, c: Command) !void {
     };
     var r = try p.open();
     const library_hex = std.fmt.bytesToHex(r.library, .lower);
-    const txt = try core.sync.advertisement(p.arena, &r, try p.store.user(), try p.store.device());
+    const txt = try core.sync.advertisement(p.arena, &r, try p.store.person(), try p.store.device());
     r.close();
     // The media directory, if any, at the root.
     const one = [_]core.serve.Mount{.{ .path = media orelse "" }};
@@ -69,7 +69,7 @@ pub fn serve(p: *Peer, c: Command) !void {
 
 pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
     if (p.store.founder(p.arena)) |_| return error.LibraryExists else |_| {}
-    var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .kind = kind, .user = try p.user(), .device = try p.store.device() };
+    var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .kind = kind, .person = try p.person(), .device = try p.store.device() };
     var host: core.host.Host = .{
         .io = p.io,
         .gpa = p.gpa,
@@ -94,9 +94,9 @@ pub fn offerPairing(p: *Peer, kind: core.pair.Kind) !void {
         try p.io.sleep(.fromSeconds(1), .awake);
         const received, const closed = offer.outcome(p.io);
         if (received) |secrets| {
-            if (kind == .pair) try p.store.pair(p.arena, &std.fmt.bytesToHex(secrets.user, .lower));
+            if (kind == .pair) try p.store.pair(p.arena, &std.fmt.bytesToHex(secrets.person, .lower));
             try p.store.setFounder(p.arena, secrets.founder);
-            try p.out.print("paired: this device acts as user {s}, in the library {s} founded\n", .{ std.fmt.bytesToHex(try p.user(), .lower), std.fmt.bytesToHex(secrets.founder, .lower) });
+            try p.out.print("paired: this device acts as person {s}, in the library {s} founded\n", .{ std.fmt.bytesToHex(try p.person(), .lower), std.fmt.bytesToHex(secrets.founder, .lower) });
             return;
         }
         if (closed) return error.TooManyWrongCodes;

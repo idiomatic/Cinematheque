@@ -13,7 +13,7 @@
 //! came from, so peers see it and copy racing can use it. What it keeps is
 //! this device's (in `local`): items wanted (a title or season wanted is
 //! its items, as of then), and per series, the next N episodes after where
-//! this user is ("next"). A download watched since it was fetched, and not
+//! this person is ("next"). A download watched since it was fetched, and not
 //! kept, is done with: deleted once another source is confirmed to
 //! hold it (same rendition and size, not unavailable), at once with
 //! `drop_watched`, else as space is needed; the only copy, never. It keeps
@@ -329,7 +329,7 @@ pub fn finishedWith(replica: *Replica, arena: std.mem.Allocator, source: library
     return out.items;
 }
 
-/// When this user marked an item watched (its mark's clock, in ms), if it
+/// When this person marked an item watched (its mark's clock, in ms), if it
 /// is.
 fn watchedAt(replica: *Replica, arena: std.mem.Allocator, item: []const u8) !?u64 {
     const s = try replica.db.prepare("SELECT hlc, value FROM winners WHERE key = ?1 AND field = 'watched'");
@@ -410,7 +410,7 @@ fn confirmed(replica: *Replica, sources: []const library.Source, unavailable: *c
 }
 
 /// The item keys (below the title's) of a series' next `n` episodes for
-/// this user, specials aside: the latest in progress and the `n` unwatched
+/// this person, specials aside: the latest in progress and the `n` unwatched
 /// after it, so the next is there before this one ends; else, none in
 /// progress, the first `n` unwatched.
 pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, n: u32) ![]const []const u8 {
@@ -458,7 +458,7 @@ fn episodeCode(key: []const u8) ?[2]u32 {
     return .{ season, number };
 }
 
-/// Free bytes for this user on the volume holding `dir`, if the platform
+/// Free bytes for this person on the volume holding `dir`, if the platform
 /// tells.
 pub fn freeBytes(arena: std.mem.Allocator, dir: []const u8) ?u64 {
     if (@import("builtin").os.tag != .macos) return null;

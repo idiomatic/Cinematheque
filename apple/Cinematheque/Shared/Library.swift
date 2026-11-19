@@ -24,7 +24,7 @@ struct Tile: Codable, Identifiable, Hashable {
     let cover: Cover?
     /// The cover's placeholder, a ThumbHash in base64.
     let thumb: String?
-    /// This user's: every item watched; how far along (0 to 1), by running
+    /// This person's: every item watched; how far along (0 to 1), by running
     /// time: how many milliseconds have `elapsed` (watched items whole,
     /// those partway to their positions) of the `runtime`; and whether any
     /// item has progress.
@@ -64,7 +64,7 @@ struct TitleDetail: Codable {
         /// An episode's `title`, `description`, and `duration`.
         let fields: [String: String]
         let renditions: [Rendition]
-        /// This user's progress, in milliseconds.
+        /// This person's progress, in milliseconds.
         let position: Int
         let duration: Int
         let watched: Bool
@@ -135,7 +135,7 @@ struct Member: Codable, Identifiable, Hashable {
     var id: String { key }
 }
 
-/// One of this user's devices that has a name.
+/// One of this person's devices that has a name.
 struct Device: Codable, Identifiable, Hashable {
     let key: String
     let name: String
@@ -148,15 +148,15 @@ struct Peer: Codable, Identifiable, Hashable {
     let url: String
     let device: String?
     let person: String?
-    /// Its user's key.
-    let user: String?
+    /// Its person's key.
+    let person_key: String?
     /// Of this library.
     let ours: Bool
-    /// Its user is a member.
+    /// Its person is a member.
     let member: Bool
     let added: Bool
     /// For a new device offering to pair (`url` is where to pair it), what
-    /// for: `pair`, to be another of this user's, or `join`, a new member's.
+    /// for: `pair`, to be another of this person's, or `join`, a new member's.
     let pairing: String?
     var id: String { url }
     var pairingAsYours: Bool { pairing == "pair" }
@@ -166,9 +166,9 @@ struct Peer: Codable, Identifiable, Hashable {
     var personName: String? { person.flatMap { $0.isEmpty ? nil : $0 } }
 }
 
-/// A device just paired: its user's key and its own.
+/// A device just paired: its person's key and its own.
 nonisolated struct Paired: Decodable {
-    let user: String
+    let person: String
     let device: String
 }
 
@@ -183,8 +183,8 @@ struct Folder: Codable, Identifiable, Hashable {
 }
 
 struct Status: Codable {
-    let user: String
-    /// Acting as the user of another of the user's devices.
+    let person: String
+    /// Acting as the person of another of the person's devices.
     let paired: Bool
     let library: String?
     let founder: String?
@@ -283,11 +283,11 @@ final class Library {
         reload()
     }
 
-    /// Creates a library, founded by this user; joining one is by pairing.
+    /// Creates a library, founded by this person; joining one is by pairing.
     func found() { check { cq_found($0) } }
 
     // Pairing a new device, by a code it shows, with a member's: to be
-    // another of that user's devices, or a new member's.
+    // another of that person's devices, or a new member's.
 
     /// A new device's offer: the code to show, and whether it's paired (it
     /// has the library) or stopped, after too many wrong codes.
@@ -306,7 +306,7 @@ final class Library {
         return decode(Pairing.self) { cq_pair_offer($0, Platform.deviceName, join ? 1 : 0) }
     }
 
-    /// The offer's state; once paired, this device has its user and library.
+    /// The offer's state; once paired, this device has its person and library.
     func checkPairing() -> Pairing? {
         guard !hasLibrary else { return nil }
         let state = decode(Pairing.self) { cq_pair_check($0) }
@@ -319,7 +319,7 @@ final class Library {
     }
 
     /// Pairs the new device `peer`, given the code it shows: sends it the
-    /// library, and to pair it, this user's secret. Returns who it is
+    /// library, and to pair it, this person's secret. Returns who it is
     /// (for `welcome`), or what went wrong, in words.
     func pair(_ peer: Peer, code: String) async -> (Paired?, String?) {
         guard let handle else { return (nil, "The library isn't open.") }
@@ -339,12 +339,12 @@ final class Library {
         }
     }
 
-    /// Renames another of this user's devices (or this one), for every
+    /// Renames another of this person's devices (or this one), for every
     /// peer: as when its platform won't tell it its own name.
     func renameDevice(_ key: String, _ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let user = status?.user else { return }
-        check { cq_name($0, key, user, trimmed) }
+        guard !trimmed.isEmpty, let person = status?.person else { return }
+        check { cq_name($0, key, person, trimmed) }
     }
 
     /// Copy racing (see the core's race.zig): `urls`, an item's copies, in
@@ -371,18 +371,18 @@ final class Library {
     /// copies go, for every device.
     func forgetUnavailable(_ source: String, _ dir: String) { check { cq_forget_unavailable($0, source, dir) } }
 
-    /// Removes another of this user's devices from the library: its later
+    /// Removes another of this person's devices from the library: its later
     /// writes are refused, and it's served no more.
     func removeDevice(_ key: String) { check { cq_remove_device($0, key) } }
 
     /// Takes in a device just paired: names it as it advertised itself
-    /// (until it names itself), so it's among its user's devices at once,
-    /// and if it's joining, adds its user as a member.
+    /// (until it names itself), so it's among its person's devices at once,
+    /// and if it's joining, adds its person as a member.
     func welcome(_ paired: Paired, from peer: Peer) {
         if let name = peer.device, !name.isEmpty {
-            check(reload: false) { cq_name($0, paired.device, paired.user, name) }
+            check(reload: false) { cq_name($0, paired.device, paired.person, name) }
         }
-        if peer.joining { check(reload: false) { cq_member($0, paired.user, 1) } }
+        if peer.joining { check(reload: false) { cq_member($0, paired.person, 1) } }
         reload()
     }
 
@@ -401,10 +401,10 @@ final class Library {
     func setMember(_ key: String, _ add: Bool) { check { cq_member($0, key, add ? 1 : 0) } }
 
     /// Once a launch, if there's a library: serves it, syncs, names this
-    /// device and user if they have no names yet (e.g., the computer's name
+    /// device and person if they have no names yet (e.g., the computer's name
     /// and the account's first name), then crawls (peers may bring its
     /// sources to a device that has none yet).
-    func startAtLaunch(device: String, user: String? = nil) async {
+    func startAtLaunch(device: String, person: String? = nil) async {
         guard !refreshedAtLaunch, hasLibrary else { return }
         refreshedAtLaunch = true
         if sharing { serve() }
@@ -414,7 +414,7 @@ final class Library {
         let synced = await long("Catching up", results: noteReceived) { cq_sync($0, nil) }
         var named = false
         if !devices.contains(where: \.you), !device.isEmpty { setName(.device, device); named = true }
-        if let user, !user.isEmpty, members.first(where: \.you)?.name == nil { setName(.user, user); named = true }
+        if let person, !person.isEmpty, members.first(where: \.you)?.name == nil { setName(.person, person); named = true }
         // Naming itself is a new device's first write, with its certificate:
         // its peers hear of it now, not a minute on.
         if named { changed() }
@@ -427,9 +427,9 @@ final class Library {
 
     // Names and peers.
 
-    enum Named: String { case user, device }
+    enum Named: String { case person, device }
 
-    /// Names this user or this device, for every peer to show in place of
+    /// Names this person or this device, for every peer to show in place of
     /// keys, and advertises the new name.
     func setName(_ which: Named, _ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -897,7 +897,7 @@ final class Library {
         }
     }
 
-    /// After a change of this user's (leaving playback, the watchlist, a
+    /// After a change of this person's (leaving playback, the watchlist, a
     /// watched mark), once changes stop for a second: syncs, which pushes
     /// it to every peer, rather than waiting a minute.
     func changed() {
@@ -1005,11 +1005,11 @@ final class Library {
         }
     }
 
-    // This user's.
+    // This person's.
 
-    /// Records this user's progress in an item (a title's key and an
+    /// Records this person's progress in an item (a title's key and an
     /// item's, e.g., "t/m/alien/1979/v/-").
-    /// Forgets where this user stopped in an item (its watched mark stays),
+    /// Forgets where this person stopped in an item (its watched mark stays),
     /// so it plays from the beginning: Resume becomes Play.
     func clearPosition(_ item: String) {
         // A position in the first 10 seconds isn't kept (the core's rule).
@@ -1024,7 +1024,7 @@ final class Library {
         revision += 1
     }
 
-    /// Removes a tile from Played: this user's progress in its items (a
+    /// Removes a tile from Played: this person's progress in its items (a
     /// movie's, a season's, or with `wholeTitle`, every season's), positions
     /// and watched marks alike.
     func removeFromPlayed(_ tile: Tile, wholeTitle: Bool = false) {

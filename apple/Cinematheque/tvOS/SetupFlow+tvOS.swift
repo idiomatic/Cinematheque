@@ -59,7 +59,7 @@ struct SetupFlow: View {
 }
 
 /// Pairing with a member's device, by a code to enter there: to be another
-/// of that user's devices, or (`join`) a new member's.
+/// of that person's devices, or (`join`) a new member's.
 private struct PairingStep: View {
     let join: Bool
     let title: String

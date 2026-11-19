@@ -22,7 +22,7 @@ struct ManageView: View {
 // People and devices.
 
 /// A new device nearby offering to pair, to be another of yours or a new
-/// member's: the code it shows, entered here, pairs it (and adds its user,
+/// member's: the code it shows, entered here, pairs it (and adds its person,
 /// if joining), and `paired` moves it on.
 private struct PairRow: View {
     let peer: Peer
@@ -102,7 +102,7 @@ private struct DeviceRow: View {
     }
 
     /// This Mac's name is advertised too, so it's set as this device's;
-    /// another's, under this user.
+    /// another's, under this person.
     private func rename() {
         if device.you { library.setName(.device, name) } else { library.renameDevice(device.key, name) }
     }
@@ -122,7 +122,7 @@ private struct MemberRow: View {
                     .labelsHidden()
                     .textFieldStyle(.plain)
                     .fixedSize()
-                    .onSubmit { library.setName(.user, name) }
+                    .onSubmit { library.setName(.person, name) }
                     .help("Rename yourself for everyone in the library")
                 Text("You").foregroundStyle(.secondary)
             } else {
@@ -139,7 +139,7 @@ private struct MemberRow: View {
         }
         .onAppear { name = member.name ?? "" }
         .onChange(of: member.name) { name = member.name ?? "" }
-        .onDisappear { if member.you, name != (member.name ?? "") { library.setName(.user, name) } }
+        .onDisappear { if member.you, name != (member.name ?? "") { library.setName(.person, name) } }
     }
 }
 
@@ -212,7 +212,7 @@ private struct PeoplePane: View {
                         Text("wants to join").foregroundStyle(.secondary)
                         Spacer()
                         Button("Add") {
-                            if let user = peer.user { library.setMember(user, true) }
+                            if let key = peer.person_key { library.setMember(key, true) }
                         }
                     }
                 }
@@ -226,11 +226,11 @@ private struct PeoplePane: View {
         .modifier(Nearby(peers: $nearby))
     }
 
-    /// Devices of this library nearby whose users aren't members yet.
+    /// Devices of this library nearby whose people aren't members yet.
     /// (New devices offering to pair have no library yet.)
     private var waiting: [Peer] {
         var seen: Set<String> = []
-        return nearby.filter { $0.ours && !$0.member && !$0.added && $0.user != nil && seen.insert($0.user!).inserted }
+        return nearby.filter { $0.ours && !$0.member && !$0.added && $0.person_key != nil && seen.insert($0.person_key!).inserted }
     }
 }
 

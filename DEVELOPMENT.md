@@ -5,7 +5,7 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 ## Next
 
 * **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (the command-line peer's agents can't reach the LAN; see below), an app icon, lists beyond the watchlist, and signing for distribution.
-* **Command-line peer:** commands to name the user and the device, so command-line peers show by name rather than as someone's device.
+* **Command-line peer:** commands to name the person and the device, so command-line peers show by name rather than as someone's device.
 * **Settings:** when each device was last seen.
 * **Linux:** running the peer itself there (its experiments ran in a VM).
 * **Known issues:**
@@ -15,13 +15,13 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 
 * **Hierarchy:** bracketed levels of library → kind → title [→ season] [→ episode] [→ version/cut/extra] [→ part] → rendition often have one child; where one does, the UI may skip navigating it.
 * **Renditions:** {720p, 1080p, 4K} H.264 or H.265 in MP4, MKV, or ISO; Apple players can't play MKV or ISO, so the transcoder makes MP4 renditions of them.
-* **Users:** each has any number of named lists.
+* **People:** each has any number of named lists.
   * A list's type is watchlist (or "borrowlist," of titles not yet held), smart playlist, or transcode queue.
   * A list's sharing is private,[^private] public, or collaborative, independent of its type.
-  * Several users may pair a shared player.
+  * Several people may pair a shared player.
 * **Outside metadata** (plots, images, cast, ratings, trailer links, outside IDs) is provided to Cinematheque, never fetched by it: as JSON, or by a command it invokes with a title's identity, which answers in JSON. The provider is delivered separately, and the JSON's form is yet to be specified. Local trailer files come from sources.
-* **Correlation:** a file maps to an outside title by, in order: an ID tag in its path, an NFO sidecar's `<uniqueid>`, then whatever the provider makes of its parsed title, year, and episode; doubtful matches go to the user. An outside ID, once known, is recorded beside the title, and titles whose keys differ but whose IDs match are merged.
-* **Outside data:** IDs and correlations replicate freely; what providers supply may be bound by its sources' terms, so it replicates only among the players of the user whose provider supplied it.
+* **Correlation:** a file maps to an outside title by, in order: an ID tag in its path, an NFO sidecar's `<uniqueid>`, then whatever the provider makes of its parsed title, year, and episode; doubtful matches go to the person. An outside ID, once known, is recorded beside the title, and titles whose keys differ but whose IDs match are merged.
+* **Outside data:** IDs and correlations replicate freely; what providers supply may be bound by its sources' terms, so it replicates only among the players of the person whose provider supplied it.
 * **Trust:** each source and transcoder decides whose edits it takes.
   * A source is the canonical store of its metadata; each library's edits are an overlay that the source adopts or ignores, by a per-library switch, decided by the Cinematheque code that manages it.
   * A transcoder likewise chooses which libraries' transcode queues it accepts.
@@ -31,7 +31,7 @@ Open:
 
 * **Read-only members:** whether a per-library flag keeps some members (e.g., children) from editing the library's overlay and collaborative lists.
 
-[^private]: Private data is masked from other users, not hardened against them: anyone with access to a player that holds it may recover it.
+[^private]: Private data is masked from other people, not hardened against them: anyone with access to a player that holds it may recover it.
 
 ## Sync
 
@@ -51,7 +51,7 @@ Open:
 * **Listings:** also WebDAV `PROPFIND`, and the dates Apache and nginx print in HTML listings, so re-crawls can skip their unchanged directories; an occasional full sweep for files rewritten in place.
 * **Moved files:** matched by size and modification time, which a rename keeps, so progress and lists follow them; where listings lack those, by hashes of files' first and last 64 KiB, taken by byte ranges when first seen.
 * **Range probe:** flag sources that don't answer `Range: bytes=0-0` with 206 (e.g., Python's `http.server`), since players can't stream from them.
-* **Discovery:** suggest static servers advertising `_http._tcp` or `_webdav._tcp`, and add sources with HTTP user and password.
+* **Discovery:** suggest static servers advertising `_http._tcp` or `_webdav._tcp`, and add sources with HTTP person and password.
 * **Management:** by desktop peers, on a source's host or with network filesystem access to it: renaming and checksums; subtitles, cover art (slow to extract and bulky to cache), and text. To libraries, a static server is read-only until Cinematheque code reaches its files.
 
 ## Players
@@ -65,7 +65,7 @@ Open:
   * **Scale:** on a Mac with over 4,000 movies, flicking scrolls smoothly, and jumping with the scroll bar loads the covers in view in about half a second; at 6,000 and on iOS and tvOS, fall back to AppKit's and UIKit's collection views if SwiftUI's lazy grids drop frames.
   * **Thumbnail caches** (open): their size per platform (all of them on a Mac, about 120 MB; a budget on iPhone and iPad; purgeable storage on tvOS), and how Linux and Windows decode and scale images.
   * **Other sources:** the outside-metadata provider's art, and covers in Matroska files.
-* **Who's watching:** set-top players are often shared, laptops and handhelds seldom; a shared player holds each of its users' private data, and hides it while several users are watching.
+* **Who's watching:** set-top players are often shared, laptops and handhelds seldom; a shared player holds each of its people's private data, and hides it while several people are watching.
 * **Watching together:** on one screen, offer titles every viewer will accept; apart, offer what the others would avoid.
 * **Downloads** (the command-line peer's and the Mac's are built; see [AGENTS.md](AGENTS.md)), still to come: iOS and iPadOS, and Linux and Windows, whose free space the core can't yet read (only macOS's `statfs`); moving files when the folder changes, rather than fetching them again; downloading while the app is closed (with background serving); and keeping a series' next episodes in a rendition of its own, rather than the commonest.
 
@@ -79,7 +79,7 @@ What's built is in [AGENTS.md](AGENTS.md); still to come:
 
 * **Movies:** an alphabetical jump, and filters by decade and genre (facets), since 4,000 covers are a long way by remote; Home's recently added titles.
 * **Purges:** check that a purged replica comes back by syncing and crawling, with the seeds from the Keychain.
-* **Users:** tvOS's profiles as library users (Who's watching, under Players).
+* **People:** tvOS's profiles as library people (Who's watching, under Players).
 * **Later:** a Top Shelf of Continue Watching; covers as artwork in the player's info panel.
 
 ## Transcoder
@@ -91,7 +91,7 @@ A backend peer on macOS, Linux, or Windows, also a source.
   * Apple players take H.264 up to High 8-bit, HEVC Main and Main10 tagged `hvc1`, HDR10, HLG, and Dolby Vision profiles 5 and 8; AAC, ALAC, AC-3, E-AC-3, MP3, and FLAC audio; and text subtitles as `mov_text`. DTS and TrueHD audio and image subtitles (PGS, VobSub) must be converted.
   * Output is written with its index first (`-movflags +faststart`), for progressive playback.
 * **MP4 in place:** inspecting MP4s and fixing them without a remux (retagging `hev1` as `hvc1`, moving the index first, editing metadata) come from a separate MP4 parsing and modification project.
-* **Laziness:** transcodes under the user's supervision from transcode queues, so renditions needn't be made in advance (which takes compute and storage a legacy NAS was sized for).
+* **Laziness:** transcodes under the person's supervision from transcode queues, so renditions needn't be made in advance (which takes compute and storage a legacy NAS was sized for).
 * **Input and output:** reads input from any source over HTTP, and serves its output as a source. `HandBrakeCLI` reads only local paths, so its input, including disc images, is first copied to a cache by resumable range requests, which also serves several renditions. Input is often offline, on removable media.
 
 ## Other media

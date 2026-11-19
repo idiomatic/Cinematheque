@@ -4,10 +4,10 @@
 //! device key (32) | certificate (96) | time, Unix milliseconds (8) |
 //! version vector (see `replica.writeVector`) | signature (64)
 //!
-//! The certificate is the device's user's signature over the device key
+//! The certificate is the device's person's signature over the device key
 //! (see `Replica.certificate`). The peer answers only members, with its
 //! frames (see `replica.writeSync`), in a chunked, gzipped response, leaving
-//! out other users' private streams, and with its own device key and
+//! out other people's private streams, and with its own device key and
 //! certificate in headers. The device then pushes what the peer lacks: a
 //! second POST (`push_type`), of the request's length (u32) and a request,
 //! then its frames above the peer's vector, gzipped, which the peer applies
@@ -40,17 +40,17 @@ pub fn syncUrl(arena: std.mem.Allocator, target: []const u8) ![]const u8 {
 }
 
 /// What a peer serving `r`'s library advertises by DNS-SD (its TXT
-/// record): the library's ID, the sync path, its user's key, and the names
-/// of this device (`device`) and its user (`user`), if they have them.
-pub fn advertisement(arena: std.mem.Allocator, r: *Replica, user: [32]u8, device: [32]u8) ![]const u8 {
-    const user_hex = std.fmt.bytesToHex(user, .lower);
+/// record): the library's ID, the sync path, its person's key, and the names
+/// of this device (`device`) and its person (`person`), if they have them.
+pub fn advertisement(arena: std.mem.Allocator, r: *Replica, person: [32]u8, device: [32]u8) ![]const u8 {
+    const person_hex = std.fmt.bytesToHex(person, .lower);
     const named = try library_.names(r, arena);
     return discover.txtRecord(arena, &.{
         .{ "library", &std.fmt.bytesToHex(r.library, .lower) },
         .{ "path", path },
-        .{ "user", &user_hex },
+        .{ "user", &person_hex },
         .{ "name", library_.nameOf(named, &std.fmt.bytesToHex(device, .lower)) orelse "" },
-        .{ "person", library_.nameOf(named, &user_hex) orelse "" },
+        .{ "person", library_.nameOf(named, &person_hex) orelse "" },
     });
 }
 
@@ -177,7 +177,7 @@ pub fn writeRequest(arena: std.mem.Allocator, dst: *Replica, time_ms: u64) ![]u8
 }
 
 /// Reads and checks a request: its signature, its certificate, and its time.
-/// Returns it and the user it's from.
+/// Returns it and the person it's from.
 pub fn readRequest(arena: std.mem.Allocator, library: [16]u8, body: []const u8, now_ms: u64) !struct { Request, [32]u8 } {
     if (body.len < 32 + 96 + 8 + 4 + 64) return error.Malformed;
     const signed = body[0 .. body.len - 64];
@@ -189,9 +189,9 @@ pub fn readRequest(arena: std.mem.Allocator, library: [16]u8, body: []const u8, 
     request.vector = try replica_.readVector(arena, &r);
     const key = Ed25519.PublicKey.fromBytes(request.device) catch return error.BadSignature;
     Ed25519.Signature.fromBytes(body[body.len - 64 ..][0..64].*).verify(signed, key) catch return error.BadSignature;
-    const user = replica_.verifyCertificate(library, request.device, false, request.certificate) orelse return error.BadCertificate;
+    const person = replica_.verifyCertificate(library, request.device, false, request.certificate) orelse return error.BadCertificate;
     if (@max(now_ms, request.time_ms) - @min(now_ms, request.time_ms) > freshness_ms) return error.Stale;
-    return .{ request, user };
+    return .{ request, person };
 }
 
 fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool {
@@ -237,7 +237,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         } });
         return true;
     }
-    if (!try src.isMemberUser(reader)) {
+    if (!try src.isMemberPerson(reader)) {
         try request.respond("not a member\n", .{ .status = .forbidden });
         return true;
     }
@@ -288,9 +288,9 @@ pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, u
     var theirs: std.ArrayList(replica_.Entry) = .empty;
     const pulled = try pull(arena, client, dst, url, now_ms, &theirs);
     var out: Exchanged = .{ .stats = pulled.stats };
-    const user = pulled.user orelse return out;
-    if (!try dst.isMemberUser(user)) return out;
-    out.sent = push(arena, client, dst, url, now_ms, theirs.items, user) catch |err| switch (err) {
+    const person = pulled.person orelse return out;
+    if (!try dst.isMemberPerson(person)) return out;
+    out.sent = push(arena, client, dst, url, now_ms, theirs.items, person) catch |err| switch (err) {
         // A peer too old to take pushes, which still pulls from this one.
         error.Refused => 0,
         else => |e| return e,
@@ -298,7 +298,7 @@ pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, u
     return out;
 }
 
-const Pulled = struct { stats: replica_.Stats, user: ?[32]u8 };
+const Pulled = struct { stats: replica_.Stats, person: ?[32]u8 };
 
 /// Who a peer's response says answered: its device key, certificate, and
 /// (refusing a removed device) signature, as headers give them.
@@ -324,8 +324,8 @@ const Named = struct {
         return out;
     }
 
-    /// The user its certificate names, if it verifies.
-    fn user(n: Named, library: [16]u8) ?[32]u8 {
+    /// The person its certificate names, if it verifies.
+    fn person(n: Named, library: [16]u8) ?[32]u8 {
         return replica_.verifyCertificate(library, n.device orelse return null, false, n.certificate orelse return null);
     }
 };
@@ -337,16 +337,16 @@ const Named = struct {
 fn removed(dst: *Replica, peer: Named, time_ms: u64) !bool {
     const device = peer.device orelse return false;
     const signature = peer.signature orelse return false;
-    const user = peer.user(dst.library) orelse return false;
+    const person = peer.person(dst.library) orelse return false;
     if (std.mem.eql(u8, &device, &dst.device())) return false;
-    if (!try dst.isMemberUser(user) or try dst.revoked(device) != null) return false;
+    if (!try dst.isMemberPerson(person) or try dst.revoked(device) != null) return false;
     const key = Ed25519.PublicKey.fromBytes(device) catch return false;
     Ed25519.Signature.fromBytes(signature).verify(&removedMessage(dst.library, dst.device(), time_ms), key) catch return false;
     return true;
 }
 
 /// Pulls from the peer at `url`, collecting its vector into `theirs`, and
-/// the user its certificate names, if it sent one that verifies.
+/// the person its certificate names, if it sent one that verifies.
 fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64, theirs: *std.ArrayList(replica_.Entry)) !Pulled {
     const body = try writeRequest(arena, dst, now_ms);
     var request = try client.request(.POST, try std.Uri.parse(url), .{
@@ -366,17 +366,17 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
         .bad_request => return error.Refused,
         else => return error.BadStatus,
     }
-    const user = peer.user(dst.library);
+    const person = peer.person(dst.library);
     var transfer: [64 * 1024]u8 = undefined;
     var decompress: http.Decompress = undefined;
     const window = try arena.alloc(u8, flate.max_window_len);
     var stats = try replica_.readSync(dst, response.readerDecompressing(&transfer, &decompress, window), .{ .arena = arena, .vector = theirs });
     stats.wire_bytes += body.len;
-    return .{ .stats = stats, .user = user };
+    return .{ .stats = stats, .person = person };
 }
 
 /// Pushes to the peer at `url` what `wanted` (its vector) shows it lacks,
-/// leaving out private streams that aren't `reader`'s (its user's); returns
+/// leaving out private streams that aren't `reader`'s (its person's); returns
 /// how many operations it sent. Nothing to send sends nothing.
 fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []const u8, now_ms: u64, wanted: replica_.VersionVector, reader: [32]u8) !usize {
     const head = try writeRequest(arena, src, now_ms);
@@ -410,12 +410,12 @@ test "requests are checked" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try replica_.userKeyPair(@splat(1))).public_key.toBytes();
+    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
     var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(2)));
     defer r.close();
     const body = try writeRequest(arena, &r, 1_000_000);
     const checked = try readRequest(arena, r.library, body, 1_000_000 + 60_000);
-    try std.testing.expectEqual(r.userKey(), checked[1]);
+    try std.testing.expectEqual(r.personKey(), checked[1]);
     try std.testing.expectError(error.Stale, readRequest(arena, r.library, body, 1_000_000 + freshness_ms + 1));
     try std.testing.expectError(error.BadCertificate, readRequest(arena, @splat(9), body, 1_000_000));
     body[40] ^= 1;
@@ -431,14 +431,14 @@ test "a removed device is told so, believably, and can tell" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const dir = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
-    // Two devices of one user, the founder.
-    const user_seed: [32]u8 = @splat(7);
-    const founder = (try Ed25519.KeyPair.generateDeterministic(user_seed)).public_key.toBytes();
-    const a_identity: replica_.Identity = .{ .device = @splat(1), .user = user_seed };
+    // Two devices of one person, the founder.
+    const person_seed: [32]u8 = @splat(7);
+    const founder = (try Ed25519.KeyPair.generateDeterministic(person_seed)).public_key.toBytes();
+    const a_identity: replica_.Identity = .{ .device = @splat(1), .person = person_seed };
     const a_path = try std.fmt.allocPrintSentinel(arena, "{s}/a.db", .{dir}, 0);
     var a = try Replica.open(gpa, io, a_path, founder, a_identity);
     defer a.close();
-    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), founder, .{ .device = @splat(2), .user = user_seed });
+    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), founder, .{ .device = @splat(2), .person = person_seed });
     defer b.close();
     try a.write(1000, "t/00001", "name", "Alien");
     try b.write(1000, "t/00002", "name", "Brazil");

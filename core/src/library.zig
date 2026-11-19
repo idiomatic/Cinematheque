@@ -19,8 +19,8 @@
 //! * `aliases`: field `<title key>`, value the title key it's an alias of,
 //!   or empty if none.
 //! * `u/<path>`: files that didn't parse, with `held:<source>`.
-//! * `p/<user>/<item key>`: a user's progress in an item (a version,
-//!   episode, or part), private to that user's devices: fields `position`
+//! * `p/<person>/<item key>`: a person's progress in an item (a version,
+//!   episode, or part), private to that person's devices: fields `position`
 //!   and `duration` (milliseconds) and `watched` (`1` or `0`).
 
 const std = @import("std");
@@ -730,7 +730,7 @@ pub const Item = struct {
     /// The key below the title's (e.g., `e/s03e17`, `v/directors-cut`).
     key: []const u8,
     renditions: std.ArrayList(Rendition) = .empty,
-    /// This user's.
+    /// This person's.
     progress: Progress = .{},
     /// Metadata: an episode's `title`, `description`, and `duration`.
     fields: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
@@ -746,10 +746,10 @@ pub const Progress = struct {
 };
 
 pub fn progressKey(replica: *Replica, arena: std.mem.Allocator, item_key: []const u8) ![]u8 {
-    return std.fmt.allocPrint(arena, "p/{s}/{s}", .{ std.fmt.bytesToHex(replica.userKey(), .lower), item_key });
+    return std.fmt.allocPrint(arena, "p/{s}/{s}", .{ std.fmt.bytesToHex(replica.personKey(), .lower), item_key });
 }
 
-/// Records how far this user has played an item (its full key, e.g.,
+/// Records how far this person has played an item (its full key, e.g.,
 /// `t/m/alien/1979/v/-`). Reaching the last 5% marks it watched, since end
 /// credits aren't known yet; a position in the first 10 seconds isn't kept,
 /// clearing any earlier one (but not the watched mark), so the item plays
@@ -771,14 +771,14 @@ pub fn setWatched(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, ite
     try replica.writePrivate(wall_ms, try progressKey(replica, arena, item_key), &.{.{ "watched", if (watched) "1" else "0" }});
 }
 
-/// Removes this user's progress in an item: its position and watched mark.
+/// Removes this person's progress in an item: its position and watched mark.
 pub fn removeProgress(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8) !void {
     try replica.writePrivate(wall_ms, try progressKey(replica, arena, item_key), &.{ .{ "position", "" }, .{ "duration", "" }, .{ "watched", "" } });
 }
 
 pub const ItemProgress = struct { item: []const u8, progress: Progress };
 
-/// This user's progress, in progress or watched, by full item key, under
+/// This person's progress, in progress or watched, by full item key, under
 /// `title_key` if given.
 pub fn progressOf(replica: *Replica, arena: std.mem.Allocator, title_key: ?[]const u8) ![]ItemProgress {
     var out: std.ArrayList(ItemProgress) = .empty;
@@ -805,7 +805,7 @@ pub fn progressOf(replica: *Replica, arena: std.mem.Allocator, title_key: ?[]con
     return kept.items;
 }
 
-/// This user's progress under a title, by item key below the title's.
+/// This person's progress under a title, by item key below the title's.
 fn titleProgress(replica: *Replica, arena: std.mem.Allocator, title_key: []const u8) !std.StringHashMapUnmanaged(Progress) {
     var out: std.StringHashMapUnmanaged(Progress) = .empty;
     const prefix = try progressKey(replica, arena, title_key);
@@ -1177,7 +1177,7 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const replica_ = @import("replica.zig");
-    const founder = (try replica_.userKeyPair(@splat(1))).public_key.toBytes();
+    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
     var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
 
@@ -1282,7 +1282,7 @@ test "state: sources, aliases, progress, and members can be listed, set, and rem
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const replica_ = @import("replica.zig");
-    const founder = (try replica_.userKeyPair(@splat(1))).public_key.toBytes();
+    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
     var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
 
@@ -1311,7 +1311,7 @@ test "state: sources, aliases, progress, and members can be listed, set, and rem
     try removeProgress(&r, arena, 7000, "t/m/network-effect/2020/v/-");
     try std.testing.expectEqual(@as(usize, 1), (try progressOf(&r, arena, null)).len);
 
-    const other = (try replica_.userKeyPair(@splat(2))).public_key.toBytes();
+    const other = (try replica_.personKeyPair(@splat(2))).public_key.toBytes();
     try r.addMember(8000, other);
     try std.testing.expectEqual(@as(usize, 2), (try r.members(arena)).len);
     try r.removeMember(9000, other);
@@ -1340,23 +1340,23 @@ test "a numberless file beside a series' episodes is its special, not a movie" {
     try std.testing.expectEqual(naming.Kind.movie, movie.kind);
 }
 
-/// A user's or device's name: `n/<key>`'s `name`, and for a device, `user`,
-/// its user's key. Any member may set one; peers show names, not keys.
+/// A person's or device's name: `n/<key>`'s `name`, and for a device, `person`,
+/// its person's key. Any member may set one; peers show names, not keys.
 pub const Name = struct {
     key: []const u8,
     name: []const u8,
-    /// A device's user; null for a user's own name.
-    user: ?[]const u8 = null,
+    /// A device's person; null for a person's own name.
+    person: ?[]const u8 = null,
 };
 
-/// Names a user, or a device (with its user's key).
-pub fn setName(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [32]u8, name: []const u8, user: ?[32]u8) !void {
+/// Names a person, or a device (with its person's key).
+pub fn setName(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [32]u8, name: []const u8, person: ?[32]u8) !void {
     const k = try std.fmt.allocPrint(arena, "n/{s}", .{std.fmt.bytesToHex(key, .lower)});
     try replica.write(wall_ms, k, "name", std.mem.trim(u8, name, " \t\n"));
-    if (user) |u| try replica.write(wall_ms, k, "user", &std.fmt.bytesToHex(u, .lower));
+    if (person) |u| try replica.write(wall_ms, k, "user", &std.fmt.bytesToHex(u, .lower));
 }
 
-/// Every name set, users' and devices'.
+/// Every name set, people's and devices'.
 pub fn names(replica: *Replica, arena: std.mem.Allocator) ![]Name {
     var out: std.ArrayList(Name) = .empty;
     const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key >= 'n/' AND key < 'n0' AND length(value) > 0 ORDER BY key");
@@ -1367,7 +1367,7 @@ pub fn names(replica: *Replica, arena: std.mem.Allocator) ![]Name {
             try out.append(arena, .{ .key = try arena.dupe(u8, key), .name = "" });
         const n = &out.items[out.items.len - 1];
         const value = try arena.dupe(u8, s.blob(2));
-        if (std.mem.eql(u8, s.blob(1), "name")) n.name = value else if (std.mem.eql(u8, s.blob(1), "user")) n.user = value;
+        if (std.mem.eql(u8, s.blob(1), "name")) n.name = value else if (std.mem.eql(u8, s.blob(1), "user")) n.person = value;
     }
     return out.items;
 }
@@ -1378,11 +1378,11 @@ pub fn nameOf(list: []const Name, key: []const u8) ?[]const u8 {
     return null;
 }
 
-test "users and devices are named, a device with its user" {
+test "people and devices are named, a device with its person" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try @import("replica.zig").userKeyPair(@splat(1))).public_key.toBytes();
+    const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
     var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
     try setName(&r, arena, 1, founder, " Brian ", null);
@@ -1391,5 +1391,5 @@ test "users and devices are named, a device with its user" {
     try std.testing.expectEqual(@as(usize, 2), list.len);
     try std.testing.expectEqualStrings("Brian", nameOf(list, &std.fmt.bytesToHex(founder, .lower)).?);
     const device = std.fmt.bytesToHex(r.device(), .lower);
-    for (list) |n| if (std.mem.eql(u8, n.key, &device)) try std.testing.expectEqualStrings(&std.fmt.bytesToHex(founder, .lower), n.user.?);
+    for (list) |n| if (std.mem.eql(u8, n.key, &device)) try std.testing.expectEqualStrings(&std.fmt.bytesToHex(founder, .lower), n.person.?);
 }

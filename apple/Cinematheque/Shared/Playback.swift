@@ -25,7 +25,7 @@ struct PlayRequest: Codable, Hashable {
 
 /// What to play next, and the queue after it.
 enum Playback {
-    /// A movie's first item, resuming where this user left off; or a
+    /// A movie's first item, resuming where this person left off; or a
     /// season's episode in progress (the latest, if more than one), else its
     /// next unwatched (or its first, if all are watched), with the rest of
     /// the season queued after it; with `overFromStart`, from its beginning
@@ -50,7 +50,7 @@ enum Playback {
             .sorted { ($0.episode?.number ?? 0) < ($1.episode?.number ?? 0) }
     }
 
-    /// Plays `items[index]`, where this user left off unless watched or
+    /// Plays `items[index]`, where this person left off unless watched or
     /// `overFromStart`, then the rest in order.
     static func request(_ detail: TitleDetail, items: [TitleDetail.Item], from index: Int, rendition: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
         let queue = items[index...].compactMap { item -> PlayRequest.Entry? in
