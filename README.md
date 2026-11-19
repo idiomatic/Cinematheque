@@ -37,7 +37,7 @@ Either way, the folder needs nothing done to it: Cinematheque reads it as it is,
 
 ### A web server
 
-If your videos are on a server that already serves files, such as a NAS's web server, Caddy, nginx, or Apache, add its address instead (with Add Server… on the Mac). Any web server that lists directories will do. Cinematheque works out which kind of listing a source gives: an `INDEX` file if there is one (below), JSON listings from Caddy and nginx, or HTML listings from most others. The server must answer byte-range requests, so players can seek; Python's built-in `http.server` doesn't, so Cinematheque can catalog its files but players can't stream them.
+If your videos are on a server that already serves files, such as a NAS's web server, Caddy, nginx, or Apache, add its address instead (with Add Server… on the Mac). Any web server that lists its folders will do, as long as it lets players seek within a file, as nearly all do (Python's built-in `http.server` doesn't: its videos are listed, but won't play).
 
 If your server doesn't list directories, put a file named `INDEX` in the served folder, listing its files. Make it there with:
 
@@ -45,11 +45,11 @@ If your server doesn't list directories, put a file named `INDEX` in the served 
 find . -type f ! -name INDEX > INDEX
 ```
 
-and remake it whenever the files change. Cinematheque's own server writes one, with each directory too (ending in `/`), so a drive's mount point that's empty, the drive unplugged, shows it's still there: its videos stay in the library, dimmed, rather than going, until it's back, a year passes, or you remove them in Settings › Sources. It works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to catalog a large source: one request instead of one per folder.
+and remake it whenever the files change. The command works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to read a large source: one request instead of one per folder. The command-line app's server serves one for you.
 
-Crawling a source reads its listings, recognizes titles from file and folder names, and records each file as a copy of its title, in its quality. Later crawls are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title.
+Refresh Library (⌘R on the Mac) catches up with your other devices, then looks for new videos: it reads each source's listings, recognizes titles from file and folder names, and records each file as a copy of its title, in its quality. Later looks are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title. When a folder's drive is unplugged or its share unmounted, its videos stay in the library, dimmed, until it's back, a year passes, or you remove them in Settings › Sources.
 
-A source skips names beginning with a prefix, by default `,`, for folders like `,obsolete` that hold files you don't want cataloged. Removing a source removes its copies on every device, so titles it alone held stop showing; its files stay where they are.
+A source skips names beginning with a prefix, by default `,`, for folders like `,obsolete` that hold files you don't want in the library. Removing a source removes its copies on every device, so titles it alone held stop showing; its files stay where they are.
 
 ### Naming
 
@@ -70,7 +70,7 @@ Names aren't always consistent: a year off by one, a title spelled two ways, or 
 
 ### Quality
 
-A title may come in more than one quality, such as 1080p and 4K HDR, and each may have copies in several sources; the Mac app's inspector picks which quality to play, and when one copy doesn't load (on a device that's asleep, say), players try the next. A file's quality comes from its name, as media servers put it there, so a title's files can sit side by side:
+A title may come in more than one quality, such as 1080p and 4K HDR, and each may have copies in several sources; the apps' Quality picker chooses which to play, and when one copy doesn't load (on a device that's asleep, say), players try the next. A file's quality comes from its name, as media servers put it there, so a title's files can sit side by side:
 
 ```
 Movies/All Systems Red (2017)/All Systems Red (2017) - 1080p.mkv
@@ -87,6 +87,12 @@ If a folder holds files of one quality whose names don't say which (say, everyth
 The apps browse the library by cover art: movies, and each series by season. Choose one for its details, and play it straight from its source, resuming where you left off on any of your devices; a season plays on from the episode you're partway through, or else its next unwatched one. Covers and descriptions come from your sources: a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them, or else the cover and details your MP4 files carry (as HandBrake, iTunes, and tagging tools write them). Until a cover loads, its tile shows a blurred likeness of it, which travels with the library, so even a newly paired device shows one at once. Star titles for your watchlist, which, like what you've watched, is yours alone. Stopping within the first 10 seconds forgets where you were, so going back to the start sticks.
 
 On first run, an app creates a library, or pairs with one of your devices or someone's library by a code it shows; the Mac's Settings manage sources, people, and devices, so a household needs no command line. The Mac app uses the same data directory as the command-line app on that Mac, so either can manage the library.
+
+## Downloading
+
+On a Mac, you can download what you'll watch away from home, or keep on hand when the network is slow. A movie's Download button says its size. A season's Download menu chooses which of the series' episodes the Mac keeps as you watch: the Current one, the Next few, the Unwatched ones of a season or of the whole series, or All of them. The menu gives each choice's size, and the space free, in orange when a choice wouldn't fit.
+
+Downloads go to `~/Movies/Cinematheque` (Settings › Downloads changes it), wait while something streams so as not to slow it, and are shared with your other devices like any source. Once you've watched a download, it's deleted when its space is needed, but only if a source still holds the same file, and never if it's the only copy; Keep Download, in its context menu, spares it. The trash button beside the Download controls deletes them yourself, and asks first if any is the only copy. Cinematheque always leaves 20 GB free.
 
 ## Sharing a library
 
