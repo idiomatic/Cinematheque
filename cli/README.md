@@ -12,7 +12,7 @@ cp zig-out/bin/cinematheque ~/bin/   # or anywhere on your PATH
 ./test.sh       # devices, a generated source, sync, and every command
 ```
 
-[build.zig](build.zig) builds the other device and, with `zig build gen`, the test source's generator.
+[build.zig](build.zig) builds the command-line app and, with `zig build gen`, the test source's generator.
 
 ## Getting started
 
@@ -57,7 +57,7 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 ### People and libraries
 
 * `person show` prints this person's key, as `member remove` and `library handover` take it.
-* `person pair`, on a new device without a library, prints a 6-digit code, and the port it listens on, and waits. Meanwhile it serves `/pair` on that port and advertises itself (`pair=pair`, named by `$HOST`). `person pair CODE` on one of the person's devices finds it nearby, or at the URL given, and sends it the person's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its person.
+* `person pair`, on a new device without a library, prints a 6-digit code, and the port it listens on, and waits. Meanwhile it serves `/pair` on that port and advertises itself (`pair=pair`, named by the computer's host name). `person pair CODE` on one of the person's devices finds it nearby, or at the URL given, and sends it the person's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its person.
 * `library create` founds a library with this person as founder, and prints its ID. `library join` offers a code, as `person pair` does, for a member's `member pair CODE`. Pairing is the only way to pair or join, so the person's seed is never shown.
 * `library show` prints the library's ID, founder, member count, and digest. The digest is a hash of every field's winning value, so two devices that have synced fully print the same one.
 * `library handover PERSON` makes a member the founder; this person stays a member unless `--leave`. Only the founder may.
@@ -98,7 +98,7 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 * `progress list [TITLE]` prints this person's progress, or a title's: each item, whether watched, and where it's at.
 * `progress set ITEM POSITION DURATION` records a position, in seconds. The core's rules apply: within the last 5% marks the item watched, and within the first 10 seconds clears the position. `progress set ITEM --watched` (or `--unwatched`) marks it by hand, and `progress remove ITEM` forgets it.
 
-Progress are private: they're written on this device's private stream, and travel only directly between the person's devices.
+Progress is private: it's written on this device's private stream, and travels only directly between the person's devices.
 
 ### Devices, syncing, and serving
 
@@ -167,11 +167,11 @@ What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 ## Sources
 
 * [main.zig](src/main.zig): the command line. `Args` parses words and options (an option not among the flags takes the next word as its value) and expands the `ls` and `show` shortcuts. `Command.is` matches a verb, its arity, and the options it allows. The nouns and actions are tables of functions, and `help` prints a noun's or action's part of [usage.txt](src/usage.txt), which it embeds. It opens the data directory and the `App` every command acts with (the store, the output, and the clock), and turns `error.Usage` into help and status 2.
-* [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `source`, `title`, `alias`, `progress`, `agent`), sending pairing codes (`pairWith`, which finds the one device offering nearby), and `crawl` and `refresh`, which crawl sources and then describe them.
-* [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync` and `pullAll`, which find devices by DNS-SD and in `local` (`address:URL`); `device`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
+* [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `device`, `source`, `title`, `alias`, `progress`, `agent`), sending pairing codes (`pairWith`, which finds the one device offering nearby), and `crawl` and `refresh`, which crawl sources and then describe them.
+* [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync`, which with `syncAll` finds devices by DNS-SD and in `local` (`address:URL`), and pulls from each; the listing and adding of addresses behind `device`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
 * [agent.zig](src/agent.zig): the launch agents' property lists, installed and removed by `launchctl bootstrap` and `bootout`.
 * [usage.txt](src/usage.txt): the commands and the help.
-* [test.sh](test.sh): the end-to-end test. Devices on one computer, each with a data directory of its own, found a library and serve a generated source as media. They crawl, pair (to join, and to be another of a person's devices) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that progress travel only between the person's devices.
+* [test.sh](test.sh): the end-to-end test. Devices on one computer, each with a data directory of its own, found a library and serve a generated source as media. They crawl, pair (to join, and to be another of a person's devices) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that progress travels only between the person's devices.
 * [test/gen.zig](test/gen.zig): the test source's generator (`gen DIR [DIVISOR]`): a media tree at the library's full scale, or a fraction of it, named as Plex and Jellyfin expect, of sparse files that take no disk space.
 
 The library itself, from parsing names to syncing, is the [core](../core/README.md)'s; how its operations work is in [ARCHITECTURE.md](../ARCHITECTURE.md).

@@ -19,7 +19,9 @@ device list prints it.
                                person's devices to pair this one with it
   person pair CODE [URL]       pair the new device showing CODE (found
                                nearby, or at URL), sending it this person's
-                               secret and the library's founder
+                               secret and the library's founder; found
+                               nearby, it's named as it advertised itself,
+                               else (at URL) unnamed until it names itself
 
   library show                 print the library's ID, founder, member
                                count, and digest
@@ -37,7 +39,8 @@ device list prints it.
   member list                  list members
   member pair CODE [URL]       admit the person of the new device showing
                                CODE (found nearby, or at URL), sending it
-                               the library's founder
+                               the library's founder; its device is named
+                               as person pair names one
   member remove PERSON         remove a member
 
   device list                  list this person's devices, by name; then

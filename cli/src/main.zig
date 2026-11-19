@@ -34,6 +34,9 @@ pub const App = struct {
 pub const Args = struct {
     words: []const []const u8,
     options: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
+    /// Whether the words began as `ls` or `show`, which stand for `title
+    /// list` and `title show`.
+    shortcut: bool = false,
 
     const flags = [_][]const u8{ "--leave", "--watched", "--unwatched", "--help" };
 
@@ -62,6 +65,7 @@ pub const Args = struct {
             const verb = if (words.items[0][0] == 'l') "list" else "show";
             words.items[0] = "title";
             try words.insert(arena, 1, verb);
+            a.shortcut = true;
         }
         a.words = words.items;
         return a;
@@ -154,7 +158,11 @@ pub fn main(init: std.process.Init) !void {
     const w = args.words;
     // Help: `-h` or `--help`, on its own or for a noun or action, or a
     // noun alone.
-    if (args.has("--help")) return help(out, if (w.len > 0) w[0] else null);
+    if (args.has("--help")) {
+        // A shortcut's help is its command's alone.
+        const topic = if (w.len == 0) null else if (args.shortcut) try std.fmt.allocPrint(arena, "{s} {s}", .{ w[0], w[1] }) else w[0];
+        return help(out, topic);
+    }
     if (w.len == 0) usage(out, null);
     const action = find(&actions, w[0]);
     const run = if (action) |found| found else find(&nouns, w[0]) orelse usage(out, null);

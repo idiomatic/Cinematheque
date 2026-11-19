@@ -11,6 +11,11 @@ cq=$here/zig-out/bin/cinematheque
 gen=$here/zig-out/bin/gen
 
 (cd $here && zig build --release=fast && zig build gen --release=fast)
+# Only a directory this test could have made is cleared.
+if [[ -e $work && -n $(ls -A $work 2> /dev/null) && ${work:t} != cinematheque-cli-test* ]]; then
+    echo "refusing to clear $work: not named cinematheque-cli-test..." >&2
+    exit 1
+fi
 rm -rf $work
 mkdir -p $work
 
@@ -22,8 +27,10 @@ c=(--data $work/c)
 a_pid=
 b_pid=
 d_pid=
+c1_pid=
+c2_pid=
 cleanup() {
-    kill ${a_pid:-} ${b_pid:-} ${d_pid:-} 2> /dev/null || true
+    kill ${a_pid:-} ${b_pid:-} ${c1_pid:-} ${c2_pid:-} ${d_pid:-} 2> /dev/null || true
 }
 trap cleanup EXIT
 digest() { $cq "$@" library show | awk '/^digest/ { print $2 }' }
@@ -58,6 +65,18 @@ $cq $a alias add t/m/movie-0001/1921 t/m/movie-0002/1922
 $cq $b sync
 [[ $(digest $a) == $(digest $b) ]] || { echo "FAIL: B differs from A after a change"; exit 1; }
 $cq $b ls "Movie 0001"
+# Help: a shortcut's alone; a bad command line exits with status 2.
+[[ $($cq ls -h | grep -c '^  ') -gt 0 && -z $($cq ls -h | grep '^  title show') ]] || { echo "FAIL: ls -h"; exit 1; }
+[[ -n $($cq show -h | grep '^  title show') && -z $($cq show -h | grep '^  title list') ]] || { echo "FAIL: show -h"; exit 1; }
+$cq -h | grep -q "^Usage:" || { echo "FAIL: -h"; exit 1; }
+set +e
+$cq $b nonsense > /dev/null 2>&1
+[[ $? -eq 2 ]] || { echo "FAIL: a bad command line didn't exit with status 2"; exit 1; }
+set -e
+$cq $b title facets | grep -q . || { echo "FAIL: title facets"; exit 1; }
+if [[ $(uname) == Darwin ]]; then
+    $cq $b agent show | grep -q "com.rbrian.cinematheque.serve" || { echo "FAIL: agent show"; exit 1; }
+fi
 $cq $b alias list | grep -q "movie-0001/1921 -> " || { echo "FAIL: alias list"; exit 1; }
 $cq $a alias remove t/m/movie-0001/1921
 $cq $b sync http://127.0.0.1:8191
@@ -74,6 +93,9 @@ $cq $c sync http://127.0.0.1:8191 | grep -q NotAMember || { echo "FAIL: a remove
 
 item=t/m/movie-0003/1923/v/-
 pair $work/b2 "person pair" $work/b "person pair"
+$cq $b progress set $item 600 6000
+$cq $b progress set $item --watched
+$cq $b progress list | grep -q "$item" || { echo "FAIL: progress set --watched"; exit 1; }
 $cq $b progress set $item 600 6000
 # B's pushes to A, another person's device, leave out B's progress.
 $cq $b sync http://127.0.0.1:8191
@@ -110,6 +132,7 @@ $cq $c serve > $work/c2.log 2>&1 &
 c2_pid=$!
 sleep 1
 kill $c1_pid $c2_pid
+wait $c1_pid $c2_pid 2> /dev/null || true
 p1=$(grep -o "on port [0-9]*" $work/c1.log)
 p2=$(grep -o "on port [0-9]*" $work/c2.log)
 [[ -n $p1 && -n $p2 && $p1 != $p2 ]] || { echo "FAIL: no fallback port ($p1, $p2)"; exit 1; }
@@ -123,7 +146,10 @@ cp "$work/media/$(cd $work/media && find . -name '*.mkv' | head -1)" "$work/driv
 cp "$work/media/$(cd $work/media && find . -name '*.mkv' | head -1)" "$work/drives/archive0002/Other Movie (2002).mkv"
 $cq $d library create
 drives() {
-    kill ${d_pid:-} 2> /dev/null || true
+    if [[ -n ${d_pid:-} ]]; then
+        kill $d_pid 2> /dev/null || true
+        wait $d_pid 2> /dev/null || true
+    fi
     $cq $d serve --port 8194 --media $work/drives > $work/d.log 2>&1 &
     d_pid=$!
     sleep 1

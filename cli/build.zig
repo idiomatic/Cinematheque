@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
     const run = b.addRunArtifact(exe);
     run.addPassthruArgs();
-    b.step("run", "Run the peer").dependOn(&run.step);
+    b.step("run", "Run the command-line app").dependOn(&run.step);
 
     // A test repository's generator, for test.sh.
     const gen = b.addExecutable(.{ .name = "gen", .root_module = b.createModule(.{

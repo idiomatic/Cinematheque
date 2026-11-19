@@ -46,7 +46,11 @@ fn plist(arena: std.mem.Allocator, label: []const u8, arguments: []const []const
     }
     try out.print(arena, "\t<key>StandardOutPath</key>\n\t<string>{f}/{s}.log</string>\n", .{ escaped(logs), log });
     try out.print(arena, "\t<key>StandardErrorPath</key>\n\t<string>{f}/{s}.log</string>\n", .{ escaped(logs), log });
-    try out.appendSlice(arena, "\t<key>ProcessType</key>\n\t<string>Background</string>\n</dict>\n</plist>\n");
+    // Serving is on demand, as others ask: not throttled as background work.
+    try out.print(arena, "\t<key>ProcessType</key>\n\t<string>{s}</string>\n</dict>\n</plist>\n", .{switch (run) {
+        .keep_alive => "Interactive",
+        .hourly => "Background",
+    }});
     return out.items;
 }
 
@@ -78,10 +82,17 @@ pub fn install(io: Io, arena: std.mem.Allocator, home: []const u8, list: [2]Agen
         // Replace a running one.
         _ = std.process.run(arena, io, .{ .argv = &.{ "launchctl", "bootout", try std.fmt.allocPrint(arena, "{s}/{s}", .{ domain, a.label }) } }) catch {};
         try cwd.writeFile(io, .{ .sub_path = path, .data = a.plist });
-        const result = try std.process.run(arena, io, .{ .argv = &.{ "launchctl", "bootstrap", domain, path } });
-        if (result.term != .exited or result.term.exited != 0) {
-            std.log.err("launchctl bootstrap {s}: {s}", .{ path, result.stderr });
-            return error.LaunchctlFailed;
+        // Bootstrapping straight after booting out may fail (an I/O error)
+        // while launchd is still tearing the old one down: tried again.
+        var attempt: usize = 0;
+        while (true) : (attempt += 1) {
+            const result = try std.process.run(arena, io, .{ .argv = &.{ "launchctl", "bootstrap", domain, path } });
+            if (result.term == .exited and result.term.exited == 0) break;
+            if (attempt == 5) {
+                std.log.err("launchctl bootstrap {s}: {s}", .{ path, result.stderr });
+                return error.LaunchctlFailed;
+            }
+            try io.sleep(.fromMilliseconds(300), .awake);
         }
     }
 }

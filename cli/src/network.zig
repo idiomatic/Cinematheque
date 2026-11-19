@@ -79,7 +79,7 @@ pub fn offerPairing(p: *App, kind: core.pair.Kind) !void {
         .txt = try core.discover.txtRecord(p.arena, &.{
             .{ "pair", @tagName(kind) },
             .{ "path", core.pair.path },
-            .{ "name", p.environ.get("HOST") orelse "" },
+            .{ "name", try advertisedName(p) },
         }),
     };
     try host.start();
@@ -102,6 +102,19 @@ pub fn offerPairing(p: *App, kind: core.pair.Kind) !void {
         }
         if (closed) return error.TooManyWrongCodes;
     }
+}
+
+/// The name a device offering to pair advertises: the computer's, as the
+/// system gives it (not `$HOST`, which shells don't export and launchd
+/// doesn't set), else its service name.
+fn advertisedName(p: *App) ![]const u8 {
+    var buffer: [std.posix.HOST_NAME_MAX + 1]u8 = undefined;
+    if (std.c.gethostname(&buffer, buffer.len) == 0) {
+        const name = std.mem.sliceTo(&buffer, 0);
+        const trimmed = if (std.mem.endsWith(u8, name, ".local")) name[0 .. name.len - ".local".len] else name;
+        if (trimmed.len > 0) return p.arena.dupe(u8, trimmed);
+    }
+    return serviceName(p);
 }
 
 fn serviceName(p: *App) ![]const u8 {
