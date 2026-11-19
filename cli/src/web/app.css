@@ -86,7 +86,6 @@ h2 { font-size: 20px; margin: 24px 0 12px; }
 .facts { color: var(--dim); margin: 4px 0 16px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; max-width: 80ch; }
 .spacer { flex: 1; }
-.gap { width: 16px; }
 .progress { display: flex; gap: 10px; align-items: center; max-width: 80ch; margin: -4px 0 12px; }
 .progress progress { flex: 1; height: 4px; accent-color: var(--accent); }
 .progress .left { color: var(--dim); font-size: 12px; white-space: nowrap; }
@@ -95,7 +94,7 @@ h2 { font-size: 20px; margin: 24px 0 12px; }
 button.mark { background: none; border-color: transparent; color: var(--dim); padding: 7px 8px; }
 button.mark:hover { color: var(--text); }
 button.mark[aria-pressed="true"] { color: var(--text); }
-.heading { display: flex; gap: 12px; align-items: center; margin: 24px 0 4px; }
+.heading { display: flex; gap: 12px; align-items: center; margin: 24px 0 4px; max-width: 80ch; }
 .heading h2 { margin: 0; font-size: 17px; }
 .picker { color: var(--dim); font-size: 13px; }
 .picker select, .heading select { margin-left: 4px; padding: 4px 8px; font-size: 13px; }

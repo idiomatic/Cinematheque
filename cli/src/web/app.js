@@ -393,7 +393,7 @@ async function titlePage(key, season) {
       "aria-label": "Season",
       onchange: (e) => { location.hash = `#title/${encodeURIComponent(key)}/${e.target.value}`; },
     }, seasons.map((s) => el("option", { value: s, selected: s === season }, seasonName(s)))) : null;
-    body.push(el("div", { class: "heading" }, el("h2", {}, "Episodes"), seasonPicker, el("span", { class: "gap" }), qualityPicker));
+    body.push(el("div", { class: "heading" }, el("h2", {}, "Episodes"), seasonPicker, el("span", { class: "spacer" }), qualityPicker));
     body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", { class: item.watched ? "watched" : null },
       el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n, false) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
@@ -402,14 +402,14 @@ async function titlePage(key, season) {
       item.fields.description ? el("span", { class: "desc" }, item.fields.description) : null,
     ))));
   } else if (items.length > 1) {
-    body.push(el("div", { class: "heading" }, el("h2", {}, "Versions"), el("span", { class: "gap" }), qualityPicker));
+    body.push(el("div", { class: "heading" }, el("h2", {}, "Versions"), el("span", { class: "spacer" }), qualityPicker));
     body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", {},
       el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n, false) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
       el("span", { class: "time" }, ""),
     ))));
   } else if (qualityPicker) {
-    body.push(el("div", { class: "heading" }, qualityPicker));
+    body.push(el("div", { class: "heading" }, el("span", { class: "spacer" }), qualityPicker));
   }
   describe(detail, items);
   return [el("div", { class: "page" }, art, el("div", {}, body))];
