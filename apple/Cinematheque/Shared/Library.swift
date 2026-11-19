@@ -33,6 +33,9 @@ struct Tile: Codable, Identifiable, Hashable {
     let elapsed: Int
     let runtime: Int
     let started: Bool
+    /// How many items it holds: a season's episodes (and their versions and
+    /// parts), a movie's versions and parts.
+    let items: Int
     /// Every copy it has is on a drive that isn't there (an unavailable
     /// directory of its source's): shown dimmed.
     var unavailable = false

@@ -68,22 +68,24 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// "4,000 movies", "300 series, 1,200 seasons", or with a search, "12
+    /// "4,000 movies", "300 series, 1,200 seasons, 15,000 episodes", or with a search, "12
     /// of 4,000 movies match “zoo”".
     @MainActor func counts(in library: Library, search: String = "") -> String {
         let all = tiles(in: library)
         let titles = Set(all.map(\.key)).count
         let noun = switch self {
-        case .home, .inProgress: titles == 1 ? "title in progress" : "titles in progress"
         case .movies: titles == 1 ? "movie" : "movies"
         case .series: "series"
-        case .watchlist, .played, .watched, .downloaded: titles == 1 ? "title" : "titles"
+        case .home, .inProgress, .watchlist, .played, .watched, .downloaded: titles == 1 ? "title" : "titles"
         }
         if !search.isEmpty {
             let matching = Set(tiles(in: library, search: search).map(\.key)).count
             return "\(matching.formatted()) of \(titles.formatted()) \(noun) match “\(search)”"
         }
-        if self == .series { return "\(titles.formatted()) series, \(all.count.formatted()) seasons" }
+        if self == .series {
+            let episodes = all.reduce(0) { $0 + $1.items }
+            return "\(titles.formatted()) series, \(all.count.formatted()) \(all.count == 1 ? "season" : "seasons"), \(episodes.formatted()) \(episodes == 1 ? "episode" : "episodes")"
+        }
         return "\(titles.formatted()) \(noun)"
     }
 
@@ -117,6 +119,7 @@ extension Library {
                 progress: runtime > 0 ? Double(elapsed) / Double(runtime) : 0,
                 elapsed: elapsed, runtime: runtime,
                 started: seasons.contains(where: \.started),
+                items: seasons.reduce(0) { $0 + $1.items },
                 unavailable: seasons.allSatisfy(\.unavailable)
             )
         }

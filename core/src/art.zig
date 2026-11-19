@@ -594,6 +594,9 @@ pub const Tile = struct {
     played: u64 = 0,
     total: u64 = 0,
     started: bool = false,
+    /// How many items it holds: a movie's versions and parts, or a season's
+    /// episodes (and their versions and parts).
+    items: usize = 0,
     /// Every copy it has is under an unavailable directory (an unplugged drive's).
     unavailable: bool = false,
 };
@@ -684,6 +687,7 @@ fn tileOf(item: []const u8) ?struct { title: []const u8, season: u16 } {
 
 fn progress(tile: *Tile, items: anytype, heads: anytype, durations: anytype, id: []const u8) void {
     const list = (items.get(id) orelse return).items;
+    tile.items = list.len;
     // An item of unknown length takes the average of those known (else half
     // an hour, an episode's usual length).
     var known_ms: u64 = 0;
@@ -789,6 +793,7 @@ test "covers round-trip, and a season without one takes its series'" {
     const timed = try tiles(&r, arena);
     try std.testing.expectEqual(@as(u64, 1_200_000 + 900_000), timed[0].played);
     try std.testing.expectEqual(@as(u64, 4_800_000), timed[0].total);
+    try std.testing.expectEqual(@as(usize, 2), timed[0].items);
     try std.testing.expect(!timed[0].watched);
 
     try setWatchlisted(&r, arena, 2, "t/s/firefly/-", true);

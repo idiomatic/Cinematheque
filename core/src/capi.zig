@@ -238,7 +238,7 @@ const Heard = struct {
         return .{ .device = key, .name = library.nameOf(named, key), .operations = operations, .at = at };
     }
 };
-const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, unavailable: bool };
+const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, items: usize, unavailable: bool };
 const StatusJson = struct { person: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
 
 /// How far a long operation has come, in steps of its phase (sources
@@ -1110,7 +1110,7 @@ fn describeItem(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !
 /// the cover's placeholder, a ThumbHash in base64, for `cq_thumbhash`), and
 /// this person's `watched` (every item), `progress` (0 to 1, by running time),
 /// `elapsed` and `runtime` (milliseconds played, of how many), and `started`;
-/// and `unavailable`, whether every copy it has is under an unavailable directory.
+/// `items`, how many it holds; and `unavailable`, whether every copy it has is under an unavailable directory.
 export fn cq_tiles(lib: *Library) ?[*:0]u8 {
     return json(lib, tiles, .{});
 }
@@ -1134,6 +1134,7 @@ fn tiles(lib: *Library, arena: std.mem.Allocator) ![]const TileJson {
         .elapsed = t.played,
         .runtime = t.total,
         .started = t.started,
+        .items = t.items,
         .unavailable = t.unavailable,
     };
     return out;
