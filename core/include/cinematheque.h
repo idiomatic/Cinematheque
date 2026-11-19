@@ -92,6 +92,10 @@ void cq_downloads_hold(cq_library *library, int on);
 // metadata from its file.
 char *cq_crawl(cq_library *library);
 char *cq_sync(cq_library *library, const char *url);
+// As cq_sync with every device, but with those the last such sync found
+// nearby (and those added), without looking again (two seconds); if none
+// has, it looks. For a change to reach other devices at once.
+char *cq_sync_known(cq_library *library);
 // The last sync this device served, while serving: which device asked, and
 // how many operations it was sent.
 char *cq_served(cq_library *library);

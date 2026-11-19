@@ -1063,7 +1063,9 @@ final class Library {
         afterChange = Task {
             try? await Task.sleep(for: .seconds(1))
             while !Task.isCancelled {
-                if await syncQuietly() { return }
+                // With the devices the last sync found, without looking
+                // for two seconds again.
+                if await syncQuietly(known: true) { return }
                 guard handle != nil, hasLibrary else { return }
                 try? await Task.sleep(for: .milliseconds(500))
             }
@@ -1071,15 +1073,16 @@ final class Library {
     }
 
     /// Syncs with every device, without showing it as an activity, unless
-    /// something else is running; returns whether it did.
+    /// something else is running; returns whether it did. `known`, with
+    /// those the last sync found (`cq_sync_known`), not looking again.
     @discardableResult
-    func syncQuietly() async -> Bool {
+    func syncQuietly(known: Bool = false) async -> Bool {
         guard let handle, hasLibrary, activity == nil, !syncingQuietly else { return false }
         syncingQuietly = true
         defer { syncingQuietly = false }
         lastSync = .now
         let data: Data? = await Task.detached {
-            guard let text = cq_sync(handle.pointer, nil) else { return nil }
+            guard let text = known ? cq_sync_known(handle.pointer) : cq_sync(handle.pointer, nil) else { return nil }
             defer { cq_free(text) }
             return Data(bytes: text, count: strlen(text))
         }.value

@@ -60,6 +60,9 @@ const Library = struct {
     received: Heard = .{},
     /// Servers whose copies didn't answer lately (`cq_race`).
     racing: race.Memory = .{},
+    /// The devices a sync last found nearby, for one that doesn't look
+    /// again (`cq_sync_known`).
+    known: Known = .{},
     /// Reconciling downloads (`cq_reconcile`), apart from `progress`, since
     /// it runs alongside crawls: whether it runs, whether it's asked to run
     /// again, and how far it's come, in megabytes.
@@ -159,6 +162,7 @@ export fn cq_close(lib: ?*Library) void {
     if (l.replica) |*r| r.close();
     l.priority.deinit();
     l.racing.deinit(gpa);
+    l.known.deinit();
     l.arena_state.deinit();
     l.threaded.deinit();
     gpa.destroy(l);
@@ -390,6 +394,8 @@ fn leave(lib: *Library, arena: std.mem.Allocator) !void {
     stopPairing(lib);
     if (lib.replica) |*r| r.close();
     lib.replica = null;
+    lib.known.deinit();
+    lib.known = .{};
     try lib.store.forget(arena);
     lib.store = try store_.Store.open(lib.io(), gpa, lib.arena_state.allocator(), lib.store.dir);
     lib.served = .{};
@@ -1047,10 +1053,58 @@ export fn cq_data_version(lib: *Library) i64 {
 /// library found or added, as a JSON array of objects with `url`, `new`
 /// (operations won), and `error`.
 export fn cq_sync(lib: *Library, target: ?[*:0]const u8) ?[*:0]u8 {
-    return json(lib, syncAll, .{span(target)});
+    return json(lib, syncAll, .{ span(target), false });
 }
 
-fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]const SyncJson {
+/// Long: as `cq_sync` with every device, but with those the last such sync
+/// found nearby (and those added), without looking for two seconds again;
+/// if none has, it looks. For a change to reach other devices at once.
+export fn cq_sync_known(lib: *Library) ?[*:0]u8 {
+    return json(lib, syncAll, .{ null, true });
+}
+
+/// The devices of this library a sync last found nearby.
+const Known = struct {
+    mutex: Io.Mutex = .init,
+    arena: ?std.heap.ArenaAllocator = null,
+    devices: sync.Devices = .{ .urls = &.{}, .names = .empty },
+
+    fn save(k: *Known, io: Io, list: sync.Devices) !void {
+        var next: std.heap.ArenaAllocator = .init(gpa);
+        errdefer next.deinit();
+        const copy = try dupe(next.allocator(), list);
+        k.mutex.lockUncancelable(io);
+        defer k.mutex.unlock(io);
+        k.deinit();
+        k.arena = next;
+        k.devices = copy;
+    }
+
+    /// A copy in `arena`, or null if no sync has looked yet.
+    fn get(k: *Known, io: Io, arena: std.mem.Allocator) !?sync.Devices {
+        k.mutex.lockUncancelable(io);
+        defer k.mutex.unlock(io);
+        if (k.arena == null) return null;
+        return try dupe(arena, k.devices);
+    }
+
+    fn dupe(arena: std.mem.Allocator, list: sync.Devices) !sync.Devices {
+        const urls = try arena.alloc([]const u8, list.urls.len);
+        var names: std.StringHashMapUnmanaged([]const u8) = .empty;
+        for (list.urls, urls) |u, *out| {
+            out.* = try arena.dupe(u8, u);
+            if (list.names.get(u)) |n| try names.put(arena, out.*, try arena.dupe(u8, n));
+        }
+        return .{ .urls = urls, .names = names };
+    }
+
+    fn deinit(k: *Known) void {
+        if (k.arena) |*a| a.deinit();
+        k.arena = null;
+    }
+};
+
+fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8, known: bool) ![]const SyncJson {
     // Devices are counted once they're found.
     lib.steps.start(.syncing, 0);
     defer lib.steps.finish();
@@ -1058,7 +1112,16 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8) ![]cons
     defer lib.writer.unlock(lib.io());
     var r = try connection(lib, arena);
     defer r.close();
-    const reachable = try sync.reachable(lib.io(), arena, &r, try lib.store.serviceName(arena), target);
+    const reachable = if (target != null)
+        try sync.reachable(lib.io(), arena, &r, try lib.store.serviceName(arena), target)
+    else found: {
+        const seen = (if (known) try lib.known.get(lib.io(), arena) else null) orelse looked: {
+            const fresh = try sync.nearby(lib.io(), arena, &r, try lib.store.serviceName(arena));
+            try lib.known.save(lib.io(), fresh);
+            break :looked fresh;
+        };
+        break :found try sync.withAdded(arena, &r, seen);
+    };
     const urls = reachable.urls;
     const names = reachable.names;
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };

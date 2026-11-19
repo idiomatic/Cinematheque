@@ -103,12 +103,19 @@ pub const Devices = struct {
 /// `target` alone, if given; else every device of `r`'s library found nearby
 /// (but this one, advertised as `own`), then those added that weren't.
 pub fn reachable(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8, target: ?[]const u8) !Devices {
+    if (target) |t| {
+        const urls = try arena.alloc([]const u8, 1);
+        urls[0] = try syncUrl(arena, t);
+        return .{ .urls = urls, .names = .empty };
+    }
+    return withAdded(arena, r, try nearby(io, arena, r, own));
+}
+
+/// Every device of `r`'s library found nearby (but this one, advertised as
+/// `own`), looking for two seconds.
+pub fn nearby(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8) !Devices {
     var urls: std.ArrayList([]const u8) = .empty;
     var names: std.StringHashMapUnmanaged([]const u8) = .empty;
-    if (target) |t| {
-        try urls.append(arena, try syncUrl(arena, t));
-        return .{ .urls = urls.items, .names = names };
-    }
     const mine = std.fmt.bytesToHex(r.library, .lower);
     for (try discover.browse(io, arena, 2000)) |s| {
         if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
@@ -117,13 +124,19 @@ pub fn reachable(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8,
         try urls.append(arena, u);
         if (s.get("name")) |n| if (n.len > 0) try names.put(arena, u, n);
     }
-    const found = urls.items.len;
+    return .{ .urls = urls.items, .names = names };
+}
+
+/// `devices`, then those added that aren't among them.
+pub fn withAdded(arena: std.mem.Allocator, r: *Replica, devices: Devices) !Devices {
+    var urls: std.ArrayList([]const u8) = .empty;
+    try urls.appendSlice(arena, devices.urls);
     for (try addedAddresses(r, arena)) |u| {
-        for (urls.items[0..found]) |f| {
+        for (devices.urls) |f| {
             if (std.mem.eql(u8, f, u)) break;
         } else try urls.append(arena, u);
     }
-    return .{ .urls = urls.items, .names = names };
+    return .{ .urls = urls.items, .names = devices.names };
 }
 
 test "a found device's advertised path can't aim a request elsewhere" {
