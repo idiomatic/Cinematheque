@@ -19,14 +19,6 @@ struct PlaysFullScreen: ViewModifier {
     @Binding var request: PlayRequest?
     @Environment(Library.self) private var library
     @State private var black = false
-    @State private var ready: Ready?
-
-    /// A session warmed up, to present, and its curtain.
-    struct Ready: Identifiable {
-        let session: PlaybackSession
-        let curtain: Curtain
-        var id: ObjectIdentifier { ObjectIdentifier(session) }
-    }
 
     func body(content: Content) -> some View {
         content
@@ -42,36 +34,11 @@ struct PlaysFullScreen: ViewModifier {
                 await session.prepare()
                 try? await Task.sleep(until: faded, clock: .continuous)
                 guard !Task.isCancelled else { return session.close() }
-                var unanimated = Transaction()
-                unanimated.disablesAnimations = true
-                let curtain = Curtain()
-                curtain.session = session
-                withTransaction(unanimated) { ready = Ready(session: session, curtain: curtain) }
-            }
-            .fullScreenCover(item: $ready, onDismiss: {
-                request = nil
-                // Gone some other way than `leave`, which fades the page in.
-                if black { reveal() }
-            }) { shown in
-                FadingIn(fadesToBlack: false, curtain: shown.curtain) {
-                    TVPlayer(session: shown.session, curtain: shown.curtain) { leave(shown) }
+                TVPlayer.present(session) {
+                    self.request = nil
+                    reveal()
                 }
-                .ignoresSafeArea()
-                // Menu (Back) leaves through the curtain, not at once.
-                .interactiveDismissDisabled()
-                .onExitCommand { leave(shown) }
             }
-    }
-
-    /// Leaves playback: its picture fades to black as its sound falls,
-    /// then the player goes, over the black page, which fades back in.
-    private func leave(_ shown: Ready) {
-        shown.curtain.lower {
-            var unanimated = Transaction()
-            unanimated.disablesAnimations = true
-            withTransaction(unanimated) { ready = nil }
-            reveal()
-        }
     }
 
     /// Fades the page back in from black, once the player
@@ -86,72 +53,104 @@ struct PlaysFullScreen: ViewModifier {
 
 /// The system's player, full screen, over a session warmed up, its info
 /// panel showing each item's title and description; leaving it stops the
-/// session where it is.
-struct TVPlayer: UIViewControllerRepresentable {
-    let session: PlaybackSession
-    /// Raised once it plays.
-    let curtain: Curtain
-    /// Leaves it, as Menu (Back) does.
-    let leave: () -> Void
+/// session where it is. Presented by UIKit, not SwiftUI: AVKit adds views
+/// of its own (snapshots, as its controls animate) beside the player's,
+/// which SwiftUI's hosting view doesn't take. Its curtain is a black view
+/// in the player's content overlay, over the picture and under the
+/// controls.
+@MainActor
+final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
+    private let session: PlaybackSession
+    private let controller = AVPlayerViewController()
+    private let curtain = UIView()
+    /// Once it's gone, and the page can come back.
+    private let gone: () -> Void
+    /// The window whose display mode it asked for, to give back.
+    private weak var window: UIWindow?
+    private var leaving = false
+    /// The one shown, kept while it is.
+    private static var shown: TVPlayer?
 
-    @MainActor
-    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
-        var session: PlaybackSession?
-        var leave: () -> Void = {}
-        /// The window whose display mode it asked for, to give back.
-        weak var window: UIWindow?
-
-        // Menu (Back) leaves through the curtain, not at once.
-        func playerViewControllerShouldDismiss(_ controller: AVPlayerViewController) -> Bool {
-            leave()
-            return false
-        }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
+    private init(session: PlaybackSession, gone: @escaping () -> Void) {
+        self.session = session
+        self.gone = gone
+        super.init()
         controller.player = session.player
-        controller.delegate = context.coordinator
+        controller.delegate = self
         // The display's mode is matched to the video here, while it's paused
         // and black, rather than by the player once it plays, which would
         // lose the seconds the switch blanks the screen.
         controller.appliesPreferredDisplayCriteriaAutomatically = false
+        controller.modalPresentationStyle = .fullScreen
         session.player.volume = 0
-        context.coordinator.session = session
-        context.coordinator.leave = leave
-        let curtain = curtain
-        let coordinator = context.coordinator
-        Task { @MainActor in
-            await Self.matchDisplay(controller, session, coordinator)
-            session.play()
-            curtain.raise()
+        controller.loadViewIfNeeded()
+        if let overlay = controller.contentOverlayView {
+            curtain.backgroundColor = .black
+            curtain.frame = overlay.bounds
+            curtain.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.addSubview(curtain)
         }
-        return controller
     }
 
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {}
+    /// Presents a player over whatever's frontmost, unanimated; `gone` once
+    /// it's left.
+    static func present(_ session: PlaybackSession, gone: @escaping () -> Void) {
+        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+        guard var top = window?.rootViewController else {
+            session.close()
+            return gone()
+        }
+        while let presented = top.presentedViewController { top = presented }
+        let player = TVPlayer(session: session, gone: gone)
+        shown = player
+        top.present(player.controller, animated: false) {
+            Task { await player.start() }
+        }
+    }
 
-    // Leaving it stops it where it is, keeping the progress, and gives
-    // the display back its own mode.
-    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
-        coordinator.session?.close()
-        coordinator.window?.avDisplayManager.preferredDisplayCriteria = nil
+    private func start() async {
+        await matchDisplay()
+        session.play()
+        session.ramp(to: 1, over: .seconds(Platform.fade))
+        UIView.animate(withDuration: Platform.fade, delay: 0, options: .curveEaseIn) { self.curtain.alpha = 0 }
+    }
+
+    /// Leaves it: the picture fades to black as the sound falls, then it
+    /// goes, stopped where it is, and the display gets its own mode back.
+    private func leave() {
+        guard !leaving else { return }
+        leaving = true
+        session.ramp(to: 0, over: .seconds(Platform.fade))
+        UIView.animate(withDuration: Platform.fade, delay: 0, options: .curveEaseOut) {
+            self.curtain.alpha = 1
+        } completion: { _ in
+            self.controller.dismiss(animated: false) {
+                self.session.close()
+                self.window?.avDisplayManager.preferredDisplayCriteria = nil
+                Self.shown = nil
+                self.gone()
+            }
+        }
+    }
+
+    // Menu (Back) leaves through the curtain, not at once.
+    nonisolated func playerViewControllerShouldDismiss(_ controller: AVPlayerViewController) -> Bool {
+        MainActor.assumeIsolated { leave() }
+        return false
     }
 
     /// Asks the display for the video's frame rate and dynamic range (as
     /// Match Content does, if it's on), and waits for it to switch, if it
     /// does: up to half a second for the switch to start, and five for it
     /// to end.
-    private static func matchDisplay(_ controller: AVPlayerViewController, _ session: PlaybackSession, _ coordinator: Coordinator) async {
+    private func matchDisplay() async {
         let clock = ContinuousClock()
         let start = clock.now
         while controller.view.window == nil, clock.now - start < .seconds(1) { try? await Task.sleep(for: .milliseconds(20)) }
         guard let window = controller.view.window, let asset = session.player.currentItem?.asset else { return }
         let manager = window.avDisplayManager
         guard manager.isDisplayCriteriaMatchingEnabled, let criteria = try? await asset.load(.preferredDisplayCriteria) else { return }
-        coordinator.window = window
+        self.window = window
         manager.preferredDisplayCriteria = criteria
         let asked = clock.now
         while !manager.isDisplayModeSwitchInProgress, clock.now - asked < .milliseconds(500) { try? await Task.sleep(for: .milliseconds(50)) }

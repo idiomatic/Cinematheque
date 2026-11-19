@@ -69,6 +69,11 @@ struct RootView: View {
         // Back at the front (as an Apple TV app returns from the home screen,
         // never relaunched), what other devices changed meanwhile.
         .onChange(of: phase) {
+            #if os(tvOS)
+            // The Mac keeps syncing behind other apps; an Apple TV app in
+            // the background is about to be suspended.
+            library.active = phase == .active
+            #endif
             if phase == .active { Task { await library.syncQuietly() } }
         }
     }

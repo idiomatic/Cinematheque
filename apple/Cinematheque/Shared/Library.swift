@@ -926,6 +926,9 @@ final class Library {
         return parts.joined(separator: " · ")
     }
 
+    /// Whether the app is at the front (its scene active).
+    var active = true
+
     /// When this device last synced, from which the next quiet sync waits
     /// a minute.
     private var lastSync = Date.distantPast
@@ -941,6 +944,9 @@ final class Library {
         var tick = 0
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(1))
+            // Nothing redrawn while the app goes to the background, as the
+            // system snapshots it; at the front again, it syncs at once.
+            guard active else { continue }
             tick += 1
             notePushed()
             if tick % 5 == 0 {
