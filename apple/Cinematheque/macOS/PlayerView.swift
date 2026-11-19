@@ -43,29 +43,45 @@ struct WindowPlayer: View {
                 try? await Task.sleep(for: .seconds(3))
                 if !Task.isCancelled, !onBack { showsBack = false }
             }
-            .overlay(alignment: .topLeading) {
-                // On a material, to show over any picture; still there,
-                // unseen, for Escape. Beside it, what's playing, since the
-                // window's title bar hides its title.
-                HStack(alignment: .center, spacing: 12) {
-                    Button(action: leave) {
-                        Label("Back", systemImage: "chevron.backward")
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(.regularMaterial, in: Capsule())
+            .overlay(alignment: .top) {
+                // The title bar's row, as QuickTime Player's: the window's
+                // buttons (faded with it, by HidesToolbar), Back, and what's
+                // playing, centered, over a gradient to read over any
+                // picture; still there, unseen, for Escape.
+                ZStack(alignment: .top) {
+                    LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 72)
+                        .allowsHitTesting(false)
+                    ZStack {
+                        NowPlaying(title: title.isEmpty ? request.title : title)
+                            .padding(.horizontal, 180)
+                        HStack {
+                            Button(action: leave) {
+                                Label("Back", systemImage: "chevron.backward")
+                                    .font(.callout.weight(.medium))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .keyboardShortcut(.cancelAction)
+                            .help("Back to the library (Escape)")
+                            .onHover { onBack = $0 }
+                            Spacer()
+                        }
+                        // Past the window's buttons.
+                        .padding(.leading, 76)
                     }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.cancelAction)
-                    .help("Back to the library (Escape)")
-                    .onHover { onBack = $0 }
-                    NowPlaying(title: title.isEmpty ? request.title : title)
+                    .frame(height: HidesToolbar.titleBarHeight)
                 }
-                .padding(16)
+                // In the title bar's row, not beneath it.
+                .ignoresSafeArea()
                 .opacity(showsBack ? 1 : 0)
                 .allowsHitTesting(showsBack)
                 .animation(.easeInOut(duration: 0.25), value: showsBack)
             }
-            .background(HidesToolbar())
+            .background(HidesToolbar(showsButtons: showsBack))
             .navigationTitle(title.isEmpty ? request.title : title)
     }
 
@@ -76,8 +92,8 @@ struct WindowPlayer: View {
     }
 }
 
-/// What's playing, over the picture: a movie's name, or a series' with the
-/// episode (its code and name) beneath.
+/// What's playing, centered in the title bar's row: a movie's name, or a
+/// series' with the episode (its code and name) after it.
 private struct NowPlaying: View {
     let title: String
 
@@ -85,17 +101,13 @@ private struct NowPlaying: View {
         // Playback.name joins them with " · ": the title, then the rest.
         let parts = title.split(separator: " · ", maxSplits: 1).map(String.init)
         if let name = parts.first {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name).font(.headline)
-                if parts.count > 1 {
-                    Text(parts[1]).font(.subheadline).foregroundStyle(.secondary)
-                }
-            }
-            .lineLimit(1)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .allowsHitTesting(false)
+            (Text(name).fontWeight(.semibold) + Text(parts.count > 1 ? "  " + parts[1] : "").foregroundStyle(.white.opacity(0.75)))
+                .font(.callout)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .shadow(color: .black.opacity(0.4), radius: 2)
+                .allowsHitTesting(false)
         }
     }
 }
@@ -106,6 +118,14 @@ private struct NowPlaying: View {
 /// or title again as it updates the window (its title showing over the
 /// picture), so it watches them, and hides them again at once.
 private struct HidesToolbar: NSViewRepresentable {
+    /// Whether the window's buttons show, fading as playback's controls do.
+    let showsButtons: Bool
+
+    /// The title bar's height, with its toolbar hidden.
+    static let titleBarHeight: CGFloat = 28
+
+    private static let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+
     @MainActor
     final class Coordinator {
         weak var window: NSWindow?
@@ -145,12 +165,17 @@ private struct HidesToolbar: NSViewRepresentable {
                 }
             }
             coordinator.hide()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.25
+                for type in Self.buttons { window.standardWindowButton(type)?.animator().alphaValue = showsButtons ? 1 : 0 }
+            }
         }
     }
 
     static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
         coordinator.watching = []
         guard let window = coordinator.window else { return }
+        for type in buttons { window.standardWindowButton(type)?.alphaValue = 1 }
         window.toolbar?.isVisible = true
         window.titlebarAppearsTransparent = coordinator.transparent
         window.titleVisibility = coordinator.title
