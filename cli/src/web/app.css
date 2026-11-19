@@ -78,6 +78,8 @@ main > h2:first-child { margin-top: 0; }
 }
 .meter span { display: block; height: 100%; border-radius: 2px; background: #fff; }
 .series-name { margin: 28px 0 10px; font-size: 17px; font-weight: 600; }
+/* First on a shelf, it starts where the first row would, as a heading does. */
+main > div:first-child > .series-name:first-child { margin-top: 0; }
 
 .page { display: grid; grid-template-columns: 280px 1fr; gap: 32px; margin-top: 24px; }
 .page .art {
