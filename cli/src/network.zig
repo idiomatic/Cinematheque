@@ -6,11 +6,14 @@ const Io = std.Io;
 const core = @import("core");
 const main = @import("main.zig");
 const App = main.App;
+const web = @import("web.zig");
 const Command = main.Command;
 const Replica = core.replica.Replica;
 
 /// The port devices serve on by default.
 const default_port = 8008;
+/// Where `serve --media` serves its directory.
+pub const media_prefix = "media";
 
 /// Devices found nearby (listening for 2 seconds), and addresses added.
 pub fn listNearby(p: *App) !void {
@@ -36,12 +39,12 @@ pub fn sync(p: *App, c: Command) !void {
     try syncAll(p, if (c.rest.len == 1) c.rest[0] else null);
 }
 
-/// `serve [--port PORT] [--media DIR]`: serves on `PORT`, or on
+/// `serve [--port PORT] [--media DIR] [--web]`: serves on `PORT`, or on
 /// `default_port` if none, falling back to any free port if that's taken,
-/// and advertises the port it got.
+/// and advertises the port it got; with `--web`, the web client too.
 pub fn serve(p: *App, c: Command) !void {
     if (c.rest.len > 0) return error.Usage;
-    try c.args.only(&.{ "--port", "--media" });
+    try c.args.only(&.{ "--port", "--media", "--web" });
     const port = try c.args.port();
     const media = c.args.get("--media");
     var sharing: core.sync.Sharing = .{
@@ -49,21 +52,30 @@ pub fn serve(p: *App, c: Command) !void {
         .founder = try p.store.founder(p.arena),
         .identity = p.store.identity,
     };
+    // The web client answers after syncs, before the media.
+    var client: web.Web = .{ .path = sharing.path, .founder = sharing.founder, .identity = sharing.identity, .next = sharing.handler() };
+    const handler = if (c.args.has("--web")) client.handler() else sharing.handler();
     var r = try p.open();
     const library_hex = std.fmt.bytesToHex(r.library, .lower);
     const txt = try core.sync.advertisement(p.arena, &r, try p.store.person(), try p.store.device());
     r.close();
-    // The media directory, if any, at the root.
-    const one = [_]core.serve.Mount{.{ .path = media orelse "" }};
+    // The media directory, if any, at `/media/`, leaving the root to the
+    // web client.
+    const one = [_]core.serve.Mount{.{ .prefix = media_prefix, .path = media orelse "" }};
     var host: core.host.Host = .{
         .io = p.io,
         .gpa = p.gpa,
-        .options = .{ .host = "0.0.0.0", .port = port orelse default_port, .fallback = port == null, .mounts = if (media != null) &one else &.{}, .handler = sharing.handler() },
+        .options = .{ .host = "0.0.0.0", .port = port orelse default_port, .fallback = port == null, .mounts = if (media != null) &one else &.{}, .handler = handler },
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
         .txt = txt,
     };
     try host.start();
     try p.out.print("serving library {s} on port {d}{s}{s}, as {s}\n", .{ &library_hex, host.port, if (media != null) " with media from " else "", media orelse "", host.name });
+    if (c.args.has("--web")) {
+        // As other computers on the network reach it: `firefly.local`.
+        const name = try advertisedName(p);
+        try p.out.print("web client at http://{s}{s}:{d}/\n", .{ name, if (std.mem.indexOfScalar(u8, name, '.') == null) ".local" else "", host.port });
+    }
     try p.out.flush();
     try host.wait();
 }

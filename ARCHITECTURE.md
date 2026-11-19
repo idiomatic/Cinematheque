@@ -161,11 +161,11 @@ Only while a new device offers to pair, for a kind (`pair` or `join`) and the 6-
 
 ### Media
 
-Any other `GET` or `HEAD`, on a device serving media: the command-line app's `--media` directory at the root, or each of an app's folders at `/<folder>/`. Paths are percent-decoded, a query is ignored, and a `..` segment is 403. A path outside them all is 404.
+Any other `GET` or `HEAD`, on a device serving media: the command-line app's `--media` directory at `/media/`, or each of an app's folders at `/<folder>/`. Paths are percent-decoded, a query is ignored, and a `..` segment is 403. A path outside them all is 404.
 
 * **Files:** 200 with `Content-Type` (`video/mp4` for `.mp4` and `.m4v`, `video/x-matroska` for `.mkv`, else `application/octet-stream`), `Accept-Ranges: bytes`, and an `ETag` of the modification time and size, in hex (`"<mtime>-<size>"`). A single `Range` (`bytes=a-b`, `bytes=a-`, or `bytes=-n`) is answered with 206 and `Content-Range`; several ranges, or one past the end, with 416 and `Content-Range: bytes */<size>`. An `If-Range` that isn't the current `ETag` gets the whole file.
 * **Directories:** without a trailing slash, 301 to the path with one. With `Accept: application/json`, a listing in Caddy's form: an array of `name`, `size`, `url` (`./` and the percent-encoded name, `/` after a directory's), `mod_time` (RFC 3339, UTC), and `is_dir`; otherwise an HTML `<pre>` of links. Names beginning with `.` are left out.
-* **`INDEX`,** at the root of the command-line app's media (the apps' folders have none, since they change while served): `text/plain`, a line per file of its path, size, and modification time (Unix seconds), tab-separated, and per directory of its path and `/`, so an empty one (an unplugged drive's mount point) shows it's still there; built when the server starts, and again on a request once it's a minute old; with an `ETag`, so `If-None-Match` gets 304.
+* **`INDEX`,** at the top of the command-line app's media (`/media/INDEX`) (the apps' folders have none, since they change while served): `text/plain`, a line per file of its path, size, and modification time (Unix seconds), tab-separated, and per directory of its path and `/`, so an empty one (an unplugged drive's mount point) shows it's still there; built when the server starts, and again on a request once it's a minute old; with an `ETag`, so `If-None-Match` gets 304.
 
 ## Keys and fields
 

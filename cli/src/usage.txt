@@ -108,8 +108,10 @@ device list prints it.
                                copies, with concurrent workers (16)
   sync [URL]                   pull from a device, or from every device
                                found or added
-  serve [--port PORT] [--media DIR]
+  serve [--port PORT] [--media DIR] [--web]
                                answer other devices' syncs, and serve
-                               media, on the port given, else on 8008 or,
-                               if that's taken, any free port
+                               media (at /media/), on the port given, else
+                               on 8008 or, if that's taken, any free port;
+                               with --web, a web client at the root, which
+                               browses and plays as this person
   refresh                      sync, then crawl

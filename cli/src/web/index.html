@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Cinematheque</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <nav>
+    <a href="#home" data-shelf="home">Home</a>
+    <a href="#movies" data-shelf="movies">Movies</a>
+    <a href="#series" data-shelf="series">Series</a>
+    <a href="#watchlist" data-shelf="watchlist">Watchlist</a>
+    <a href="#played" data-shelf="played">Played</a>
+  </nav>
+  <input id="search" type="search" placeholder="Search" aria-label="Search" autocomplete="off">
+</header>
+<main id="main"></main>
+<footer id="status" role="status"></footer>
+<div id="player" hidden>
+  <video id="video" playsinline controls></video>
+  <div id="curtain"></div>
+  <div id="bar">
+    <button id="back" type="button" aria-label="Back">‹ Back</button>
+    <span id="playing"></span>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

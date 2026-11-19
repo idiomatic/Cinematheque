@@ -102,12 +102,16 @@ Progress is private: it's written on this device's private stream, and travels o
 
 ### Devices, syncing, and serving
 
-* `serve` answers other devices' syncs (`/sync`) until stopped. It listens on `--port`, or else on 8008, falling back to any free port if 8008 is taken. It advertises the port it got by DNS-SD, with the library, the person, and the names of this device and person. `--media DIR` also serves a directory of videos at the root, so this device is a source too: byte ranges, listings as JSON or HTML, and an `INDEX` of every file and directory, built at start and again once a minute old when asked for. It prints a line once listening.
+* `serve` answers other devices' syncs (`/sync`) until stopped. It listens on `--port`, or else on 8008, falling back to any free port if 8008 is taken. It advertises the port it got by DNS-SD, with the library, the person, and the names of this device and person. `--media DIR` also serves a directory of videos at `/media/`, so this device is a source too (added as `http://<host>:8008/media/`): byte ranges, listings as JSON or HTML, and an `INDEX` of every file and directory, built at start and again once a minute old when asked for. `--web` serves a web client at the root, for browsing and playing in a browser (see below). It prints a line once listening, and with `--web`, the web client's address.
 * `sync [URL]` syncs both ways with one device, or with every device of this library found nearby or added: it pulls what this device lacks, then pushes what the other does. Each prints a line: operations pulled, how many were new, lost (older than what's held), known, rejected (from a device not yet admitted), and refused (past a cutoff), then batches and size, how many were pushed, and time. A device that can't be reached prints its error, and the rest go on.
 * `refresh` syncs with every device, then crawls every source: the catalog others have already described arrives first, so the crawl finds little to do.
 * `device list` then prints devices found nearby (with their libraries) and addresses added. `device add URL` adds the address of a device that can't be found, such as one beyond a NAT, on this device only; `device forget URL` forgets it. A URL may be a device's base or its `/sync`.
 
 Since `sync` pushes as well as pulls, a device behind a NAT keeps a server it can reach in step both ways, and `serve` on the server takes pushes as it answers pulls.
+
+### In a browser
+
+`serve --web` serves a web client at the root (`http://<host>:8008/`): Home, Movies, Series, Watchlist, and Played, with search; each title's page, with its seasons and episodes; and a player that resumes where you left off and goes on to the next episode. A browser has no keys of its own, so it acts as this device's person: what you watch there, and the watchlist, are theirs, and reach their other devices when those next sync. Videos play straight from their sources (the server picks the copy whose server answers first); browsers play MP4, M4V, and MOV files, but not MKV or ISO. Covers come through the server, since a source's server won't let another site's page read its files. Anyone who can reach the port can use it, as they can the media it serves, so it's off unless `--web` is given.
 
 ### In the background
 

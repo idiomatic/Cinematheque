@@ -52,9 +52,9 @@ $cq $a library create
 $cq $a serve --port 8191 --media $work/media > $work/a.log 2>&1 &
 a_pid=$!
 sleep 1
-file=$(curl -sf http://127.0.0.1:8191/INDEX | awk -F'\t' 'NF > 1 { print $1; exit }' | sed 's|^\./||; s| |%20|g')
-[[ $(curl -s -r 0-0 -o /dev/null -w "%{http_code}" "http://127.0.0.1:8191/$file") == 206 ]] || { echo "FAIL: no byte ranges from $file"; exit 1; }
-$cq $a source add http://127.0.0.1:8191/
+file=$(curl -sf http://127.0.0.1:8191/media/INDEX | awk -F'\t' 'NF > 1 { print $1; exit }' | sed 's|^\./||; s| |%20|g')
+[[ $(curl -s -r 0-0 -o /dev/null -w "%{http_code}" "http://127.0.0.1:8191/media/$file") == 206 ]] || { echo "FAIL: no byte ranges from $file"; exit 1; }
+$cq $a source add http://127.0.0.1:8191/media/
 $cq $a crawl
 
 pair $work/b "library join" $work/a "member pair"
@@ -155,21 +155,21 @@ drives() {
     sleep 1
 }
 drives
-$cq $d source add http://127.0.0.1:8194/
+$cq $d source add http://127.0.0.1:8194/media/
 $cq $d crawl > /dev/null
 rm "$work/drives/archive0001/Archive Movie (2001).mkv"
 drives
 $cq $d crawl | grep -q "1 directories unavailable" || { echo "FAIL: an unplugged drive wasn't unavailable"; exit 1; }
-$cq $d source show http://127.0.0.1:8194/ | grep -q "copies     2" || { echo "FAIL: an unplugged drive's copy went"; exit 1; }
-$cq $d source show http://127.0.0.1:8194/ | grep -q "unavailable     /archive0001" || { echo "FAIL: source show"; exit 1; }
+$cq $d source show http://127.0.0.1:8194/media/ | grep -q "copies     2" || { echo "FAIL: an unplugged drive's copy went"; exit 1; }
+$cq $d source show http://127.0.0.1:8194/media/ | grep -q "unavailable     /archive0001" || { echo "FAIL: source show"; exit 1; }
 cp "$work/media/$(cd $work/media && find . -name '*.mkv' | head -1)" "$work/drives/archive0001/Archive Movie (2001).mkv"
 drives
 $cq $d crawl | grep -q "0 directories unavailable" || { echo "FAIL: a drive back stayed unavailable"; exit 1; }
 rm "$work/drives/archive0001/Archive Movie (2001).mkv"
 drives
 $cq $d crawl > /dev/null
-$cq $d source remove http://127.0.0.1:8194/ --unavailable /archive0001
-$cq $d source show http://127.0.0.1:8194/ | grep -q "copies     1" || { echo "FAIL: source remove --unavailable"; exit 1; }
+$cq $d source remove http://127.0.0.1:8194/media/ --unavailable /archive0001
+$cq $d source show http://127.0.0.1:8194/media/ | grep -q "copies     1" || { echo "FAIL: source remove --unavailable"; exit 1; }
 kill $d_pid
 
 $cq $c device add http://127.0.0.1:8191
@@ -187,8 +187,8 @@ head -c 300000 /dev/urandom > "$work/small/$small"
 $cq $a serve --port 8195 --media $work/small > $work/small.log 2>&1 &
 d_pid=$!
 sleep 1
-$cq $a source add http://127.0.0.1:8195/ > /dev/null
-$cq $a crawl http://127.0.0.1:8195/ > /dev/null
+$cq $a source add http://127.0.0.1:8195/media/ > /dev/null
+$cq $a crawl http://127.0.0.1:8195/media/ > /dev/null
 movie=t/m/small-movie/1999
 $cq $a title download $movie --to $work/dl > /dev/null
 cmp -s "$work/dl/$small" "$work/small/$small" || { echo "FAIL: title download"; exit 1; }

@@ -17,7 +17,7 @@ Every device keeps its own copy of the catalog: the titles, their episodes and v
 ## Getting it
 
 * **On a Mac or an Apple TV,** build the app; [apple/README.md](apple/README.md) says how. It needs Xcode 27 or later.
-* **On the command line,** on macOS or Linux, build the command-line app; [cli/README.md](cli/README.md) says how, and how to use it. It builds and shares a library, and run in the background, keeps it available to your other devices.
+* **On the command line,** on macOS or Linux, build the command-line app; [cli/README.md](cli/README.md) says how, and how to use it. It builds and shares a library, and run in the background, keeps it available to your other devices, and to browsers.
 
 ## Preparing a source
 
@@ -30,7 +30,7 @@ A source is a folder of videos your devices can reach over your network. The eas
 
 ```sh
 cinematheque serve --media /srv/videos
-cinematheque source add http://hal.local:8008/
+cinematheque source add http://hal.local:8008/media/
 ```
 
 Either way, the folder needs nothing done to it: Cinematheque reads it as it is, and never changes its files.
@@ -85,6 +85,8 @@ If a folder holds files of one quality whose names don't say which (say, everyth
 ## Watching
 
 The apps browse the library by cover art: movies, and each series by season. Choose one for its details, and play it straight from its source, resuming where you left off on any of your devices; a season plays on from the episode you're partway through, or else its next unwatched one. Covers and descriptions come from your sources: a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them, or else the cover and details your MP4 files carry (as HandBrake, iTunes, and tagging tools write them). Until a cover loads, its tile shows a blurred likeness of it, which travels with the library, so even a newly paired device shows one at once. Star titles for your watchlist, which, like what you've watched, is yours alone. Stopping within the first 10 seconds forgets where you were, so going back to the start sticks.
+
+In a browser, `cinematheque serve --web` offers the library at `http://<host>:8008/`, to browse and play from any computer on your network, as the person whose device it is; see [cli/README.md](cli/README.md#in-a-browser).
 
 On first run, an app creates a library, or pairs with one of your devices or someone's library by a code it shows; the Mac's Settings manage sources, people, and devices, so a household needs no command line. The Mac app uses the same data directory as the command-line app on that Mac, so either can manage the library.
 

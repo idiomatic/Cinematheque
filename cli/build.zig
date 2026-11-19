@@ -24,6 +24,15 @@ pub fn build(b: *std.Build) void {
     run.addPassthruArgs();
     b.step("run", "Run the command-line app").dependOn(&run.step);
 
+    // The app's own unit tests (the web client's, say); the core's are its own.
+    const tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("src/web.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "core", .module = core }},
+    }) });
+    b.step("test", "Run the command-line app's unit tests").dependOn(&b.addRunArtifact(tests).step);
+
     // A test repository's generator, for test.sh.
     const gen = b.addExecutable(.{ .name = "gen", .root_module = b.createModule(.{
         .root_source_file = b.path("test/gen.zig"),
