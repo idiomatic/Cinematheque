@@ -164,11 +164,23 @@ struct CoverGrid: View {
             .padding(Self.margin)
         }
         .scrollPosition($position)
+        // The arrow keys move the selection over the covers, as in the
+        // Finder's icon view; Return plays it.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focused)
+        .onMoveCommand { direction in move(direction, in: [movies] + series.map(\.seasons)) }
+        .onKeyPress(.return) {
+            guard let tile = tiles.first(where: { $0.id == selection }) else { return .ignored }
+            playNext(tile)
+            return .handled
+        }
         // The last row clears the status bar floating over the grid.
         .contentMargins(.bottom, StatusBar.height, for: .scrollContent)
         // Only when the rows reflow, not at every width an animation (the
         // inspector's) passes through.
-        .onGeometryChange(for: Int.self, of: { Self.columns($0.size.width) }) { _, _ in
+        .onGeometryChange(for: Int.self, of: { Self.columns($0.size.width) }) { _, count in
+            columns = count
             if let top = anchor.top { scroll(to: top) }
         }
         .task {
@@ -196,6 +208,45 @@ struct CoverGrid: View {
                 ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(shelf == .movies || shelf == .series ? "Add sources of videos in Settings." : shelf.empty))
             }
         }
+    }
+
+    /// How many tiles a row holds, as laid out.
+    @State private var columns = 1
+    @FocusState private var focused: Bool
+
+    /// Moves the selection a tile over, or a row up or down, across
+    /// `sections` (the movies, then each series' seasons), each laid out in
+    /// rows of `columns`: up or down from a section's edge goes to the next
+    /// section's nearest row, in the same column or its last.
+    private func move(_ direction: MoveCommandDirection, in sections: [[Tile]]) {
+        let sections = sections.filter { !$0.isEmpty }
+        guard let first = sections.first?.first else { return }
+        guard let s = sections.firstIndex(where: { $0.contains { $0.id == selection } }),
+              let i = sections[s].firstIndex(where: { $0.id == selection }) else { return select(first) }
+        let section = sections[s]
+        let column = i % columns
+        let target: Tile? = switch direction {
+        case .left: i > 0 ? section[i - 1] : s > 0 ? sections[s - 1].last : nil
+        case .right: i + 1 < section.count ? section[i + 1] : s + 1 < sections.count ? sections[s + 1].first : nil
+        case .up:
+            if i >= columns { section[i - columns] }
+            else if s > 0, let above = Optional(sections[s - 1]) { above[min((above.count - 1) / columns * columns + column, above.count - 1)] }
+            else { nil }
+        case .down:
+            if i + columns < section.count { section[i + columns] }
+            // A last row that's shorter, beneath.
+            else if i / columns < (section.count - 1) / columns { section.last }
+            else if s + 1 < sections.count { sections[s + 1][min(column, sections[s + 1].count - 1)] }
+            else { nil }
+        @unknown default: nil
+        }
+        if let target { select(target) }
+    }
+
+    /// Selects a tile, scrolled just enough to be seen.
+    private func select(_ tile: Tile) {
+        selection = tile.id
+        position.scrollTo(id: tile.id)
     }
 
     /// Puts a title at the top; the first, with the grid's top margin above
@@ -230,7 +281,10 @@ struct CoverGrid: View {
                     // A lazy grid drops a tile it scrolls far past without
                     // saying it's no longer visible.
                     .onDisappear { visible.remove(tile.id) }
-                    .onTapGesture { selection = tile.id }
+                    .onTapGesture {
+                        selection = tile.id
+                        focused = true
+                    }
                     .simultaneousGesture(TapGesture(count: 2).onEnded { playNext(tile) })
                     .contextMenu {
                         // Forgets its progress (positions and watched marks).
