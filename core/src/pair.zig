@@ -154,8 +154,14 @@ pub const Offer = struct {
     person: [32]u8,
     device: [32]u8,
     mutex: Io.Mutex = .init,
-    /// The attempt under way: its session, and this device's share.
-    attempt: ?struct { sid: [sid_length]u8, share: Share } = null,
+    /// The attempt under way: its session, this device's share, and when it
+    /// started.
+    attempt: ?struct { sid: [sid_length]u8, share: Share, started: Io.Timestamp } = null,
+    /// How long a new request for a challenge is given the attempt under way
+    /// instead of starting another: without it, anyone on the network could
+    /// ask in a loop and end the other device's attempt before it answered.
+    /// An attempt takes one answer either way, so it's still one guess.
+    reuse_ms: i64 = 10_000,
     failures: u8 = 0,
     received: ?Secrets = null,
 
@@ -167,16 +173,19 @@ pub const Offer = struct {
         return .{ o.received, o.failures >= max_failures };
     }
 
-    /// Starts an attempt (ending any other): its session ID and this
-    /// device's share.
+    /// Starts an attempt (ending any other, but one started within
+    /// `reuse_ms`, which it returns again): its session ID and this device's
+    /// share.
     pub fn challenge(o: *Offer, io: Io) ![challenge_length]u8 {
         try o.mutex.lock(io);
         defer o.mutex.unlock(io);
         if (o.received != null or o.failures >= max_failures) return error.Closed;
+        const now = Io.Timestamp.now(io, .awake);
+        if (o.attempt) |a| if (a.started.durationTo(now).toMilliseconds() < o.reuse_ms) return a.sid ++ a.share.point;
         var sid: [sid_length]u8 = undefined;
         io.random(&sid);
         const share = try Share.init(io, &o.code, o.kind, sid);
-        o.attempt = .{ .sid = sid, .share = share };
+        o.attempt = .{ .sid = sid, .share = share, .started = now };
         return sid ++ share.point;
     }
 
@@ -293,7 +302,7 @@ fn answerFor(io: Io, challenge: [challenge_length]u8, kind: Kind, code: []const 
 test "the right code pairs, and the reply carries the new person; wrong ones count" {
     const io = std.testing.io;
     const secrets: Secrets = .{ .person = @splat(7), .founder = @splat(9) };
-    var offer: Offer = .{ .code = "042917".*, .kind = .pair, .person = @splat(3), .device = @splat(4) };
+    var offer: Offer = .{ .code = "042917".*, .kind = .pair, .person = @splat(3), .device = @splat(4), .reuse_ms = 0 };
 
     for (0..max_failures - 1) |_| {
         const c = try offer.challenge(io);
@@ -314,6 +323,19 @@ test "the right code pairs, and the reply carries the new person; wrong ones cou
     try std.testing.expectEqualDeep(secrets, got.?);
     try std.testing.expect(!closed);
     try std.testing.expectError(error.Closed, offer.challenge(io));
+}
+
+test "asking again soon doesn't end the attempt under way, which still takes one guess" {
+    const io = std.testing.io;
+    const secrets: Secrets = .{ .person = @splat(7), .founder = @splat(9) };
+    var offer: Offer = .{ .code = "042917".*, .kind = .pair, .person = @splat(3), .device = @splat(4) };
+    const c = try offer.challenge(io);
+    // Someone else asks meanwhile, and is given the same attempt.
+    try std.testing.expectEqualSlices(u8, &c, &(try offer.challenge(io)));
+    const right, _ = try answerFor(io, c, .pair, "042917", secrets);
+    _ = try offer.answer(io, &right);
+    // Taken, an attempt takes no second answer.
+    try std.testing.expectError(error.Closed, offer.answer(io, &right));
 }
 
 test "an offer to join isn't taken as one to pair" {

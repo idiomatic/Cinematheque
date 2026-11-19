@@ -86,8 +86,21 @@ const Found = struct { name: [:0]const u8, regtype: [:0]const u8, domain: [:0]co
 const State = struct {
     arena: std.mem.Allocator,
     found: std.ArrayList(Found) = .empty,
-    services: std.ArrayList(Service) = .empty,
     err: ?anyerror = null,
+};
+
+/// One service's resolution, which its callback's context names, so a
+/// service that calls back twice (or more) can't be mistaken for another.
+const Resolving = struct {
+    state: *State,
+    name: []const u8,
+    service: ?Service = null,
+    err: ?anyerror = null,
+
+    fn finished(r: *Resolving) bool {
+        r.err = r.state.err;
+        return r.service != null;
+    }
 };
 
 fn onBrowse(_: c.DNSServiceRef, flags: c.Flags, interface: u32, err: c.Error, name: [*:0]const u8, regtype: [*:0]const u8, domain: [*:0]const u8, context: ?*anyopaque) callconv(.c) void {
@@ -105,15 +118,16 @@ fn onBrowse(_: c.DNSServiceRef, flags: c.Flags, interface: u32, err: c.Error, na
 }
 
 fn onResolve(_: c.DNSServiceRef, _: c.Flags, _: u32, err: c.Error, _: [*:0]const u8, host: [*:0]const u8, port_be: u16, txt_len: u16, txt: [*]const u8, context: ?*anyopaque) callconv(.c) void {
-    const state: *State = @ptrCast(@alignCast(context.?));
-    if (err != 0) return;
-    const name = state.found.items[state.services.items.len].name;
-    state.services.append(state.arena, .{
-        .name = name,
+    const resolving: *Resolving = @ptrCast(@alignCast(context.?));
+    const state = resolving.state;
+    // The first answer stands.
+    if (err != 0 or resolving.service != null) return;
+    resolving.service = .{
+        .name = resolving.name,
         .host = state.arena.dupe(u8, std.mem.trimEnd(u8, std.mem.span(host), ".")) catch |e| return fail(state, e),
         .port = std.mem.bigToNative(u16, port_be),
         .txt = state.arena.dupe(u8, txt[0..txt_len]) catch |e| return fail(state, e),
-    }) catch |e| return fail(state, e);
+    };
 }
 
 fn fail(state: *State, err: anyerror) void {
@@ -141,12 +155,12 @@ fn pump(io: Io, ref: c.DNSServiceRef, ms: i64, context: anytype, comptime finish
 
 const Browsing = struct {
     state: *const State,
-    done: ?usize,
     err: ?anyerror = null,
 
+    /// Browsing ends by its time, not by an answer.
     fn finished(b: *Browsing) bool {
         b.err = b.state.err;
-        return if (b.done) |n| b.state.services.items.len >= n else false;
+        return false;
     }
 };
 
@@ -216,18 +230,19 @@ pub fn browse(io: Io, arena: std.mem.Allocator, ms: i64) ![]Service {
     var ref: c.DNSServiceRef = null;
     if (c.DNSServiceBrowse(&ref, 0, 0, service_type, null, onBrowse, &state) != 0) return error.DnsSd;
     defer c.DNSServiceRefDeallocate(ref);
-    var browsing: Browsing = .{ .state = &state, .done = null };
+    var browsing: Browsing = .{ .state = &state };
     try pump(io, ref, ms, &browsing, Browsing.finished);
-    for (state.found.items, 0..) |f, i| {
+    var services: std.ArrayList(Service) = .empty;
+    for (state.found.items) |f| {
+        var resolving: Resolving = .{ .state = &state, .name = f.name };
         var resolve: c.DNSServiceRef = null;
-        if (c.DNSServiceResolve(&resolve, 0, f.interface, f.name.ptr, f.regtype.ptr, f.domain.ptr, onResolve, &state) != 0) return error.DnsSd;
+        if (c.DNSServiceResolve(&resolve, 0, f.interface, f.name.ptr, f.regtype.ptr, f.domain.ptr, onResolve, &resolving) != 0) return error.DnsSd;
         defer c.DNSServiceRefDeallocate(resolve);
-        var resolving: Browsing = .{ .state = &state, .done = i + 1 };
-        try pump(io, resolve, 2000, &resolving, Browsing.finished);
+        try pump(io, resolve, 2000, &resolving, Resolving.finished);
         // A service that didn't resolve keeps the list aligned with an empty host.
-        if (state.services.items.len == i) try state.services.append(arena, .{ .name = f.name, .host = "", .port = 0, .txt = "" });
+        try services.append(arena, resolving.service orelse .{ .name = f.name, .host = "", .port = 0, .txt = "" });
     }
-    return state.services.items;
+    return services.items;
 }
 
 test "TXT records round-trip" {

@@ -56,9 +56,21 @@ pub fn advertisement(arena: std.mem.Allocator, r: *Replica, person: [32]u8, devi
     });
 }
 
-/// The sync URL of a device found nearby.
+/// Whether an advertised path is only a path on the device found: it starts
+/// with one `/`, and has nothing that could turn the URL toward another
+/// authority, a query, or a fragment, as anyone on the network may advertise
+/// what they like.
+fn plainPath(p: []const u8) bool {
+    if (p.len == 0 or p[0] != '/' or std.mem.startsWith(u8, p, "//")) return false;
+    for (p) |ch| if (ch <= ' ' or ch == 0x7f or std.mem.indexOfScalar(u8, "@\\?#%", ch) != null) return false;
+    return true;
+}
+
+/// The sync URL of a device found nearby: its host and port as resolved, and
+/// the path it advertises if that's a plain one, else the default.
 pub fn foundUrl(arena: std.mem.Allocator, s: discover.Service) ![]const u8 {
-    return std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse path });
+    const advertised = s.get("path") orelse path;
+    return std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, if (plainPath(advertised)) advertised else path });
 }
 
 /// The sync URLs of the devices added by URL.
@@ -112,6 +124,18 @@ pub fn reachable(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8,
         } else try urls.append(arena, u);
     }
     return .{ .urls = urls.items, .names = names };
+}
+
+test "a found device's advertised path can't aim a request elsewhere" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    for ([_][]const u8{ "evil.example/x", "//evil.example/x", "/x@evil.example", "/x?y", "/x#y", "/a b", "" }) |bad| {
+        const txt = try discover.txtRecord(arena, &.{.{ "path", bad }});
+        try std.testing.expectEqualStrings("http://hal:8008/sync", try foundUrl(arena, .{ .name = "x", .host = "hal", .port = 8008, .txt = txt }));
+    }
+    const txt = try discover.txtRecord(arena, &.{.{ "path", "/other/sync" }});
+    try std.testing.expectEqualStrings("http://hal:8008/other/sync", try foundUrl(arena, .{ .name = "x", .host = "hal", .port = 8008, .txt = txt }));
 }
 
 test "sync URLs" {

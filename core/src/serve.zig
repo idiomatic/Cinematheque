@@ -48,7 +48,42 @@ const Context = struct {
     gpa: std.mem.Allocator,
     mounts: []Served,
     handler: ?Handler,
+    connections: *Connections,
 };
+
+/// How many connections are open at once, at most; the rest are refused
+/// (closed unanswered), so hosts opening connections and saying nothing, for
+/// which Zig 0.17's `Io` has no read timeout, can't take every task and file
+/// descriptor. Media transfers, long as they run, hold one each.
+const max_connections = 256;
+
+const Connections = struct {
+    open: std.atomic.Value(usize) = .init(0),
+    max: usize = max_connections,
+
+    /// Counts a connection in, unless there are too many. Only the accepting
+    /// task admits, so a count of others closing meanwhile only errs toward
+    /// room.
+    fn admit(c: *Connections) bool {
+        if (c.open.load(.acquire) >= c.max) return false;
+        _ = c.open.fetchAdd(1, .acq_rel);
+        return true;
+    }
+
+    fn release(c: *Connections) void {
+        _ = c.open.fetchSub(1, .acq_rel);
+    }
+};
+
+test "connections beyond the limit are refused until others close" {
+    var c: Connections = .{ .max = 2 };
+    try std.testing.expect(c.admit());
+    try std.testing.expect(c.admit());
+    try std.testing.expect(!c.admit());
+    c.release();
+    try std.testing.expect(c.admit());
+    try std.testing.expect(!c.admit());
+}
 
 /// How old an `INDEX` may be before a request for it rebuilds it, so the
 /// drives plugged in or unplugged since show.
@@ -142,11 +177,13 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
         opened += 1;
         if (root) |r| out.setIndex(try buildIndex(io, gpa, r), nowMs(io));
     }
+    var connections: Connections = .{};
     const ctx: Context = .{
         .io = io,
         .gpa = gpa,
         .mounts = mounts,
         .handler = options.handler,
+        .connections = &connections,
     };
 
     const address = try Io.net.IpAddress.parse(options.host, options.port);
@@ -174,8 +211,13 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
             stream.close(io);
             return;
         };
+        if (!connections.admit()) {
+            stream.close(io);
+            continue;
+        }
         group.concurrent(io, handle, .{ &ctx, stream }) catch |err| {
             std.log.err("connection: {t}", .{err});
+            connections.release();
             stream.close(io);
         };
     }
@@ -193,6 +235,7 @@ pub fn wake(io: Io, port: u16) void {
 
 fn handle(ctx: *const Context, stream: Io.net.Stream) Io.Cancelable!void {
     const io = ctx.io;
+    defer ctx.connections.release();
     defer stream.close(io);
     var in_buf: [16 * 1024]u8 = undefined;
     var out_buf: [64 * 1024]u8 = undefined;

@@ -18,6 +18,16 @@ const Hash = merkle.Hash;
 /// signed 64-bit integers, and a batch's `first + count` must not overflow.
 const max_seq: u64 = std.math.maxInt(i63);
 
+/// What frames may claim before their signatures are checked, so a gzip bomb
+/// can't exhaust memory: one value, the text of one batch's operations, and
+/// the text of the batches held back for a response's end.
+const max_value_len = 4 << 20;
+const max_batch_bytes = 64 << 20;
+const max_pending_bytes = 256 << 20;
+
+/// The most devices a version vector may name (two streams each).
+const max_vector_entries = 1 << 16;
+
 const schema =
     \\PRAGMA journal_mode = WAL;
     \\PRAGMA synchronous = NORMAL;
@@ -320,11 +330,14 @@ pub const Replica = struct {
     }
 
     /// Writes `fields` of the private `key` (which must be this person's,
-    /// `p/<person>/...`) as one batch of the device's private stream.
+    /// `p/<person>/...`) as one batch of the device's private stream: one
+    /// to 1,024 of them.
     pub fn writePrivate(replica: *Replica, wall_ms: u64, key: []const u8, fields: []const [2][]const u8) !void {
         const hex = std.fmt.bytesToHex(replica.personKey(), .lower);
         if (!std.mem.startsWith(u8, key, "p/") or !std.mem.startsWith(u8, key[2..], &hex) or key.len < 67 or key[66] != '/')
             return error.NotPrivate;
+        // A batch holds 1 to `merkle.max_leaves` operations.
+        if (fields.len == 0 or fields.len > merkle.max_leaves) return error.BadBatchSize;
         try replica.flush();
         // The private stream's certificate travels on the device's own.
         try replica.checkCertificate(wall_ms);
@@ -395,7 +408,7 @@ pub const Replica = struct {
             defer s.finalize();
             try s.bindText(1, try std.fmt.bufPrint(&field, "{d:0>6}", .{n + 1}));
             if (!try s.step() or s.blob(1).len != 32) break;
-            const author = replica.keys.items[@intCast(s.int(0) - 1)];
+            const author = try replica.keyOf(s.int(0));
             const person = try replica.certifiedPerson(author, &.{}) orelse break;
             if (!std.mem.eql(u8, &person, &holder)) break;
             holder = s.blob(1)[0..32].*;
@@ -637,6 +650,15 @@ pub const Replica = struct {
         if (id != replica.keys.items.len + 1) try replica.internAdded();
         if (replica.ids.get(key) == null) try replica.intern(id, key);
         return id;
+    }
+
+    /// The key of device `id`, learning of devices other connections added
+    /// if it's one this connection hasn't seen.
+    fn keyOf(replica: *Replica, id: i64) !Device {
+        if (id < 1) return error.Sqlite;
+        if (id > replica.keys.items.len) try replica.internAdded();
+        if (id > replica.keys.items.len) return error.Sqlite;
+        return replica.keys.items[@intCast(id - 1)];
     }
 
     /// Learns the devices other connections added since this one last did.
@@ -902,7 +924,7 @@ pub const Replica = struct {
                 // Last writer wins, by hybrid logical clock, then device key.
                 .lww => blk: {
                     const hlc: u64 = @bitCast(s.int(1));
-                    const holder = replica.keys.items[@intCast(s.int(2) - 1)];
+                    const holder = try replica.keyOf(s.int(2));
                     break :blk op.hlc > hlc or
                         (op.hlc == hlc and std.mem.order(u8, &op.device, &holder) == .gt);
                 },
@@ -954,10 +976,20 @@ pub const Replica = struct {
     }
 
     /// The version vector without other people's private streams than `reader`'s.
+    /// A stream without a certificate held might be private, so it's left
+    /// out, but for this device's own streams: its public one, and its
+    /// private one (taken before its certificate, as a lost replica does),
+    /// which is this person's.
     pub fn readableVector(replica: *Replica, arena: std.mem.Allocator, reader: Device) !VersionVector {
         var out: std.ArrayList(Entry) = .empty;
+        const own_private = replica.private_pair.public_key.toBytes();
         for (try replica.versionVector(arena)) |entry| {
-            if (try replica.certified(entry.device, &.{})) |c| if (c.private and !std.mem.eql(u8, &c.person, &reader)) continue;
+            const person = if (std.mem.eql(u8, &entry.device, &own_private))
+                replica.personKey()
+            else if (std.mem.eql(u8, &entry.device, &replica.device()))
+                reader // this device's own public stream, whatever its certificate
+            else if (try replica.certified(entry.device, &.{})) |c| (if (c.private) c.person else reader) else continue;
+            if (!std.mem.eql(u8, &person, &reader)) continue;
             try out.append(arena, entry);
         }
         return out.items;
@@ -970,7 +1002,7 @@ pub const Replica = struct {
         const s = try replica.db.prepare("SELECT device, seq FROM version_vector ORDER BY device DESC");
         defer s.finalize();
         while (try s.step()) {
-            try entries.append(arena, .{ .device = replica.keys.items[@intCast(s.int(0) - 1)], .seq = @intCast(s.int(1)) });
+            try entries.append(arena, .{ .device = try replica.keyOf(s.int(0)), .seq = @intCast(s.int(1)) });
         }
         return entries.items;
     }
@@ -1007,7 +1039,7 @@ pub const Replica = struct {
         leaves.clearRetainingCapacity();
         try leaves.appendSlice(replica.gpa, std.mem.bytesAsSlice(Hash, s.blob(3)));
         const batch: Batch = .{
-            .device = replica.keys.items[@intCast(id - 1)],
+            .device = try replica.keyOf(id),
             .first = @intCast(s.int(0)),
             .leaves = leaves.items,
             .root = s.blob(1)[0..32].*,
@@ -1122,12 +1154,17 @@ pub fn writeVector(w: *std.Io.Writer, vector: VersionVector) !void {
 
 pub fn readVector(arena: std.mem.Allocator, r: *std.Io.Reader) !VersionVector {
     const n = try r.takeInt(u32, .little);
-    const entries = try arena.alloc(Entry, n);
-    for (entries) |*entry| {
+    if (n > max_vector_entries) return error.Malformed;
+    // Grown as entries arrive, not up front, so a count the bytes don't
+    // back costs nothing.
+    var entries: std.ArrayList(Entry) = .empty;
+    for (0..n) |_| {
+        var entry: Entry = undefined;
         try r.readSliceAll(&entry.device);
         entry.seq = try r.takeInt(u64, .little);
+        try entries.append(arena, entry);
     }
-    return entries;
+    return entries.items;
 }
 
 const Row = struct { seq: u64, hlc: u64, kind: op_.Kind, key: []const u8, field: []const u8, value: []const u8 };
@@ -1270,18 +1307,28 @@ fn writeOpFrame(w: *std.Io.Writer, op: anytype) !void {
     try w.writeAll(op.value);
 }
 
-/// Reads an `O` frame of `device`'s operation `seq`, its text in `ta`.
-fn readOpFrame(r: *std.Io.Reader, ta: std.mem.Allocator, library: op_.Library, device: Device, seq: u64) !Op {
+/// Allocates `len` bytes of text from `budget` (what a batch may still take),
+/// refusing more.
+fn takeText(r: *std.Io.Reader, ta: std.mem.Allocator, len: usize, budget: *usize) ![]u8 {
+    if (len > budget.*) return error.Malformed;
+    budget.* -= len;
+    const text = try ta.alloc(u8, len);
+    try r.readSliceAll(text);
+    return text;
+}
+
+/// Reads an `O` frame of `device`'s operation `seq`, its text in `ta`, taken
+/// from `budget`.
+fn readOpFrame(r: *std.Io.Reader, ta: std.mem.Allocator, library: op_.Library, device: Device, seq: u64, budget: *usize) !Op {
     if (try r.takeByte() != 'O') return error.Malformed;
     if (try r.takeInt(u64, .little) != seq) return error.Malformed;
     const hlc = try r.takeInt(u64, .little);
     const kind = std.enums.fromInt(op_.Kind, try r.takeByte()) orelse return error.Malformed;
-    const key = try ta.alloc(u8, try r.takeInt(u16, .little));
-    try r.readSliceAll(key);
-    const field = try ta.alloc(u8, try r.takeInt(u16, .little));
-    try r.readSliceAll(field);
-    const value = try ta.alloc(u8, try r.takeInt(u32, .little));
-    try r.readSliceAll(value);
+    const key = try takeText(r, ta, try r.takeInt(u16, .little), budget);
+    const field = try takeText(r, ta, try r.takeInt(u16, .little), budget);
+    const value_len = try r.takeInt(u32, .little);
+    if (value_len > max_value_len) return error.Malformed;
+    const value = try takeText(r, ta, value_len, budget);
     return .{ .library = library, .device = device, .seq = seq, .hlc = hlc, .kind = kind, .key = key, .field = field, .value = value };
 }
 
@@ -1308,6 +1355,7 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
     defer pending_state.deinit();
     const pa = pending_state.allocator();
     var pending: std.ArrayList(Pending) = .empty;
+    var pending_bytes: usize = 0;
     var vector: std.ArrayList(Entry) = .empty;
 
     var stats: Stats = .{};
@@ -1342,14 +1390,17 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
                 _ = text_state.reset(.retain_capacity);
                 const ta = text_state.allocator();
                 var it = sent.iterator(.{});
+                var budget: usize = max_batch_bytes;
                 while (it.next()) |i| {
                     if (i >= count) return error.Malformed;
-                    const op = try readOpFrame(r, ta, dst.library, batch.device, batch.first + i);
+                    const op = try readOpFrame(r, ta, dst.library, batch.device, batch.first + i, &budget);
                     try ops.append(dst.gpa, op);
                     stats.wire_bytes += 1 + op.wireLen();
                 }
                 dst.receiveBatch(batch, leaves.items, ops.items, &stats) catch |err| switch (err) {
                     error.Unauthorized => {
+                        pending_bytes += max_batch_bytes - budget;
+                        if (pending_bytes > max_pending_bytes) return error.Malformed;
                         const copied = try pa.dupe(Op, ops.items);
                         for (copied) |*op| {
                             op.key = try pa.dupe(u8, op.key);
@@ -1367,7 +1418,7 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
                 var entry: Entry = undefined;
                 try r.readSliceAll(&entry.device);
                 entry.seq = try r.takeInt(u64, .little);
-                if (entry.seq > max_seq) return error.Malformed;
+                if (entry.seq > max_seq or vector.items.len >= max_vector_entries) return error.Malformed;
                 transcript.add(&entry.device);
                 transcript.addInt(u64, entry.seq);
                 try vector.append(pa, entry);
@@ -1476,11 +1527,10 @@ pub fn readFields(arena: std.mem.Allocator, r: *std.Io.Reader) ![]Field {
     const n = try r.takeInt(u32, .little);
     if (n > max_repair_fields) return error.Malformed;
     var out: std.ArrayList(Field) = .empty;
+    var budget: usize = max_batch_bytes;
     for (0..n) |_| {
-        const key = try arena.alloc(u8, try r.takeInt(u16, .little));
-        try r.readSliceAll(key);
-        const field = try arena.alloc(u8, try r.takeInt(u16, .little));
-        try r.readSliceAll(field);
+        const key = try takeText(r, arena, try r.takeInt(u16, .little), &budget);
+        const field = try takeText(r, arena, try r.takeInt(u16, .little), &budget);
         try out.append(arena, .{ .key = key, .field = field });
     }
     return out.items;
@@ -1532,7 +1582,7 @@ pub fn writeRepair(src: *Replica, arena: std.mem.Allocator, fields: []const Fiel
         try s.bindText(2, f.field);
         if (!try s.step()) continue;
         const id = s.int(6);
-        const device = src.keys.items[@intCast(id - 1)];
+        const device = try src.keyOf(id);
         if (!allowed.contains(device)) continue;
         var op = rowOp(src, s, device);
         op.key = try arena.dupe(u8, op.key);
@@ -1591,6 +1641,7 @@ pub fn readRepair(dst: *Replica, r: *std.Io.Reader) !Stats {
     defer pending_state.deinit();
     const pa = pending_state.allocator();
     var pending: std.ArrayList(Pending) = .empty;
+    var pending_bytes: usize = 0;
 
     var stats: Stats = .{};
     try dst.begin();
@@ -1619,9 +1670,12 @@ pub fn readRepair(dst: *Replica, r: *std.Io.Reader) !Stats {
                 const siblings = try ta.alloc(Hash, try r.takeInt(u16, .little));
                 for (siblings) |*h| try r.readSliceAll(h);
                 const ops = try ta.alloc(Op, n);
-                for (ops, indices) |*op, i| op.* = try readOpFrame(r, ta, dst.library, batch.device, batch.first + i);
+                var budget: usize = max_batch_bytes;
+                for (ops, indices) |*op, i| op.* = try readOpFrame(r, ta, dst.library, batch.device, batch.first + i, &budget);
                 dst.receiveShared(batch, count, indices, siblings, ops, &stats) catch |err| switch (err) {
                     error.Unauthorized => {
+                        pending_bytes += max_batch_bytes - budget;
+                        if (pending_bytes > max_pending_bytes) return error.Malformed;
                         const copied = try pa.dupe(Op, ops);
                         for (copied) |*op| {
                             op.key = try pa.dupe(u8, op.key);
@@ -2222,6 +2276,91 @@ test "a device whose first write is private is still certified" {
     const stats = try p.sync(0, 1);
     try testing.expectEqual(@as(usize, 0), stats.rejected);
     try testing.expect(try p.replicas[0].certifiedPerson(b.device(), &.{}) != null);
+}
+
+test "a private stream without its certificate is sent only to its own person" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const arena = p.arena_state.allocator();
+    const b = &p.replicas[1];
+    const key = try std.fmt.allocPrint(arena, "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.personKey(), .lower)});
+    try b.writePrivate(2000, key, &.{.{ "position", "1234" }});
+    // As on a device that took the stream before the certificate, which
+    // travels on the public one.
+    try b.db.exec("DELETE FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private'");
+    const private = b.private_pair.public_key.toBytes();
+    const others = try b.readableVector(arena, p.replicas[2].personKey());
+    for (others) |entry| try testing.expect(!std.mem.eql(u8, &entry.device, &private));
+    var found = false;
+    for (try b.readableVector(arena, b.personKey())) |entry| found = found or std.mem.eql(u8, &entry.device, &private);
+    try testing.expect(found);
+}
+
+test "frames and requests that claim more than they hold are refused" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var budget: usize = max_batch_bytes;
+
+    // A value longer than any, then a batch's text past its budget.
+    var frame: std.Io.Writer.Allocating = .init(arena);
+    try writeOpFrame(&frame.writer, .{ .seq = 1, .hlc = 0, .kind = op_.Kind.lww, .key = "k", .field = "f", .value = "v" });
+    var r: std.Io.Reader = .fixed(frame.written());
+    _ = try readOpFrame(&r, arena, @splat(0), @splat(0), 1, &budget);
+    const long = try arena.dupe(u8, frame.written());
+    std.mem.writeInt(u32, long[1 + 8 + 8 + 1 + 2 + 1 + 2 + 1 ..][0..4], max_value_len + 1, .little);
+    r = .fixed(long);
+    try testing.expectError(error.Malformed, readOpFrame(&r, arena, @splat(0), @splat(0), 1, &budget));
+    r = .fixed(frame.written());
+    budget = 2;
+    try testing.expectError(error.Malformed, readOpFrame(&r, arena, @splat(0), @splat(0), 1, &budget));
+
+    // A vector that names more devices than it has bytes for.
+    var vector: [4]u8 = undefined;
+    std.mem.writeInt(u32, &vector, std.math.maxInt(u32), .little);
+    r = .fixed(&vector);
+    try testing.expectError(error.Malformed, readVector(arena, &r));
+    std.mem.writeInt(u32, &vector, max_vector_entries, .little);
+    r = .fixed(&vector);
+    try testing.expectError(error.EndOfStream, readVector(arena, &r));
+
+    // And fields, whose text is capped as well.
+    var fields: std.Io.Writer.Allocating = .init(arena);
+    try fields.writer.writeInt(u32, 1, .little);
+    try fields.writer.writeInt(u16, 3, .little);
+    try fields.writer.writeAll("key");
+    try fields.writer.writeInt(u16, 5, .little);
+    try fields.writer.writeAll("field");
+    r = .fixed(fields.written());
+    try testing.expectEqual(@as(usize, 1), (try readFields(arena, &r)).len);
+}
+
+test "a private write holds one to a batch's worth of fields" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const b = &p.replicas[1];
+    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.personKey(), .lower)});
+    try testing.expectError(error.BadBatchSize, b.writePrivate(1000, key, &.{}));
+    const many = try p.arena_state.allocator().alloc([2][]const u8, merkle.max_leaves + 1);
+    for (many) |*f| f.* = .{ "position", "1" };
+    try testing.expectError(error.BadBatchSize, b.writePrivate(1000, key, many));
+    try b.writePrivate(1000, key, many[0..merkle.max_leaves]);
+}
+
+test "a connection learns of devices another added" {
+    const path = "/tmp/cinematheque-keys-test.db";
+    std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
+    const founder = (try personKeyPair(@splat(1))).public_key.toBytes();
+    var a = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+    defer a.close();
+    var b = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+    defer b.close();
+    const id = try b.deviceId(@splat(9));
+    try testing.expectEqualSlices(u8, &@as(Device, @splat(9)), &(try a.keyOf(id)));
+    try testing.expectError(error.Sqlite, a.keyOf(id + 1));
 }
 
 test "two connections writing in turn, refreshing first, never reuse a sequence number" {
