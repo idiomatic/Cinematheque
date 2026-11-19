@@ -43,7 +43,7 @@ pub fn serve(p: *Peer, c: Command) !void {
     try c.args.only(&.{ "--port", "--media" });
     const port = try c.args.port();
     const media = c.args.get("--media");
-    var source: core.sync.Source = .{
+    var sharing: core.sync.Sharing = .{
         .path = try p.store.replicaPath(p.arena),
         .founder = try p.store.founder(p.arena),
         .identity = p.store.identity,
@@ -57,7 +57,7 @@ pub fn serve(p: *Peer, c: Command) !void {
     var host: core.host.Host = .{
         .io = p.io,
         .gpa = p.gpa,
-        .options = .{ .host = "0.0.0.0", .port = port orelse default_port, .fallback = port == null, .mounts = if (media != null) &one else &.{}, .handler = source.handler() },
+        .options = .{ .host = "0.0.0.0", .port = port orelse default_port, .fallback = port == null, .mounts = if (media != null) &one else &.{}, .handler = sharing.handler() },
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
         .txt = txt,
     };

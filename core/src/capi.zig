@@ -234,7 +234,7 @@ const Heard = struct {
 const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, absent: bool };
 const StatusJson = struct { user: []const u8, linked: bool, library: ?[]const u8, founder: ?[]const u8, members: usize };
 
-/// How far a long operation has come, in steps of its phase (repositories
+/// How far a long operation has come, in steps of its phase (sources
 /// crawled, movies and seasons described, peers synced); read from any
 /// thread.
 const Progress = struct {
@@ -283,14 +283,14 @@ fn progress(lib: *Library, _: std.mem.Allocator) !ProgressJson {
 /// outlives the call that started it.
 const Serving = struct {
     arena: std.heap.ArenaAllocator,
-    source: sync.Source,
+    sharing: sync.Sharing,
     host: Host,
 };
 
 const MountJson = struct { prefix: []const u8, path: []const u8 };
 
 /// Long, but returns once listening: serves this library to peers (their
-/// syncs) and `folders_json`'s folders as repositories (a JSON array of
+/// syncs) and `folders_json`'s folders as sources (a JSON array of
 /// objects with `prefix`, the path they're served at, and `path`), on
 /// `port`, else 8008, else any free port; advertises it by DNS-SD; and
 /// keeps serving, on a thread of its own, until `cq_stop_serving` or
@@ -318,7 +318,7 @@ fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
     const folders = try std.json.parseFromSliceLeaky([]const MountJson, arena, folders_json, .{ .allocate = .alloc_always });
     const mounts = try arena.alloc(serve_.Mount, folders.len);
     for (folders, mounts) |f, *m| m.* = .{ .prefix = f.prefix, .path = f.path, .index = false };
-    s.source = .{
+    s.sharing = .{
         .path = try lib.store.replicaPath(arena),
         .founder = try lib.store.founder(arena),
         .identity = lib.store.identity,
@@ -329,7 +329,7 @@ fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
     s.host = .{
         .io = lib.io(),
         .gpa = gpa,
-        .options = .{ .host = "0.0.0.0", .port = if (port == 0) 8008 else port, .fallback = true, .mounts = mounts, .handler = s.source.handler() },
+        .options = .{ .host = "0.0.0.0", .port = if (port == 0) 8008 else port, .fallback = true, .mounts = mounts, .handler = s.sharing.handler() },
         .name = try std.fmt.allocPrintSentinel(arena, "{s}", .{try lib.store.serviceName(arena)}, 0),
         .txt = try sync.advertisement(arena, try lib.main(), try lib.store.user(), try lib.store.device()),
     };
@@ -665,24 +665,24 @@ fn peer(lib: *Library, arena: std.mem.Allocator, target: []const u8, add: bool) 
     _ = try sync.setAdded(try lib.main(), arena, target, add);
 }
 
-// Repositories.
+// Sources.
 
-/// The repositories, as a JSON array of objects with `id`, `url`,
+/// The sources, as a JSON array of objects with `id`, `url`,
 /// `rendition`, `skip`, `copies`, `managed` (a device's downloads), and
 /// `absent`, its absent directories
 /// (`dir`, relative to it, empty for the whole of it, and `since`, in
 /// milliseconds since the epoch).
 export fn cq_repos(lib: *Library) ?[*:0]u8 {
-    return json(lib, repos, .{});
+    return json(lib, sources, .{});
 }
 
 const AbsenceJson = struct { dir: []const u8, since: u64 };
-const RepoJson = struct { id: []const u8, url: []const u8, rendition: []const u8, skip: []const u8, copies: i64, absent: []const AbsenceJson, managed: bool };
+const SourceJson = struct { id: []const u8, url: []const u8, rendition: []const u8, skip: []const u8, copies: i64, absent: []const AbsenceJson, managed: bool };
 
-fn repos(lib: *Library, arena: std.mem.Allocator) ![]const RepoJson {
+fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
     const r = try lib.main();
-    const list = try library.repositories(r, arena);
-    const out = try arena.alloc(RepoJson, list.len);
+    const list = try library.sources(r, arena);
+    const out = try arena.alloc(SourceJson, list.len);
     for (list, out) |rp, *o| o.* = .{
         .id = try arena.dupe(u8, &rp.id),
         .url = rp.url,
@@ -723,9 +723,9 @@ export fn cq_race_lost(lib: *Library, url: [*:0]const u8) void {
 // Downloads (see download.zig).
 
 /// Sets where this device keeps downloads (`dir`), the URL it serves them
-/// at (made a repository of its own, which no one crawls), and whether
+/// at (made a source of its own, which no one crawls), and whether
 /// downloads watched since fetched are deleted at once (nonzero) or only as
-/// space is needed; either way, only once another repository holds them,
+/// space is needed; either way, only once another source holds them,
 /// and never pinned ones.
 export fn cq_downloads_configure(lib: *Library, dir: [*:0]const u8, served_at: [*:0]const u8, drop_watched: c_int) c_int {
     return status(lib, downloadsConfigure, .{ std.mem.span(dir), std.mem.span(served_at), drop_watched != 0 });
@@ -782,7 +782,7 @@ fn keep(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, on: bool)
 }
 const DownloadsJson = struct {
     dir: ?[]const u8,
-    repository: ?[]const u8,
+    source: ?[]const u8,
     drop_watched: bool,
     held: []const HeldJson,
     wanted: []const download.Want,
@@ -796,7 +796,7 @@ const DownloadsJson = struct {
     total_mb: u32,
 };
 
-/// This device's downloads, as a JSON object: `dir`, `repository` (its ID),
+/// This device's downloads, as a JSON object: `dir`, `source` (its ID),
 /// and `drop_watched`, as configured (null if not); `held`, the files held
 /// (`item`, `size`); `wanted` (`key`, `rendition`); `next`, series whose
 /// next episodes download (`title`, `episodes`); `watched`, downloads
@@ -814,12 +814,12 @@ fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
     try download.purgeObsolete(r, arena);
     const s = try download.settings(r, arena);
     var list: std.ArrayList(HeldJson) = .empty;
-    if (s) |set| for (try download.held(r, arena, set.repo)) |h| try list.append(arena, .{ .item = h.item, .size = h.size });
+    if (s) |set| for (try download.held(r, arena, set.source)) |h| try list.append(arena, .{ .item = h.item, .size = h.size });
     var finished: std.ArrayList(DoneJson) = .empty;
-    if (s) |set| for (try download.finishedWith(r, arena, set.repo)) |d| try finished.append(arena, .{ .item = d.held.item, .deletable = d.deletable });
+    if (s) |set| for (try download.finishedWith(r, arena, set.source)) |d| try finished.append(arena, .{ .item = d.held.item, .deletable = d.deletable });
     return .{
         .dir = if (s) |set| set.dir else null,
-        .repository = if (s) |set| try arena.dupe(u8, &set.repo.id) else null,
+        .source = if (s) |set| try arena.dupe(u8, &set.source.id) else null,
         .drop_watched = if (s) |set| set.drop_watched else false,
         .held = list.items,
         .wanted = try download.wants(r, arena),
@@ -877,26 +877,26 @@ fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
     return out;
 }
 
-/// Forgets an absent directory of a repository (by ID or URL), as if it
+/// Forgets an absent directory of a source (by ID or URL), as if it
 /// were deleted: its copies go, for every peer.
-export fn cq_forget_absent(lib: *Library, repo: [*:0]const u8, dir: [*:0]const u8) c_int {
-    return status(lib, forgetAbsent, .{ std.mem.span(repo), std.mem.span(dir) });
+export fn cq_forget_absent(lib: *Library, source: [*:0]const u8, dir: [*:0]const u8) c_int {
+    return status(lib, forgetAbsent, .{ std.mem.span(source), std.mem.span(dir) });
 }
 
-fn forgetAbsent(lib: *Library, arena: std.mem.Allocator, repo: []const u8, dir: []const u8) !void {
+fn forgetAbsent(lib: *Library, arena: std.mem.Allocator, source: []const u8, dir: []const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
     const r = try lib.main();
-    _ = try library.forgetAbsent(r, arena, lib.now(), try library.findRepository(r, arena, repo), dir);
+    _ = try library.forgetAbsent(r, arena, lib.now(), try library.findSource(r, arena, source), dir);
 }
 
-/// Adds a repository by URL, as typed, with its rendition and the prefix of
+/// Adds a source by URL, as typed, with its rendition and the prefix of
 /// names to skip (each null for the default).
 export fn cq_repo_add(lib: *Library, target: [*:0]const u8, rendition: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
-    return status(lib, repoAdd, .{ std.mem.span(target), span(rendition), span(skip) });
+    return status(lib, sourceAdd, .{ std.mem.span(target), span(rendition), span(skip) });
 }
 
-fn repoAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, rendition: ?[]const u8, skip: ?[]const u8) !void {
+fn sourceAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, rendition: ?[]const u8, skip: ?[]const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
     const r = try lib.main();
@@ -906,29 +906,29 @@ fn repoAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, renditio
     var layout: library.Layout = .{};
     if (rendition) |v| layout.rendition = v;
     if (skip) |v| layout.skip = v;
-    _ = try library.addRepository(r, lib.now(), typed.items, layout);
+    _ = try library.addSource(r, lib.now(), typed.items, layout);
 }
 
-/// Changes a repository's settings, those not null.
-export fn cq_repo_set(lib: *Library, repo: [*:0]const u8, rendition: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
-    return status(lib, repoSet, .{ std.mem.span(repo), span(rendition), span(skip) });
+/// Changes a source's settings, those not null.
+export fn cq_repo_set(lib: *Library, source: [*:0]const u8, rendition: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
+    return status(lib, sourceSet, .{ std.mem.span(source), span(rendition), span(skip) });
 }
 
-fn repoSet(lib: *Library, arena: std.mem.Allocator, repo: []const u8, rendition: ?[]const u8, skip: ?[]const u8) !void {
+fn sourceSet(lib: *Library, arena: std.mem.Allocator, source: []const u8, rendition: ?[]const u8, skip: ?[]const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
-    _ = try library.setRepository(try lib.main(), arena, lib.now(), repo, rendition, skip);
+    _ = try library.setSource(try lib.main(), arena, lib.now(), source, rendition, skip);
 }
 
-/// Removes a repository, by ID or URL, and the copies it held.
-export fn cq_repo_remove(lib: *Library, repo: [*:0]const u8) c_int {
-    return status(lib, repoRemove, .{std.mem.span(repo)});
+/// Removes a source, by ID or URL, and the copies it held.
+export fn cq_repo_remove(lib: *Library, source: [*:0]const u8) c_int {
+    return status(lib, sourceRemove, .{std.mem.span(source)});
 }
 
-fn repoRemove(lib: *Library, arena: std.mem.Allocator, repo: []const u8) !void {
+fn sourceRemove(lib: *Library, arena: std.mem.Allocator, source: []const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
-    _ = try library.removeRepository(try lib.main(), arena, lib.now(), repo);
+    _ = try library.removeSource(try lib.main(), arena, lib.now(), source);
 }
 
 // Long operations, each on a connection of its own.
@@ -937,11 +937,11 @@ fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
     return lib.store.openReplica(arena);
 }
 
-/// Long: crawls every repository, committing each as it's crawled, then
+/// Long: crawls every source, committing each as it's crawled, then
 /// describes what's new (covers and metadata) with concurrent workers,
 /// committing as it goes and taking prioritized titles (`cq_prioritize`)
 /// first. Returns a JSON array of objects with `url`, `files`, `titles`,
-/// and `error` (null, or why its crawl failed), one per repository.
+/// and `error` (null, or why its crawl failed), one per source.
 export fn cq_crawl(lib: *Library) ?[*:0]u8 {
     return json(lib, crawlAll, .{});
 }
@@ -951,7 +951,7 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
     defer r.close();
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
-    const list = try library.repositories(&r, arena);
+    const list = try library.sources(&r, arena);
     const out = try arena.alloc(CrawlJson, list.len);
     var crawled: std.ArrayList(art.Crawled) = .empty;
     lib.progress.start(.crawling, list.len);
@@ -965,12 +965,12 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
         try lib.writer.lock(lib.io());
         defer lib.writer.unlock(lib.io());
         try r.refresh();
-        const s = library.crawlRepository(&r, lib.io(), arena, &client, lib.now(), rp, 16) catch |err| {
+        const s = library.crawlSource(&r, lib.io(), arena, &client, lib.now(), rp, 16) catch |err| {
             o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = @errorName(err) };
             continue;
         };
         o.* = .{ .url = rp.url, .files = s.ingest.files, .titles = s.ingest.titles_added, .covers = 0, .@"error" = null };
-        try crawled.append(arena, .{ .repo = rp, .entries = s.entries });
+        try crawled.append(arena, .{ .source = rp, .entries = s.entries });
     }
     const plan = try art.plan(&r, arena, crawled.items);
     lib.progress.start(.describing, plan.jobs.len);
@@ -1091,7 +1091,7 @@ export fn cq_tiles(lib: *Library) ?[*:0]u8 {
 
 fn tiles(lib: *Library, arena: std.mem.Allocator) ![]const TileJson {
     const r = try lib.main();
-    const bases = try repoBases(r, arena);
+    const bases = try sourceBases(r, arena);
     const list = try art.tiles(r, arena);
     const out = try arena.alloc(TileJson, list.len);
     for (list, out) |t, *o| o.* = .{
@@ -1112,14 +1112,14 @@ fn tiles(lib: *Library, arena: std.mem.Allocator) ![]const TileJson {
     return out;
 }
 
-fn repoBases(r: *Replica, arena: std.mem.Allocator) !std.StringHashMapUnmanaged(library.Repository) {
-    var bases: std.StringHashMapUnmanaged(library.Repository) = .empty;
-    for (try library.repositories(r, arena)) |rp| try bases.put(arena, try arena.dupe(u8, &rp.id), rp);
+fn sourceBases(r: *Replica, arena: std.mem.Allocator) !std.StringHashMapUnmanaged(library.Source) {
+    var bases: std.StringHashMapUnmanaged(library.Source) = .empty;
+    for (try library.sources(r, arena)) |rp| try bases.put(arena, try arena.dupe(u8, &rp.id), rp);
     return bases;
 }
 
-fn coverJson(arena: std.mem.Allocator, bases: std.StringHashMapUnmanaged(library.Repository), c: art.Cover) !?CoverJson {
-    const rp = bases.get(c.repository) orelse return null;
+fn coverJson(arena: std.mem.Allocator, bases: std.StringHashMapUnmanaged(library.Source), c: art.Cover) !?CoverJson {
+    const rp = bases.get(c.source) orelse return null;
     return .{ .url = try art.fileUrl(arena, rp.url, c.path), .offset = c.offset, .length = c.length, .stamp = c.stamp };
 }
 
@@ -1128,14 +1128,14 @@ fn coverJson(arena: std.mem.Allocator, bases: std.StringHashMapUnmanaged(library
 /// `covers` (by field, `art` or `art:s01`...), and `items`, each with its
 /// `key`, `fields` (e.g., an episode's `title`), this user's `position`,
 /// `duration` (milliseconds), and `watched`, and `renditions`, each with
-/// its `label`, `name` (as its repositories give it), and `copies`: `url`
-/// (ready to play), `size`, `mtime`, `repository`, and `absent` (under an
-/// absent directory of its repository). Null if there's no such title.
+/// its `label`, `name` (as its sources give it), and `copies`: `url`
+/// (ready to play), `size`, `mtime`, `source`, and `absent` (under an
+/// absent directory of its source). Null if there's no such title.
 export fn cq_title(lib: *Library, key: [*:0]const u8) ?[*:0]u8 {
     return json(lib, title, .{std.mem.span(key)});
 }
 
-const Copy = struct { url: []const u8, size: u64, mtime: []const u8, repository: []const u8, absent: bool };
+const Copy = struct { url: []const u8, size: u64, mtime: []const u8, source: []const u8, absent: bool };
 const RenditionJson = struct { label: []const u8, name: []const u8, copies: []const Copy };
 const ItemJson = struct { key: []const u8, fields: std.json.ArrayHashMap([]const u8), renditions: []const RenditionJson, position: u64, duration: u64, watched: bool };
 
@@ -1151,7 +1151,7 @@ fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !struct {
 } {
     const r = try lib.main();
     const d = try library.detail(r, arena, key) orelse return error.NoSuchTitle;
-    const bases = try repoBases(r, arena);
+    const bases = try sourceBases(r, arena);
     const items = try arena.alloc(ItemJson, d.items.items.len);
     for (d.items.items, items) |item, *io| {
         const renditions = try arena.alloc(RenditionJson, item.renditions.items.len);
@@ -1159,9 +1159,9 @@ fn title(lib: *Library, arena: std.mem.Allocator, key: []const u8) !struct {
             const copies = try arena.alloc(Copy, rn.holdings.items.len);
             var name = rn.label;
             for (rn.holdings.items, copies) |h, *c| {
-                const rp = bases.get(h.repository);
-                c.* = .{ .url = if (rp) |b| try art.fileUrl(arena, b.url, h.path) else "", .size = h.size, .mtime = h.mtime, .repository = h.repository, .absent = h.absent };
-                // The rendition's name as its repositories give it.
+                const rp = bases.get(h.source);
+                c.* = .{ .url = if (rp) |b| try art.fileUrl(arena, b.url, h.path) else "", .size = h.size, .mtime = h.mtime, .source = h.source, .absent = h.absent };
+                // The rendition's name as its sources give it.
                 if (rp) |b| if (b.layout.rendition.len > 0) {
                     name = b.layout.rendition;
                 };

@@ -305,8 +305,8 @@ private struct DevicesPane: View {
 
 private struct SourcesPane: View {
     @Environment(Library.self) private var library
-    @State private var selection: Repository.ID?
-    @State private var editing: Repository?
+    @State private var selection: Source.ID?
+    @State private var editing: Source?
     @State private var adding = false
 
     var body: some View {
@@ -314,9 +314,9 @@ private struct SourcesPane: View {
             Text("Cinematheque finds videos in folders on this Mac, and on servers on your network, such as a NAS.")
                 .foregroundStyle(.secondary)
             // Devices' downloads are theirs to manage (see Downloads).
-            Table(library.repositories.filter { !$0.managed }, selection: $selection) {
-                TableColumn("Source") { repo in
-                    if let folder = library.folder(of: repo) {
+            Table(library.sources.filter { !$0.managed }, selection: $selection) {
+                TableColumn("Source") { source in
+                    if let folder = library.folder(of: source) {
                         let missing = library.missingFolders.contains(folder.prefix)
                         Label {
                             Text(folder.name) + Text(missing ? "  unavailable on this Mac" : "  on this Mac").foregroundStyle(.secondary)
@@ -327,29 +327,29 @@ private struct SourcesPane: View {
                     } else {
                         Label {
                             // Folders of it on drives that aren't there.
-                            Text(repo.displayName) + Text(repo.absent.isEmpty ? "" : "  \(repo.absent.count == 1 ? "a folder" : "\(repo.absent.count) folders") unavailable").foregroundStyle(.secondary)
+                            Text(source.displayName) + Text(source.absent.isEmpty ? "" : "  \(source.absent.count == 1 ? "a folder" : "\(source.absent.count) folders") unavailable").foregroundStyle(.secondary)
                         } icon: {
                             Image(systemName: "server.rack")
                         }
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .help(repo.url.removingPercentEncoding ?? repo.url)
+                        .help(source.url.removingPercentEncoding ?? source.url)
                     }
                 }
                 TableColumn("Videos") { Text($0.copies.formatted()).monospacedDigit() }
                     .width(70)
                     .alignment(.trailing)
             }
-            .contextMenu(forSelectionType: Repository.ID.self) { ids in
-                if let repo = library.repositories.first(where: { $0.id == ids.first }) {
-                    Button(openLabel(repo)) { open(repo) }
-                        .disabled(!canOpen(repo))
+            .contextMenu(forSelectionType: Source.ID.self) { ids in
+                if let source = library.sources.first(where: { $0.id == ids.first }) {
+                    Button(openLabel(source)) { open(source) }
+                        .disabled(!canOpen(source))
                     Divider()
-                    Button("Edit…") { editing = repo }
-                    Button("Remove", role: .destructive) { remove(repo) }
+                    Button("Edit…") { editing = source }
+                    Button("Remove", role: .destructive) { remove(source) }
                 }
             } primaryAction: { ids in
-                editing = library.repositories.first { $0.id == ids.first }
+                editing = library.sources.first { $0.id == ids.first }
             }
             HStack {
                 Button("Add Folder…", systemImage: "folder.badge.plus") { chooseFolder() }
@@ -358,15 +358,15 @@ private struct SourcesPane: View {
                     .help("Add a server on your network, such as a NAS, by its address")
                 // A bare minus, as under tables on the Mac.
                 Button("Remove", systemImage: "minus") {
-                    if let repo = library.repositories.first(where: { $0.id == selection }) { remove(repo) }
+                    if let source = library.sources.first(where: { $0.id == selection }) { remove(source) }
                 }
                 .labelStyle(.iconOnly)
                 .help("Remove the selected source")
                 .disabled(selection == nil)
-                if let repo = selected {
-                    Button(openLabel(repo), systemImage: library.folder(of: repo) == nil ? "safari" : "folder") { open(repo) }
-                        .disabled(!canOpen(repo))
-                        .help(library.folder(of: repo) == nil ? "See what the server lists, in your browser" : "See the folder in the Finder")
+                if let source = selected {
+                    Button(openLabel(source), systemImage: library.folder(of: source) == nil ? "safari" : "folder") { open(source) }
+                        .disabled(!canOpen(source))
+                        .help(library.folder(of: source) == nil ? "See what the server lists, in your browser" : "See the folder in the Finder")
                 }
                 Spacer()
                 if let activity = library.activity {
@@ -374,38 +374,38 @@ private struct SourcesPane: View {
                     Text(activity + "…").foregroundStyle(.secondary)
                 } else {
                     Button("Refresh Library") { Task { await library.refresh() } }
-                        .disabled(library.repositories.isEmpty)
+                        .disabled(library.sources.isEmpty)
                 }
             }
         }
         .padding()
-        .sheet(isPresented: $adding) { SourceSheet(repository: nil) }
-        .sheet(item: $editing) { SourceSheet(repository: $0) }
+        .sheet(isPresented: $adding) { SourceSheet(source: nil) }
+        .sheet(item: $editing) { SourceSheet(source: $0) }
     }
 
-    private var selected: Repository? { library.repositories.first { $0.id == selection } }
+    private var selected: Source? { library.sources.first { $0.id == selection } }
 
     /// A folder on this Mac opens in the Finder; a server, in the browser,
     /// which shows its listing.
-    private func openLabel(_ repo: Repository) -> String {
-        library.folder(of: repo) == nil ? "Open in Browser" : "Show in Finder"
+    private func openLabel(_ source: Source) -> String {
+        library.folder(of: source) == nil ? "Open in Browser" : "Show in Finder"
     }
 
-    private func canOpen(_ repo: Repository) -> Bool {
-        guard let folder = library.folder(of: repo) else { return URL(string: repo.url) != nil }
+    private func canOpen(_ source: Source) -> Bool {
+        guard let folder = library.folder(of: source) else { return URL(string: source.url) != nil }
         return !library.missingFolders.contains(folder.prefix)
     }
 
-    private func open(_ repo: Repository) {
-        if let folder = library.folder(of: repo) {
+    private func open(_ source: Source) {
+        if let folder = library.folder(of: source) {
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folder.path)
-        } else if let url = URL(string: repo.url) {
+        } else if let url = URL(string: source.url) {
             NSWorkspace.shared.open(url)
         }
     }
 
-    private func remove(_ repo: Repository) {
-        if let folder = library.folder(of: repo) { library.removeFolder(folder) } else { library.removeRepository(repo.id) }
+    private func remove(_ source: Source) {
+        if let folder = library.folder(of: source) { library.removeFolder(folder) } else { library.removeSource(source.id) }
     }
 
     /// A folder to serve from this Mac: a local one, or a mounted share's
@@ -424,7 +424,7 @@ private struct SourcesPane: View {
 /// Adding a source by its address, or editing one; its rendition and the
 /// names to skip are advanced.
 private struct SourceSheet: View {
-    let repository: Repository?
+    let source: Source?
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var url = ""
@@ -435,13 +435,13 @@ private struct SourceSheet: View {
     var body: some View {
         Form {
             Section {
-                if let repository {
-                    LabeledContent("Address", value: repository.url.removingPercentEncoding ?? repository.url)
+                if let source {
+                    LabeledContent("Address", value: source.url.removingPercentEncoding ?? source.url)
                 } else {
                     TextField("Address", text: $url, prompt: Text("http://nas.local/Video/Movies/"))
                 }
             } footer: {
-                if repository == nil {
+                if source == nil {
                     Text("The address of a folder of videos on a server, as a browser would open it.")
                 }
             }
@@ -455,7 +455,7 @@ private struct SourceSheet: View {
                 }
             }
             // As it is now, so one forgotten leaves the list.
-            if let current = library.repositories.first(where: { $0.id == repository?.id }), !current.absent.isEmpty {
+            if let current = library.sources.first(where: { $0.id == source?.id }), !current.absent.isEmpty {
                 Section {
                     ForEach(current.absent, id: \.dir) { gone in
                         HStack {
@@ -478,22 +478,22 @@ private struct SourceSheet: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
-                Button(repository == nil ? "Add" : "Save") {
-                    if let repository {
-                        library.setRepository(repository.id, rendition: rendition, skip: skip)
+                Button(source == nil ? "Add" : "Save") {
+                    if let source {
+                        library.setSource(source.id, rendition: rendition, skip: skip)
                     } else {
-                        library.addRepository(url, rendition: rendition.isEmpty ? nil : rendition, skip: skip)
+                        library.addSource(url, rendition: rendition.isEmpty ? nil : rendition, skip: skip)
                         Task { await library.crawl() }
                     }
                     dismiss()
                 }
-                .disabled(repository == nil && URL(string: url)?.scheme?.hasPrefix("http") != true)
+                .disabled(source == nil && URL(string: url)?.scheme?.hasPrefix("http") != true)
             }
         }
         .onAppear {
-            if let repository {
-                rendition = repository.rendition
-                skip = repository.skip
+            if let source {
+                rendition = source.rendition
+                skip = source.skip
                 advanced = !rendition.isEmpty || skip != ","
             }
         }

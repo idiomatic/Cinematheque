@@ -8,12 +8,12 @@
 //! * on an item's key: `title` (an episode's), `description`, and
 //!   `duration` (milliseconds).
 //!
-//! A cover is a byte range of a file in a repository, `<repository> TAB
+//! A cover is a byte range of a file in a source, `<source> TAB
 //! <path> TAB <offset> TAB <length> TAB <stamp>`, where the stamp is the
 //! file's size and modification time, so a cover is found again only when
 //! its file changes. A cover is a sidecar image beside the video, by Plex,
 //! Jellyfin, and Kodi convention, or else the one an MP4 embeds. Images
-//! don't replicate: players fetch them from repositories by range request.
+//! don't replicate: players fetch them from sources by range request.
 
 const std = @import("std");
 const Io = std.Io;
@@ -27,7 +27,7 @@ const jpeg = @import("jpeg.zig");
 const thumbhash = @import("thumbhash.zig");
 
 pub const Cover = struct {
-    repository: []const u8,
+    source: []const u8,
     path: []const u8,
     offset: u64,
     length: u64,
@@ -35,19 +35,19 @@ pub const Cover = struct {
 
     pub fn parse(value: []const u8) ?Cover {
         var parts = std.mem.splitScalar(u8, value, '\t');
-        const repository = parts.next() orelse return null;
+        const source = parts.next() orelse return null;
         const path = parts.next() orelse return null;
         const offset = std.fmt.parseInt(u64, parts.next() orelse return null, 10) catch return null;
         const length = std.fmt.parseInt(u64, parts.next() orelse return null, 10) catch return null;
-        return .{ .repository = repository, .path = path, .offset = offset, .length = length, .stamp = parts.rest() };
+        return .{ .source = source, .path = path, .offset = offset, .length = length, .stamp = parts.rest() };
     }
 
     fn format(c: Cover, arena: std.mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(arena, "{s}\t{s}\t{d}\t{d}\t{s}", .{ c.repository, c.path, c.offset, c.length, c.stamp });
+        return std.fmt.allocPrint(arena, "{s}\t{s}\t{d}\t{d}\t{s}", .{ c.source, c.path, c.offset, c.length, c.stamp });
     }
 };
 
-/// A file's URL in its repository, ready to fetch.
+/// A file's URL in its source, ready to fetch.
 pub fn fileUrl(arena: std.mem.Allocator, base: []const u8, path: []const u8) ![]const u8 {
     var target: std.ArrayList(u8) = .empty;
     try target.appendSlice(arena, base);
@@ -88,25 +88,25 @@ fn isImage(path: []const u8) bool {
     return std.ascii.eqlIgnoreCase(ext, ".jpg") or std.ascii.eqlIgnoreCase(ext, ".jpeg") or std.ascii.eqlIgnoreCase(ext, ".png");
 }
 
-/// A repository and its crawl's listing.
+/// A source and its crawl's listing.
 pub const Crawled = struct {
-    repo: library.Repository,
+    source: library.Source,
     entries: []const crawl.Entry,
 };
 
-const Source = struct { path: []const u8, stamp: []const u8 };
+const ImageFile = struct { path: []const u8, stamp: []const u8 };
 
-/// Describing one movie or season: its target, and the source to read.
+/// Describing one movie or season: its target, and the file to read.
 pub const Job = struct {
     target: Target,
-    repo: library.Repository,
-    sidecar: ?Source,
+    source: library.Source,
+    sidecar: ?ImageFile,
     /// An unchanged cover still without a placeholder, to make one for
     /// alone (one request, for covers described before placeholders).
     placeholder_for: ?Cover = null,
 
     /// The file the cover comes from.
-    fn source(j: Job) Source {
+    fn imageFile(j: Job) ImageFile {
         return j.sidecar orelse .{ .path = j.target.path, .stamp = j.target.stamp };
     }
 };
@@ -116,31 +116,31 @@ pub const Plan = struct {
     unchanged: usize,
 };
 
-/// Plans describing the movies and seasons the `crawled` repositories hold:
-/// one source for each, keeping the one already described while its file
+/// Plans describing the movies and seasons the `crawled` sources hold:
+/// one file for each, keeping the one already described while its file
 /// is unchanged, else a sidecar image, else an MP4, else any file; jobs for
-/// those to describe, in title order. A title held in several repositories
+/// those to describe, in title order. A title held in several sources
 /// (e.g., one per rendition) is described from one of them.
 pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawled) !Plan {
     var candidates: std.StringArrayHashMapUnmanaged(std.ArrayList(Job)) = .empty;
     for (crawled) |c| {
-        const repo = c.repo;
+        const source = c.source;
         // Images by their path, lowercased, for sidecars.
-        var images: std.StringHashMapUnmanaged(Source) = .empty;
+        var images: std.StringHashMapUnmanaged(ImageFile) = .empty;
         var targets: std.StringArrayHashMapUnmanaged(Target) = .empty;
         // How many titles each directory holds, so a `poster.jpg` is taken
         // as a movie's only where it's the only one there.
         var titles_in: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) = .empty;
-        const series = try library.seriesByFolder(arena, repo.url, c.entries);
+        const series = try library.seriesByFolder(arena, source.url, c.entries);
         for (c.entries) |entry| {
-            if (entry.is_dir or !std.mem.startsWith(u8, entry.url, repo.url)) continue;
-            const rel = url.decode(try arena.dupe(u8, entry.url[repo.url.len..])) catch continue;
+            if (entry.is_dir or !std.mem.startsWith(u8, entry.url, source.url)) continue;
+            const rel = url.decode(try arena.dupe(u8, entry.url[source.url.len..])) catch continue;
             const stamp = try std.fmt.allocPrint(arena, "{d}\t{s}", .{ entry.size, entry.mtime });
             if (isImage(rel)) {
                 try images.put(arena, try std.ascii.allocLowerString(arena, rel), .{ .path = rel, .stamp = stamp });
                 continue;
             }
-            if (!naming.isVideo(rel) or skippedPath(rel, repo.layout.skip)) continue;
+            if (!naming.isVideo(rel) or skippedPath(rel, source.layout.skip)) continue;
             const p = try library.parseFile(arena, rel, &series);
             if (p.kind == .extra or p.title.len == 0) continue;
             const k = try library.keys(arena, p);
@@ -162,7 +162,7 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
         for (targets.keys(), targets.values()) |id, t| {
             const gop = try candidates.getOrPut(arena, id);
             if (!gop.found_existing) gop.value_ptr.* = .empty;
-            try gop.value_ptr.append(arena, .{ .target = t, .repo = repo, .sidecar = findSidecar(arena, &images, &titles_in, t) catch null });
+            try gop.value_ptr.append(arena, .{ .target = t, .source = source, .sidecar = findSidecar(arena, &images, &titles_in, t) catch null });
         }
     }
     var jobs: std.ArrayList(Job) = .empty;
@@ -171,8 +171,8 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
         const first = list.items[0];
         if (try library.fieldValue(replica, arena, first.target.title_key, first.target.field)) |old| if (Cover.parse(old)) |c| {
             for (list.items) |j| {
-                const src = j.source();
-                if (std.mem.eql(u8, c.repository, &j.repo.id) and std.mem.eql(u8, c.path, src.path) and std.mem.eql(u8, c.stamp, src.stamp)) {
+                const src = j.imageFile();
+                if (std.mem.eql(u8, c.source, &j.source.id) and std.mem.eql(u8, c.path, src.path) and std.mem.eql(u8, c.stamp, src.stamp)) {
                     if (c.length > 0 and try library.fieldValue(replica, arena, j.target.title_key, try thumbField(arena, j.target.field)) == null) {
                         var again = j;
                         again.placeholder_for = c;
@@ -212,9 +212,9 @@ pub const Write = struct { key: []const u8, field: []const u8, value: []const u8
 /// Describes one job, appending what it found to `writes`.
 fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, writes: *std.ArrayList(Write), stats: *Stats) !void {
     const t = job.target;
-    const repo = job.repo;
+    const source = job.source;
     if (job.placeholder_for) |c| {
-        const bytes = fetch(arena, client, try fileUrl(arena, repo.url, c.path), c.offset, c.length) catch |err| {
+        const bytes = fetch(arena, client, try fileUrl(arena, source.url, c.path), c.offset, c.length) catch |err| {
             if (unreachable_(err)) return; // to try again next crawl
             return writePlaceholder(arena, writes, t, null, stats);
         };
@@ -222,33 +222,33 @@ fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, wri
     }
     if (job.sidecar) |s| {
         const size = std.fmt.parseInt(u64, s.stamp[0 .. std.mem.indexOfScalar(u8, s.stamp, '\t') orelse 0], 10) catch 0;
-        const bytes = fetch(arena, client, try fileUrl(arena, repo.url, s.path), 0, size) catch |err| blk: {
+        const bytes = fetch(arena, client, try fileUrl(arena, source.url, s.path), 0, size) catch |err| blk: {
             if (unreachable_(err)) return; // to try again next crawl
             break :blk null;
         };
-        try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = s.path, .offset = 0, .length = size, .stamp = s.stamp }).format(arena) });
+        try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = s.path, .offset = 0, .length = size, .stamp = s.stamp }).format(arena) });
         try writePlaceholder(arena, writes, t, bytes, stats);
         stats.covers += 1;
     }
     if (!isMp4(t.path)) {
         // Remember the file was looked at, without a cover.
         if (job.sidecar == null)
-            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = t.path, .offset = 0, .length = 0, .stamp = t.stamp }).format(arena) });
+            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = 0, .length = 0, .stamp = t.stamp }).format(arena) });
         return;
     }
-    const info = mp4.read(arena, client, try fileUrl(arena, repo.url, t.path)) catch |err| {
+    const info = mp4.read(arena, client, try fileUrl(arena, source.url, t.path)) catch |err| {
         stats.failed += 1;
         if (unreachable_(err)) return; // to try again next crawl
         // A file that can't be read as an MP4 is remembered as without a
         // cover, so it isn't read again until it changes.
         if (job.sidecar == null)
-            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = t.path, .offset = 0, .length = 0, .stamp = t.stamp }).format(arena) });
+            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = 0, .length = 0, .stamp = t.stamp }).format(arena) });
         return;
     };
     stats.described += 1;
     if (job.sidecar == null) {
         const c = info.cover orelse mp4.Cover{ .offset = 0, .length = 0, .image = .jpeg };
-        try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .repository = &repo.id, .path = t.path, .offset = c.offset, .length = c.length, .stamp = t.stamp }).format(arena) });
+        try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = c.offset, .length = c.length, .stamp = t.stamp }).format(arena) });
         if (info.cover) |found| {
             stats.covers += 1;
             try writePlaceholder(arena, writes, t, found.bytes, stats);
@@ -503,7 +503,7 @@ fn skippedPath(rel: []const u8, skip: []const u8) bool {
 }
 
 /// A sidecar image for a target, by Plex, Jellyfin, and Kodi convention.
-fn findSidecar(arena: std.mem.Allocator, images: anytype, titles_in: anytype, t: Target) !?Source {
+fn findSidecar(arena: std.mem.Allocator, images: anytype, titles_in: anytype, t: Target) !?ImageFile {
     const dir = std.fs.path.dirname(t.path) orelse "";
     const prefix = if (dir.len > 0) try std.fmt.allocPrint(arena, "{s}/", .{dir}) else "";
     const base = std.fs.path.stem(std.fs.path.basename(t.path));
@@ -544,13 +544,13 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
     try s.bindText(1, try std.fmt.allocPrint(arena, "{s}/r/", .{item_key}));
     try s.bindText(2, try std.fmt.allocPrint(arena, "{s}/r0", .{item_key}));
     if (!try s.step()) return error.NotHeld;
-    const repo_id = try arena.dupe(u8, s.blob(0)["held:".len..]);
+    const source_id = try arena.dupe(u8, s.blob(0)["held:".len..]);
     const value = try arena.dupe(u8, s.blob(1));
     const path = value[0 .. std.mem.indexOfScalar(u8, value, '\t') orelse value.len];
-    const repo = try library.findRepository(replica, arena, repo_id);
+    const source = try library.findSource(replica, arena, source_id);
     // A file that isn't an MP4, or can't be read, is marked described too,
     // so it isn't read again.
-    const info = mp4.read(arena, client, try fileUrl(arena, repo.url, path)) catch |err| switch (err) {
+    const info = mp4.read(arena, client, try fileUrl(arena, source.url, path)) catch |err| switch (err) {
         error.ConnectionRefused, error.NetworkUnreachable, error.HostUnreachable => return err,
         else => mp4.Info{},
     };
@@ -598,7 +598,7 @@ pub const Tile = struct {
     absent: bool = false,
 };
 
-/// The grid's tiles: titles some repository holds, a series' by season,
+/// The grid's tiles: titles some source holds, a series' by season,
 /// each with its cover, a season without one taking its series'.
 pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     var out: std.ArrayList(Tile) = .empty;
@@ -750,7 +750,7 @@ test "covers round-trip, and a season without one takes its series'" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const c: Cover = .{ .repository = "0123456789abcdef", .path = "TV/Firefly/Firefly 101.m4v", .offset = 12345, .length = 200000, .stamp = "907600000\t2026-01-01" };
+    const c: Cover = .{ .source = "0123456789abcdef", .path = "TV/Firefly/Firefly 101.m4v", .offset = 12345, .length = 200000, .stamp = "907600000\t2026-01-01" };
     const back = Cover.parse(try c.format(arena)).?;
     try std.testing.expectEqualStrings(c.path, back.path);
     try std.testing.expectEqual(c.offset, back.offset);
@@ -763,7 +763,7 @@ test "covers round-trip, and a season without one takes its series'" {
     try r.write(1, "t/s/firefly/-/e/s01e01/r/-", "held:0123456789abcdef", "Firefly/Firefly 101.m4v\t1\t-");
     try r.write(1, "t/s/firefly/-/e/s02e01/r/-", "held:0123456789abcdef", "Firefly/Firefly 201.m4v\t1\t-");
     try r.write(1, "t/s/firefly/-", "art", try c.format(arena));
-    try r.write(1, "t/s/firefly/-", "art:s02", try (Cover{ .repository = c.repository, .path = "Firefly/season02.jpg", .offset = 0, .length = 9, .stamp = "9\t-" }).format(arena));
+    try r.write(1, "t/s/firefly/-", "art:s02", try (Cover{ .source = c.source, .path = "Firefly/season02.jpg", .offset = 0, .length = 9, .stamp = "9\t-" }).format(arena));
     const all = try tiles(&r, arena);
     try std.testing.expectEqual(@as(usize, 2), all.len);
     try std.testing.expectEqual(@as(?u16, 1), all[0].season);
@@ -797,25 +797,25 @@ test "covers round-trip, and a season without one takes its series'" {
     try std.testing.expectEqual(@as(usize, 0), (try watchlist(&r, arena)).len);
 }
 
-test "a title in several repositories is described once, from its best source, and kept while unchanged" {
+test "a title in several sources is described once, from its best file, and kept while unchanged" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const founder = (try @import("replica.zig").userKeyPair(@splat(1))).public_key.toBytes();
     var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
-    const a: library.Repository = .{ .id = "aaaaaaaaaaaaaaaa".*, .url = "http://nas/720/", .layout = .{} };
-    const b: library.Repository = .{ .id = "bbbbbbbbbbbbbbbb".*, .url = "http://nas/4k/", .layout = .{} };
+    const a: library.Source = .{ .id = "aaaaaaaaaaaaaaaa".*, .url = "http://nas/720/", .layout = .{} };
+    const b: library.Source = .{ .id = "bbbbbbbbbbbbbbbb".*, .url = "http://nas/4k/", .layout = .{} };
     const crawled = [_]Crawled{
-        .{ .repo = a, .entries = &.{.{ .url = "http://nas/720/Network%20Effect%20(2020).mkv", .parent = "http://nas/720/", .is_dir = false, .size = 1, .mtime = "t" }} },
-        .{ .repo = b, .entries = &.{.{ .url = "http://nas/4k/Network%20Effect%20(2020).m4v", .parent = "http://nas/4k/", .is_dir = false, .size = 2, .mtime = "t" }} },
+        .{ .source = a, .entries = &.{.{ .url = "http://nas/720/Network%20Effect%20(2020).mkv", .parent = "http://nas/720/", .is_dir = false, .size = 1, .mtime = "t" }} },
+        .{ .source = b, .entries = &.{.{ .url = "http://nas/4k/Network%20Effect%20(2020).m4v", .parent = "http://nas/4k/", .is_dir = false, .size = 2, .mtime = "t" }} },
     };
     const first = try plan(&r, arena, &crawled);
     try std.testing.expectEqual(@as(usize, 1), first.jobs.len);
-    try std.testing.expectEqualStrings(&b.id, &first.jobs[0].repo.id);
-    // Once described from b, it's unchanged, whichever repository's crawl
+    try std.testing.expectEqualStrings(&b.id, &first.jobs[0].source.id);
+    // Once described from b, it's unchanged, whichever source's crawl
     // comes first.
-    try r.write(1, "t/m/network-effect/2020", "art", try (Cover{ .repository = &b.id, .path = "Network Effect (2020).m4v", .offset = 9, .length = 9, .stamp = "2\tt" }).format(arena));
+    try r.write(1, "t/m/network-effect/2020", "art", try (Cover{ .source = &b.id, .path = "Network Effect (2020).m4v", .offset = 9, .length = 9, .stamp = "2\tt" }).format(arena));
     // Without a placeholder, it's planned for one alone, from that cover.
     const again = try plan(&r, arena, &crawled);
     try std.testing.expectEqual(@as(usize, 1), again.jobs.len);

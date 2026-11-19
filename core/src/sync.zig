@@ -140,7 +140,7 @@ const freshness_ms = 10 * 60 * 1000;
 
 /// What the server needs to open its own connection to a replica for each
 /// sync, since SQLite connections aren't shared across threads.
-pub const Source = struct {
+pub const Sharing = struct {
     path: [:0]const u8,
     founder: [32]u8,
     identity: replica_.Identity,
@@ -152,8 +152,8 @@ pub const Source = struct {
     received: ?*const fn (context: ?*anyopaque, device: [32]u8, operations: usize) void = null,
     context: ?*anyopaque = null,
 
-    pub fn handler(source: *Source) serve_.Handler {
-        return .{ .context = source, .function = respond };
+    pub fn handler(sharing: *Sharing) serve_.Handler {
+        return .{ .context = sharing, .function = respond };
     }
 };
 
@@ -196,7 +196,7 @@ pub fn readRequest(arena: std.mem.Allocator, library: [16]u8, body: []const u8, 
 
 fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool {
     if (request.head.method != .POST or !std.mem.eql(u8, request.head.target, path)) return false;
-    const source: *Source = @ptrCast(@alignCast(context.?));
+    const sharing: *Sharing = @ptrCast(@alignCast(context.?));
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -216,7 +216,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         try body.readSliceAll(bytes);
         break :blk bytes;
     } else try body.allocRemaining(arena, .limited(1 << 20));
-    var src = try Replica.open(gpa, io, source.path, source.founder, source.identity);
+    var src = try Replica.open(gpa, io, sharing.path, sharing.founder, sharing.identity);
     defer src.close();
     const now: u64 = @intCast(Io.Timestamp.now(io, .real).toMilliseconds());
     const checked = readRequest(arena, src.library, head, now) catch |err| {
@@ -250,7 +250,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
             return true;
         };
         try request.respond("", .{ .status = .no_content });
-        if (source.received) |f| f(source.context, checked[0].device, stats.won);
+        if (sharing.received) |f| f(sharing.context, checked[0].device, stats.won);
         return true;
     }
 
@@ -270,7 +270,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     const sent = try replica_.writeSync(&src, arena, checked[0].vector, reader, &gz.writer);
     try gz.finish();
     try response.end();
-    if (source.served) |f| f(source.context, checked[0].device, sent);
+    if (sharing.served) |f| f(sharing.context, checked[0].device, sent);
     return true;
 }
 
@@ -443,8 +443,8 @@ test "a removed device is told so, believably, and can tell" {
     try a.write(1000, "t/00001", "name", "Alien");
     try b.write(1000, "t/00002", "name", "Brazil");
 
-    var source: Source = .{ .path = a_path, .founder = founder, .identity = a_identity };
-    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .handler = source.handler() } };
+    var sharing: Sharing = .{ .path = a_path, .founder = founder, .identity = a_identity };
+    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .handler = sharing.handler() } };
     try server.start();
     defer server.stop();
     const url = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/sync", .{server.port});

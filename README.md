@@ -9,8 +9,8 @@ Every device keeps its own copy of the catalog: the titles, their episodes and v
 ## Ideas
 
 * **Library:** the shared catalog of titles (movies and series), their episodes and versions, and where each file is.
-* **Repository:** anywhere your videos are served over HTTP. Cinematheque never changes a repository's files; it only reads its listings.
-* **Rendition:** one encoding of a title (e.g., 720p H.264, or 4K HEVC). The same rendition may sit in several repositories; when one copy doesn't load (on a peer that's asleep, say), players try the next.
+* **Source:** anywhere your videos are served over HTTP. Cinematheque never changes a source's files; it only reads its listings.
+* **Rendition:** one encoding of a title (e.g., 720p H.264, or 4K HEVC). The same rendition may sit in several sources; when one copy doesn't load (on a peer that's asleep, say), players try the next.
 * **Peer:** a device that keeps a copy of the library's catalog (not of its videos). Peers sync directly with each other; there is no server in the middle.
 * **Founder and members:** whoever creates a library founds it, and members add others. The founder can hand the library over to a successor; members can remove others, but not the founder.
 
@@ -19,9 +19,9 @@ Every device keeps its own copy of the catalog: the titles, their episodes and v
 * **On a Mac or an Apple TV,** build the app; [apple/README.md](apple/README.md) says how. It needs Xcode 27 or later.
 * **On the command line,** on macOS or Linux, build the peer; [peer/README.md](peer/README.md) says how, and how to use it. It builds and shares a library, and run in the background, keeps it available to your other devices.
 
-## Preparing a repository
+## Preparing a source
 
-Any web server that lists directories will do. Cinematheque works out which kind of listing a repository gives: an `INDEX` file if there is one (below), JSON listings from Caddy and nginx, or HTML listings from most others. The server must answer byte-range requests, so players can seek; Python's built-in `http.server` doesn't, so Cinematheque can catalog its files but players can't stream them.
+Any web server that lists directories will do. Cinematheque works out which kind of listing a source gives: an `INDEX` file if there is one (below), JSON listings from Caddy and nginx, or HTML listings from most others. The server must answer byte-range requests, so players can seek; Python's built-in `http.server` doesn't, so Cinematheque can catalog its files but players can't stream them.
 
 If your server doesn't list directories, put a file named `INDEX` in the served folder, listing its files. Make it there with:
 
@@ -29,9 +29,9 @@ If your server doesn't list directories, put a file named `INDEX` in the served 
 find . -type f ! -name INDEX > INDEX
 ```
 
-and remake it whenever the files change. Cinematheque's own server writes one, with each directory too (ending in `/`), so a drive's mount point that's empty, the drive unplugged, shows it's still there: its videos stay in the library, dimmed, rather than going, until it's back, a year passes, or you forget it in Settings › Sources. It works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to catalog a large repository: one request instead of one per folder.
+and remake it whenever the files change. Cinematheque's own server writes one, with each directory too (ending in `/`), so a drive's mount point that's empty, the drive unplugged, shows it's still there: its videos stay in the library, dimmed, rather than going, until it's back, a year passes, or you forget it in Settings › Sources. It works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to catalog a large source: one request instead of one per folder.
 
-Crawling a repository reads its listings, recognizes titles from file and folder names, and records each file as a rendition. Later crawls are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title.
+Crawling a source reads its listings, recognizes titles from file and folder names, and records each file as a rendition. Later crawls are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title.
 
 ### Renditions
 
@@ -45,7 +45,7 @@ Movies/Network.Effect.2020.1080p.BluRay.x264-GROUP.mkv
 
 The names give the resolution, source, codec, and dynamic range; a file whose name says none of these has an unknown rendition.
 
-If a folder holds copies of one rendition whose names don't say which (say, everything one encoder preset made), add that folder as a repository of its own, and name its rendition: in the Mac app, under Advanced in Settings › Sources, or with `repo add --rendition` on the command line. A repository can also skip names beginning with a prefix, by default `,`, for folders like `,obsolete` that hold files you don't want cataloged. Removing a repository makes every peer forget its copies, so titles it alone held stop showing.
+If a folder holds copies of one rendition whose names don't say which (say, everything one encoder preset made), add that folder as a source of its own, and name its rendition: in the Mac app, under Advanced in Settings › Sources, or with `source add --rendition` on the command line. A source can also skip names beginning with a prefix, by default `,`, for folders like `,obsolete` that hold files you don't want cataloged. Removing a source makes every peer forget its copies, so titles it alone held stop showing.
 
 ### Naming
 
@@ -66,9 +66,9 @@ Names aren't always consistent: a year off by one, a title spelled two ways, or 
 
 ## Watching
 
-The apps browse the library by cover art: movies, and each series by season. Choose one for its details, and play it straight from its repository, resuming where you left off on any of your devices; a season plays on from the episode you're partway through, or else its next unwatched one. Covers and descriptions come from your repositories: a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them, or else the cover and details your MP4 files carry (as HandBrake, iTunes, and tagging tools write them). Until a cover loads, its tile shows a blurred likeness of it, which travels with the library, so even a newly paired device shows one at once. Star titles for your watchlist, which, like what you've watched, is yours alone. Stopping within the first 10 seconds forgets where you were, so going back to the start sticks.
+The apps browse the library by cover art: movies, and each series by season. Choose one for its details, and play it straight from its source, resuming where you left off on any of your devices; a season plays on from the episode you're partway through, or else its next unwatched one. Covers and descriptions come from your sources: a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them, or else the cover and details your MP4 files carry (as HandBrake, iTunes, and tagging tools write them). Until a cover loads, its tile shows a blurred likeness of it, which travels with the library, so even a newly paired device shows one at once. Star titles for your watchlist, which, like what you've watched, is yours alone. Stopping within the first 10 seconds forgets where you were, so going back to the start sticks.
 
-On first run, an app creates a library, or pairs with one of your devices or someone's library by a code it shows; the Mac's Settings manage repositories, people, and devices, so a household needs no command line. The Mac app uses the same home as the command-line peer on that Mac, so either can manage the library.
+On first run, an app creates a library, or pairs with one of your devices or someone's library by a code it shows; the Mac's Settings manage sources, people, and devices, so a household needs no command line. The Mac app uses the same home as the command-line peer on that Mac, so either can manage the library.
 
 ## Sharing a library
 
@@ -78,7 +78,7 @@ Peers find each other on your network, and while an app runs, it serves the libr
 
 ## Privacy
 
-Cinematheque has no accounts and no central server, and nothing leaves your devices except to the peers you sync with and the repositories you add. What you've watched, and where you stopped, syncs only among your own devices, directly, never through anyone else's. It's kept from other users, not hardened against someone with access to a device that holds it.
+Cinematheque has no accounts and no central server, and nothing leaves your devices except to the peers you sync with and the sources you add. What you've watched, and where you stopped, syncs only among your own devices, directly, never through anyone else's. It's kept from other users, not hardened against someone with access to a device that holds it.
 
 ## For developers
 

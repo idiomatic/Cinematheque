@@ -1,6 +1,6 @@
 import AVFoundation
 
-/// Plays a request's queue straight from repositories, one item after
+/// Plays a request's queue straight from sources, one item after
 /// another, keeping each item's playhead: every 10 seconds of playing (but
 /// not within the first 10, where a resume's seek may not have landed),
 /// where it's paused, and where it's closed, so stopping within the first
@@ -85,7 +85,7 @@ final class PlaybackSession {
         return replace(playerItem, with: entry)
     }
 
-    /// Waits for `playerItem` to load. If it fails (its repository asleep,
+    /// Waits for `playerItem` to load. If it fails (its source asleep,
     /// say, or its drive unplugged), puts the item's next copy in its place,
     /// until one loads or none is left; returns the one that loaded, if any.
     private func loaded(_ playerItem: AVPlayerItem) async -> AVPlayerItem? {

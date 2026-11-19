@@ -1,4 +1,4 @@
-//! Crawls a repository's listings breadth-first with concurrent workers,
+//! Crawls a source's listings breadth-first with concurrent workers,
 //! reading JSON (Caddy's form), HTML autoindex (links' targets only), or an
 //! `INDEX` file.
 
@@ -7,7 +7,7 @@ const Io = std.Io;
 const http = std.http;
 const url = @import("url.zig");
 
-/// `auto` reads an `INDEX` if the repository has one, else JSON listings if
+/// `auto` reads an `INDEX` if the source has one, else JSON listings if
 /// it gives them (Caddy's, nginx's), else HTML.
 pub const Format = enum { auto, json, html, index };
 
@@ -317,7 +317,7 @@ fn sniff(arena: std.mem.Allocator, client: *http.Client, base: []const u8) !Form
     return if (text.len > 0 and text[0] == '[') .json else .html;
 }
 
-/// Reads the repository's `INDEX`, if it has one: a path per line, relative
+/// Reads the source's `INDEX`, if it has one: a path per line, relative
 /// to the base (as `find .` writes them, `./` and all), optionally followed
 /// by a tab, the size, a tab, and the modification time. Returns null when
 /// there's none.

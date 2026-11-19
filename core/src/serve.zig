@@ -1,4 +1,4 @@
-//! A repository server that looks like a well-behaved static server:
+//! A source server that looks like a well-behaved static server:
 //! files with byte ranges and ETags, directory listings as JSON (in Caddy's
 //! form, on `Accept: application/json`) or HTML, and an `INDEX` of the tree
 //! with each file's size and modification time.
@@ -15,7 +15,7 @@ pub const Handler = struct {
     function: *const fn (context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool,
 };
 
-/// A directory served as a repository, at `/` (an empty prefix, as the only
+/// A directory served as a source, at `/` (an empty prefix, as the only
 /// one) or at `/<prefix>/`.
 pub const Mount = struct {
     prefix: []const u8 = "",
@@ -32,7 +32,7 @@ pub const Options = struct {
     /// If `port` is taken, listen on any free port instead (reported to
     /// `on_listen`).
     fallback: bool = false,
-    /// Directories to serve as repositories, if any.
+    /// Directories to serve as sources, if any.
     mounts: []const Mount = &.{},
     handler: ?Handler = null,
     /// Called once the server listens, with the port it got.

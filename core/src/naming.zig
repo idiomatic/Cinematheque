@@ -1,4 +1,4 @@
-//! Parses a repository path into what correlation needs: kind, title, year,
+//! Parses a source path into what correlation needs: kind, title, year,
 //! season and episodes, outside IDs, edition, part, and extra type.
 //! Follows Plex, Jellyfin, and Kodi conventions and common scene names,
 //! with hand-written scanners instead of regular expressions.
@@ -27,7 +27,7 @@ pub const Parsed = struct {
     part: ?u16 = null,
     resolution: ?[]const u8 = null,
     /// The rendition the name's technical tokens describe, canonically:
-    /// resolution, source, codec, and dynamic range, in that order (e.g.,
+    /// resolution, origin, codec, and dynamic range, in that order (e.g.,
     /// "2160p remux hevc hdr"), or null if the name has none.
     rendition: ?[]const u8 = null,
     extra: ?[]const u8 = null,
@@ -45,16 +45,16 @@ const extra_suffixes = [_][]const u8{ "-trailer", "-featurette", "-behindthescen
 /// Tokens that end a scene name's title.
 /// What a technical token says about a rendition, canonically.
 const Technical = struct {
-    const Dimension = enum { resolution, source, codec, range };
+    const Dimension = enum { resolution, origin, codec, range };
 
     const table = [_]struct { []const u8, Dimension, []const u8 }{
         .{ "2160p", .resolution, "2160p" }, .{ "4k", .resolution, "2160p" },  .{ "uhd", .resolution, "2160p" },
         .{ "1080p", .resolution, "1080p" }, .{ "1080i", .resolution, "1080i" }, .{ "720p", .resolution, "720p" },
         .{ "576p", .resolution, "576p" },   .{ "480p", .resolution, "480p" },
-        .{ "bluray", .source, "bluray" },   .{ "blu-ray", .source, "bluray" }, .{ "bdrip", .source, "bluray" },
-        .{ "brrip", .source, "bluray" },    .{ "remux", .source, "remux" },    .{ "web-dl", .source, "web" },
-        .{ "webdl", .source, "web" },       .{ "webrip", .source, "web" },     .{ "web", .source, "web" },
-        .{ "hdtv", .source, "hdtv" },       .{ "dvdrip", .source, "dvd" },     .{ "dvd", .source, "dvd" },
+        .{ "bluray", .origin, "bluray" },   .{ "blu-ray", .origin, "bluray" }, .{ "bdrip", .origin, "bluray" },
+        .{ "brrip", .origin, "bluray" },    .{ "remux", .origin, "remux" },    .{ "web-dl", .origin, "web" },
+        .{ "webdl", .origin, "web" },       .{ "webrip", .origin, "web" },     .{ "web", .origin, "web" },
+        .{ "hdtv", .origin, "hdtv" },       .{ "dvdrip", .origin, "dvd" },     .{ "dvd", .origin, "dvd" },
         .{ "x264", .codec, "h264" },        .{ "h264", .codec, "h264" },       .{ "h.264", .codec, "h264" },
         .{ "avc", .codec, "h264" },         .{ "x265", .codec, "hevc" },       .{ "h265", .codec, "hevc" },
         .{ "h.265", .codec, "hevc" },       .{ "hevc", .codec, "hevc" },       .{ "av1", .codec, "av1" },
@@ -86,7 +86,7 @@ pub fn isVideo(path: []const u8) bool {
     return false;
 }
 
-/// `path` is relative to the repository's root, with `/` separators.
+/// `path` is relative to the source's root, with `/` separators.
 /// Returned slices point into `path` or `scratch`.
 pub fn parse(path: []const u8, scratch: []u8) Parsed {
     var p: Parsed = .{};

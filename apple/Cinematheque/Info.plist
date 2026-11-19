@@ -10,12 +10,12 @@
 	<string>Cinematheque</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<!-- Repositories are often plain HTTP on the local network. -->
+		<!-- Sources are often plain HTTP on the local network. -->
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Cinematheque plays videos from repositories on your network, and syncs with your other devices there.</string>
+	<string>Cinematheque plays videos from sources on your network, and syncs with your other devices there.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_cinematheque._tcp</string>

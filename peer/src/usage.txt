@@ -10,7 +10,7 @@ NOUN -h (or NOUN alone) shows only that noun's commands.
 
 USER is a user's key, as user show and member list print them; TITLE and
 ITEM are title and item keys, as title list and title show print them;
-REPO is a repo's ID or URL; DEVICE, a device's key, as device list
+SOURCE is a source's ID or URL; DEVICE, a device's key, as device list
 prints it.
 
   user show                    print this user's key
@@ -45,20 +45,20 @@ prints it.
                                what it writes from now on is refused, and
                                it's told so when it next syncs
 
-  repo list                    list repos
-  repo show REPO               show a repo
-  repo add URL [--rendition NAME] [--skip PREFIX]
-                               add a repo: the rendition of its files,
+  source list                  list sources
+  source show SOURCE           show a source
+  source add URL [--rendition NAME] [--skip PREFIX]
+                               add a source: the rendition of its files,
                                if known, and the prefix of names to skip
                                (default ",")
-  repo set REPO [--rendition NAME] [--skip PREFIX]
-                               change a repo's settings; crawl to apply
-  repo forget REPO DIR         forget a directory the repo shows as absent
+  source set SOURCE [--rendition NAME] [--skip PREFIX]
+                               change a source's settings; crawl to apply
+  source forget SOURCE DIR     forget a directory the source shows as absent
                                (one that held files and lists none, as an
                                unplugged drive's mount point does), as if
                                it were deleted: its copies go, for every
                                peer (they do on their own after a year)
-  repo remove REPO             remove a repo and the copies it held, for
+  source remove SOURCE         remove a source and the copies it held, for
                                every peer
 
   title list [TEXT]            list titles, or those whose names hold
@@ -69,7 +69,7 @@ prints it.
   title download TITLE [--rendition NAME] [--to DIR]
                                fetch a title's files, or a season's
                                (TITLE/e/s01) or an ITEM's, into a directory
-                               (the current one), under their repo paths,
+                               (the current one), under their source paths,
                                from whichever copy answers first; in the
                                rendition given, else the one most items
                                have; resuming a download cut short
@@ -98,8 +98,8 @@ prints it.
   agent add [--port PORT]      install and start them
   agent remove                 stop and remove them
 
-  crawl [REPO] [--workers WORKERS]
-                               crawl every repo, or one, and update
+  crawl [SOURCE] [--workers WORKERS]
+                               crawl every source, or one, and update
                                holdings, with concurrent workers (16)
   sync [URL]                   pull from a peer, or from every peer found
                                or added

@@ -182,7 +182,7 @@ private struct HidesToolbar: NSViewRepresentable {
     }
 }
 
-/// Plays copies straight from their repositories, in AppKit's player view,
+/// Plays copies straight from their sources, in AppKit's player view,
 /// one after another, keeping each item's playhead.
 struct PlayerView: View {
     let request: PlayRequest

@@ -44,24 +44,24 @@ char *cq_pair(cq_library *library, const char *url, int join, const char *code);
 char *cq_members(cq_library *library);
 int cq_member(cq_library *library, const char *user_key, int add);
 
-// Repositories; rendition and skip may be NULL, for the default or no
+// Sources; rendition and skip may be NULL, for the default or no
 // change.
 char *cq_repos(cq_library *library);
 int cq_repo_add(cq_library *library, const char *url, const char *rendition, const char *skip);
-int cq_repo_set(cq_library *library, const char *repo, const char *rendition, const char *skip);
-int cq_repo_remove(cq_library *library, const char *repo);
-// Forgets an absent directory of a repository, as if deleted.
-int cq_forget_absent(cq_library *library, const char *repo, const char *dir);
+int cq_repo_set(cq_library *library, const char *source, const char *rendition, const char *skip);
+int cq_repo_remove(cq_library *library, const char *source);
+// Forgets an absent directory of a source, as if deleted.
+int cq_forget_absent(cq_library *library, const char *source, const char *dir);
 // Long (up to 1.5 s), any thread: copy racing. A JSON array of an item's
 // copies' URLs in, in the order to try them out: those whose servers answer
 // first. cq_race_lost notes a copy that didn't load.
 char *cq_race(cq_library *library, const char *urls_json);
 void cq_race_lost(cq_library *library, const char *url);
 
-// Downloads, this device's: kept in dir, served at served_at (a repository
+// Downloads, this device's: kept in dir, served at served_at (a source
 // of its own, never crawled). drop_watched deletes downloads watched since
 // fetched at once, else only as space is needed; either way only once
-// another repository holds them, and never kept ones (cq_keep).
+// another source holds them, and never kept ones (cq_keep).
 // cq_download wants a title, season
 // (TITLE/e/s01), or item kept, in a rendition (null: the commonest);
 // cq_download_next downloads a series' next episodes as it's watched (0
@@ -82,7 +82,7 @@ char *cq_reconcile(cq_library *library);
 // lets them go. Any thread.
 void cq_downloads_hold(cq_library *library, int on);
 
-// Long: crawling every repository and describing what's new (committing
+// Long: crawling every source and describing what's new (committing
 // as it goes, so reload when cq_data_version changes), syncing with a peer (or,
 // if url is NULL, every peer found or added), and reading an item's
 // metadata from its file.
@@ -127,7 +127,7 @@ char *cq_watchlist(cq_library *library);
 int cq_set_watchlisted(cq_library *library, const char *title_key, int on);
 
 // Long, but returns once listening: serves this library to peers and
-// folders as repositories (a JSON array of objects with "prefix", the path
+// folders as sources (a JSON array of objects with "prefix", the path
 // each is served at, and "path"), on the port given, else 8008, else any
 // free port, advertised by DNS-SD, until stopped or closed. Returns the
 // port, or -1.

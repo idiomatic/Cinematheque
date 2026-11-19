@@ -3,7 +3,7 @@ import CryptoKit
 import ImageIO
 import SwiftUI
 
-/// Covers, fetched from repositories by range request, scaled down off the
+/// Covers, fetched from sources by range request, scaled down off the
 /// main thread, and kept: in memory for what's on screen and near it, and
 /// on disk, in the app's caches, for the rest.
 actor ArtCache {

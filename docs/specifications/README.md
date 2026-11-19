@@ -30,7 +30,7 @@ External specifications and papers Cinematheque relies on. They're linked rather
 | RFC 9496, The ristretto255 and decaf448 Groups | https://www.rfc-editor.org/rfc/rfc9496 | The group CPace runs over, with its hash to the group. |
 | RFC 8439, ChaCha20 and Poly1305 | https://www.rfc-editor.org/rfc/rfc8439 | Seals the secrets sent once paired. |
 
-## Repositories
+## Sources
 
 | Title | Source | Why it applies |
 |---|---|---|

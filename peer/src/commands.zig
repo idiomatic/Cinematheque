@@ -139,18 +139,18 @@ pub fn device(peer: *Peer, c: Command) !void {
     } else return error.Usage;
 }
 
-pub fn repo(peer: *Peer, c: Command) !void {
+pub fn source(peer: *Peer, c: Command) !void {
     const settings = &.{ "--rendition", "--skip" };
     if (c.is("list", 0, &.{})) {
         var r = try peer.open();
         defer r.close();
-        for (try lib.repositories(&r, peer.arena)) |rp|
+        for (try lib.sources(&r, peer.arena)) |rp|
             try peer.out.print("{s}  {s}  rendition: \"{s}\", skip: \"{s}\"\n", .{ rp.id, rp.url, rp.layout.rendition, rp.layout.skip });
     } else if (c.is("show", 1, &.{})) {
         var r = try peer.open();
         defer r.close();
-        const rp = try lib.findRepository(&r, peer.arena, c.rest[0]);
-        try peer.out.print("repo       {s}\nurl        {s}\nrendition  \"{s}\"\nskip       \"{s}\"\ncopies     {d}\n", .{
+        const rp = try lib.findSource(&r, peer.arena, c.rest[0]);
+        try peer.out.print("source       {s}\nurl        {s}\nrendition  \"{s}\"\nskip       \"{s}\"\ncopies     {d}\n", .{
             rp.id, rp.url, rp.layout.rendition, rp.layout.skip, try lib.copies(&r, peer.arena, rp),
         });
         for (try lib.absences(&r, peer.arena, &rp.id)) |a|
@@ -164,22 +164,22 @@ pub fn repo(peer: *Peer, c: Command) !void {
         var layout: lib.Layout = .{};
         if (c.args.get("--rendition")) |v| layout.rendition = v;
         if (c.args.get("--skip")) |v| layout.skip = v;
-        try peer.out.print("added repo {s}\n", .{try lib.addRepository(&r, peer.now(), typed.items, layout)});
+        try peer.out.print("added source {s}\n", .{try lib.addSource(&r, peer.now(), typed.items, layout)});
     } else if (c.is("set", 1, settings) and c.args.count() > 0) {
         var r = try peer.open();
         defer r.close();
-        const rp = try lib.setRepository(&r, peer.arena, peer.now(), c.rest[0], c.args.get("--rendition"), c.args.get("--skip"));
+        const rp = try lib.setSource(&r, peer.arena, peer.now(), c.rest[0], c.args.get("--rendition"), c.args.get("--skip"));
         try peer.out.print("{s}  rendition: \"{s}\", skip: \"{s}\"; crawl to apply\n", .{ rp.id, rp.layout.rendition, rp.layout.skip });
     } else if (c.is("forget", 2, &.{})) {
         var r = try peer.open();
         defer r.close();
-        const rp = try lib.findRepository(&r, peer.arena, c.rest[0]);
+        const rp = try lib.findSource(&r, peer.arena, c.rest[0]);
         const n = try lib.forgetAbsent(&r, peer.arena, peer.now(), rp, c.rest[1]);
         try peer.out.print("forgot /{s} and its {d} copies\n", .{ std.mem.trim(u8, c.rest[1], "/"), n });
     } else if (c.is("remove", 1, &.{})) {
         var r = try peer.open();
         defer r.close();
-        const n = try lib.removeRepository(&r, peer.arena, peer.now(), c.rest[0]);
+        const n = try lib.removeSource(&r, peer.arena, peer.now(), c.rest[0]);
         try peer.out.print("removed {s} and its {d} copies\n", .{ c.rest[0], n });
     } else return error.Usage;
 }
@@ -206,7 +206,7 @@ pub fn title(peer: *Peer, c: Command) !void {
             try out.print("]  {s}{s}{s}\n", .{ t.key, if (t.alias != null) " -> " else "", t.alias orelse "" });
         }
         try out.print("{d} titles", .{shown});
-        if (unheld > 0) try out.print(" ({d} more held by no repo)", .{unheld});
+        if (unheld > 0) try out.print(" ({d} more held by no source)", .{unheld});
         try out.print("\n", .{});
     } else if (c.is("show", 1, &.{})) {
         var r = try peer.open();
@@ -216,7 +216,7 @@ pub fn title(peer: *Peer, c: Command) !void {
             return error.NotFound;
         };
         var urls: std.StringHashMapUnmanaged([]const u8) = .empty;
-        for (try lib.repositories(&r, peer.arena)) |rp| try urls.put(peer.arena, try peer.arena.dupe(u8, &rp.id), rp.url);
+        for (try lib.sources(&r, peer.arena)) |rp| try urls.put(peer.arena, try peer.arena.dupe(u8, &rp.id), rp.url);
         try out.print("{s}", .{d.name});
         if (d.year) |y| try out.print(" ({d})", .{y});
         try out.print("  {s}\n", .{d.key});
@@ -231,7 +231,7 @@ pub fn title(peer: *Peer, c: Command) !void {
             for (item.renditions.items) |rendition| {
                 try out.print("    {s}\n", .{rendition.label});
                 for (rendition.holdings.items) |h| {
-                    const base = core.url.decode(try peer.arena.dupe(u8, urls.get(h.repository) orelse h.repository)) catch h.repository;
+                    const base = core.url.decode(try peer.arena.dupe(u8, urls.get(h.source) orelse h.source)) catch h.source;
                     try out.print("      {d:.2} GB  {s}  {s}{s}\n", .{ @as(f64, @floatFromInt(h.size)) / 1e9, h.mtime, base, h.path });
                 }
             }
@@ -255,7 +255,7 @@ pub fn title(peer: *Peer, c: Command) !void {
 }
 
 /// Fetches a title's, a season's, or an item's files into a directory, under
-/// their repositories' paths (see core's download.zig).
+/// their sources' paths (see core's download.zig).
 fn download(peer: *Peer, c: Command) !void {
     const out = peer.out;
     const files = blk: {
@@ -377,11 +377,11 @@ pub fn agent(peer: *Peer, c: Command) !void {
     } else return error.Usage;
 }
 
-/// `crawl [REPO] [--workers WORKERS]`: crawls every repo, or one.
+/// `crawl [SOURCE] [--workers WORKERS]`: crawls every source, or one.
 pub fn crawl(peer: *Peer, c: Command) !void {
     if (c.rest.len > 1) return error.Usage;
     try c.args.only(&.{"--workers"});
-    try crawlRepositories(peer, try c.args.number("--workers", 16), if (c.rest.len == 1) c.rest[0] else null);
+    try crawlSources(peer, try c.args.number("--workers", 16), if (c.rest.len == 1) c.rest[0] else null);
 }
 
 /// `refresh`: syncs, then crawls.
@@ -391,24 +391,24 @@ pub fn refresh(peer: *Peer, c: Command) !void {
     // Peers' catalog first, already described, so crawling then finds
     // little to do.
     try network.syncAll(peer, null);
-    try crawlRepositories(peer, 16, null);
+    try crawlSources(peer, 16, null);
 }
 
-/// Crawls every repo, or the one given, then describes what's new: covers
+/// Crawls every source, or the one given, then describes what's new: covers
 /// and metadata, with concurrent workers.
-fn crawlRepositories(peer: *Peer, workers: usize, only: ?[]const u8) !void {
+fn crawlSources(peer: *Peer, workers: usize, only: ?[]const u8) !void {
     var r = try peer.open();
     defer r.close();
     var client: std.http.Client = .{ .allocator = peer.gpa, .io = peer.io };
     defer client.deinit();
-    const repos = if (only) |which| &[_]lib.Repository{try lib.findRepository(&r, peer.arena, which)} else try lib.repositories(&r, peer.arena);
+    const sources = if (only) |which| &[_]lib.Source{try lib.findSource(&r, peer.arena, which)} else try lib.sources(&r, peer.arena);
     var crawled: std.ArrayList(core.art.Crawled) = .empty;
-    for (repos) |rp| {
+    for (sources) |rp| {
         if (rp.managed) {
             try peer.out.print("{s}: a device's downloads, not crawled\n", .{rp.url});
             continue;
         }
-        const s = try lib.crawlRepository(&r, peer.io, peer.arena, &client, peer.now(), rp, workers);
+        const s = try lib.crawlSource(&r, peer.io, peer.arena, &client, peer.now(), rp, workers);
         const i = s.ingest;
         try peer.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; holdings {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories absent; {d} ms in all\n", .{
             rp.url,         s.crawl.requests, s.crawl.skipped,    s.crawl_ms,         i.files,      i.skipped, i.extras,   i.unparsed,
@@ -416,7 +416,7 @@ fn crawlRepositories(peer: *Peer, workers: usize, only: ?[]const u8) !void {
         });
         if (i.duplicate_example) |e| try peer.out.print("  e.g., {s}\n", .{e});
         try peer.out.flush();
-        try crawled.append(peer.arena, .{ .repo = rp, .entries = s.entries });
+        try crawled.append(peer.arena, .{ .source = rp, .entries = s.entries });
     }
     const start = Io.Timestamp.now(peer.io, .awake);
     const plan = try core.art.plan(&r, peer.arena, crawled.items);

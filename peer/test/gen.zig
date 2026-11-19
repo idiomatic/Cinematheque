@@ -1,4 +1,4 @@
-//! Generates a test repository: a media tree at Cinematheque's scale, or a
+//! Generates a test source: a media tree at Cinematheque's scale, or a
 //! fraction of it, named the way Plex and Jellyfin expect, with sparse files
 //! so sizes cost no disk space.
 //!

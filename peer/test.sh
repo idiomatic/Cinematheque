@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Peer test: peer A founds a library, serves a generated repository as
+# Peer test: peer A founds a library, serves a generated source as
 # media, and crawls it; peer B pairs to join, syncs, and must match A
 # exactly; a change on A reaches B through discovery, and one on B reaches
 # A by push; C, paired then removed, is refused; and B's playhead reaches
@@ -47,7 +47,7 @@ peer_pid=$!
 sleep 1
 file=$(curl -sf http://127.0.0.1:8191/INDEX | awk -F'\t' 'NF > 1 { print $1; exit }' | sed 's|^\./||; s| |%20|g')
 [[ $(curl -s -r 0-0 -o /dev/null -w "%{http_code}" "http://127.0.0.1:8191/$file") == 206 ]] || { echo "FAIL: no byte ranges from $file"; exit 1; }
-$peer $a repo add http://127.0.0.1:8191/
+$peer $a source add http://127.0.0.1:8191/
 $peer $a crawl
 
 pair $work/b "library join" $work/a "member pair"
@@ -98,11 +98,11 @@ $peer $b2 sync http://127.0.0.1:8192 | grep -q Removed || { echo "FAIL: a remove
 $peer $b2 library leave
 $peer $b2 library show 2>&1 | grep -q NoLibrary || { echo "FAIL: library leave"; exit 1; }
 
-repo=$($peer $a repo list | cut -d" " -f1)
-$peer $a repo set $repo --rendition "Test 720p"
-$peer $a crawl $repo --workers 4
-$peer $a repo show $repo | grep -q 'rendition  "Test 720p"' || { echo "FAIL: repo set"; exit 1; }
-$peer $a show t/m/movie-0003/1923 | grep -q test-720p || { echo "FAIL: repo set didn't move copies"; exit 1; }
+source=$($peer $a source list | cut -d" " -f1)
+$peer $a source set $source --rendition "Test 720p"
+$peer $a crawl $source --workers 4
+$peer $a source show $source | grep -q 'rendition  "Test 720p"' || { echo "FAIL: source set"; exit 1; }
+$peer $a show t/m/movie-0003/1923 | grep -q test-720p || { echo "FAIL: source set didn't move copies"; exit 1; }
 # Two peers without --port: one may get 8008, the other must fall back.
 $peer $c serve > $work/c1.log 2>&1 &
 c1_pid=$!
@@ -129,21 +129,21 @@ drives() {
     sleep 1
 }
 drives
-$peer $d repo add http://127.0.0.1:8194/
+$peer $d source add http://127.0.0.1:8194/
 $peer $d crawl > /dev/null
 rm "$work/drives/archive0001/Archive Movie (2001).mkv"
 drives
 $peer $d crawl | grep -q "1 directories absent" || { echo "FAIL: an unplugged drive wasn't absent"; exit 1; }
-$peer $d repo show http://127.0.0.1:8194/ | grep -q "copies     2" || { echo "FAIL: an unplugged drive's copy went"; exit 1; }
-$peer $d repo show http://127.0.0.1:8194/ | grep -q "absent     /archive0001" || { echo "FAIL: repo show"; exit 1; }
+$peer $d source show http://127.0.0.1:8194/ | grep -q "copies     2" || { echo "FAIL: an unplugged drive's copy went"; exit 1; }
+$peer $d source show http://127.0.0.1:8194/ | grep -q "absent     /archive0001" || { echo "FAIL: source show"; exit 1; }
 cp "$work/media/$(cd $work/media && find . -name '*.mkv' | head -1)" "$work/drives/archive0001/Archive Movie (2001).mkv"
 drives
 $peer $d crawl | grep -q "0 directories absent" || { echo "FAIL: a drive back stayed absent"; exit 1; }
 rm "$work/drives/archive0001/Archive Movie (2001).mkv"
 drives
 $peer $d crawl > /dev/null
-$peer $d repo forget http://127.0.0.1:8194/ /archive0001
-$peer $d repo show http://127.0.0.1:8194/ | grep -q "copies     1" || { echo "FAIL: repo forget"; exit 1; }
+$peer $d source forget http://127.0.0.1:8194/ /archive0001
+$peer $d source show http://127.0.0.1:8194/ | grep -q "copies     1" || { echo "FAIL: source forget"; exit 1; }
 kill $d_pid
 
 $peer $c peer add http://127.0.0.1:8191
@@ -151,9 +151,9 @@ $peer $c peer list | grep -q "8191/sync  added" || { echo "FAIL: peer add"; exit
 $peer $c peer remove http://127.0.0.1:8191
 $peer $c peer list | grep -q added && { echo "FAIL: peer remove"; exit 1; }
 
-# A downloads a movie under its path in the repo, resumes one cut short,
+# A downloads a movie under its path in the source, resumes one cut short,
 # and keeps one already whole: a small file, real, from a server of its
-# own (the generated repository's are sparse, up to 40 GB each, which a
+# own (the generated source's are sparse, up to 40 GB each, which a
 # download would write out in full).
 small="Small Movie (1999)/Small Movie (1999).mp4"
 mkdir -p "$work/small/${small%/*}"
@@ -161,7 +161,7 @@ head -c 300000 /dev/urandom > "$work/small/$small"
 $peer $a serve --port 8195 --media $work/small > $work/small.log 2>&1 &
 d_pid=$!
 sleep 1
-$peer $a repo add http://127.0.0.1:8195/ > /dev/null
+$peer $a source add http://127.0.0.1:8195/ > /dev/null
 $peer $a crawl http://127.0.0.1:8195/ > /dev/null
 movie=t/m/small-movie/1999
 $peer $a title download $movie --to $work/dl > /dev/null

@@ -19,13 +19,13 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
   * A list's type is watchlist (or "borrowlist," of titles not yet held), smart playlist, or transcode queue.
   * A list's sharing is private,[^private] public, or collaborative, independent of its type.
   * Several users may link a shared player.
-* **Outside metadata** (plots, images, cast, ratings, trailer links, outside IDs) is provided to Cinematheque, never fetched by it: as JSON, or by a command it invokes with a title's identity, which answers in JSON. The provider is delivered separately, and the JSON's form is yet to be specified. Local trailer files come from repositories.
+* **Outside metadata** (plots, images, cast, ratings, trailer links, outside IDs) is provided to Cinematheque, never fetched by it: as JSON, or by a command it invokes with a title's identity, which answers in JSON. The provider is delivered separately, and the JSON's form is yet to be specified. Local trailer files come from sources.
 * **Correlation:** a file maps to an outside title by, in order: an ID tag in its path, an NFO sidecar's `<uniqueid>`, then whatever the provider makes of its parsed title, year, and episode; doubtful matches go to the user. An outside ID, once known, is recorded beside the title, and titles whose keys differ but whose IDs match are merged.
 * **Outside data:** IDs and correlations replicate freely; what providers supply may be bound by its sources' terms, so it replicates only among the players of the user whose provider supplied it.
-* **Trust:** each repository and transcoder decides whose edits it takes.
-  * A repository is the canonical store of its metadata; each library's edits are an overlay that the repository adopts or ignores, by a per-library switch, decided by the Cinematheque code that manages it.
+* **Trust:** each source and transcoder decides whose edits it takes.
+  * A source is the canonical store of its metadata; each library's edits are an overlay that the source adopts or ignores, by a per-library switch, decided by the Cinematheque code that manages it.
   * A transcoder likewise chooses which libraries' transcode queues it accepts.
-* **Availability:** the library distinguishes what is reachable now from what is merely known, since desktop peers come and go (sleep, shutdown, travel) and repositories may mount removable media.
+* **Availability:** the library distinguishes what is reachable now from what is merely known, since desktop peers come and go (sleep, shutdown, travel) and sources may mount removable media.
 
 Open:
 
@@ -38,21 +38,21 @@ Open:
 * **Pairing:** by address in the apps, for a new device off the network (it would show its address with its code, as the command-line peer prints its port); a QR code carrying the code, for a phone app.
 * **Partial replicas:** tvOS players have only purgeable cache storage, so they may be thin, holding part of a library fetched on demand (by a title's prefix, with shared proofs, as repair fetches fields; a prefix fetch was built and dropped unused after commit `ae9f1d6`) and its facet bitmaps, if rebuilding a whole replica after a purge (see [Apple TV player](#apple-tv-player)) proves too slow.
 * **Repair:** range-based set reconciliation, if catching up by version vectors proves insufficient.
-* **Compaction:** emptied fields stay as tombstones, so a peer that missed the emptying can't revive an older value, and they grow with churn: in a reference library, emptied holdings (from removed repositories, and keys that parser fixes changed) outnumbered live ones, over a quarter of all winners. Drop a tombstone once every member device's version vector covers it, which needs peers to share the vectors they've seen of others; a device not heard from in long enough could be set aside, at the cost of its stale writes being refused.
+* **Compaction:** emptied fields stay as tombstones, so a peer that missed the emptying can't revive an older value, and they grow with churn: in a reference library, emptied holdings (from removed sources, and keys that parser fixes changed) outnumbered live ones, over a quarter of all winners. Drop a tombstone once every member device's version vector covers it, which needs peers to share the vectors they've seen of others; a device not heard from in long enough could be set aside, at the cost of its stale writes being refused.
 
 Open:
 
 * **Connectivity beyond the LAN:** sync runs both ways, so a device behind a NAT syncs with a peer it can reach (a hosted server, say), but two devices both behind NATs still can't reach each other, which the direct-connection rule for private data depends on; and sync isn't encrypted, so beyond the LAN it wants a TLS proxy in front of `serve`, or a VPN. Explored in other projects.
 * **CloudKit:** an alternative to the CRDT, if non-Apple players can use it without a Developer subscription, and if it honors the direct-connection rule for private data.
 
-## Repositories
+## Sources
 
 * **Renditions from files:** read a file's rendition from the file itself (e.g., an MP4's tracks), for names that don't show it.
 * **Listings:** also WebDAV `PROPFIND`, and the dates Apache and nginx print in HTML listings, so re-crawls can skip their unchanged directories; an occasional full sweep for files rewritten in place.
 * **Moved files:** matched by size and modification time, which a rename keeps, so playheads and lists follow them; where listings lack those, by hashes of files' first and last 64 KiB, taken by byte ranges when first seen.
-* **Range probe:** flag repositories that don't answer `Range: bytes=0-0` with 206 (e.g., Python's `http.server`), since players can't stream from them.
-* **Discovery:** suggest static servers advertising `_http._tcp` or `_webdav._tcp`, and add repositories with HTTP user and password.
-* **Management:** by desktop peers, on a repository's host or with network filesystem access to it: renaming and checksums; subtitles, cover art (slow to extract and bulky to cache), and text. To libraries, a static server is read-only until Cinematheque code reaches its files.
+* **Range probe:** flag sources that don't answer `Range: bytes=0-0` with 206 (e.g., Python's `http.server`), since players can't stream from them.
+* **Discovery:** suggest static servers advertising `_http._tcp` or `_webdav._tcp`, and add sources with HTTP user and password.
+* **Management:** by desktop peers, on a source's host or with network filesystem access to it: renaming and checksums; subtitles, cover art (slow to extract and bulky to cache), and text. To libraries, a static server is read-only until Cinematheque code reaches its files.
 
 ## Players
 
@@ -84,7 +84,7 @@ What's built is in [AGENTS.md](AGENTS.md); still to come:
 
 ## Transcoder
 
-A backend peer on macOS, Linux, or Windows, also a repository.
+A backend peer on macOS, Linux, or Windows, also a source.
 
 * **Engines:** `ffmpeg` for remuxes and `HandBrakeCLI` for re-encodes, each run as a separate process and never linked, since HandBrake and GPL builds of FFmpeg are GPL, which would bind the players and the shared core, which stay BSD and fit for the App Store. The transcoder drives `HandBrakeCLI` with JSON jobs (`--queue-import-file`) and reads its JSON progress (`--json`), one process per job, so canceling is killing and a crash spares the queue.
 * **Remux first:** when every chosen stream already plays on Apple players, `ffmpeg` copies the streams into MP4, reading the input over HTTP; when only audio or subtitles don't, it copies the video and converts the rest; only a video re-encode, or disc-image input, goes to `HandBrakeCLI`.
@@ -92,13 +92,13 @@ A backend peer on macOS, Linux, or Windows, also a repository.
   * Output is written with its index first (`-movflags +faststart`), for progressive playback.
 * **MP4 in place:** inspecting MP4s and fixing them without a remux (retagging `hev1` as `hvc1`, moving the index first, editing metadata) come from a separate MP4 parsing and modification project.
 * **Laziness:** transcodes under the user's supervision from transcode queues, so renditions needn't be made in advance (which takes compute and storage a legacy NAS was sized for).
-* **Input and output:** reads input from any repository over HTTP, and serves its output as a repository. `HandBrakeCLI` reads only local paths, so its input, including disc images, is first copied to a cache by resumable range requests, which also serves several renditions. Input is often offline, on removable media.
+* **Input and output:** reads input from any source over HTTP, and serves its output as a source. `HandBrakeCLI` reads only local paths, so its input, including disc images, is first copied to a cache by resumable range requests, which also serves several renditions. Input is often offline, on removable media.
 
 ## Other media
 
 The decentralized library generalized for other apps, of books, audiobooks, and music, with Cinematheque one client of it.
 
-* **Split:** a media-neutral core (identity, membership, pairing, replication and sync, discovery, serving, repositories and crawling, private streams, lists, progress, covers and placeholders, downloads), with each kind of media a module supplying its names' parser, hierarchy, metadata readers, and renditions. Video's conventions (Plex, Jellyfin, and Kodi naming; editions; the transcoder) become one such module.
+* **Split:** a media-neutral core (identity, membership, pairing, replication and sync, discovery, serving, sources and crawling, private streams, lists, progress, covers and placeholders, downloads), with each kind of media a module supplying its names' parser, hierarchy, metadata readers, and renditions. Video's conventions (Plex, Jellyfin, and Kodi naming; editions; the transcoder) become one such module.
 * **Kinds:** each under a key prefix of its own (`t/<kind>/...`, as movies and series are), with progress in its own units.
   * **Books:** EPUB, PDF, and comics (CBZ); author → series → book → format; progress as a locator (an EPUB CFI, or a page), not milliseconds; metadata from EPUB's OPF and Calibre's `metadata.opf` sidecars.
   * **Audiobooks:** M4B (with chapters), and folders of MP3s; author → series → book → part; progress in milliseconds across parts; the narrator as metadata.
@@ -111,5 +111,5 @@ The decentralized library generalized for other apps, of books, audiobooks, and 
 
 Open:
 
-* **Apps and libraries:** one app per kind or one for all, and one library a household shares across kinds or one per kind; a library across kinds lets one repository (a NAS) be crawled once for everything.
+* **Apps and libraries:** one app per kind or one for all, and one library a household shares across kinds or one per kind; a library across kinds lets one source (a NAS) be crawled once for everything.
 * **Units:** how progress generalizes across kinds without each player knowing every unit.

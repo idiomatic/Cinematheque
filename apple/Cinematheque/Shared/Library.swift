@@ -5,7 +5,7 @@ import Observation
 import SystemConfiguration
 #endif
 
-/// A cover: a byte range of a file in a repository.
+/// A cover: a byte range of a file in a source.
 struct Cover: Codable, Hashable {
     let url: String
     let offset: Int
@@ -34,7 +34,7 @@ struct Tile: Codable, Identifiable, Hashable {
     let runtime: Int
     let started: Bool
     /// Every copy it has is on a drive that isn't there (an absent
-    /// directory of its repository's): shown dimmed.
+    /// directory of its source's): shown dimmed.
     var absent = false
 
     var id: String { season.map { "\(key)#\($0)" } ?? key }
@@ -48,7 +48,7 @@ struct TitleDetail: Codable {
     struct Copy: Codable, Hashable {
         let url: String
         let size: Int
-        let repository: String
+        let source: String
         /// On a drive that isn't there: tried last.
         var absent = false
     }
@@ -94,7 +94,7 @@ struct TitleDetail: Codable {
     let items: [Item]
 }
 
-struct Repository: Codable, Identifiable, Hashable {
+struct Source: Codable, Identifiable, Hashable {
     /// A directory of it that held files and lists none now (an unplugged
     /// drive's mount point): relative to it, empty for the whole of it, and
     /// when it was noticed, in milliseconds since the epoch.
@@ -172,11 +172,11 @@ nonisolated struct Paired: Decodable {
     let device: String
 }
 
-/// A folder on this device, served as a repository at `prefix`.
+/// A folder on this device, served as a source at `prefix`.
 struct Folder: Codable, Identifiable, Hashable {
     let prefix: String
     let path: String
-    /// The repository's URL, as added.
+    /// The source's URL, as added.
     var url: String
     var id: String { prefix }
     var name: String { URL(fileURLWithPath: path).lastPathComponent }
@@ -204,7 +204,7 @@ final class Library {
     private(set) var status: Status?
     private(set) var tiles: [Tile] = []
     private(set) var watchlist: Set<String> = []
-    private(set) var repositories: [Repository] = []
+    private(set) var sources: [Source] = []
     private(set) var members: [Member] = []
     private(set) var devices: [Device] = []
     /// What last went wrong, shown modelessly (`ProblemBar`) until the
@@ -248,7 +248,7 @@ final class Library {
             ($0.name.localizedStandardCompare($1.name), $0.year ?? 0, $0.season ?? 0) < (.orderedSame, $1.year ?? 0, $1.season ?? 0)
         }
         watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
-        repositories = decode([Repository].self) { cq_repos($0) } ?? []
+        sources = decode([Source].self) { cq_repos($0) } ?? []
         members = decode([Member].self) { cq_members($0) } ?? []
         devices = decode([Device].self) { cq_devices($0) } ?? []
         #if os(macOS)
@@ -367,9 +367,9 @@ final class Library {
         cq_race_lost(handle.pointer, url.absoluteString)
     }
 
-    /// Forgets a repository's absent directory, as if it were deleted: its
+    /// Forgets a source's absent directory, as if it were deleted: its
     /// copies go, for every device.
-    func forgetAbsent(_ repository: String, _ dir: String) { check { cq_forget_absent($0, repository, dir) } }
+    func forgetAbsent(_ source: String, _ dir: String) { check { cq_forget_absent($0, source, dir) } }
 
     /// Removes another of this user's devices from the library: its later
     /// writes are refused, and it's served no more.
@@ -388,22 +388,22 @@ final class Library {
 
     // Managing.
 
-    func addRepository(_ url: String, rendition: String?, skip: String?) {
+    func addSource(_ url: String, rendition: String?, skip: String?) {
         check { cq_repo_add($0, url, rendition, skip) }
     }
 
-    func setRepository(_ id: String, rendition: String?, skip: String?) {
+    func setSource(_ id: String, rendition: String?, skip: String?) {
         check { cq_repo_set($0, id, rendition, skip) }
     }
 
-    func removeRepository(_ id: String) { check { cq_repo_remove($0, id) } }
+    func removeSource(_ id: String) { check { cq_repo_remove($0, id) } }
 
     func setMember(_ key: String, _ add: Bool) { check { cq_member($0, key, add ? 1 : 0) } }
 
     /// Once a launch, if there's a library: serves it, syncs, names this
     /// device and user if they have no names yet (e.g., the computer's name
     /// and the account's first name), then crawls (peers may bring its
-    /// repositories to a device that has none yet).
+    /// sources to a device that has none yet).
     func startAtLaunch(device: String, user: String? = nil) async {
         guard !refreshedAtLaunch, hasLibrary else { return }
         refreshedAtLaunch = true
@@ -457,7 +457,7 @@ final class Library {
     /// The path a Mac's downloads are served at, beside its folders'.
     static let downloadsPrefix = "downloads"
 
-    /// This device's folders served as repositories, for this library.
+    /// This device's folders served as sources, for this library.
     private(set) var folders: [Folder] = []
     /// Folders not there when last looked (on a drive unplugged, or a share
     /// unmounted), by prefix: served all the same, listed empty while gone,
@@ -489,12 +489,12 @@ final class Library {
         UserDefaults.standard.set(try? JSONEncoder().encode(folders), forKey: foldersKey)
     }
 
-    /// The folder a repository serves from this device, if it's one.
-    func folder(of repository: Repository) -> Folder? {
-        folders.first { $0.url == repository.url }
+    /// The folder a source serves from this device, if it's one.
+    func folder(of source: Source) -> Folder? {
+        folders.first { $0.url == source.url }
     }
 
-    /// Serves a folder of this device as a repository at `http://HOST:PORT/
+    /// Serves a folder of this device as a source at `http://HOST:PORT/
     /// NAME/` (`host` being this device's name on the network, e.g.,
     /// `firefly.local`), adds it, and crawls it.
     func addFolder(_ path: String, host: String) async {
@@ -515,13 +515,13 @@ final class Library {
         }
         folders[folders.count - 1].url = "http://\(host):\(port)/\(prefix)/"
         saveFolders()
-        addRepository(folders[folders.count - 1].url, rendition: nil, skip: ",")
+        addSource(folders[folders.count - 1].url, rendition: nil, skip: ",")
         await crawl()
     }
 
-    /// Stops serving a folder, and removes its repository.
+    /// Stops serving a folder, and removes its source.
     func removeFolder(_ folder: Folder) {
-        if let repo = repositories.first(where: { $0.url == folder.url }) { removeRepository(repo.id) }
+        if let source = sources.first(where: { $0.url == folder.url }) { removeSource(source.id) }
         folders.removeAll { $0.prefix == folder.prefix }
         saveFolders()
         serve()
@@ -577,22 +577,22 @@ final class Library {
         servingPort = nil
     }
 
-    /// Moves this device's folders' repositories to the port it got, if it
+    /// Moves this device's folders' sources to the port it got, if it
     /// had to take another (another program had the last one).
     private func repoint(_ port: Int) {
         for (i, folder) in folders.enumerated() {
             guard var parts = URLComponents(string: folder.url), parts.port != nil, parts.port != port else { continue }
             parts.port = port
             guard let moved = parts.string else { continue }
-            let old = repositories.first { $0.url == folder.url }
-            addRepository(moved, rendition: old?.rendition.isEmpty == false ? old?.rendition : nil, skip: old?.skip ?? ",")
-            if let old { removeRepository(old.id) }
+            let old = sources.first { $0.url == folder.url }
+            addSource(moved, rendition: old?.rendition.isEmpty == false ? old?.rendition : nil, skip: old?.skip ?? ",")
+            if let old { removeSource(old.id) }
             folders[i].url = moved
         }
         saveFolders()
     }
 
-    /// Syncs with peers found or added, then crawls every repository: what
+    /// Syncs with peers found or added, then crawls every source: what
     /// peers have crawled and described arrives first, so crawling then
     /// finds little to do.
     func refresh() async {
@@ -610,7 +610,7 @@ final class Library {
 
     #if os(macOS)
     // Downloads, this Mac's (see the core's download.zig): kept in a folder
-    // served as a repository of its own, which no one crawls.
+    // served as a source of its own, which no one crawls.
 
     struct Downloads: Decodable, Equatable {
         struct Held: Decodable, Equatable {
@@ -637,7 +637,7 @@ final class Library {
         }
 
         let dir: String?
-        let repository: String?
+        let source: String?
         let drop_watched: Bool
         let held: [Held]
         let wanted: [Wanted]
@@ -677,8 +677,8 @@ final class Library {
             for tile in Self.tiles(of: [done.item]) { watched[tile] = (watched[tile] ?? true) && done.deletable }
         }
         watchedTiles = watched
-        if let d = downloads, let id = d.repository, let dir = d.dir, let repo = repositories.first(where: { $0.id == id }) {
-            Playback.downloads = .init(repository: id, base: repo.url, dir: dir)
+        if let d = downloads, let id = d.source, let dir = d.dir, let source = sources.first(where: { $0.id == id }) {
+            Playback.downloads = .init(source: id, base: source.url, dir: dir)
         } else {
             Playback.downloads = nil
         }
@@ -762,7 +762,7 @@ final class Library {
     }
 
     /// Tells the core where downloads are kept and served (on the port this
-    /// Mac serves on, or last did); a repository served at another address
+    /// Mac serves on, or last did); a source served at another address
     /// before (another port) is removed, its holdings recorded afresh as
     /// reconciling finds the files.
     private func configureDownloads(dir: String? = nil, dropWatched: Bool? = nil) {
@@ -772,8 +772,8 @@ final class Library {
         let path = dir ?? downloadsDir
         try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         let url = "http://\(Self.localHost):\(port)/\(Self.downloadsPrefix)/"
-        if let id = downloads?.repository, let old = repositories.first(where: { $0.id == id }), old.url != url {
-            removeRepository(old.id)
+        if let id = downloads?.source, let old = sources.first(where: { $0.id == id }), old.url != url {
+            removeSource(old.id)
         }
         let drop = dropWatched ?? downloads?.drop_watched ?? false
         check { cq_downloads_configure($0, path, url, drop ? 1 : 0) }
@@ -1135,7 +1135,7 @@ final class Library {
             progress = nil
         }
         // Sources by the names Settings gives them.
-        let names = Dictionary(repositories.map { ($0.url, folder(of: $0).map { "\($0.name) on this Mac" } ?? $0.displayName) }, uniquingKeysWith: { a, _ in a })
+        let names = Dictionary(sources.map { ($0.url, folder(of: $0).map { "\($0.name) on this Mac" } ?? $0.displayName) }, uniquingKeysWith: { a, _ in a })
         let (failure, data): (String?, Data?) = await Task.detached {
             guard let text = body(handle.pointer) else { return (String(cString: cq_error()), nil) }
             defer { cq_free(text) }

@@ -121,7 +121,7 @@ const nouns = [_]Noun{
     .{ .name = "user", .run = commands.user },
     .{ .name = "library", .run = commands.library },
     .{ .name = "member", .run = commands.member },
-    .{ .name = "repo", .run = commands.repo },
+    .{ .name = "source", .run = commands.source },
     .{ .name = "title", .run = commands.title },
     .{ .name = "alias", .run = commands.alias },
     .{ .name = "playhead", .run = commands.playhead },

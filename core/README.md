@@ -14,15 +14,15 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 |---|---|
 | [replica](src/replica.zig) | Operations in SQLite, signed in Merkle batches; membership, handover, and removal with repair; private streams; the sync frame protocol; repair's fetches with shared proofs; the peer's own state (`local`) |
 | [sync](src/sync.zig) | Sync over HTTP, gzipped: requests signed by the device and certified by its user, served only to members, without other users' private streams |
-| [crawl](src/crawl.zig) | Listings, detected per repository (`INDEX`, Caddy's or nginx's JSON, HTML), and re-crawls that reuse unchanged directories |
+| [crawl](src/crawl.zig) | Listings, detected per source (`INDEX`, Caddy's or nginx's JSON, HTML), and re-crawls that reuse unchanged directories |
 | [naming](src/naming.zig) | The filename parser |
 | [mp4](src/mp4.zig) | An MP4's cover (as a byte range) and metadata, read by range requests that walk atom headers |
 | [jpeg](src/jpeg.zig) | A JPEG's DC coefficients alone: an eighth-size image, for placeholders |
 | [thumbhash](src/thumbhash.zig) | ThumbHash placeholders, encoded and rendered; a port of the MIT-licensed reference |
-| [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s, planned across repositories and described by concurrent workers, prioritized titles first; the browsing grid's tiles, with this user's progress and whether begun; the watchlist |
-| [library](src/library.zig) | Keys from titles' parsed identities; repositories, crawled into holdings; titles, a title's details, facets, close matches, duplicates, aliases, and playheads |
-| [serve](src/serve.zig) | The repository server, with a hook for other requests, such as syncs |
-| [download](src/download.zig) | Downloads: a title's, season's, or item's files, raced among their copies, resumed, into a directory under their repositories' paths; a player's downloads kept as a managed repository (wanted, and series' next episodes kept), reconciled, with those watched since deleted once held elsewhere (unless pinned) and 20 GB kept free |
+| [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s, planned across sources and described by concurrent workers, prioritized titles first; the browsing grid's tiles, with this user's progress and whether begun; the watchlist |
+| [library](src/library.zig) | Keys from titles' parsed identities; sources, crawled into holdings; titles, a title's details, facets, close matches, duplicates, aliases, and playheads |
+| [serve](src/serve.zig) | The source server, with a hook for other requests, such as syncs |
+| [download](src/download.zig) | Downloads: a title's, season's, or item's files, raced among their copies, resumed, into a directory under their sources' paths; a player's downloads kept as a managed source (wanted, and series' next episodes kept), reconciled, with those watched since deleted once held elsewhere (unless pinned) and 20 GB kept free |
 | [race](src/race.zig) | Copy racing: an item's copies in the order to try them, each one's server asked at once, briefly, over `Io`'s networking, and those lately unanswered last |
 | [host](src/host.zig) | A server on a task of its own, advertised by DNS-SD once it listens, and stopped for sure: the apps' serving and pairing, and the peer's |
 | [discover](src/discover.zig) | DNS-SD: advertising and browsing peers |
