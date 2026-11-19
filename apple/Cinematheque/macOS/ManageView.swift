@@ -145,7 +145,7 @@ private struct DeviceRow: View {
             if device.you {
                 Text("This Mac").foregroundStyle(.secondary)
             } else {
-                RemoveButton(help: "Remove it from your devices: what it changes from now on is refused, and your devices stop catching up with it. It could still be paired again, as a new device.") {
+                RemoveButton(help: "Remove it from your devices: what it changes from now on is refused, and your devices stop catching up with it. It leaves the library the next time it catches up, within about a minute if it's on. It could still be paired again, as a new device.") {
                     withAnimation { library.removeDevice(device.key) }
                 }
             }
@@ -188,7 +188,7 @@ private struct MemberRow: View {
             if member.founder {
                 Text("Founder").foregroundStyle(.secondary)
             } else if !member.you {
-                RemoveButton(help: "Remove them from the library: what they change from now on is refused") {
+                RemoveButton(help: "Remove them from the library: what they change from now on is refused. Their devices leave it the next time each catches up, within about a minute if it's on.") {
                     library.setMember(member.key, false)
                 }
             }
