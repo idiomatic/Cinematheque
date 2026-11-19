@@ -755,6 +755,8 @@ final class Library {
         let held: [Held]
         let wanted: [Wanted]
         let next: [Next]
+        /// The episodes (full item keys) the series' next ones come to now.
+        let ahead: [String]
         let watched: [Done]
         let kept: [String]
         let free: Int?
@@ -804,6 +806,12 @@ final class Library {
     /// isn't held.
     func isWanted(_ key: String) -> Bool {
         downloads?.wanted.contains { Self.holds(wanted: $0.key, key) } ?? false
+    }
+
+    /// Whether an item is asked for: wanted, itself or by its season or
+    /// title, or one of its series' next episodes.
+    func isRequested(_ item: String) -> Bool {
+        isWanted(item) || (downloads?.ahead.contains(item) ?? false)
     }
 
     /// Whether a key is an item's, or a title's or season's holding it

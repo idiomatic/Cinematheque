@@ -808,6 +808,7 @@ const DownloadsJson = struct {
     held: []const HeldJson,
     wanted: []const download.Want,
     next: []const download.Next,
+    ahead: []const []const u8,
     watched: []const DoneJson,
     kept: []const []const u8,
     free: ?u64,
@@ -821,7 +822,8 @@ const DownloadsJson = struct {
 /// and `drop_watched`, as configured (null if not); `held`, the files held
 /// (`item`, `size`, and whether it's the `only` copy, no other source
 /// holding it alike); `wanted` (`key`, `quality`); `next`, series whose
-/// next episodes download (`title`, `episodes`); `watched`, downloads
+/// next episodes download (`title`, `episodes`), and `ahead`, the episodes
+/// (full item keys) they come to now; `watched`, downloads
 /// watched since fetched and not kept, oldest first (`item`, and
 /// `deletable`, once held elsewhere, else the only copy); `kept` items; `free` bytes on its volume, if
 /// known, and the
@@ -844,13 +846,19 @@ fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
     }
     var finished: std.ArrayList(DoneJson) = .empty;
     if (s) |set| for (try download.finishedWith(r, arena, set.source)) |d| try finished.append(arena, .{ .item = d.held.item, .deletable = d.deletable });
+    // The episodes each series' next ones come to, as of now, by full key.
+    var ahead: std.ArrayList([]const u8) = .empty;
+    const nexts = try download.nexts(r, arena);
+    for (nexts) |n| for (try download.ahead(r, arena, n.title, n.episodes)) |item|
+        try ahead.append(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ n.title, item }));
     return .{
         .dir = if (s) |set| set.dir else null,
         .source = if (s) |set| try arena.dupe(u8, &set.source.id) else null,
         .drop_watched = if (s) |set| set.drop_watched else false,
         .held = list.items,
         .wanted = try download.wants(r, arena),
-        .next = try download.nexts(r, arena),
+        .next = nexts,
+        .ahead = ahead.items,
         .watched = finished.items,
         .kept = try download.kept(r, arena),
         .free = if (s) |set| download.freeBytes(arena, set.dir) else null,

@@ -316,37 +316,47 @@ private struct DownloadControls: View {
         let keys = items.map { "\(detail.key)/\($0.key)" }
         let held = keys.filter(library.isDownloaded).count
         let next = library.nextEpisodes(detail.key)
-        let state = state(held: held, of: keys.count, next: next)
-        Menu {
-            Button("Download Season") { library.download(key, quality: quality) }
-                .disabled(held == keys.count)
-            Section("Download Next Episodes") {
-                Picker("Download Next Episodes", selection: Binding(get: { next }, set: { library.downloadNext(detail.key, episodes: $0) })) {
-                    Text("Off").tag(0)
-                    ForEach(Self.next, id: \.self) { n in Text(n == 1 ? "1 Episode" : "\(n) Episodes").tag(n) }
+        HStack {
+            Menu {
+                Picker("Download", selection: Binding(get: { next }, set: { library.downloadNext(detail.key, episodes: $0) })) {
+                    ForEach(Self.choices(including: next), id: \.self) { n in Text(Self.title(n)).tag(n) }
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
-            }
-            if held > 0 {
                 Divider()
-                Button("Delete Season's Downloads", role: .destructive) { library.deleteDownload(key) }
+                Button(season == 0 ? "Download Specials" : "Download Season \(season)") { library.download(key, quality: quality) }
+                    .disabled(held == keys.count)
+                if held > 0 {
+                    Button(season == 0 ? "Delete Specials" : "Delete Season \(season) Episodes", role: .destructive) { library.deleteDownload(key) }
+                }
+            } label: {
+                Label(Self.title(next), systemImage: next > 0 || held > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
             }
-        } label: {
-            Label(state ?? "Download", systemImage: state == nil ? "arrow.down.circle" : "arrow.down.circle.fill")
+            .fixedSize()
+            .help("Download the rest of the season, or the series' next episodes as they're watched, to watch without a network")
+            // Of what's asked for (the season, or the next episodes), how
+            // much has come: gone once it all has.
+            let asked = keys.filter(library.isRequested)
+            let came = asked.filter(library.isDownloaded).count
+            if came < asked.count {
+                Text("\(came) of \(asked.count) downloaded").font(.caption).foregroundStyle(.secondary)
+            }
         }
         .controlSize(.small)
-        .fixedSize()
-        .help("Download the season, or keep the series' next episodes, to watch without a network")
     }
 
-    /// What's downloaded and what will be, as the menu's button says it, or
-    /// nil if nothing is.
-    private func state(held: Int, of count: Int, next: Int) -> String? {
-        var parts: [String] = []
-        if held > 0 { parts.append(held == count ? "Downloaded" : "\(held) of \(count) Downloaded") }
-        if next > 0 { parts.append(next == 1 ? "Next Episode" : "Next \(next) Episodes") }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    /// How many next episodes to download, the choices and what's now set.
+    private static func choices(including n: Int) -> [Int] {
+        next.contains(n) ? [0] + next : ([0] + next + [n]).sorted()
+    }
+
+    /// A choice, as the menu and its button say it.
+    private static func title(_ n: Int) -> String {
+        switch n {
+        case 0: "Download Nothing"
+        case 1: "Download Next Episode"
+        default: "Download Next \(n) Episodes"
+        }
     }
 }
 
