@@ -5,10 +5,11 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 ## Next
 
 * **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (the command-line app's agents can't reach the LAN; see below), real artwork for its placeholder icon, lists beyond the watchlist, and signing for distribution.
-* **Command-line app:** commands to name the person and the device, so command-line apps show by name rather than as someone's device.
+* **Command-line app:** commands to name the person and the device, so command-line apps show by name rather than as someone's device; and `library leave` removing this device first (`cq_remove_self`, then syncing), as the Apple TV's Leave This Library does, rather than only forgetting, as a removed device must.
 * **Settings:** when each device was last seen.
 * **Linux:** running the other device itself there (its experiments ran in a VM).
 * **Known issues:**
+  * Tests that reach this Mac by its own `.local` name through mDNS (copy racing's in the core, and [cli/test.sh](cli/test.sh)'s discovery) fail while mDNS doesn't answer for it, as after VMs come and go; they pass again once it does.
   * macOS's Local Network privacy blocks the other device from the LAN (`HostUnreachable`) when run as a launch agent or started by another app, so `agent add`'s agents can't reach a NAS; Terminal and SSH sessions and system daemons are exempt (TN3179). The fix is to run it from a signed app bundle whose `Info.plist` says why it needs the local network, so macOS can ask once (the Mac app serves only while it runs). Until then, a test device runs in Terminal.
 
 ## Libraries
@@ -51,6 +52,7 @@ Open:
 * **Qualities from files:** read a file's quality from the file itself (e.g., an MP4's tracks), for names that don't show it.
 * **Listings:** also WebDAV `PROPFIND`, and the dates Apache and nginx print in HTML listings, so re-crawls can skip their unchanged directories; an occasional full sweep for files rewritten in place.
 * **Moved files:** matched by size and modification time, which a rename keeps, so progress and lists follow them; where listings lack those, by hashes of files' first and last 64 KiB, taken by byte ranges when first seen.
+* **Crawl intervals:** one per source, if the library's one doesn't suit (a web server daily, a NAS only when asked); and crawling at a time of day (overnight), if even a daily crawl spins a NAS's disks up when people mind.
 * **Range probe:** flag sources that don't answer `Range: bytes=0-0` with 206 (e.g., Python's `http.server`), since players can't stream from them.
 * **Discovery:** suggest static servers advertising `_http._tcp` or `_webdav._tcp`, and add sources with HTTP person and password.
 * **Management:** by desktop devices, on a source's host or with network filesystem access to it: renaming and checksums; subtitles, cover art (slow to extract and bulky to cache), and text. To libraries, a static server is read-only until Cinematheque code reaches its files.
