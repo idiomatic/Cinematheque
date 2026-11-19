@@ -32,27 +32,39 @@ struct PlaysFullScreen: ViewModifier {
             // the page, and SwiftUI restarts a view's task when it does,
             // which started every request twice.
             .onChange(of: request, initial: true) { _, asked in
+                // Pressing Play again over the black (focus stays on the
+                // page's Play beneath it) doesn't start it over.
+                guard asked == nil || !warming else { return }
                 starting?.cancel()
                 starting = asked.map { request in Task { await start(request) } }
             }
     }
 
     @State private var starting: Task<Void, Never>?
+    /// From Play until the player's on screen.
+    @State private var warming = false
 
     private func start(_ request: PlayRequest) async {
         PlaybackSession.log.notice("Playing \(request.item, privacy: .public)")
+        warming = true
+        defer { warming = false }
         withAnimation(.easeInOut(duration: Platform.fade)) { black = true }
-        let faded = ContinuousClock.now + .seconds(Platform.fade)
-        // The cover, for Now Playing, while the page fades.
+        // The fade first, with the main thread free to draw it: making the
+        // session (the series' details, a player item an episode), done
+        // during it, held the fade, which ended in black at once.
+        try? await Task.sleep(for: .seconds(Platform.fade))
+        guard !Task.isCancelled else { return }
+        let clock = ContinuousClock()
+        let making = clock.now
         let artwork = await TVPlayer.artwork(request, library)
         let session = TVPlayer.session(request, library, artwork: artwork)
+        PlaybackSession.log.notice("Playing: made the session in \((clock.now - making).formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow)), privacy: .public)")
         // Superseded, it stops loading at once.
         await withTaskCancellationHandler {
             await session.prepare()
         } onCancel: {
             Task { @MainActor in session.close() }
         }
-        try? await Task.sleep(until: faded, clock: .continuous)
         guard !Task.isCancelled else { return session.close() }
         TVPlayer.present(session) {
             self.request = nil
@@ -126,17 +138,37 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         while let presented = top.presentedViewController { top = presented }
         let player = TVPlayer(session: session, gone: gone)
         shown = player
-        top.present(player.controller, animated: false) {
-            player.attach()
-            Task { await player.start() }
+        // The display switches to the video's mode first, over the black
+        // page (the window's to ask, not the player's): presented only then,
+        // ready, the player has nothing to show its spinner for.
+        Task {
+            if let window { await player.matchDisplay(window) }
+            top.present(player.controller, animated: false) {
+                player.attach()
+                Task { await player.start() }
+            }
         }
     }
 
     private func start() async {
-        await matchDisplay()
         session.play()
+        // The picture and its sound come up once it plays, not when it's
+        // asked to: a stall in between would have the sound ramp up in
+        // silence, then arrive at once.
+        let clock = ContinuousClock()
+        let asked = clock.now
+        while session.player.timeControlStatus != .playing, clock.now - asked < .seconds(5), !leaving {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
         session.ramp(to: 1, over: .seconds(Platform.fade))
         UIView.animate(withDuration: Platform.fade, delay: 0, options: .curveEaseIn) { self.curtain.alpha = 0 }
+    }
+
+    /// Loads AVFoundation and AVKit, as the shelves first show, rather
+    /// than as the first play's page fades, which stuttered.
+    static func warmUp() {
+        _ = AVPlayerViewController()
+        _ = AVQueuePlayer()
     }
 
     /// Leaves it: the picture fades to black as the sound falls, then it
@@ -171,12 +203,11 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
     /// Match Content does, if it's on), and waits for it to switch, if it
     /// does: up to half a second for the switch to start, and five for it
     /// to end.
-    private func matchDisplay() async {
+    private func matchDisplay(_ window: UIWindow) async {
         let clock = ContinuousClock()
         let start = clock.now
         defer { PlaybackSession.log.notice("Starting: matched the display in \((clock.now - start).formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow)), privacy: .public)") }
-        while controller.view.window == nil, clock.now - start < .seconds(1) { try? await Task.sleep(for: .milliseconds(20)) }
-        guard let window = controller.view.window, let asset = session.player.currentItem?.asset else { return }
+        guard let asset = session.player.currentItem?.asset else { return }
         let manager = window.avDisplayManager
         guard manager.isDisplayCriteriaMatchingEnabled, let criteria = try? await asset.load(.preferredDisplayCriteria) else { return }
         self.window = window

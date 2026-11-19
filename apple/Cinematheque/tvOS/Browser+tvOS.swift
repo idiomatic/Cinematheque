@@ -32,6 +32,7 @@ struct Browser: View {
             }
         }
         .overlay(alignment: .bottomTrailing) { Activity() }
+        .task { TVPlayer.warmUp() }
         #if DEBUG
         .onAppear {
             if let name = Launch.tab { tab = name == "search" ? .search : Shelf(rawValue: name).map(Tab.shelf) ?? tab }

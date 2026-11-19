@@ -720,6 +720,17 @@ fn raceCopies(lib: *Library, arena: std.mem.Allocator, urls_json: []const u8) ![
     return race.order(lib.io(), gpa, arena, &lib.racing, urls, lib.now());
 }
 
+/// Long: looks up the names of the servers of `urls_json` (a JSON array of
+/// URLs, such as the sources'), so copy racing's first race finds them
+/// answered. Any thread.
+export fn cq_race_warm(lib: *Library, urls_json: [*:0]const u8) void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const urls = std.json.parseFromSliceLeaky([]const []const u8, arena, std.mem.span(urls_json), .{ .allocate = .alloc_always }) catch return;
+    race.warm(lib.io(), arena, urls) catch {};
+}
+
 /// Notes that a copy didn't load, so its server is raced last for a while.
 /// Any thread.
 export fn cq_race_lost(lib: *Library, url: [*:0]const u8) void {

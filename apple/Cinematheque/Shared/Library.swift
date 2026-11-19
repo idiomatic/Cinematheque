@@ -454,6 +454,12 @@ final class Library {
         if named { changed() }
         let crawled = await long("Looking for new videos") { cq_crawl($0) }
         report(.refresh, synced ?? crawled)
+        // The sources' servers' names, looked up now, so the first play's
+        // copy racing finds them answered.
+        if let handle, let json = try? JSONEncoder().encode(sources.map(\.url)) {
+            let text = String(decoding: json, as: UTF8.self)
+            Task.detached { cq_race_warm(handle.pointer, text) }
+        }
         #if os(macOS)
         reconcileSoon()
         #endif

@@ -108,6 +108,28 @@ pub fn order(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, memory: *
     return first.items;
 }
 
+/// Looks up each server's name in `urls` (on Apple platforms, through
+/// DNS-SD), asking nothing of the servers and noting nothing, so the
+/// system has the answers when a race needs them: a name's first lookup
+/// may take longer than a race's deadline. Elsewhere, nothing.
+pub fn warm(io: Io, arena: std.mem.Allocator, urls: []const []const u8) !void {
+    if (comptime !@import("builtin").os.tag.isDarwin()) return;
+    var seen: std.ArrayList([]const u8) = .empty;
+    for (urls) |u| {
+        const uri = std.Uri.parse(u) catch continue;
+        const host = (uri.host orelse continue).toRawMaybeAlloc(arena) catch continue;
+        if (Io.net.IpAddress.parse(host, 0)) |_| continue else |_| {}
+        const known = for (seen.items) |h| {
+            if (std.mem.eql(u8, h, host)) break true;
+        } else false;
+        if (known) continue;
+        try seen.append(arena, host);
+        const name = try arena.dupeSentinel(u8, host, 0);
+        var buf: [8]Io.net.IpAddress = undefined;
+        _ = @import("discover.zig").lookup(io, name, 80, 5000, &buf) catch {};
+    }
+}
+
 const Result = enum { unknown, yes, no };
 const Server = struct { key: []const u8, host: []const u8, port: u16, path: []const u8, tls: bool };
 const Asked = struct { index: usize, answered: bool };

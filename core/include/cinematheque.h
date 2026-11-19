@@ -52,6 +52,9 @@ int cq_repo_add(cq_library *library, const char *url, const char *quality, const
 int cq_repo_set(cq_library *library, const char *source, const char *quality, const char *skip);
 int cq_repo_remove(cq_library *library, const char *source);
 // Forgets an unavailable directory of a source, as if deleted.
+// Looks up the names of the servers of urls_json (a JSON array of URLs),
+// so copy racing's first race finds them answered. Long; any thread.
+void cq_race_warm(cq_library *library, const char *urls_json);
 int cq_remove_unavailable(cq_library *library, const char *source, const char *dir);
 // Long (up to 1.5 s), any thread: copy racing. A JSON array of an item's
 // copies' URLs in, in the order to try them out: those whose servers answer
