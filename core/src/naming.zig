@@ -264,6 +264,7 @@ fn scanName(p: *Parsed, name: []const u8, scratch: []u8, used: *usize) void {
     // A part before the year belongs to the title ("Breaking Dawn - Part 1
     // (2011)" is a film of its own); after it, it splits a file ("- part1").
     var part_at: ?usize = null;
+    var episode_title = false;
     var i: usize = 0;
     while (i < name.len) : (i += 1) {
         const c = name[i];
@@ -289,6 +290,12 @@ fn scanName(p: *Parsed, name: []const u8, scratch: []u8, used: *usize) void {
         if (airDate(p, rest)) |len| {
             title_end = @min(title_end, i);
             i += len - 1;
+            // yt-dlp's names put the video's title between the date and the
+            // ID tag; nothing in it (a year, a part) is read.
+            if (mem.lastIndexOf(u8, name, "[youtube-")) |at| if (at > i) {
+                episode_title = true;
+                i = at - 1;
+            };
             continue;
         }
         if (yearAt(rest)) |y| {
@@ -329,7 +336,7 @@ fn scanName(p: *Parsed, name: []const u8, scratch: []u8, used: *usize) void {
     // A version's name ends where a part begins: "- Extended Part 1".
     const label_end = if (p.part != null) part_at orelse name.len else name.len;
     // Jellyfin's version label: "Title (2010) - Director's Cut".
-    if (p.edition == null) if (mem.indexOf(u8, name, " - ")) |dash| if (dash >= title_end and dash + 3 <= label_end) {
+    if (p.edition == null and !episode_title) if (mem.indexOf(u8, name, " - ")) |dash| if (dash >= title_end and dash + 3 <= label_end) {
         var label = mem.trim(u8, name[dash + 3 .. label_end], " ");
         // "- 2160p" names a quality, not a version; "- Director's Cut -
         // 1080p", a version and a quality.

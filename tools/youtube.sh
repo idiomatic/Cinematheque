@@ -8,4 +8,4 @@ mkdir -p "${2:-.}"
 cd "${2:-.}"
 exec yt-dlp -t mp4 --embed-metadata --embed-thumbnail --convert-thumbnails jpg \
     --download-archive .yt-dlp-archive \
-    -o '%(channel)s/%(channel)s %(upload_date>%Y-%m-%d)s [youtube-%(id)s].%(ext)s' "$1"
+    -o '%(channel)s/%(channel)s %(upload_date>%Y-%m-%d)s %(title).150B [youtube-%(id)s].%(ext)s' "$1"
