@@ -124,7 +124,7 @@ The apps' status line ("Received 3 changes from firefly") counts operations: rec
 
 ## HTTP endpoints
 
-Devices speak plain HTTP/1.1, without TLS: operations are signed, and pairing seals what it sends; what a sync sends is readable by anyone listening on the network. Integers are little-endian, keys are 32 bytes, and signatures are Ed25519's 64.
+Devices speak plain HTTP/1.1, without TLS: operations are signed, and pairing and syncs seal what they send. Integers are little-endian, keys are 32 bytes, and signatures are Ed25519's 64.
 
 | Endpoint | Answered by | For |
 |---|---|---|
@@ -137,7 +137,7 @@ A device serves on the port given (an app's, the one it got last), else on 8008,
 
 ### `POST /sync`
 
-The request's body, up to 1 MiB:
+The body is sealed (`seal.zig`), so only the device it's for reads it, and only the asking device the answer. The asking device makes an X25519 key pair for the request alone, agrees a secret with the other device's key (from `GET /sync`, its Ed25519 key as X25519), and derives a key each way by BLAKE3 (`cinematheque sync keys`, the library ID, its public key, the other device's key, and the secret). Sealed is in chunks of up to 64 KiB, each its length (u32, its top bit set on the last), its ChaCha20-Poly1305 ciphertext, and tag, with a nonce of the part (1, the request; 2, the rest; 3, the answer) and the chunk's number, so no chunk can be dropped, moved, or cut off. The body: its public key (32), the sealed request's length (u32) and the sealed request, then for a push or repair the rest, sealed. The request, up to 1 MiB, before sealing:
 
 | Part | Size |
 |---|---|
@@ -150,19 +150,19 @@ The request's body, up to 1 MiB:
 | The device's signature over `cinematheque request`, the library ID, and everything before it | 64 |
 
 Answers:
-* **200,** `application/octet-stream` with `Content-Encoding: gzip`: frames, each starting with a tag byte, until `E`.
+* **200,** `application/octet-stream`, sealed: frames, gzipped, each starting with a tag byte, until `E`.
   * `B`, a batch: device key (32), first sequence number (u64), count (u32, 1 to 1,024), signature (64), a bitmap of `(count + 7) / 8` bytes, whose bit *i* is set if operation *first + i* follows, and a leaf hash (32) for each bit not set. Then an `O` frame for each bit set, in order.
   * `O`, an operation: sequence number (u64), clock (u64), kind (u8), then the key, field, and value, each its length (u16, u16, and u32) and bytes.
   * `V`, a version vector entry: stream key (32) and sequence number (u64).
   * `S`, the sender's signature (64), as above.
   * `E`: the end.
   With it, two headers name the other device: `x-cinematheque-device`, its device key, and `x-cinematheque-certificate`, its certificate, each in hex.
-* **400,** the error's name as text: `Malformed`, `BadSignature`, `BadCertificate` (one that doesn't verify for this library), `Stale` (a time more than ten minutes from the other device's), or `WrongRecipient` (a request for another device).
+* **400,** the error's name as text: `Malformed`, `BadSignature`, `BadCertificate` (one that doesn't verify for this library), `Stale` (a time more than ten minutes from the other device's), `WrongRecipient` (a request for another device), or `BadSeal` (one it can't open).
 * **403,** `not a member`: the certificate's person isn't a member. Or `removed`, for a device that was removed, with `x-cinematheque-device` and `x-cinematheque-certificate` as above and `x-cinematheque-signature`, the other device's signature (hex) over `cinematheque removed`, the library ID, the asking device's key, and its request's time (u64): proof enough, from a member's device, for the device to leave.
 
-A push is a `POST /sync` with `Content-Type: application/x-cinematheque-push`: the request's length (u32) and a request, as above (its vector unused), then frames, as a response's, gzipped. It's answered with 204, once applied, or 400 or 403 as above. A device too old to take pushes reads the whole body as a request, and refuses it as `BadSignature`.
+A push is a `POST /sync` with `Content-Type: application/x-cinematheque-push`: the request, as above (its vector unused), then frames, as a response's, gzipped, the rest sealed. It's answered with 204, once applied, or 400 or 403 as above. A device too old to take pushes reads the whole body as a request, and refuses it as `BadSignature`.
 
-A repair is a `POST /sync` with `Content-Type: application/x-cinematheque-repair`: the request's length (u32) and a request, as a push's, then, gzipped, the fields wanted: a count (u32), then each one's key and field, each its length (u16) and bytes. It's answered, after the same checks and that the fields are those the request's hash signs, with 200 and gzipped frames: per batch the fields come from, `R`, device key (32), first sequence number (u64), count (u32), signature (64), the number of operations (u16) and their indices in the batch (u16 each), the number of proof hashes (u16) and the hashes (32 each), then an `O` frame for each operation; then `E`. One shared proof covers a batch's operations, which the receiver verifies against its signed root. Private streams not the requester's person's are left out. There's no `S`: nothing is adopted into the version vector.
+A repair is a `POST /sync` with `Content-Type: application/x-cinematheque-repair`: the request, as a push's, then, gzipped and sealed, the fields wanted: a count (u32), then each one's key and field, each its length (u16) and bytes. It's answered, after the same checks and that the fields are those the request's hash signs, with 200 and frames, gzipped and sealed: per batch the fields come from, `R`, device key (32), first sequence number (u64), count (u32), signature (64), the number of operations (u16) and their indices in the batch (u16 each), the number of proof hashes (u16) and the hashes (32 each), then an `O` frame for each operation; then `E`. One shared proof covers a batch's operations, which the receiver verifies against its signed root. Private streams not the requester's person's are left out. There's no `S`: nothing is adopted into the version vector.
 
 ### `/pair`
 
