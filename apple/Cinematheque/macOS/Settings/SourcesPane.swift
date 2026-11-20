@@ -136,14 +136,14 @@ struct SourcesPane: View {
     }
 
     private func canOpen(_ source: Source) -> Bool {
-        guard let folder = library.folder(of: source) else { return URL(string: source.url) != nil }
+        guard let folder = library.folder(of: source) else { return URL(web: source.url) != nil }
         return !library.unavailableFolders.contains(folder.prefix)
     }
 
     private func open(_ source: Source) {
         if let folder = library.folder(of: source) {
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folder.path)
-        } else if let url = URL(string: source.url) {
+        } else if let url = URL(web: source.url) {
             NSWorkspace.shared.open(url)
         }
     }

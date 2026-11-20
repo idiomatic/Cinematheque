@@ -27,6 +27,8 @@ pub const grace_ms = 250;
 /// How long a server that didn't answer is asked last.
 pub const remembered_ms = 10 * 60 * 1000;
 
+const max_remembered = 1024;
+
 /// Servers (`host:port`) that didn't answer lately, and when. Any thread.
 pub const Memory = struct {
     mutex: Io.Mutex = .init,
@@ -44,6 +46,8 @@ pub const Memory = struct {
         const server = serverOf(&buf, url) orelse return;
         m.mutex.lockUncancelable(io);
         defer m.mutex.unlock(io);
+        // Within reason: a library has some servers, not thousands.
+        if (m.failed.count() >= max_remembered and !m.failed.contains(server)) return;
         const gop = try m.failed.getOrPut(gpa, server);
         if (!gop.found_existing) gop.key_ptr.* = try gpa.dupe(u8, server);
         gop.value_ptr.* = now_ms;

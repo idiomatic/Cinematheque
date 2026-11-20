@@ -335,13 +335,35 @@ const max_entries = 4 << 20;
 
 const Fetched = struct { status: http.Status, body: []const u8 };
 
-/// `fetch` into memory, at most `max_listing_bytes` of it.
+/// `fetch` into memory, at most `max_listing_bytes` of it, following up to
+/// 3 redirects, each within the source's own origin: a listing's server
+/// could otherwise aim a crawl at any other server it can reach.
 fn get(arena: std.mem.Allocator, client: *http.Client, location: []const u8, extra_headers: []const http.Header) !Fetched {
-    var req = try client.request(.GET, try std.Uri.parse(location), .{ .redirect_behavior = .init(3), .extra_headers = extra_headers });
-    defer req.deinit();
-    try req.sendBodiless();
-    var redirect: [8 * 1024]u8 = undefined;
-    var response = try req.receiveHead(&redirect);
+    const origin = try std.Uri.parse(location);
+    var uri = origin;
+    var hops: usize = 0;
+    while (true) : (hops += 1) {
+        var req = try client.request(.GET, uri, .{ .redirect_behavior = .unhandled, .extra_headers = extra_headers });
+        defer req.deinit();
+        try req.sendBodiless();
+        var response = try req.receiveHead(&.{});
+        if (response.head.status.class() == .redirect) {
+            if (hops == 3) return error.TooManyHttpRedirects;
+            const to = response.head.location orelse return error.HttpRedirectLocationMissing;
+            // Room for the target resolved against where it came from.
+            const aux = try arena.alloc(u8, 2 * to.len + 2 * location.len + 4096);
+            @memcpy(aux[0..to.len], to);
+            var rest: []u8 = aux;
+            const next = uri.resolveInPlace(to.len, &rest) catch return error.HttpRedirectLocationInvalid;
+            if (!url.sameOrigin(origin, next)) return error.RedirectedElsewhere;
+            uri = next;
+            continue;
+        }
+        return readBody(arena, &response);
+    }
+}
+
+fn readBody(arena: std.mem.Allocator, response: *http.Client.Response) !Fetched {
     const decompress_buffer: []u8 = switch (response.head.content_encoding) {
         .identity => &.{},
         .zstd => try arena.alloc(u8, std.compress.zstd.default_window_len),

@@ -162,6 +162,10 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     }
     if (std.mem.eql(u8, name, "lost")) {
         const lost = try std.json.parseFromSliceLeaky(struct { url: []const u8 }, arena, body, .{});
+        var r = try open(w, io, gpa);
+        const allowed = try withinSources(&r, arena, &.{lost.url});
+        r.close();
+        if (!allowed) return error.Forbidden;
         try w.racing.lost(io, gpa, lost.url, now(io));
         return sendJson(arena, request, true);
     }
@@ -202,13 +206,14 @@ fn sendJson(arena: std.mem.Allocator, request: *http.Server.Request, value: anyt
     } });
 }
 
-/// Whether every URL is within one of the library's sources, so the server
-/// fetches (or asks) only what the library already names.
+/// Whether every URL is within one of the library's sources (of its
+/// origin, below its path), so the server fetches (or asks) only what the
+/// library already names.
 fn withinSources(r: *Replica, arena: std.mem.Allocator, urls: []const []const u8) !bool {
     const sources = try core.library.sources(r, arena);
     for (urls) |u| {
         for (sources) |s| {
-            if (std.mem.startsWith(u8, u, s.url)) break;
+            if (core.url.within(s.url, u)) break;
         } else return false;
     }
     return true;
@@ -232,8 +237,10 @@ fn cover(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
     }
     var client: http.Client = .{ .allocator = gpa, .io = io };
     defer client.deinit();
-    const range = try std.fmt.allocPrint(arena, "bytes={d}-{d}", .{ offset, offset + length - 1 });
-    var req = client.request(.GET, try std.Uri.parse(u), .{ .extra_headers = &.{.{ .name = "range", .value = range }} }) catch |err| {
+    const last = std.math.add(u64, offset, length - 1) catch return error.BadRequest;
+    const range = try std.fmt.allocPrint(arena, "bytes={d}-{d}", .{ offset, last });
+    // No redirect: it could lead anywhere the server likes.
+    var req = client.request(.GET, try std.Uri.parse(u), .{ .redirect_behavior = .not_allowed, .extra_headers = &.{.{ .name = "range", .value = range }} }) catch |err| {
         if (!w.unreachable_said.swap(true, .acq_rel)) {
             const host = if (std.Uri.parse(u)) |uri| (if (uri.host) |h| h.percent_encoded else "?") else |_| "?";
             std.log.warn("covers from {s} can't be had: {t}{s}", .{ host, err, if (err == error.HostUnreachable and @import("builtin").os.tag == .macos)
@@ -252,7 +259,7 @@ fn cover(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
     const bytes = try response.reader(&transfer).allocRemaining(arena, .limited(max_cover_bytes + 1));
     // A whole file, from a server that ignored the range: its cover's part.
     const image = if (response.head.status == .ok and bytes.len > length) blk: {
-        if (offset + length > bytes.len) return error.NotFound;
+        if (offset > bytes.len or length > bytes.len - offset) return error.NotFound;
         break :blk bytes[offset..][0..length];
     } else bytes;
     try request.respond(image, .{ .extra_headers = &.{

@@ -30,6 +30,9 @@ actor ArtCache {
     private static let diskAge: TimeInterval = 60 * 24 * 3600
     private static let diskBytes = 500 << 20
 
+    /// The largest cover read: an MP4's are a few hundred kilobytes.
+    private static let largest = 32 << 20
+
     init() {
         memory.totalCostLimit = 256 << 20
         directory = URL.cachesDirectory.appending(path: "com.rbrian.cinematheque/covers", directoryHint: .isDirectory)
@@ -58,12 +61,21 @@ actor ArtCache {
                 try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
                 return image
             }
-            guard let url = URL(string: cover.url), cover.length > 0 else { return nil }
+            // From a web server alone, and no more than the cover, whatever
+            // a server sends: its address and range are other devices' word.
+            guard let url = URL(web: cover.url), cover.length > 0, cover.length <= Self.largest else { return nil }
             var request = URLRequest(url: url)
             request.setValue("bytes=\(cover.offset)-\(cover.offset + cover.length - 1)", forHTTPHeaderField: "Range")
-            guard let (data, response) = try? await session.data(for: request),
-                  (response as? HTTPURLResponse)?.statusCode == 206 || cover.offset == 0,
-                  let image = Self.decode(data, size) else { return nil }
+            guard let (bytes, response) = try? await session.bytes(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 206 || cover.offset == 0 else { return nil }
+            var data = Data(capacity: cover.length)
+            do {
+                for try await byte in bytes {
+                    data.append(byte)
+                    if data.count == cover.length { break }
+                }
+            } catch { return nil }
+            guard let image = Self.decode(data, size) else { return nil }
             Self.save(image, to: file)
             return image
         }

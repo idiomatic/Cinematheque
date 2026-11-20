@@ -586,10 +586,10 @@ extension Library {
                 guard !unavailableFolders.contains(folder.prefix) else { continue }
                 let files = g.copies.compactMap { copy -> URL? in
                     guard let path = String(copy.url.dropFirst(folder.url.count)).removingPercentEncoding else { return nil }
-                    return URL(fileURLWithPath: folder.path).appending(path: path)
+                    return URL(fileURLWithPath: folder.path).within(path)
                 }
                 out.append(.init(id: key, title: "\(g.short) — \(folder.name)", symbol: "folder", inFinder: true) { NSWorkspace.shared.activateFileViewerSelecting(files) })
-            } else if let listing = URL(string: g.copies[0].url)?.deletingLastPathComponent() {
+            } else if let listing = URL(web: g.copies[0].url)?.deletingLastPathComponent() {
                 out.append(.init(id: key, title: "\(g.short) — \(g.source.displayName)", symbol: "safari", inFinder: false) { NSWorkspace.shared.open(listing) })
             }
         }

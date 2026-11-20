@@ -239,3 +239,21 @@ nonisolated struct Handle: @unchecked Sendable {
 extension ComparisonResult: @retroactive Comparable {
     public static func < (a: ComparisonResult, b: ComparisonResult) -> Bool { a.rawValue < b.rawValue }
 }
+
+nonisolated extension URL {
+    /// A web address (http or https), from text other devices may have
+    /// written, else nil: such text could name a file, a share, or another
+    /// app's scheme, which opening or loading it would act on.
+    init?(web string: String) {
+        guard let url = URL(string: string), let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", url.host() != nil else { return nil }
+        self = url
+    }
+
+    /// `path` within this folder, or nil if it would climb out of it, as a
+    /// path another device recorded might (`../`).
+    func within(_ path: String) -> URL? {
+        guard !path.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0 == ".." || $0 == "." }) else { return nil }
+        return appending(path: path)
+    }
+}

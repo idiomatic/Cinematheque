@@ -257,6 +257,7 @@ fn sourceId(target: []const u8) [16]u8 {
 }
 
 pub fn addSource(replica: *Replica, wall_ms: u64, target: []const u8, layout: Layout) ![16]u8 {
+    if (!url.fitForSource(target)) return error.BadAddress;
     const id = sourceId(target);
     var key_buf: [18]u8 = undefined;
     const key = try std.fmt.bufPrint(&key_buf, "r/{s}", .{id});
@@ -402,9 +403,10 @@ pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
         else if (std.mem.eql(u8, field, "managed")) r.managed = value.len > 0 //
         else if (std.mem.eql(u8, field, "crawled")) r.crawled_ms = std.fmt.parseInt(u64, value, 10) catch 0;
     }
-    // Dropped sources have no URL.
+    // Dropped sources have no URL, and one whose URL isn't fit to fetch
+    // from (as any member could write) is none.
     var kept: std.ArrayList(Source) = .empty;
-    for (out.items) |r| if (r.url.len > 0) try kept.append(arena, r);
+    for (out.items) |r| if (url.fitForSource(r.url)) try kept.append(arena, r);
     return kept.items;
 }
 

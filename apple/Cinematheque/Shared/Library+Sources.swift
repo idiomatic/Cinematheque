@@ -105,8 +105,9 @@ extension Library {
             // A folder not there now (a share unmounted), though no crawl has
             // noticed yet, holds nothing to show.
             guard let folder = folders.first(where: { !$0.url.isEmpty && copy.url.hasPrefix($0.url) && !unavailableFolders.contains($0.prefix) }),
-                  let path = String(copy.url.dropFirst(folder.url.count)).removingPercentEncoding else { continue }
-            return URL(fileURLWithPath: folder.path).appending(path: path)
+                  let path = String(copy.url.dropFirst(folder.url.count)).removingPercentEncoding,
+                  let file = URL(fileURLWithPath: folder.path).within(path) else { continue }
+            return file
         }
         return nil
     }
@@ -282,19 +283,19 @@ extension Library {
         guard let sources = try? JSONDecoder().decode([Crawled].self, from: data) else { return }
         for s in sources {
             if s.manual == true {
-                crawlLog.notice("Skipped \(s.url, privacy: .public): looked in only on Refresh Library")
+                crawlLog.notice("Skipped \(Self.logged(s.url), privacy: .public): looked in only on Refresh Library")
                 continue
             }
             if s.lately == true {
-                crawlLog.notice("Skipped \(s.url, privacy: .public): a device crawled it in the last day")
+                crawlLog.notice("Skipped \(Self.logged(s.url), privacy: .public): a device crawled it in the last day")
                 continue
             }
             if let error = s.error {
-                crawlLog.notice("Crawled \(s.url, privacy: .public): failed, \(error, privacy: .public)")
+                crawlLog.notice("Crawled \(Self.logged(s.url), privacy: .public): failed, \(error, privacy: .public)")
                 continue
             }
             let total = Duration.milliseconds(s.total_ms ?? 0), listing = Duration.milliseconds(s.crawl_ms ?? 0)
-            crawlLog.notice("Crawled \(s.url, privacy: .public) in \(total.logged, privacy: .public): listing \(listing.logged, privacy: .public) (\(s.requests ?? 0) read, \(s.reused ?? 0) reused), recording \((total - listing).logged, privacy: .public); \(s.files) files, \(s.changed ?? 0) copies changed")
+            crawlLog.notice("Crawled \(Self.logged(s.url), privacy: .public) in \(total.logged, privacy: .public): listing \(listing.logged, privacy: .public) (\(s.requests ?? 0) read, \(s.reused ?? 0) reused), recording \((total - listing).logged, privacy: .public); \(s.files) files, \(s.changed ?? 0) copies changed")
         }
         let crawling = Duration.milliseconds(sources.reduce(0) { $0 + ($1.total_ms ?? 0) })
         crawlLog.notice("Looked for new videos in \(took.logged, privacy: .public): \(sources.count) sources in \(crawling.logged, privacy: .public), then describing (and the rest) \((took - crawling).logged, privacy: .public)")
@@ -302,4 +303,14 @@ extension Library {
 
     func sync(_ url: String? = nil) async { report(.refresh, await long("Catching up", results: noteReceived) { cq_sync($0, url) }) }
 
+}
+
+extension Library {
+    /// A source's address for the log, without any password in it.
+    nonisolated static func logged(_ address: String) -> String {
+        guard var parts = URLComponents(string: address) else { return "?" }
+        parts.user = nil
+        parts.password = nil
+        return parts.string ?? "?"
+    }
 }
