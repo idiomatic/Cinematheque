@@ -115,7 +115,7 @@ fn nearby(lib: *Library, arena: std.mem.Allocator) ![]const NearbyJson {
     const list = try r.members(arena);
     var out: std.ArrayList(NearbyJson) = .empty;
     for (try discover.browse(lib.io(), arena, 2000)) |s| {
-        if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
+        if (s.host.len == 0 or sync.isOwn(s.name, own)) continue;
         const found = sync.foundUrl(arena, s) catch continue;
         const person = s.get("user");
         const is_member = if (person) |u| for (list) |m| {

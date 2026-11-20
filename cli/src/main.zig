@@ -187,6 +187,8 @@ fn explain(err: anyerror) []const u8 {
         error.HostUnreachable => "it can't be reached (on macOS, Terminal may need Local Network access, in System Settings > Privacy & Security)",
         error.AccessDenied => "permission denied",
         error.NotFound => "the server has nothing at that address",
+        error.Stale => "its clock and this one's are more than ten minutes apart",
+        error.WrongRecipient => "another device answered at its address",
         error.Refused => "that device refused (is it up to date? devices sync only with others as new)",
         error.PathTaken => "another file is already where it would go, so it's left alone",
         error.BadAddress => "that isn't a web address (http:// or https://, with a host)",

@@ -73,6 +73,26 @@ fn plainPath(p: []const u8) bool {
     return true;
 }
 
+/// Whether an advertised name is this device's own (`own`), or that name as
+/// DNS-SD renamed it for another process advertising it (`own (2)`), as
+/// the Mac app and the command-line app sharing a data directory do.
+pub fn isOwn(name: []const u8, own: []const u8) bool {
+    if (std.mem.eql(u8, name, own)) return true;
+    if (!std.mem.startsWith(u8, name, own) or !std.mem.endsWith(u8, name, ")")) return false;
+    const rest = name[own.len..];
+    if (!std.mem.startsWith(u8, rest, " (") or rest.len < 4) return false;
+    for (rest[2 .. rest.len - 1]) |c| if (!std.ascii.isDigit(c)) return false;
+    return true;
+}
+
+test "a device's own name, as DNS-SD may rename it" {
+    try std.testing.expect(isOwn("cinematheque-6c30b441", "cinematheque-6c30b441"));
+    try std.testing.expect(isOwn("cinematheque-6c30b441 (2)", "cinematheque-6c30b441"));
+    try std.testing.expect(!isOwn("cinematheque-6c30b4410", "cinematheque-6c30b441"));
+    try std.testing.expect(!isOwn("cinematheque-6c30b441 (x)", "cinematheque-6c30b441"));
+    try std.testing.expect(!isOwn("cinematheque-f884b174", "cinematheque-6c30b441"));
+}
+
 /// The sync URL of a device found nearby: its host and port as resolved, and
 /// the path it advertises if that's a plain one, else the default.
 pub fn foundUrl(arena: std.mem.Allocator, s: discover.Service) ![]const u8 {
@@ -124,7 +144,7 @@ pub fn nearby(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8) !D
     var names: std.StringHashMapUnmanaged([]const u8) = .empty;
     const mine = std.fmt.bytesToHex(r.library, .lower);
     for (try discover.browse(io, arena, 2000)) |s| {
-        if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
+        if (s.host.len == 0 or isOwn(s.name, own)) continue;
         if (!std.mem.eql(u8, s.get("library") orelse "", &mine)) continue;
         const u = foundUrl(arena, s) catch continue;
         try urls.append(arena, u);
@@ -424,6 +444,10 @@ pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, u
 fn exchangeNow(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !Exchanged {
     var theirs: std.ArrayList(replica_.Entry) = .empty;
     const recipient = try hello(client, url);
+    // This device itself, as a process sharing its data directory (the Mac
+    // app and the command-line app's `serve`) advertises under a name
+    // DNS-SD renamed: nothing to sync.
+    if (std.mem.eql(u8, &recipient, &dst.device())) return .{ .stats = .{} };
     const pulled = try pull(arena, client, dst, url, now_ms, recipient, &theirs);
     var out: Exchanged = .{ .stats = pulled.stats };
     const person = pulled.person orelse return out;
@@ -442,6 +466,20 @@ fn exchangeNow(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, ur
 }
 
 const Pulled = struct { stats: replica_.Stats, person: ?[32]u8 };
+
+/// Why the other device refused a request, as its answer names it: the
+/// clocks too far apart (`Stale`), or else `Refused`.
+fn refusal(arena: std.mem.Allocator, response: *http.Client.Response) anyerror {
+    var transfer: [64]u8 = undefined;
+    const why = response.reader(&transfer).allocRemaining(arena, .limited(256)) catch return error.Refused;
+    const known = [_]struct { []const u8, anyerror }{
+        .{ "Stale", error.Stale },
+        .{ "WrongRecipient", error.WrongRecipient },
+        .{ "BadCertificate", error.BadCertificate },
+    };
+    for (known) |k| if (std.mem.eql(u8, std.mem.trim(u8, why, " \n"), k[0])) return k[1];
+    return error.Refused;
+}
 
 /// Which device answers at `url`: its device key, for requests to be for
 /// it alone. A device that doesn't say (an older build's) can't be synced
@@ -536,7 +574,7 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
     switch (response.head.status) {
         .ok => {},
         .forbidden => return if (try removed(dst, other, now_ms)) error.Removed else error.NotAMember,
-        .bad_request => return error.Refused,
+        .bad_request => return refusal(arena, &response),
         else => return error.BadStatus,
     }
     const person = other.person(dst.library);
