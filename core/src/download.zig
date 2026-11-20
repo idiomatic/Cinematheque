@@ -24,6 +24,7 @@ const std = @import("std");
 const Io = std.Io;
 const library = @import("library.zig");
 const naming = @import("naming.zig");
+const deadline = @import("deadline.zig");
 const race = @import("race.zig");
 const art = @import("art.zig");
 const views = @import("views.zig");
@@ -218,6 +219,16 @@ pub fn fetch(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, client: *
     return last;
 }
 
+const step_ms = 60 * 1000;
+
+fn receiveHead(request: *std.http.Client.Request) !std.http.Client.Response {
+    return request.receiveHead(&.{});
+}
+
+fn streamSome(body: *Io.Reader, w: *Io.Writer, n: usize) Io.Reader.StreamError!usize {
+    return body.stream(w, .limited(n));
+}
+
 /// Fetches `url` into `part`, resuming where it leaves off.
 fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, url: []const u8, size: u64, progress: ?Progress) !void {
     const out = try dir.createFile(io, part, .{ .truncate = false });
@@ -238,7 +249,10 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
         });
         defer request.deinit();
         try request.sendBodiless();
-        var response = try request.receiveHead(&.{});
+        // A minute to answer, and a minute for each mebibyte after (at
+        // least 17 KB/s): so long as bytes come, a large file goes on, but
+        // a server sending one at a time doesn't hold reconciling.
+        var response = try deadline.within(io, step_ms, receiveHead, .{&request});
         switch (response.head.status) {
             // Only from where the file stands, else it would be corrupted.
             .partial_content => if ((contentRangeStart(response.head) orelse return error.BadRange) != have) return error.BadRange,
@@ -257,7 +271,8 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
         try writer.seekTo(have);
         // Never past the file's size, whatever the server sends.
         while (have < size) {
-            const n = body.stream(&writer.interface, .limited(@min(size - have, 1 << 20))) catch |err| switch (err) {
+            const n = deadline.within(io, step_ms, streamSome, .{ body, &writer.interface, @min(size - have, 1 << 20) }) catch |err| switch (err) {
+                error.Timeout, error.Canceled => |e| return e,
                 error.EndOfStream => break,
                 error.ReadFailed => return response.bodyErr() orelse error.ReadFailed,
                 error.WriteFailed => return writer.err orelse error.WriteFailed,
