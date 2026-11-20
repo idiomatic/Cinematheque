@@ -84,7 +84,8 @@ struct DevicesPage: View {
         SettingsPage(title: "Your Devices", explanation: explanation) {
             Form {
                 Section {
-                    ForEach(library.devices) { device in
+                    // This one first, as the one you're using.
+                    ForEach(library.devices.filter(\.you) + library.devices.filter { !$0.you }) { device in
                         Button { if !device.you { acting = device } } label: {
                             ValueLabel(title: device.name, value: device.you ? "This Apple TV" : "")
                         }
