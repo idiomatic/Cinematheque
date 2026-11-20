@@ -176,8 +176,17 @@ fn episodeCode(key: []const u8) ?Code {
 const months = [_][]const u8{ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
 
 /// What players call an item: "Episode 3", "Special", "March 12", or a
-/// version's name ("Standard", or its edition as written).
+/// version's name ("Standard", or its edition as written); a part, with
+/// its number ("Part 1" of a standard version, "Director's Cut, Part 1").
 fn itemLabel(arena: std.mem.Allocator, key: []const u8, fields: std.StringArrayHashMapUnmanaged([]const u8), code: ?Code) ![]const u8 {
+    const whole = try wholeLabel(arena, key, fields, code);
+    const at = std.mem.indexOf(u8, key, "/p/") orelse return whole;
+    const part = key[at + 3 ..];
+    if (std.mem.eql(u8, whole, "Standard")) return std.fmt.allocPrint(arena, "Part {s}", .{part});
+    return std.fmt.allocPrint(arena, "{s}, Part {s}", .{ whole, part });
+}
+
+fn wholeLabel(arena: std.mem.Allocator, key: []const u8, fields: std.StringArrayHashMapUnmanaged([]const u8), code: ?Code) ![]const u8 {
     if (code) |c| {
         const n = c.number orelse return "Special";
         if (c.season == 0) return "Special";
@@ -426,6 +435,9 @@ test "items' labels and names, and qualities' short names" {
     try std.testing.expectEqualStrings("March 12", try itemLabel(arena, "e/s2024e0312", none, episodeCode("e/s2024e0312")));
     try std.testing.expectEqualStrings("Standard", try itemLabel(arena, "v/-", none, null));
     try std.testing.expectEqualStrings("Directors Cut", try itemLabel(arena, "v/directors-cut", none, null));
+    try std.testing.expectEqualStrings("Part 2", try itemLabel(arena, "v/-/p/2", none, null));
+    try std.testing.expectEqualStrings("Directors Cut, Part 1", try itemLabel(arena, "v/directors-cut/p/1", none, null));
+    try std.testing.expectEqualStrings("Episode 17, Part 1", try itemLabel(arena, "e/s03e17/p/1", none, episodeCode("e/s03e17/p/1")));
     try none.put(arena, "edition", "Director's Cut");
     try std.testing.expectEqualStrings("Director's Cut", try itemLabel(arena, "v/directors-cut", none, null));
 
