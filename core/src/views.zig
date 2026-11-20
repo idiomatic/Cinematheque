@@ -45,15 +45,19 @@ fn coverJson(arena: std.mem.Allocator, bases: std.StringHashMapUnmanaged(library
 }
 
 pub const CopyJson = struct { url: []const u8, size: u64, mtime: []const u8, source: []const u8, unavailable: bool };
-/// A quality: its `label` (as keyed), `name` (as its sources give it), and
-/// `short` name for a picker (see `shortNames`).
-pub const QualityJson = struct { label: []const u8, name: []const u8, short: []const u8, copies: []const CopyJson };
+/// A quality: its `label` (as keyed), `name` (as its sources give it),
+/// `short` name for a picker (see `shortNames`), and `height`, its
+/// resolution's lines (2160 for 4K), if it says, for players to rank by.
+pub const QualityJson = struct { label: []const u8, name: []const u8, short: []const u8, height: ?u16, copies: []const CopyJson };
 /// An item, with what players call it, so none reads its key: an
 /// episode's `season` and `number` (a special's number null; a dated one's
 /// season its year, its number its month and day, and `aired` its date);
 /// its `label` ("Episode 3", "Special", "March 12", or a version's name,
-/// "Standard" or its edition); and its `name` in a list ("3. Title", or a
-/// special's or dated episode's title alone, else its label).
+/// "Standard" or its edition); its `name` in a list ("3. Title", or a
+/// special's or dated episode's title alone, else its label); and whether
+/// it's `next`, the one Play plays of its season (or of the movie's
+/// versions): the latest in progress, else the first unwatched after the
+/// last watched, else the first unwatched, else the first.
 pub const ItemJson = struct {
     key: []const u8,
     season: ?u16,
@@ -66,6 +70,7 @@ pub const ItemJson = struct {
     position: u64,
     duration: u64,
     watched: bool,
+    next: bool,
 };
 
 pub const Title = struct {
@@ -76,7 +81,11 @@ pub const Title = struct {
     aliases: []const []const u8,
     fields: std.json.ArrayHashMap([]const u8),
     covers: std.json.ArrayHashMap(CoverJson),
+    /// In order: each season's episodes by number, specials last; a movie's
+    /// versions as they are.
     items: []const ItemJson,
+    /// A series' seasons, in order, specials (0) last.
+    seasons: []const u16,
 };
 
 pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
@@ -96,7 +105,7 @@ pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
                     name = b.layout.quality;
                 };
             }
-            ro.* = .{ .label = rn.label, .name = name, .short = "", .copies = copies };
+            ro.* = .{ .label = rn.label, .name = name, .short = "", .height = height(rn.label, name), .copies = copies };
         }
         const code = episodeCode(item.key);
         const aired: ?[]const u8 = if (code) |c| if (c.season >= 1000 and c.number != null) try std.fmt.allocPrint(arena, "{d}-{d:0>2}-{d:0>2}", .{ c.season, c.number.? / 100, c.number.? % 100 }) else null else null;
@@ -117,9 +126,12 @@ pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
             .position = item.progress.position_ms,
             .duration = item.progress.duration_ms,
             .watched = item.progress.watched,
+            .next = false,
         };
     }
     try shortNames(arena, items);
+    std.mem.sort(ItemJson, items, {}, inOrder);
+    const seasons = try markNext(arena, items);
     var fields: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
     var covers: std.StringArrayHashMapUnmanaged(CoverJson) = .empty;
     for (d.fields.keys(), d.fields.values()) |k, v| {
@@ -138,6 +150,7 @@ pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
         .fields = .{ .map = fields },
         .covers = .{ .map = covers },
         .items = items,
+        .seasons = seasons,
     };
 }
 
@@ -261,6 +274,118 @@ fn isResolution(w: []const u8) bool {
     return true;
 }
 
+/// Episodes by season, specials last, then by number (a special without
+/// one last), then key; a movie's versions keep their order.
+fn inOrder(_: void, a: ItemJson, b: ItemJson) bool {
+    const sa: u32 = if (a.season) |n| (if (n == 0) std.math.maxInt(u32) else n) else 0;
+    const sb: u32 = if (b.season) |n| (if (n == 0) std.math.maxInt(u32) else n) else 0;
+    if (sa != sb) return sa < sb;
+    if (a.season == null) return false;
+    const na: u32 = a.number orelse std.math.maxInt(u32);
+    const nb: u32 = b.number orelse std.math.maxInt(u32);
+    if (na != nb) return na < nb;
+    return std.mem.lessThan(u8, a.key, b.key);
+}
+
+/// Marks each season's next item (and the movie's), as `ItemJson.next`
+/// says; returns the seasons, in order.
+fn markNext(arena: std.mem.Allocator, items: []ItemJson) ![]const u16 {
+    var seasons: std.ArrayList(u16) = .empty;
+    var start: usize = 0;
+    while (start < items.len) {
+        var end = start + 1;
+        while (end < items.len and std.meta.eql(items[end].season, items[start].season)) end += 1;
+        if (items[start].season) |n| try seasons.append(arena, n);
+        const group = items[start..end];
+        var pick: ?usize = null;
+        for (group, 0..) |it, k| if (it.position > 0 and !it.watched) {
+            pick = k;
+        };
+        if (pick == null) {
+            var last: ?usize = null;
+            for (group, 0..) |it, k| if (it.watched) {
+                last = k;
+            };
+            const from = if (last) |l| l + 1 else 0;
+            for (group[from..], from..) |it, k| if (!it.watched) {
+                pick = k;
+                break;
+            };
+            if (pick == null) for (group, 0..) |it, k| if (!it.watched) {
+                pick = k;
+                break;
+            };
+        }
+        group[pick orelse 0].next = true;
+        start = end;
+    }
+    return seasons.items;
+}
+
+/// A quality's resolution's lines, from its label or name ("1080p",
+/// "2160p", "4K"), if either says.
+fn height(label: []const u8, name: []const u8) ?u16 {
+    for ([_][]const u8{ label, name }) |text| {
+        var i: usize = 0;
+        while (i < text.len) : (i += 1) {
+            var j = i;
+            while (j < text.len and std.ascii.isDigit(text[j])) j += 1;
+            if (j - i >= 3 and j - i <= 4 and j < text.len and (text[j] == 'p' or text[j] == 'P') and (i == 0 or !std.ascii.isDigit(text[i - 1])))
+                return std.fmt.parseInt(u16, text[i..j], 10) catch null;
+            if (j > i) i = j;
+        }
+        if (std.ascii.findIgnoreCase(text, "4k") != null) return 2160;
+    }
+    return null;
+}
+
+test "items in order, each season's next, and qualities' heights" {
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const blank: ItemJson = .{ .key = "", .season = null, .number = null, .aired = null, .label = "", .name = "", .fields = .{}, .qualities = &.{}, .position = 0, .duration = 0, .watched = false, .next = false };
+    var items = [_]ItemJson{ blank, blank, blank, blank, blank };
+    items[0].key = "e/s00-pilot";
+    items[0].season = 0;
+    items[1].key = "e/s01e03";
+    items[1].season = 1;
+    items[1].number = 3;
+    items[2].key = "e/s01e01";
+    items[2].season = 1;
+    items[2].number = 1;
+    items[2].watched = true;
+    items[3].key = "e/s01e02";
+    items[3].season = 1;
+    items[3].number = 2;
+    items[4].key = "e/s02e01";
+    items[4].season = 2;
+    items[4].number = 1;
+    // Episode 1 watched: 2, after it, is next.
+    std.mem.sort(ItemJson, &items, {}, inOrder);
+    try std.testing.expectEqualStrings("e/s01e01", items[0].key);
+    try std.testing.expectEqualStrings("e/s00-pilot", items[4].key);
+    const seasons = try markNext(arena, &items);
+    try std.testing.expectEqualSlices(u16, &.{ 1, 2, 0 }, seasons);
+    try std.testing.expect(items[1].next and !items[0].next and !items[2].next);
+    // 3 watched too, 2 skipped: nothing's after the last watched, so the
+    // first unwatched, 2.
+    items[1].next = false;
+    items[2].watched = true;
+    _ = try markNext(arena, &items);
+    try std.testing.expect(items[1].next);
+    // In progress wins.
+    items[1].next = false;
+    items[2].watched = false;
+    items[2].position = 60_000;
+    _ = try markNext(arena, &items);
+    try std.testing.expect(items[2].next);
+
+    try std.testing.expectEqual(@as(?u16, 1080), height("1080p", "HQ 1080p30 Surround"));
+    try std.testing.expectEqual(@as(?u16, 2160), height("-", "4K HDR"));
+    try std.testing.expectEqual(@as(?u16, null), height("-", "-"));
+}
+
 test "items' labels and names, and qualities' short names" {
     const gpa = std.testing.allocator;
     var arena_state = std.heap.ArenaAllocator.init(gpa);
@@ -278,11 +403,11 @@ test "items' labels and names, and qualities' short names" {
     try std.testing.expectEqualStrings("4K HDR", try short(arena, "2160p-hdr", "2160p-hdr"));
     try std.testing.expectEqualStrings("Other", try short(arena, "-", "-"));
     var qualities = [_]QualityJson{
-        .{ .label = "a", .name = "HQ 720p30 Surround", .short = "", .copies = &.{} },
-        .{ .label = "b", .name = "Very Fast 720p30", .short = "", .copies = &.{} },
-        .{ .label = "c", .name = "HQ 1080p30 Surround --encoder=x265", .short = "", .copies = &.{} },
+        .{ .label = "a", .name = "HQ 720p30 Surround", .short = "", .height = 720, .copies = &.{} },
+        .{ .label = "b", .name = "Very Fast 720p30", .short = "", .height = 720, .copies = &.{} },
+        .{ .label = "c", .name = "HQ 1080p30 Surround --encoder=x265", .short = "", .height = 1080, .copies = &.{} },
     };
-    var items = [_]ItemJson{.{ .key = "v/-", .season = null, .number = null, .aired = null, .label = "Standard", .name = "Standard", .fields = .{}, .qualities = &qualities, .position = 0, .duration = 0, .watched = false }};
+    var items = [_]ItemJson{.{ .key = "v/-", .season = null, .number = null, .aired = null, .label = "Standard", .name = "Standard", .fields = .{}, .qualities = &qualities, .position = 0, .duration = 0, .watched = false, .next = false }};
     try shortNames(arena, &items);
     try std.testing.expectEqualStrings("720p HQ Surround", qualities[0].short);
     try std.testing.expectEqualStrings("720p Very Fast", qualities[1].short);

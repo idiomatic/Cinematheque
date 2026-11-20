@@ -43,18 +43,15 @@ enum Playback {
         return request(detail, items: items, from: nextIndex(items), quality: quality, overFromStart: overFromStart)
     }
 
-    /// Which of `items` Play plays: the latest in progress, else the first
-    /// unwatched, else the first.
+    /// Which of `items` Play plays, as the core marks it (`next`).
     static func nextIndex(_ items: [TitleDetail.Item]) -> Int {
-        items.lastIndex { $0.inProgress } ?? items.firstIndex { !$0.watched } ?? 0
+        items.firstIndex(where: \.next) ?? 0
     }
 
-    /// The items of a movie, or of one season, in order.
+    /// The items of a movie, or of one season, in the core's order.
     static func items(_ detail: TitleDetail, season: Int?) -> [TitleDetail.Item] {
         guard let season else { return detail.items }
-        return detail.items
-            .filter { $0.episode?.season == season }
-            .sorted { ($0.episode?.number ?? 0) < ($1.episode?.number ?? 0) }
+        return detail.items.filter { $0.episode?.season == season }
     }
 
     /// Plays `items[index]`, where this person left off unless watched or

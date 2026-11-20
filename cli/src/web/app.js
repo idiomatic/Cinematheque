@@ -256,9 +256,8 @@ function counts(shelf) {
 
 function itemsOf(detail, season) {
   if (season == null) return detail.items;
-  return detail.items
-    .filter((i) => i.season === season)
-    .sort((a, b) => (a.number ?? 1e9) - (b.number ?? 1e9) || a.key.localeCompare(b.key));
+  // In the core's order.
+  return detail.items.filter((i) => i.season === season);
 }
 
 /// Whether a browser plays a copy's file: MP4, M4V, or MOV (not MKV or ISO).
@@ -268,12 +267,11 @@ function playable(url) {
 
 const hevc = document.createElement("video").canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') !== "";
 
-/// A quality's rank: higher resolution first, among those this browser
-/// plays (HEVC only where it's supported).
-function rank(label) {
-  if (!hevc && /\b(hevc|x265|h265)\b/i.test(label)) return -1;
-  const m = /(\d{3,4})p/.exec(label);
-  return m ? Number(m[1]) : 1;
+/// A quality's rank: higher resolution first (as the core gives it), among
+/// those this browser plays (HEVC only where it's supported).
+function rank(q) {
+  if (!hevc && /\b(hevc|x265|h265)\b/i.test(q.label)) return -1;
+  return q.height ?? 1;
 }
 
 /// The qualities of these items whose copies this browser plays, best first.
@@ -281,10 +279,10 @@ function qualitiesOf(items) {
   const found = new Map();
   for (const item of items) for (const q of item.qualities) {
     if (!q.copies.some((c) => c.url && playable(c.url))) continue;
-    if (rank(q.label) < 0) continue;
+    if (rank(q) < 0) continue;
     if (!found.has(q.label)) found.set(q.label, q);
   }
-  return [...found.values()].sort((a, b) => rank(b.label) - rank(a.label));
+  return [...found.values()].sort((a, b) => rank(b) - rank(a));
 }
 
 /// Each quality's short label, as the core names it ("1080p", "4K HDR",
@@ -308,21 +306,14 @@ function itemTitle(detail, item) {
   return item.label === "Standard" ? detail.name : `${detail.name} (${item.label})`;
 }
 
-/// What Play plays: the item in progress (the latest, if several), else the
-/// next unwatched after the last watched, else the first.
+/// What Play plays, as the core marks it.
 function nextIndex(items) {
-  let latest = -1;
-  items.forEach((i, n) => { if (i.position > 0 && !i.watched) latest = n; });
-  if (latest >= 0) return latest;
-  let last = -1;
-  items.forEach((i, n) => { if (i.watched) last = n; });
-  const after = items.findIndex((i, n) => n > last && !i.watched);
-  return after >= 0 ? after : 0;
+  return Math.max(0, items.findIndex((i) => i.next));
 }
 
 async function titlePage(key, season) {
   const detail = await api("title?" + new URLSearchParams({ key }));
-  const seasons = [...new Set(detail.items.map((i) => i.season).filter((s) => s != null))].sort((a, b) => (a || 1e9) - (b || 1e9));
+  const seasons = detail.seasons;
   const isSeries = seasons.length > 0;
   if (isSeries && season == null) season = seasons.find((s) => itemsOf(detail, s).some((i) => !i.watched)) ?? seasons[0];
   const items = itemsOf(detail, isSeries ? season : null);
@@ -470,7 +461,7 @@ function ramp(to, ms) {
 /// by the server (the one whose server answers first), then the rest.
 async function copiesOf(item, quality) {
   const chosen = item.qualities.find((q) => q.label === quality);
-  const others = item.qualities.filter((q) => q !== chosen && rank(q.label) >= 0);
+  const others = item.qualities.filter((q) => q !== chosen && rank(q) >= 0);
   const usable = (q) => q.copies.filter((c) => c.url && playable(c.url));
   const contenders = chosen ? usable(chosen).sort((a, b) => a.unavailable - b.unavailable).map((c) => c.url) : [];
   const rest = others.flatMap(usable).map((c) => c.url);

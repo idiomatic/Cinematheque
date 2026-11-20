@@ -81,7 +81,7 @@ enum QualityChoice {
         let limit = Platform.displayHeight >= 2160 ? 2160 : 1080
         let qualities = items.flatMap(\.qualities)
         let playable = qualities.filter { r in r.copies.contains { isPlayable($0.url) } }
-        return (playable.isEmpty ? qualities : playable).max { score($0.label, limit) < score($1.label, limit) }?.label
+        return (playable.isEmpty ? qualities : playable).max { score($0.height, limit) < score($1.height, limit) }?.label
     }
 
     /// A quality's name for a picker, by its label.
@@ -102,9 +102,9 @@ enum QualityChoice {
     }
 
     /// The highest resolution up to the limit, then those above it, least
-    /// first; a label without one ranks low.
-    private static func score(_ label: String, _ limit: Int) -> Int {
-        guard let match = label.firstMatch(of: /(\d{3,4})p/), let height = Int(match.1) else { return 0 }
+    /// first; one of unknown resolution ranks low.
+    private static func score(_ height: Int?, _ limit: Int) -> Int {
+        guard let height else { return 0 }
         return height <= limit ? 10_000 + height : 10_000 - height
     }
 }

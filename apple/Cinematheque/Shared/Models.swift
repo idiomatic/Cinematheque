@@ -58,6 +58,8 @@ struct TitleDetail: Codable {
         /// For a picker, as the core names it ("1080p", "4K HDR", "720p
         /// Very Fast").
         let short: String
+        /// Its resolution's lines (2160 for 4K), if it says.
+        let height: Int?
         let copies: [Copy]
     }
 
@@ -81,6 +83,9 @@ struct TitleDetail: Codable {
         let position: Int
         let duration: Int
         let watched: Bool
+        /// The one Play plays, of its season or the movie's versions, as
+        /// the core decides.
+        let next: Bool
         var id: String { key }
 
         /// An episode's season and number (a special's, 0).
