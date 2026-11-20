@@ -1,7 +1,7 @@
 #if os(tvOS)
 import SwiftUI
 
-/// The tab bar: Home, Movies, Series, Watchlist, Played, Settings, and
+/// The tab bar: Home, Movies, Series, Watchlist, Watched, Settings, and
 /// Search, each shelf a navigation stack opening titles' detail pages.
 struct Browser: View {
     /// A tab: a shelf, search, or settings.
@@ -163,7 +163,7 @@ struct Poster: View {
                 if !tile.watched {
                     Button("Mark as Watched", systemImage: "checkmark.circle") { library.markWatched(tile, true, wholeTitle: tile.isSeries) }
                 }
-                if tile.played {
+                if tile.started {
                     Button("Mark as Unwatched", systemImage: "circle") { library.markWatched(tile, false, wholeTitle: tile.isSeries) }
                 }
             }

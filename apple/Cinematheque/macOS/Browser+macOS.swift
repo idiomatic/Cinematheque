@@ -297,7 +297,7 @@ struct CoverGrid: View {
                         if !tile.watched {
                             Button("Mark as Watched") { library.markWatched(tile, true) }
                         }
-                        if tile.played {
+                        if tile.started {
                             Button("Mark as Unwatched") { library.markWatched(tile, false) }
                         }
                     }

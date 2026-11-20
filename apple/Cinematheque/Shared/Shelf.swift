@@ -4,12 +4,12 @@ import Foundation
 /// searched, and how it's counted. Each platform shows them its own way
 /// (the Mac in a sidebar, the Apple TV in a tab bar).
 enum Shelf: String, CaseIterable, Identifiable, Hashable {
-    /// In Progress and Watched are the Mac's Played, split (it has no
-    /// Home); Downloaded, what this Mac keeps, is the Mac's only too.
-    case home, movies, series, watchlist, played, inProgress, watched, downloaded
+    /// In Progress is the Mac's Home (which shows what's in progress
+    /// elsewhere); Downloaded, what this Mac keeps, is the Mac's only too.
+    case home, movies, series, watchlist, inProgress, watched, downloaded
 
     /// The Mac's only.
-    static let macOnly: Set<Shelf> = [.inProgress, .watched, .downloaded]
+    static let macOnly: Set<Shelf> = [.inProgress, .downloaded]
 
     var id: Self { self }
 
@@ -19,7 +19,6 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .movies: "Movies"
         case .series: "Series"
         case .watchlist: "Watchlist"
-        case .played: "Played"
         case .inProgress: "In Progress"
         case .watched: "Watched"
         case .downloaded: "Downloaded"
@@ -32,7 +31,6 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .movies: "film"
         case .series: "tv"
         case .watchlist: "star"
-        case .played: "play.circle"
         case .inProgress: "play.circle"
         case .watched: "checkmark.circle"
         case .downloaded: "arrow.down.circle"
@@ -40,10 +38,8 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
     }
 
     /// Its tiles, a series' by season, whose names hold `search`, if any:
-    /// Home's are those in progress (movies partway, seasons begun);
-    /// Played's, a smart folder, everything with progress, in progress or
-    /// watched; the Mac's In Progress, Home's, and its Watched, what's
-    /// watched through.
+    /// Home's are those in progress (movies partway, seasons begun), as
+    /// are the Mac's In Progress; Watched's, what's watched through.
     @MainActor func tiles(in library: Library, search: String = "") -> [Tile] {
         #if os(macOS)
         let downloaded = self == .downloaded ? library.downloadedTiles : []
@@ -56,7 +52,6 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
             case .movies: !tile.isSeries
             case .series: tile.isSeries
             case .watchlist: library.watchlist.contains(tile.id)
-            case .played: tile.played
             case .watched: tile.watched
             case .downloaded: downloaded.contains(tile.id)
             }
@@ -72,7 +67,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         let noun = switch self {
         case .movies: titles == 1 ? "movie" : "movies"
         case .series: "series"
-        case .home, .inProgress, .watchlist, .played, .watched, .downloaded: titles == 1 ? "title" : "titles"
+        case .home, .inProgress, .watchlist, .watched, .downloaded: titles == 1 ? "title" : "titles"
         }
         if !search.isEmpty {
             let matching = Set(tiles(in: library, search: search).map(\.key)).count
@@ -91,7 +86,6 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         case .home, .inProgress: "What you're watching shows here."
         case .watched: "What you've watched shows here."
         case .watchlist: "Titles you add to your watchlist show here."
-        case .played: "What you've started or watched shows here."
         case .downloaded: "What you download, to watch without a network, shows here."
         case .movies, .series: "Add sources of videos in Cinematheque on your Mac."
         }
@@ -128,11 +122,6 @@ extension Library {
         guard anySeason, tile.isSeries else { return false }
         return watchlist.contains { $0.hasPrefix(tile.key + "#") }
     }
-}
-
-extension Tile {
-    /// On the Played shelf: with progress, in progress or watched.
-    var played: Bool { started }
 }
 
 extension Array where Element == Tile {
