@@ -50,7 +50,7 @@ struct SettingsView: View {
                 Button("Leave This Library…", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive, action: askToLeave)
                 .disabled(leaving)
             } footer: {
-                Text(leaving ? "Leaving…" : problem ?? "Returns to setup, to pair this Apple TV as another of your devices, or to join another library.")
+                Text(leaving ? "Leaving…" : problem ?? "Returns to setup, to join a library again, as yours or someone else's.")
             }
         }
         .frame(maxWidth: 1100)

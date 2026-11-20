@@ -19,7 +19,6 @@ struct SetupView: View {
 /// wrong codes, asking for a new one. Pairing (`join` false) brings this
 /// device its person and the library; joining, the library, and membership.
 struct OfferedCode: View {
-    let join: Bool
     var size: CGFloat = 140
     @Environment(Library.self) private var library
     @State private var state: Library.Pairing?
@@ -38,7 +37,7 @@ struct OfferedCode: View {
                         #if os(macOS)
                         .controlSize(.small)
                         #endif
-                    Text(join ? "Waiting to be let in…" : "Waiting for your other device…")
+                    Text("Waiting to be added…")
                         .foregroundStyle(.secondary)
                 }
             } else if state?.closed == true {
@@ -48,7 +47,7 @@ struct OfferedCode: View {
         }
         .frame(maxWidth: .infinity)
         .task(id: offers) {
-            state = library.offerPairing(join: join)
+            state = library.offerPairing()
             #if DEBUG
             Launch.note(code: state?.code)
             #endif
@@ -103,14 +102,14 @@ struct CodeBoxes: View {
 #if !os(tvOS)
 private struct SetupForm: View {
     @Environment(Library.self) private var library
-    /// The offer showing its code, if any: to join (true) or to pair.
-    @State private var joining: Bool?
+    /// Whether this Mac shows a code, to be added to a library.
+    @State private var offering = false
 
     var body: some View {
         Form {
             Section {
                 if let device = library.removedBy {
-                    Label("This Mac was removed from its library (as \(device) said). Pair it again to use the library, or start another.", systemImage: "exclamationmark.triangle.fill")
+                    Label("This Mac was removed from its library (as \(device) said). Join it again to use the library, or start another.", systemImage: "exclamationmark.triangle.fill")
                 }
                 Text("A library of the movies and series your household keeps, shared among your devices.")
                     .foregroundStyle(.secondary)
@@ -118,19 +117,19 @@ private struct SetupForm: View {
                 Text("Welcome to Cinematheque").font(.largeTitle.weight(.semibold))
             }
             Section {
-                if joining == false {
-                    OfferedCode(join: false, size: 44)
+                if offering {
+                    OfferedCode(size: 44)
                 } else {
-                    Button("Pair with Your Other Device") { joining = false }
+                    Button("Join a Library") { offering = true }
                 }
             } header: {
-                Text("Another of your devices?")
+                Text("Join a library")
             } footer: {
-                Text("This Mac shows a code. On a device where you use Cinematheque, enter it in Settings > Devices, under New Devices, to be yourself here, with your progress and watchlist.")
+                Text("This Mac shows a code. On a device in the library, yours or that of someone who shares it, enter it in Cinematheque's Settings > Devices, under New Devices.")
             }
             Section {
                 Button("Create Library") {
-                    joining = nil
+                    offering = false
                     library.found()
                 }
             } header: {
@@ -138,26 +137,13 @@ private struct SetupForm: View {
             } footer: {
                 Text("You'll found it, and can add the people you share it with.")
             }
-            Section {
-                if joining == true {
-                    OfferedCode(join: true, size: 44)
-                } else {
-                    Button("Ask to Join") { joining = true }
-                }
-            } header: {
-                Text("Join someone's library")
-            } footer: {
-                Text("This Mac shows a code. Someone who shares the library enters it in Cinematheque's Settings > Devices, under New Devices, to let you in.")
-            }
         }
         .formStyle(.grouped)
         .frame(maxWidth: 640)
         .frame(maxWidth: .infinity)
         #if DEBUG
-        // `CINEMATHEQUE_TAB` names a step, as on tvOS: an offer to show.
-        .onAppear {
-            if joining == nil, let step = Launch.tab { joining = step == "joinOther" ? true : step == "pair" ? false : nil }
-        }
+        // `CINEMATHEQUE_TAB` names a step, as on tvOS: `join`, to show a code.
+        .onAppear { if Launch.tab == "join" { offering = true } }
         #endif
     }
 }

@@ -2,13 +2,17 @@
 import AppKit
 import SwiftUI
 
-/// A new device nearby offering to pair, to be another of yours or a new
-/// member's: the code it shows, entered here, pairs it (and adds its person,
-/// if joining), and `paired` moves it on.
+/// A new device nearby offering to be added: chosen as yours or someone
+/// new's, the code it shows, entered here, pairs it (and adds its person,
+/// if someone new's), and `paired` moves it on.
 struct PairRow: View {
     let device: NearbyDevice
     let paired: (NearbyDevice) -> Void
     @Environment(Library.self) private var library
+    /// Whose it is: yours (false) or someone new's (true); none until
+    /// chosen, as giving yours to someone else's device would let it act as
+    /// you.
+    @State private var join: Bool?
     @State private var code = ""
     @State private var pairing = false
     @State private var failure: String?
@@ -18,18 +22,25 @@ struct PairRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Label(device.deviceName ?? "A new device", systemImage: device.joining ? "person.crop.circle.badge.plus" : "appletv")
-                Text(device.joining ? "wants to join" : "wants to pair").foregroundStyle(.secondary)
+                Label(device.deviceName ?? "A new device", systemImage: "plus.circle")
                 Spacer()
+                Picker("Whose", selection: $join) {
+                    Text("Yours").tag(Optional(false))
+                    Text("Someone New").tag(Optional(true))
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .disabled(pairing)
                 // Before the boxes, in the row's slack: appearing, it moves
                 // nothing, the row being right-aligned.
                 if pairing {
                     ProgressView().controlSize(.small)
                 }
                 CodeField(code: $code, shakes: shakes, complete: pair)
-                    .disabled(pairing)
-                Button(device.joining ? "Add" : "Pair", action: pair)
-                    .disabled(code.count != CodeBoxes.length || pairing)
+                    .disabled(pairing || join == nil)
+                Button("Add", action: pair)
+                    .disabled(code.count != CodeBoxes.length || pairing || join == nil)
             }
             if let failure {
                 Text(failure).font(.caption).foregroundStyle(.secondary)
@@ -38,10 +49,10 @@ struct PairRow: View {
     }
 
     private func pair() {
-        guard code.count == CodeBoxes.length, !pairing else { return }
+        guard code.count == CodeBoxes.length, !pairing, let join else { return }
         pairing = true
         Task {
-            let (joined, why) = await library.pair(device, code: code)
+            let (joined, why) = await library.pair(device, code: code, join: join)
             failure = why
             pairing = false
             // A wrong code: shaken off, to type again.
@@ -52,7 +63,7 @@ struct PairRow: View {
             // Out of New Devices, and into Your Devices (or People).
             if let joined {
                 withAnimation {
-                    library.welcome(joined, from: device)
+                    library.welcome(joined, from: device, join: join)
                     paired(device)
                 }
             }

@@ -30,15 +30,15 @@ int cq_found(cq_library *library);
 // Leaves the library, as a device removed from it does (a sync's error is
 // "Removed"), forgetting it and this device's identity, to pair afresh.
 int cq_leave(cq_library *library);
-// Pairing: on a new device, before it has a library, offering to pair
-// (serving and advertising as name), to pair it to a member's person or (join
-// nonzero) to join as a new member, with a code to show; and checking
-// whether it's paired (taking the library, and if pairingAsYours, the person's
-// secret) or closed (too many wrong codes). On a member's device, long,
-// pairing the one offering at url (a pairing device's) given its code, which
-// returns its keys (person, to add a new member by, and device, to name it
-// by with cq_name).
-char *cq_pair_offer(cq_library *library, const char *name, int join);
+// Pairing: on a new device, before it has a library, offering to be added
+// (serving and advertising as name), with a code to show; and checking
+// whether it's paired (taking the library, and if added as a member's
+// device, the person's secret) or closed (too many wrong codes). On a
+// member's device, long, pairing the one offering at url (a pairing
+// device's) given its code, as this person's device or (join nonzero) a
+// new member's, which returns its keys (person, to add a new member by, and
+// device, to name it by with cq_name).
+char *cq_pair_offer(cq_library *library, const char *name);
 char *cq_pair_check(cq_library *library);
 void cq_pair_stop(cq_library *library);
 char *cq_pair(cq_library *library, const char *url, int join, const char *code);

@@ -88,7 +88,7 @@ The apps browse the library by cover art: movies, and each series by season. Cho
 
 In a browser, `cinematheque serve --web` offers the library at `http://<host>:8008/`, to browse and play from any computer on your network, as the person whose device it is; see [cli/README.md](cli/README.md#in-a-browser).
 
-On first run, an app creates a library, or pairs with one of your devices or someone's library by a code it shows; the Mac's Settings manage sources, people, and devices, so a household needs no command line. The Mac app uses the same data directory as the command-line app on that Mac, so either can manage the library.
+On first run, an app creates a library, or joins one by a code it shows; the Mac's Settings manage sources, people, and devices, so a household needs no command line. The Mac app uses the same data directory as the command-line app on that Mac, so either can manage the library.
 
 ## Downloading
 
@@ -98,7 +98,7 @@ Downloads go to `~/Movies/Cinematheque` (Settings > Downloads changes it), wait 
 
 ## Sharing a library
 
-A library is shared by pairing: the new device shows a 6-digit code, and someone already in the library enters it, in the Mac app under Settings > Devices › New Devices, or with the command-line app. Pair as another of your own devices to use the library as yourself, with your progress and watchlist; or as someone new, who joins as a member. The code seals what's sent, so only the device showing it can open it, and the new device stops after 3 wrong tries. [cli/README.md](cli/README.md#sharing-a-library) covers the command line, and pairing from off your network.
+A library is shared by joining: the new device shows a 6-digit code, and someone already in the library enters it, in the Mac app under Settings > Devices > New Devices, or with the command-line app, choosing whose device it is. Add it as yours to use the library as yourself, with your progress and watchlist; or as someone new's, who joins as a member. The code seals what's sent, so only the device showing it can open it, and the new device stops after 3 wrong tries. [cli/README.md](cli/README.md#sharing-a-library) covers the command line, and pairing from off your network.
 
 Devices find each other on your network, and while an app runs, it shares the library with your other devices, and syncs with them every minute and whenever you make a change. Each device checks, by signature, that every change comes from a member, so a device that relays the library can't alter it, and it serves the library only to members' devices. Removing a member stops their later changes everywhere, while what they did before stands; removing one of your devices does the same for that device.
 

@@ -18,17 +18,17 @@ pub fn person(app: *App, c: Command) !void {
     if (c.is("show", 0, &.{})) {
         try app.out.print("{s}\n", .{hex(try app.person())});
     } else if (c.is("pair", 0, &.{})) {
-        try network.offerPairing(app, .pair);
+        try network.offerPairing(app);
     } else if (c.is("pair", 1, &.{}) or c.is("pair", 2, &.{})) {
         _ = try pairWith(app, c, .pair);
     } else return error.Usage;
 }
 
 /// Pairs the new device showing the code `c.rest[0]` (found nearby, or at
-/// `c.rest[1]`), offering for `kind`, and names it as it advertised itself;
+/// `c.rest[1]`), as `kind` makes it, and names it as it advertised itself;
 /// returns its person's key.
 fn pairWith(app: *App, c: Command, kind: core.pair.Kind) ![32]u8 {
-    const new: Offering = if (c.rest.len == 2) .{ .url = c.rest[1], .name = "" } else try offering(app, kind);
+    const new: Offering = if (c.rest.len == 2) .{ .url = c.rest[1], .name = "" } else try offering(app);
     var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
     defer client.deinit();
     const joined = try core.pair.send(app.io, app.arena, &client, new.url, kind, c.rest[0], .{
@@ -48,11 +48,11 @@ fn pairWith(app: *App, c: Command, kind: core.pair.Kind) ![32]u8 {
 
 const Offering = struct { url: []const u8, name: []const u8 };
 
-/// The one new device nearby offering to pair for `kind`.
-fn offering(app: *App, kind: core.pair.Kind) !Offering {
+/// The one new device nearby offering to pair.
+fn offering(app: *App) !Offering {
     var found: ?Offering = null;
     for (try core.discover.browse(app.io, app.arena, 2000)) |s| {
-        if (s.host.len == 0 or !std.mem.eql(u8, s.get("pair") orelse "", @tagName(kind))) continue;
+        if (s.host.len == 0 or s.get("pair") == null) continue;
         if (found != null) return error.SeveralOffering;
         found = .{
             .url = try std.fmt.allocPrint(app.arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse core.pair.path }),
@@ -87,7 +87,7 @@ pub fn library(app: *App, c: Command) !void {
         try lib.setCrawlEvery(&r, app.now(), hours);
         if (hours == 0) try app.out.print("sources are crawled only when asked\n", .{}) else try app.out.print("sources are crawled every {d} hours\n", .{hours});
     } else if (c.is("join", 0, &.{})) {
-        try network.offerPairing(app, .join);
+        try network.offerPairing(app);
     } else if (c.is("create", 0, &.{})) {
         try app.store.setFounder(app.arena, try app.person());
         var r = try app.open();

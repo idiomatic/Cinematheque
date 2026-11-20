@@ -42,7 +42,7 @@ pair() {
     $cq --data $1 ${=2} > $log 2>&1 &
     local offer_pid=$!
     for _ in {1..100}; do grep -q "on port" $log && break; sleep 0.1; done
-    local code=$(grep -o '[0-9]\{6\}$' $log)
+    local code=$(grep -o 'code [0-9]\{6\}' $log | grep -o '[0-9]*$')
     local port=$(grep -o 'on port [0-9]*' $log | grep -o '[0-9]*$')
     $cq --data $3 ${=4} $code http://127.0.0.1:$port/pair
     wait $offer_pid

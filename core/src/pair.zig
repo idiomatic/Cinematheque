@@ -12,8 +12,10 @@
 //! Over HTTP, at `/pair` on the new device: `GET` starts an attempt,
 //! answering its session ID and the new device's share; `POST` answers it
 //! with the session ID, the other device's share, and the sealed secrets,
-//! and is answered with the new device's sealed person and device keys. What the offer is
-//! for (`Kind`) goes into the key, so it can't be changed on the way.
+//! and is answered with the new device's sealed person and device keys. The
+//! member's device decides what the new one is (`Kind`): sent the person's
+//! secret, another of the person's devices; sent none (zeros), a new
+//! member's. The new device makes one offer, for either.
 
 const std = @import("std");
 const Io = std.Io;
@@ -29,13 +31,21 @@ pub const max_failures = 3;
 
 pub const Code = [6]u8;
 
-/// What an offer is for: pairingAsYours another of the person's devices (it gets
-/// the person's secret), or a new member's joining (it doesn't).
+/// What the member's device makes of a new device: another of its person's
+/// devices (it gets the person's secret), or a new member's (it doesn't).
 pub const Kind = enum { pair, join };
 
 /// What's sent: the person's seed (its secret; zeros when joining) and the
 /// library's founder's key.
-pub const Secrets = struct { person: [32]u8, founder: [32]u8 };
+pub const Secrets = struct {
+    person: [32]u8,
+    founder: [32]u8,
+
+    /// Whether they make the new device a new member's (no secret sent).
+    pub fn joining(s: Secrets) bool {
+        return std.mem.allEqual(u8, &s.person, 0);
+    }
+};
 
 const sid_length = 16;
 const challenge_length = sid_length + 32;
@@ -70,12 +80,14 @@ fn lv(h: *Sha512, data: []const u8) void {
 
 /// The session's generator, from the code: a point no one knows the
 /// discrete log of, so a share made from it tests one code only.
-fn generator(code: []const u8, kind: Kind, sid: [sid_length]u8) Ristretto255 {
+fn generator(code: []const u8, sid: [sid_length]u8) Ristretto255 {
     var h = Sha512.init(.{});
     lv(&h, "CPaceRistretto255");
     lv(&h, code);
     lv(&h, "Cinematheque pairing");
-    lv(&h, @tagName(kind));
+    // Once what the offer was for; now always this, as offers for pairing
+    // were, so those still pair.
+    lv(&h, "pair");
     lv(&h, &sid);
     var uniform: [64]u8 = undefined;
     h.final(&uniform);
@@ -87,9 +99,9 @@ const Share = struct {
     scalar: [32]u8,
     point: [32]u8,
 
-    fn init(io: Io, code: []const u8, kind: Kind, sid: [sid_length]u8) !Share {
+    fn init(io: Io, code: []const u8, sid: [sid_length]u8) !Share {
         const scalar = Ristretto255.scalar.random(io);
-        return .{ .scalar = scalar, .point = (try generator(code, kind, sid).mul(scalar)).toBytes() };
+        return .{ .scalar = scalar, .point = (try generator(code, sid).mul(scalar)).toBytes() };
     }
 };
 
@@ -149,7 +161,6 @@ fn nonceOne() [Aead.nonce_length]u8 {
 /// answer through it, and the main thread reads what it received.
 pub const Offer = struct {
     code: Code,
-    kind: Kind,
     /// This device's person's key, and its own, to answer with.
     person: [32]u8,
     device: [32]u8,
@@ -184,7 +195,7 @@ pub const Offer = struct {
         if (o.attempt) |a| if (a.started.durationTo(now).toMilliseconds() < o.reuse_ms) return a.sid ++ a.share.point;
         var sid: [sid_length]u8 = undefined;
         io.random(&sid);
-        const share = try Share.init(io, &o.code, o.kind, sid);
+        const share = try Share.init(io, &o.code, sid);
         o.attempt = .{ .sid = sid, .share = share, .started = now };
         return sid ++ share.point;
     }
@@ -247,7 +258,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     return true;
 }
 
-/// Sends `secrets` to the new device at `url` (its `/pair`), offering for
+/// Sends `secrets` to the new device at `url` (its `/pair`), making it
 /// `kind`, given the code it shows (when joining, the person's secret isn't
 /// sent). Returns the new device's keys, its person's and its own.
 pub fn send(io: Io, arena: std.mem.Allocator, client: *http.Client, url: []const u8, kind: Kind, code: []const u8, secrets: Secrets) !Joined {
@@ -266,7 +277,7 @@ pub fn send(io: Io, arena: std.mem.Allocator, client: *http.Client, url: []const
     if (challenge.len != challenge_length) return error.Malformed;
     const sid = challenge[0..sid_length].*;
     const theirs = challenge[sid_length..][0..32].*;
-    const share = try Share.init(io, code, kind, sid);
+    const share = try Share.init(io, code, sid);
     const key = try sessionKey(share, theirs, sid, share.point, theirs);
     const sent: Secrets = .{ .person = if (kind == .pair) secrets.person else @splat(0), .founder = secrets.founder };
     const body = sid ++ share.point ++ seal(key, sent);
@@ -291,10 +302,10 @@ pub fn send(io: Io, arena: std.mem.Allocator, client: *http.Client, url: []const
 
 /// The sending side without HTTP, for tests: answers a challenge, and
 /// the key to read the reply with.
-fn answerFor(io: Io, challenge: [challenge_length]u8, kind: Kind, code: []const u8, secrets: Secrets) !struct { [answer_length]u8, [32]u8 } {
+fn answerFor(io: Io, challenge: [challenge_length]u8, code: []const u8, secrets: Secrets) !struct { [answer_length]u8, [32]u8 } {
     const sid = challenge[0..sid_length].*;
     const theirs = challenge[sid_length..][0..32].*;
-    const share = try Share.init(io, code, kind, sid);
+    const share = try Share.init(io, code, sid);
     const key = try sessionKey(share, theirs, sid, share.point, theirs);
     return .{ sid ++ share.point ++ seal(key, secrets), key };
 }
@@ -302,21 +313,21 @@ fn answerFor(io: Io, challenge: [challenge_length]u8, kind: Kind, code: []const 
 test "the right code pairs, and the reply carries the new person; wrong ones count" {
     const io = std.testing.io;
     const secrets: Secrets = .{ .person = @splat(7), .founder = @splat(9) };
-    var offer: Offer = .{ .code = "042917".*, .kind = .pair, .person = @splat(3), .device = @splat(4), .reuse_ms = 0 };
+    var offer: Offer = .{ .code = "042917".*, .person = @splat(3), .device = @splat(4), .reuse_ms = 0 };
 
     for (0..max_failures - 1) |_| {
         const c = try offer.challenge(io);
-        const wrong, _ = try answerFor(io, c, .pair, "042918", secrets);
+        const wrong, _ = try answerFor(io, c, "042918", secrets);
         try std.testing.expectError(error.WrongCode, offer.answer(io, &wrong));
     }
     // An answer to an attempt since replaced is refused, uncounted.
     const stale = try offer.challenge(io);
     _ = try offer.challenge(io);
-    const late, _ = try answerFor(io, stale, .pair, "042917", secrets);
+    const late, _ = try answerFor(io, stale, "042917", secrets);
     try std.testing.expectError(error.NoAttempt, offer.answer(io, &late));
 
     const c = try offer.challenge(io);
-    const right, const key = try answerFor(io, c, .pair, "042917", secrets);
+    const right, const key = try answerFor(io, c, "042917", secrets);
     const reply = try offer.answer(io, &right);
     try std.testing.expectEqualDeep(Joined{ .person = @splat(3), .device = @splat(4) }, try openReply(key, &reply));
     const got, const closed = offer.outcome(io);
@@ -328,30 +339,33 @@ test "the right code pairs, and the reply carries the new person; wrong ones cou
 test "asking again soon doesn't end the attempt under way, which still takes one guess" {
     const io = std.testing.io;
     const secrets: Secrets = .{ .person = @splat(7), .founder = @splat(9) };
-    var offer: Offer = .{ .code = "042917".*, .kind = .pair, .person = @splat(3), .device = @splat(4) };
+    var offer: Offer = .{ .code = "042917".*, .person = @splat(3), .device = @splat(4) };
     const c = try offer.challenge(io);
     // Someone else asks meanwhile, and is given the same attempt.
     try std.testing.expectEqualSlices(u8, &c, &(try offer.challenge(io)));
-    const right, _ = try answerFor(io, c, .pair, "042917", secrets);
+    const right, _ = try answerFor(io, c, "042917", secrets);
     _ = try offer.answer(io, &right);
     // Taken, an attempt takes no second answer.
     try std.testing.expectError(error.Closed, offer.answer(io, &right));
 }
 
-test "an offer to join isn't taken as one to pair" {
+test "the member's device decides: a new member's gets no secret" {
     const io = std.testing.io;
-    var offer: Offer = .{ .code = "123456".*, .kind = .join, .person = @splat(3), .device = @splat(4) };
+    var offer: Offer = .{ .code = "123456".*, .person = @splat(3), .device = @splat(4) };
     const c = try offer.challenge(io);
-    const pairingAsYours, _ = try answerFor(io, c, .pair, "123456", .{ .person = @splat(7), .founder = @splat(9) });
-    try std.testing.expectError(error.WrongCode, offer.answer(io, &pairingAsYours));
+    const joining, _ = try answerFor(io, c, "123456", .{ .person = @splat(0), .founder = @splat(9) });
+    _ = try offer.answer(io, &joining);
+    const got, _ = offer.outcome(io);
+    try std.testing.expect(got.?.joining());
+    try std.testing.expect(!(Secrets{ .person = @splat(7), .founder = @splat(9) }).joining());
 }
 
 test "too many wrong codes close it" {
     const io = std.testing.io;
-    var offer: Offer = .{ .code = "111111".*, .kind = .pair, .person = @splat(3), .device = @splat(4) };
+    var offer: Offer = .{ .code = "111111".*, .person = @splat(3), .device = @splat(4) };
     for (0..max_failures) |_| {
         const c = try offer.challenge(io);
-        const wrong, _ = try answerFor(io, c, .pair, "222222", .{ .person = @splat(1), .founder = @splat(2) });
+        const wrong, _ = try answerFor(io, c, "222222", .{ .person = @splat(1), .founder = @splat(2) });
         try std.testing.expectError(error.WrongCode, offer.answer(io, &wrong));
     }
     _, const closed = offer.outcome(io);

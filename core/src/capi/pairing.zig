@@ -27,22 +27,22 @@ pub const Pairing = struct {
     host: Host,
 };
 
-/// On a new device, before it has a library: offers to pair, to be another
-/// of a member's person's devices (`join` zero), or to join as a new member,
-/// serving and advertising by DNS-SD (as `name`, for the other device to
-/// show) until paired or `cq_pair_stop`. Returns its state, as
+/// On a new device, before it has a library: offers to be added to one, as
+/// another of a member's devices or a new member's, as the member's device
+/// decides, serving and advertising by DNS-SD (as `name`, for the other
+/// device to show) until paired or `cq_pair_stop`. Returns its state, as
 /// `cq_pair_check` does, with a new code. Offering again starts over, with
 /// another code.
-export fn cq_pair_offer(lib: *Library, name: [*:0]const u8, join: c_int) ?[*:0]u8 {
-    return json(lib, pairOffer, .{ std.mem.span(name), if (join != 0) pair.Kind.join else pair.Kind.pair });
+export fn cq_pair_offer(lib: *Library, name: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, pairOffer, .{std.mem.span(name)});
 }
 
-fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, kind: pair.Kind) !PairJson {
+fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8) !PairJson {
     if (lib.replica != null) return error.LibraryExists;
     stopPairing(lib);
     const p = try gpa.create(Pairing);
     errdefer gpa.destroy(p);
-    p.offer = .{ .code = pair.newCode(lib.io()), .kind = kind, .person = try lib.store.person(), .device = try lib.store.device() };
+    p.offer = .{ .code = pair.newCode(lib.io()), .person = try lib.store.person(), .device = try lib.store.device() };
     p.arena = .init(gpa);
     errdefer p.arena.deinit();
     const a = p.arena.allocator();
@@ -52,7 +52,7 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, kind: pa
         .options = .{ .host = "0.0.0.0", .port = 0, .handler = p.offer.handler() },
         .name = try std.fmt.allocPrintSentinel(a, "{s}", .{try lib.store.serviceName(arena)}, 0),
         .txt = try discover.txtRecord(a, &.{
-            .{ "pair", @tagName(kind) },
+            .{ "pair", "new" },
             .{ "path", pair.path },
             .{ "name", name[0..@min(name.len, 200)] },
         }),
@@ -63,8 +63,8 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, kind: pa
 }
 
 /// On a new device offering to pair: its state, as JSON: `code` (to show,
-/// while it offers), `paired` (it has the library, and if pairing as theirs, its
-/// person, and has stopped offering), and `closed` (it stopped, after too
+/// while it offers), `paired` (it has the library, and if added as a
+/// member's device, its person, and has stopped offering), and `closed` (it stopped, after too
 /// many wrong codes; offer again for a new one).
 export fn cq_pair_check(lib: *Library) ?[*:0]u8 {
     return json(lib, pairCheck, .{});
@@ -74,9 +74,8 @@ fn pairCheck(lib: *Library, arena: std.mem.Allocator) !PairJson {
     const p = lib.pairing orelse return .{ .code = null, .paired = lib.replica != null, .closed = lib.replica == null };
     const received, const closed = p.offer.outcome(lib.io());
     if (received) |secrets| {
-        const kind = p.offer.kind;
         stopPairing(lib);
-        if (kind == .pair) try lib.store.pair(arena, &std.fmt.bytesToHex(secrets.person, .lower));
+        if (!secrets.joining()) try lib.store.pair(arena, &std.fmt.bytesToHex(secrets.person, .lower));
         try openFounded(lib, arena, secrets.founder);
         return .{ .code = null, .paired = true, .closed = false };
     }
@@ -101,9 +100,9 @@ pub fn stopPairing(lib: *Library) void {
 }
 
 /// Long: pairs the new device offering at `url` (a `pairing` device's, from
-/// `cq_nearby`, offering to `pair` or to `join`, as `join` says), given the
-/// code it shows: sends it the library's founder's key, and if pairingAsYours,
-/// this person's secret, which it takes only if the code is right. Returns
+/// `cq_nearby`), given the code it shows, as another of this person's
+/// devices, or with nonzero `join`, a new member's: sends it the library's
+/// founder's key, and if this person's, this person's secret, which it takes only if the code is right. Returns
 /// its keys, as JSON: `person` (this person's, once paired; else a new
 /// member's, to be added by `cq_member`) and `device` (to name it by, with
 /// `cq_name`). Fails with

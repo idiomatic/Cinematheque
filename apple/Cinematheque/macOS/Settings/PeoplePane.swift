@@ -23,7 +23,7 @@ struct PeoplePane: View {
             } header: {
                 Text("People")
             } footer: {
-                Text("Everyone who shares the library sees your name. To add someone, they choose Join Someone's Library on their device, which shows a code: enter it in Devices, under New Devices. Removing someone refuses what they change from then on; their devices leave the library the next time each catches up.")
+                Text("Everyone who shares the library sees your name. To add someone, they choose Join a Library on their device, which shows a code: enter it in Devices, under New Devices, as someone new's. Removing someone refuses what they change from then on; their devices leave the library the next time each catches up.")
             }
         }
         .formStyle(.grouped)

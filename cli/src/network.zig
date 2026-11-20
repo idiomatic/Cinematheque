@@ -82,26 +82,23 @@ pub fn serve(p: *App, c: Command) !void {
     try host.wait();
 }
 
-pub fn offerPairing(p: *App, kind: core.pair.Kind) !void {
+pub fn offerPairing(p: *App) !void {
     if (p.store.founder(p.arena)) |_| return error.LibraryExists else |_| {}
-    var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .kind = kind, .person = try p.person(), .device = try p.store.device() };
+    var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .person = try p.person(), .device = try p.store.device() };
     var host: core.host.Host = .{
         .io = p.io,
         .gpa = p.gpa,
         .options = .{ .host = "0.0.0.0", .port = 0, .handler = offer.handler() },
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
         .txt = try core.discover.txtRecord(p.arena, &.{
-            .{ "pair", @tagName(kind) },
+            .{ "pair", "new" },
             .{ "path", core.pair.path },
             .{ "name", try advertisedName(p) },
         }),
     };
     try host.start();
     defer host.stop();
-    try p.out.print("{s} {s}\n", .{ switch (kind) {
-        .pair => "on another of your devices, pair this one with the code",
-        .join => "on a member's device, let this one join with the code",
-    }, offer.code });
+    try p.out.print("on a member's device, add this one with the code {s}: as theirs (person pair), or as a new person's (member pair)\n", .{offer.code});
     // For a device that can't find this one nearby, as `pair CODE URL`.
     try p.out.print("listening for it on port {d}, at /pair\n", .{host.port});
     try p.out.flush();
@@ -109,7 +106,7 @@ pub fn offerPairing(p: *App, kind: core.pair.Kind) !void {
         try p.io.sleep(.fromSeconds(1), .awake);
         const received, const closed = offer.outcome(p.io);
         if (received) |secrets| {
-            if (kind == .pair) try p.store.pair(p.arena, &std.fmt.bytesToHex(secrets.person, .lower));
+            if (!secrets.joining()) try p.store.pair(p.arena, &std.fmt.bytesToHex(secrets.person, .lower));
             try p.store.setFounder(p.arena, secrets.founder);
             try p.out.print("paired: this device acts as person {s}, in the library {s} founded\n", .{ std.fmt.bytesToHex(try p.person(), .lower), std.fmt.bytesToHex(secrets.founder, .lower) });
             return;

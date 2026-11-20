@@ -166,12 +166,10 @@ struct NearbyDevice: Codable, Identifiable, Hashable {
     /// Its person is a member.
     let member: Bool
     let added: Bool
-    /// For a new device offering to pair (`url` is where to pair it), what
-    /// for: `pair`, to be another of this person's, or `join`, a new member's.
+    /// For a new device offering to be added (`url` is where to pair it):
+    /// `new`, as the member's device decides what it is.
     let pairing: String?
     var id: String { url }
-    var pairingAsYours: Bool { pairing == "pair" }
-    var joining: Bool { pairing == "join" }
     /// Its device's and person's names, if they advertise any. tvOS tells
     /// apps only a generic name ("Apple TV") without an entitlement Apple
     /// grants, but its host is named for the Apple TV, so that stands in.
@@ -453,13 +451,13 @@ final class Library {
         let closed: Bool
     }
 
-    /// On this device, before it has a library: offers to pair, to be
-    /// another of a member's devices or (`join`) a new member's, with a new
-    /// code.
-    func offerPairing(join: Bool) -> Pairing? {
+    /// On this device, before it has a library: offers to be added to one,
+    /// as a member's device decides (another of theirs, or a new member's),
+    /// with a new code.
+    func offerPairing() -> Pairing? {
         // As setup leaves, once paired, its screen may ask once more.
         guard !hasLibrary else { return nil }
-        return decode(Pairing.self) { cq_pair_offer($0, Platform.deviceName, join ? 1 : 0) }
+        return decode(Pairing.self) { cq_pair_offer($0, Platform.deviceName) }
     }
 
     /// The offer's state; once paired, this device has its person and library.
@@ -478,12 +476,13 @@ final class Library {
     }
 
     /// Pairs the new device `device`, given the code it shows: sends it the
-    /// library, and to pair it, this person's secret. Returns who it is
-    /// (for `welcome`), or what went wrong, in words.
-    func pair(_ device: NearbyDevice, code: String) async -> (Paired?, String?) {
+    /// library, and unless it's a new person's (`join`), this person's
+    /// secret. Returns who it is (for `welcome`), or what went wrong, in
+    /// words.
+    func pair(_ device: NearbyDevice, code: String, join: Bool) async -> (Paired?, String?) {
         guard let handle else { return (nil, "The library isn't open.") }
         let url = device.url
-        let join: Int32 = device.joining ? 1 : 0
+        let join: Int32 = join ? 1 : 0
         let name = device.deviceName ?? "The device"
         let (paired, failure): (Paired?, String?) = await Task.detached {
             guard let text = cq_pair(handle.pointer, url, join, code) else { return (nil, String(cString: cq_error())) }
@@ -536,13 +535,13 @@ final class Library {
 
     /// Takes in a device just paired: names it as it advertised itself, or
     /// as its host is named if that's generic (until it names itself), so
-    /// it's among its person's devices at once, and if it's joining, adds
-    /// its person as a member.
-    func welcome(_ paired: Paired, from device: NearbyDevice) {
+    /// it's among its person's devices at once, and if it's a new person's
+    /// (`join`), adds its person as a member.
+    func welcome(_ paired: Paired, from device: NearbyDevice, join: Bool) {
         if let name = device.deviceName {
             check(reload: false) { cq_name($0, paired.device, paired.person, name) }
         }
-        if device.joining { check(reload: false) { cq_member($0, paired.person, 1) } }
+        if join { check(reload: false) { cq_member($0, paired.person, 1) } }
         reload()
     }
 

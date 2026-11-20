@@ -57,15 +57,15 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 ### People and libraries
 
 * `person show` prints this person's key, as `member remove` and `library handover` take it.
-* `person pair`, on a new device without a library, prints a 6-digit code, and the port it listens on, and waits. Meanwhile it serves `/pair` on that port and advertises itself (`pair=pair`, named by the computer's host name). `person pair CODE` on one of the person's devices finds it nearby, or at the URL given, and sends it the person's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its person.
-* `library create` founds a library with this person as founder, and prints its ID. `library join` offers a code, as `person pair` does, for a member's `member pair CODE`. Pairing is the only way to pair or join, so the person's seed is never shown.
+* `person pair`, on a new device without a library, prints a 6-digit code, and the port it listens on, and waits. Meanwhile it serves `/pair` on that port and advertises itself (`pair=new`, named by the computer's host name). On a member's device, `person pair CODE` finds it nearby, or at the URL given, and adds it as another of this person's devices, sending it the person's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device then prints whose it is and exits. A sender that found it nearby names it, as it advertised itself, under its person.
+* `library create` founds a library with this person as founder, and prints its ID. `library join` offers a code, as `person pair` does. A code is the only way in, so the person's seed is never shown.
 * `library show` prints the library's ID, founder, member count, and digest. The digest is a hash of every field's winning value, so two devices that have synced fully print the same one.
 * `library handover PERSON` makes a member the founder; this person stays a member unless `--leave`. Only the founder may.
 
 ### Members
 
 * `member list` prints the members' keys, marking the founder and you.
-* `member pair CODE [URL]` admits the person of a new device offering to join, and sends it the library's founder.
+* `member pair CODE [URL]` adds a new device offering a code as a new member's, admitting its person, and sends it the library's founder.
 * `device list` prints this person's devices (named or not), and `device remove DEVICE` removes one: its later writes are refused, and when it next syncs it's told so, signed, and prints that it should `library leave`, which forgets the library and its identity so it can pair again as a new device.
 * `member remove PERSON` removes a member, except the founder. Their devices' writes up to what this device has seen stand; later ones are refused everywhere.
 

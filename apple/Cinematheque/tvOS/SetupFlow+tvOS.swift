@@ -4,7 +4,7 @@ import SwiftUI
 /// Setting up on an Apple TV, as tvOS apps do: the app's name over a few
 /// large choices, each a screen of its own with one thing to enter.
 struct SetupFlow: View {
-    enum Step: String, Hashable { case pair, joinOther }
+    enum Step: String, Hashable { case join }
 
     @Environment(Library.self) private var library
     @State private var path: [Step] = []
@@ -23,13 +23,12 @@ struct SetupFlow: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                     if let device = library.removedBy {
-                        Label("This Apple TV was removed from its library (as \(device) said). Pair it again to use the library.", systemImage: "exclamationmark.triangle.fill")
+                        Label("This Apple TV was removed from its library (as \(device) said). Join it again to use the library.", systemImage: "exclamationmark.triangle.fill")
                             .font(.headline)
                     }
                 }
                 VStack(spacing: 24) {
-                    NavigationLink(value: Step.pair) { Choice("I Use Cinematheque on Another Device") }
-                    NavigationLink(value: Step.joinOther) { Choice("Join Someone's Library") }
+                    NavigationLink(value: Step.join) { Choice("Join a Library") }
                     Button { library.found() } label: { Choice("Start a New Library") }
                 }
             }
@@ -40,17 +39,10 @@ struct SetupFlow: View {
             #endif
             .navigationDestination(for: Step.self) { step in
                 switch step {
-                case .pair:
+                case .join:
                     PairingStep(
-                        join: false,
-                        title: "Pair with Your Mac",
-                        detail: "On your Mac, open Cinematheque's Settings, then Devices, and under New Devices, enter this code beside this Apple TV's name."
-                    )
-                case .joinOther:
-                    PairingStep(
-                        join: true,
                         title: "Join a Library",
-                        detail: "On their Mac, someone who shares the library opens Cinematheque's Settings, then Devices, and under New Devices, enters this code beside this Apple TV's name."
+                        detail: "On a Mac in the library, yours or that of someone who shares it, open Cinematheque's Settings, then Devices, and under New Devices, enter this code beside this Apple TV's name."
                     )
                 }
             }
@@ -58,10 +50,9 @@ struct SetupFlow: View {
     }
 }
 
-/// Pairing with a member's device, by a code to enter there: to be another
-/// of that person's devices, or (`join`) a new member's.
+/// Joining by a code to enter on a member's device, which decides whether
+/// this is another of that person's devices or a new member's.
 private struct PairingStep: View {
-    let join: Bool
     let title: String
     let detail: String
     @Environment(Library.self) private var library
@@ -73,7 +64,7 @@ private struct PairingStep: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            OfferedCode(join: join)
+            OfferedCode()
             if let problem = library.problem {
                 Label(problem, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.secondary)

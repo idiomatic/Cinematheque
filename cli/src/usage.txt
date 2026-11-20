@@ -15,8 +15,10 @@ device list prints it.
 
   person show                  print this person's key
   person pair                  on a new device, show a code (and the port
-                               it listens on), and wait for another of the
-                               person's devices to pair this one with it
+                               it listens on), and wait for a member's
+                               device to add this one, as another of theirs
+                               (person pair CODE) or a new person's (member
+                               pair CODE); library join does the same
   person pair CODE [URL]       pair the new device showing CODE (found
                                nearby, or at URL), sending it this person's
                                secret and the library's founder; found
@@ -26,10 +28,7 @@ device list prints it.
   library show                 print the library's ID, founder, member
                                count, digest, and how often it's crawled
   library create               create a library, founded by this person
-  library join                 on a new device, show a code (and the port
-                               it listens on), and wait for a member's
-                               device to let this person join with it
-                               (member pair)
+  library join                 on a new device, as person pair
   library leave                forget the library and this device's
                                identity, as a device removed from it must,
                                to pair again as a new device
