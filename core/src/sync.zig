@@ -244,7 +244,8 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     const repairing = if (request.head.content_type) |t| std.mem.eql(u8, t, repair_type) else false;
 
     var body_buf: [64 * 1024]u8 = undefined;
-    const body = request.readerExpectNone(&body_buf);
+    // A client may ask to be told to go on (curl does, for a large body).
+    const body = try request.readerExpectContinue(&body_buf);
     // A push's or repair's request comes first, its length before it; a
     // pull's is the whole body.
     const head = if (pushed or repairing) blk: {

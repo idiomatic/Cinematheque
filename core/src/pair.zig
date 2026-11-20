@@ -241,7 +241,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         },
         .POST => {
             var body_buf: [1024]u8 = undefined;
-            const body = try request.readerExpectNone(&body_buf).allocRemaining(gpa, .limited(1024));
+            const body = try (try request.readerExpectContinue(&body_buf)).allocRemaining(gpa, .limited(1024));
             defer gpa.free(body);
             const reply = o.answer(io, body) catch |err| {
                 try request.respond(@errorName(err), .{ .status = switch (err) {

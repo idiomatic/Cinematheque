@@ -80,14 +80,23 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     if (try w.next.function(w.next.context, io, gpa, request)) return true;
     const target = request.head.target;
     const path = target[0 .. std.mem.indexOfScalar(u8, target, '?') orelse target.len];
-    for (files) |f| if (std.mem.eql(u8, path, f.path) or (std.mem.eql(u8, f.path, "/") and std.mem.eql(u8, path, "/index.html"))) {
-        try request.respond(f.body, .{ .extra_headers = &.{
+    const page = for (files) |f| {
+        if (std.mem.eql(u8, path, f.path) or (std.mem.eql(u8, f.path, "/") and std.mem.eql(u8, path, "/index.html"))) break f;
+    } else null;
+    if (page == null and !std.mem.startsWith(u8, path, "/api/")) return false;
+    // Only this page's own, by an address no other site can take, so a
+    // page elsewhere can't read the library, or act as this person.
+    if (!fromThisPage(request)) {
+        try request.respond("Forbidden", .{ .status = .forbidden, .extra_headers = &guarded });
+        return true;
+    }
+    if (page) |f| {
+        try request.respond(f.body, .{ .extra_headers = &([_]http.Header{
             .{ .name = "content-type", .value = f.type },
             .{ .name = "cache-control", .value = "no-cache" },
-        } });
+        } ++ guarded) });
         return true;
-    };
-    if (!std.mem.startsWith(u8, path, "/api/")) return false;
+    }
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -98,9 +107,64 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
             error.BadRequest, error.SyntaxError, error.UnexpectedEndOfInput, error.InvalidCharacter, error.Overflow => .bad_request,
             else => .internal_server_error,
         };
-        try request.respond(@errorName(err), .{ .status = status });
+        try request.respond(@errorName(err), .{ .status = status, .extra_headers = &guarded });
     };
     return true;
+}
+
+/// What every answer of the web client's says: not to be framed by another
+/// site's page, nor read as another type than it says.
+const guarded = [_]http.Header{
+    .{ .name = "x-frame-options", .value = "DENY" },
+    .{ .name = "x-content-type-options", .value = "nosniff" },
+};
+
+fn header(request: *http.Server.Request, name: []const u8) ?[]const u8 {
+    var it = request.iterateHeaders();
+    while (it.next()) |h| if (std.ascii.eqlIgnoreCase(h.name, name)) return h.value;
+    return null;
+}
+
+/// Whether a request is this page's own. Its host must be one no other
+/// site can be (an address, `localhost`, a `.local` or single-label name,
+/// or this computer's), so a site that rebinds its own name to this
+/// device's address is refused; and a change (a POST) must be JSON, from
+/// this origin, which a page elsewhere can't send without asking first.
+fn fromThisPage(request: *http.Server.Request) bool {
+    const host = header(request, "host") orelse return false;
+    if (!privateHost(host)) return false;
+    if (header(request, "sec-fetch-site")) |site| if (!std.mem.eql(u8, site, "same-origin") and !std.mem.eql(u8, site, "none")) return false;
+    if (header(request, "origin")) |origin| {
+        const rest = if (std.mem.startsWith(u8, origin, "http://")) origin[7..] else if (std.mem.startsWith(u8, origin, "https://")) origin[8..] else return false;
+        if (!std.ascii.eqlIgnoreCase(rest, host)) return false;
+    }
+    if (request.head.method == .POST) {
+        const t = request.head.content_type orelse return false;
+        if (!std.mem.startsWith(u8, t, "application/json")) return false;
+    }
+    return true;
+}
+
+fn privateHost(host_port: []const u8) bool {
+    if (std.mem.startsWith(u8, host_port, "[")) return true; // an IPv6 address
+    const name = host_port[0 .. std.mem.lastIndexOfScalar(u8, host_port, ':') orelse host_port.len];
+    if (name.len == 0) return false;
+    if (std.Io.net.Ip4Address.parse(name, 0)) |_| return true else |_| {}
+    if (std.ascii.eqlIgnoreCase(name, "localhost") or std.mem.indexOfScalar(u8, name, '.') == null) return true;
+    if (name.len > 6 and std.ascii.eqlIgnoreCase(name[name.len - 6 ..], ".local")) return true;
+    var buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
+    const own = std.posix.gethostname(&buf) catch return false;
+    return std.ascii.eqlIgnoreCase(name, own);
+}
+
+test "the web client answers only its own page" {
+    try std.testing.expect(privateHost("192.168.1.20:8008"));
+    try std.testing.expect(privateHost("[fe80::1]:8008"));
+    try std.testing.expect(privateHost("localhost:8008"));
+    try std.testing.expect(privateHost("art.local:8008"));
+    try std.testing.expect(privateHost("art:8008"));
+    try std.testing.expect(!privateHost("rebind.skynet.example:8008"));
+    try std.testing.expect(!privateHost(":8008"));
 }
 
 fn query(target: []const u8) []const u8 {
@@ -151,7 +215,7 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     if (request.head.method != .POST) return error.NotFound;
 
     var body_buf: [4096]u8 = undefined;
-    const body = try request.readerExpectNone(&body_buf).allocRemaining(arena, .limited(64 * 1024));
+    const body = try (try request.readerExpectContinue(&body_buf)).allocRemaining(arena, .limited(64 * 1024));
     if (std.mem.eql(u8, name, "race")) {
         const urls = try std.json.parseFromSliceLeaky([]const []const u8, arena, body, .{});
         var r = try open(w, io, gpa);
@@ -200,10 +264,10 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
 
 fn sendJson(arena: std.mem.Allocator, request: *http.Server.Request, value: anytype) !void {
     const text = try core.json.valueAlloc(arena, value);
-    try request.respond(text, .{ .extra_headers = &.{
+    try request.respond(text, .{ .extra_headers = &([_]http.Header{
         .{ .name = "content-type", .value = "application/json" },
         .{ .name = "cache-control", .value = "no-store" },
-    } });
+    } ++ guarded) });
 }
 
 /// Whether every URL is within one of the library's sources (of its
@@ -262,10 +326,10 @@ fn cover(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
         if (offset > bytes.len or length > bytes.len - offset) return error.NotFound;
         break :blk bytes[offset..][0..length];
     } else bytes;
-    try request.respond(image, .{ .extra_headers = &.{
+    try request.respond(image, .{ .extra_headers = &([_]http.Header{
         .{ .name = "content-type", .value = imageType(image) },
         .{ .name = "cache-control", .value = "max-age=31536000, immutable" },
-    } });
+    } ++ guarded) });
 }
 
 fn imageType(bytes: []const u8) []const u8 {
@@ -283,10 +347,10 @@ fn thumb(arena: std.mem.Allocator, request: *http.Server.Request, hash_base64: [
     std.base64.standard.Decoder.decode(hash[0..len], hash_base64) catch return error.BadRequest;
     var rgba: [core.thumbhash.max_pixels * 4]u8 = undefined;
     const rendered = core.thumbhash.decode(hash[0..len], &rgba) catch return error.BadRequest;
-    try request.respond(try bmp(arena, rendered.width, rendered.height, &rgba), .{ .extra_headers = &.{
+    try request.respond(try bmp(arena, rendered.width, rendered.height, &rgba), .{ .extra_headers = &([_]http.Header{
         .{ .name = "content-type", .value = "image/bmp" },
         .{ .name = "cache-control", .value = "max-age=31536000, immutable" },
-    } });
+    } ++ guarded) });
 }
 
 /// RGBA pixels as a 24-bit BMP: a 54-byte header, then rows bottom-up, each
