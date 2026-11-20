@@ -42,7 +42,7 @@ struct SetupFlow: View {
                 case .join:
                     PairingStep(
                         title: "Join a Library",
-                        detail: "On a Mac in the library, yours or that of someone who shares it, open Cinematheque's Settings, then Devices, and under New Devices, enter this code beside this Apple TV's name."
+                        detail: "On a device in the library, yours or that of someone who shares it, open Cinematheque's Settings: on a Mac, Devices, then under New Devices, enter this code beside this Apple TV's name; on an Apple TV, Your Devices or People, then Add, and choose this Apple TV."
                     )
                 }
             }

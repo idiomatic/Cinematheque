@@ -1,10 +1,12 @@
 #if os(tvOS)
 import SwiftUI
 
-/// The Apple TV's settings, its tab bar's last: its name and its person's,
-/// Refresh Library, and Leave This Library…, which returns to setup, to
-/// pair again as another's device or join another library. Adding sources
-/// and people stays on the Mac.
+/// The Apple TV's settings, its tab bar's last: its name and its person's;
+/// the library's people, your devices, and its sources, each a page for
+/// adding and removing them, as the Mac's panes; Refresh Library; and
+/// Leave This Library…, which returns to setup, to pair again as another's
+/// device or join another library. A Mac's folders, and what sets a
+/// source's quality, stay on the Mac.
 struct SettingsView: View {
     @Environment(Library.self) private var library
     @State private var confirmingLeave = false
@@ -13,8 +15,9 @@ struct SettingsView: View {
     @State private var problem: String?
     /// The name whose keyboard is up.
     @State private var naming: Library.Named?
-    /// Whether Look for New Videos' choices are open.
-    @State private var choosingInterval = false
+    /// The page open, if one is.
+    @State private var page: Page?
+    enum Page: Hashable { case people, devices, sources, interval }
     @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
     /// The focused row, whose explanation shows under the picture.
     @FocusState private var focus: SettingsRow?
@@ -52,12 +55,23 @@ struct SettingsView: View {
             }
             .listRowInsets(Self.rowInsets)
             Section {
+                pageRow("People", library.members.count, .people)
+                    .settingsRow(.people, $focus)
+                pageRow("Your Devices", library.devices.count, .devices)
+                    .settingsRow(.devices, $focus)
+            } header: {
+                Text("Sharing").bold()
+            }
+            .listRowInsets(Self.rowInsets)
+            Section {
+                pageRow("Sources", library.sources.filter { !$0.managed }.count, .sources)
+                    .settingsRow(.sources, $focus)
                 Button("Refresh Library") {
                     Task { await library.refresh() }
                 }
                 .disabled(library.activity != nil || leaving)
                 .settingsRow(.refresh, $focus)
-                Button { choosingInterval = true } label: {
+                Button { page = .interval } label: {
                     ValueLabel(title: "Look for New Videos", opens: true, value: Library.crawlChoices.first { $0.hours == library.crawlEvery }?.name ?? "")
                 }
                 .settingsRow(.interval, $focus)
@@ -80,8 +94,24 @@ struct SettingsView: View {
         }
         // Narrowed, it would clip a focused row, which grows past its edges.
         .scrollClipDisabled()
-        .navigationDestination(isPresented: $choosingInterval) { IntervalPage() }
+        .navigationDestination(item: $page) { page in
+            switch page {
+            case .people: PeoplePage()
+            case .devices: DevicesPage()
+            case .sources: SourcesPage()
+            case .interval: IntervalPage()
+            }
+        }
         #if DEBUG
+        // `CINEMATHEQUE_PAGE`: a page to open (adding, from its list's).
+        .onAppear {
+            switch Launch.page {
+            case "people", "add-someone": page = .people
+            case "devices", "add-device": page = .devices
+            case "sources": page = .sources
+            default: break
+            }
+        }
         // Once the library's people are read.
         .task(id: me?.key) {
             guard me != nil, let how = Launch.leave else { return }
@@ -114,6 +144,13 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You founded this library, and this Apple TV is your only device in it, so someone takes over as its founder before it leaves.")
+        }
+    }
+
+    /// A row opening a page, with how many it lists.
+    private func pageRow(_ title: String, _ count: Int, _ opens: Page) -> some View {
+        Button { page = opens } label: {
+            ValueLabel(title: title, opens: true, value: count.formatted())
         }
     }
 
@@ -156,8 +193,8 @@ struct SettingsView: View {
 }
 
 /// A row of Settings, by what it does.
-private enum SettingsRow: Hashable {
-    case device, person, refresh, interval, activity, leave
+enum SettingsRow: Hashable {
+    case device, person, people, devices, sources, refresh, interval, activity, leave
 
     /// Shown under the picture as the row's focused, and read by VoiceOver
     /// as its hint, since what's shown only on focus it never reaches.
@@ -165,6 +202,9 @@ private enum SettingsRow: Hashable {
         switch self {
         case .device: "A name your other devices know this Apple TV by, so you can tell it apart from them."
         case .person: "Your name, so others in the library know whose devices are whose."
+        case .people: "Share the library with the people you watch with: each keeps their own progress and watchlist. Add someone, or remove them."
+        case .devices: "Add your other devices, such as an Apple TV in another room, so they share your progress and watchlist; rename or remove them."
+        case .sources: "The servers that hold your videos, such as a NAS. Add one by its address, or remove one."
         case .refresh: "Added videos to a server or folder? Refresh to see them now, rather than waiting for the next look."
         case .interval: "Look more often to see new videos sooner, or less often to let a NAS's disks rest; each look wakes them."
         case .activity: "Shows when your devices catch up with one another, to check that a change made elsewhere has arrived."
@@ -187,7 +227,7 @@ private extension View {
 /// under the title; and for a row opening something, a chevron (measured
 /// against the system's: 18 by 32 points, 32 after the value and 36 short
 /// of the plate's edge, scaling with the text).
-private struct ValueLabel: View {
+struct ValueLabel: View {
     let title: String
     var opens = false
     let value: String
@@ -266,7 +306,7 @@ private struct IntervalPage: View {
 /// screen wide, what the focused row does; the list from there to 4% short
 /// of the right edge, in the system's row text size (`.headline`), under
 /// the tab bar.
-private struct SettingsPage<List: View>: View {
+struct SettingsPage<List: View>: View {
     /// A subpage's title, at the top in the middle, as the system's are
     /// (SwiftUI's navigation title sits lower and pushes the list down).
     var title: String?
@@ -342,10 +382,12 @@ private struct SettingsPage<List: View>: View {
 
 /// A UIKit text field, unseen, whose keyboard comes up full screen as
 /// `typing` turns on, holding `text`; `submit` takes what's typed when it's
-/// submitted, not when it's dismissed.
-private struct KeyboardField: UIViewRepresentable {
+/// submitted, not when it's dismissed. Its `keyboard` is digits for a
+/// pairing code, or for an address, one without capitals or corrections.
+struct KeyboardField: UIViewRepresentable {
     let title: String
     let text: String
+    var keyboard: UIKeyboardType = .default
     @Binding var typing: Bool
     let submit: (String) -> Void
 
@@ -353,6 +395,12 @@ private struct KeyboardField: UIViewRepresentable {
         let field = UITextField()
         field.delegate = context.coordinator
         field.returnKeyType = .done
+        field.keyboardType = keyboard
+        if keyboard != .default {
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+            field.spellCheckingType = .no
+        }
         // No plate of its own, which would show through the row's.
         field.borderStyle = .none
         field.backgroundColor = .clear

@@ -60,6 +60,22 @@ struct OfferedCode: View {
     }
 }
 
+/// Who's nearby, often, so a new device shows soon after it offers to
+/// pair.
+struct Nearby: ViewModifier {
+    @Environment(Library.self) private var library
+    @Binding var devices: [NearbyDevice]
+
+    func body(content: Content) -> some View {
+        content.task {
+            while !Task.isCancelled {
+                devices = await library.nearby()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+}
+
 /// A pairing code's six digits, a squircle each, in two groups of three
 /// (as codes are read): filled as far as `digits` goes, the rest empty,
 /// so the boxes show how long a code is before it's typed. The box the
@@ -160,7 +176,7 @@ private struct SetupForm: View {
     private var joinStep: some View {
         VStack(spacing: 20) {
             Text("Join a Library").font(.title.weight(.semibold))
-            Text("On a Mac in the library, open Cinematheque's Settings > Devices, and enter this code beside this Mac.")
+            Text("On a device in the library, open Cinematheque's Settings: on a Mac, Devices, and enter this code beside this Mac; on an Apple TV, Your Devices or People, then Add, and choose this Mac.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Spacer(minLength: 0)

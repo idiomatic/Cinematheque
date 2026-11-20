@@ -49,6 +49,33 @@ enum Launch {
     }
     private static var left = false
 
+    /// `CINEMATHEQUE_PAGE`, once a launch (tvOS, on Settings): a page to
+    /// open: `people`, `devices`, or `sources`; or `add-device` or
+    /// `add-someone`, the page for adding one, from Devices or People.
+    static var page: String? { once("CINEMATHEQUE_PAGE") }
+
+    /// Whether `CINEMATHEQUE_PAGE` is a page for adding, once a launch, for
+    /// the page it's from to open it.
+    static var adds: Bool {
+        guard taken.insert("adds").inserted else { return false }
+        return env["CINEMATHEQUE_PAGE"]?.hasPrefix("add-") == true
+    }
+
+    /// `CINEMATHEQUE_PAIR`, once a launch (tvOS, adding a device or
+    /// someone): the code to enter for the first new device found.
+    static var pair: String? { once("CINEMATHEQUE_PAIR") }
+
+    /// `CINEMATHEQUE_SERVER`, once a launch (tvOS, on Sources): an
+    /// address to add, as Add Server does.
+    static var server: String? { once("CINEMATHEQUE_SERVER") }
+
+    private static var taken: Set<String> = []
+
+    private static func once(_ name: String) -> String? {
+        guard taken.insert(name).inserted else { return nil }
+        return env[name]
+    }
+
     /// `CINEMATHEQUE_ITEM`: the item the URL played is a copy of, for its
     /// progress (macOS).
     static var item: String? { env["CINEMATHEQUE_ITEM"] }

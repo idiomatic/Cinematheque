@@ -54,9 +54,18 @@ extension Library {
         guard let failure else { return (paired, nil) }
         switch failure {
         case "WrongCode": return (nil, "That isn't the code \(name) shows. Check it, and try again.")
-        case "Closed": return (nil, "\(name) stopped taking codes from this Mac after too many wrong ones. On it, show a new code.")
+        case "Closed": return (nil, "\(name) stopped taking codes from \(Self.thisDevice) after too many wrong ones. On it, show a new code.")
         default: return (nil, "Couldn't pair with \(name): \(failure).")
         }
+    }
+
+    /// This device, as a person calls it.
+    static var thisDevice: String {
+        #if os(tvOS)
+        "this Apple TV"
+        #else
+        "this Mac"
+        #endif
     }
 
     /// Renames another of this person's devices (or this one), for every

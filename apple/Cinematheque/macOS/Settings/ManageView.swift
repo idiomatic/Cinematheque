@@ -57,20 +57,4 @@ struct Looking: View {
         }
     }
 }
-
-/// Who's nearby, often, so a new device shows soon after it offers to
-/// pair.
-struct Nearby: ViewModifier {
-    @Environment(Library.self) private var library
-    @Binding var devices: [NearbyDevice]
-
-    func body(content: Content) -> some View {
-        content.task {
-            while !Task.isCancelled {
-                devices = await library.nearby()
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
-    }
-}
 #endif
