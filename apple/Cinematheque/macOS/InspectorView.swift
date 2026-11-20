@@ -154,7 +154,7 @@ struct InspectorView: View {
             }
             .padding(.bottom, 6)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                EpisodeRow(item: item, detail: detail, quality: quality) {
+                ItemRow(item: item, detail: detail, quality: quality) {
                     if let request = Playback.request(detail, items: items, from: index, quality: quality) { play(request) }
                 }
                 Divider()
@@ -171,23 +171,10 @@ struct InspectorView: View {
                 qualityPicker(detail.items)
             }
             .padding(.bottom, 6)
-            ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
-                HStack {
-                    Button {
-                        if let request = Playback.request(detail, items: [item], from: 0, quality: quality) { play(request) }
-                    } label: {
-                        Image(systemName: item.watched ? "checkmark.circle.fill" : "play.circle")
-                            .font(.title3)
-                            .foregroundStyle(item.watched ? Color.secondary : Color.accentColor)
-                    }
-                    .buttonStyle(.plain)
-                    StandIn(text: item.label, item: item, quality: quality, detail: detail)
-                    Spacer()
-                    if let runtime = item.runtime {
-                        Text(runtime).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                    }
+            ForEach(detail.items) { item in
+                ItemRow(item: item, detail: detail, quality: quality) {
+                    if let request = Playback.request(detail, items: [item], from: 0, quality: quality) { play(request) }
                 }
-                .padding(.vertical, 6)
                 Divider()
             }
         }
@@ -217,7 +204,9 @@ struct InspectorView: View {
     }
 }
 
-private struct EpisodeRow: View {
+/// A version, part, or episode: played by its button, with its download's
+/// mark, and its downloading and watched mark in its context menu.
+private struct ItemRow: View {
     let item: TitleDetail.Item
     let detail: TitleDetail
     let quality: String?
@@ -236,7 +225,7 @@ private struct EpisodeRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     StandIn(text: item.name, item: item, quality: quality, detail: detail)
-                        .lineLimit(1)
+                        .lineLimit(item.season == nil ? nil : 1)
                     Spacer()
                     DownloadMark(key: "\(detail.key)/\(item.key)")
                     if let runtime = item.runtime {
@@ -254,7 +243,7 @@ private struct EpisodeRow: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .contextMenu {
-            DownloadMenuItems(key: "\(detail.key)/\(item.key)", item: item, quality: quality)
+            DownloadMenuItems(key: "\(detail.key)/\(item.key)", items: [item], title: detail.key, quality: quality)
             Divider()
             Button(item.watched ? "Mark as Unwatched" : "Mark as Watched") {
                 library.setWatched("\(detail.key)/\(item.key)", !item.watched)
@@ -263,7 +252,7 @@ private struct EpisodeRow: View {
     }
 }
 
-/// Downloading to this Mac: a movie (the version Play plays), or for a
+/// Downloading to this Mac: a movie (see `TitleDetail.downloadTarget`), or for a
 /// season, which of its series' episodes download as it's watched, a
 /// choice that changes only when a person picks another; a gauge of how far
 /// they've come while any comes; and deleting them (which sets the choice to Nothing, if it
@@ -286,8 +275,8 @@ private struct DownloadControls: View {
         Group {
             if let season {
                 seasonControls(season)
-            } else if let item = items.first {
-                movieControls("\(detail.key)/\(item.key)")
+            } else if let target = detail.downloadTarget {
+                movieControls(target)
             }
         }
         .task(id: "\(library.revision) \(library.downloadedBytes) \(detail.key) \(season ?? -1) \(quality ?? "")") {
@@ -296,8 +285,8 @@ private struct DownloadControls: View {
                 let asked = items.map { "\(detail.key)/\($0.key)" }.filter(library.isRequested)
                 let each = asked.compactMap { library.downloadSizes($0, choices: [""])[""] }
                 requested = .init(choice: "", size: each.reduce(0) { $0 + $1.size }, needed: each.reduce(0) { $0 + $1.needed })
-            } else if let item = items.first {
-                sizes = library.downloadSizes("\(detail.key)/\(item.key)", choices: [""], quality: quality)
+            } else if let target = detail.downloadTarget {
+                sizes = library.downloadSizes(target.key, choices: [""], quality: quality)
             }
         }
     }
@@ -324,19 +313,26 @@ private struct DownloadControls: View {
     /// deleting once it's here, dimmed while neither. Keeping it is in the
     /// tile's context menu, as an episode's is in its row's.
     @ViewBuilder
-    private func movieControls(_ key: String) -> some View {
-        let held = library.isDownloaded(key)
-        let coming = !held && library.isWanted(key)
+    private func movieControls(_ target: (key: String, items: [TitleDetail.Item], name: String)) -> some View {
+        let key = target.key
+        let keys = target.items.map { "\(detail.key)/\($0.key)" }
+        let held = keys.allSatisfy(library.isDownloaded)
+        let coming = !held && keys.contains(where: library.isWanted)
         let size = sizes[""]
+        // Of several versions, the one it downloads, by name.
+        let what = detail.items.count > 1 ? "Download \(target.name)" : "Download"
         HStack {
             // Its size, all its files', fixed for the quality picked; orange
-            // if what isn't here yet wouldn't fit.
-            Button(size.map { "Download \(Self.bytes($0.size))" } ?? "Download", systemImage: "arrow.down.circle") { library.download(key, quality: quality) }
+            // if what isn't here yet wouldn't fit. Another quality by
+            // Control-click.
+            Button(size.map { "\(what) \(Self.bytes($0.size))" } ?? what, systemImage: "arrow.down.circle") { library.download(key, quality: quality) }
                 .foregroundStyle(fits(size) ? AnyShapeStyle(.foreground) : AnyShapeStyle(.orange))
                 .buttonStyle(.bordered)
                 .disabled(held || coming)
                 .help(fits(size) ? "Download to watch offline" : "More than downloads have room for")
-            DownloadGauge(value: library.downloadProgress([key], of: size))
+                // Under a heading, as Show in Finder's places are.
+                .contextMenu { if !held && !coming { Section("Download in") { DownloadInItems(key: key, items: target.items) } } }
+            DownloadGauge(value: library.downloadProgress(keys, of: size))
                 .opacity(coming ? 1 : 0)
             Spacer()
             showInFinder
@@ -480,30 +476,52 @@ private struct DownloadGauge: View {
     }
 }
 
-/// An item's download, in its context menu (an episode's row's, or a
-/// movie's tile's).
+/// A download, in a context menu (a row's, or a movie's tile's): `key`,
+/// downloading `items` of the title `title`.
 struct DownloadMenuItems: View {
     let key: String
-    let item: TitleDetail.Item
+    let items: [TitleDetail.Item]
+    let title: String
     let quality: String?
     @Environment(Library.self) private var library
 
     var body: some View {
-        let file = library.fileHere(item)
-        if let file {
-            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+        let files = items.compactMap(library.fileHere)
+        if !files.isEmpty {
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(files) }
         }
         // Every place that holds it, if there's more than Show in Finder's.
-        let places = library.places([item])
-        if places.count > (file == nil ? 0 : 1) {
-            Menu("Show Files") { PlaceItems(items: [item]) }
+        let places = library.places(items)
+        if places.count > (files.isEmpty ? 0 : 1) {
+            Menu("Show Files") { PlaceItems(items: items) }
         }
-        if library.isDownloaded(key) {
+        let keys = items.map { "\(title)/\($0.key)" }
+        if keys.allSatisfy(library.isDownloaded) {
             Button(library.onlyCopies(key) > 0 ? "Delete Only Copy…" : "Delete Download") { library.deleteDownload(key) }
-        } else if library.isWanted(key) {
+        } else if keys.contains(where: library.isWanted) {
             Button("Cancel Download") { library.removeDownload(key) }
         } else {
             Button("Download") { library.download(key, quality: quality) }
+            Menu("Download in") { DownloadInItems(key: key, items: items) }
+        }
+    }
+}
+
+/// Downloading in a quality of one's choosing, the picker's aside: each the
+/// items have, by its short name, with what its files come to.
+struct DownloadInItems: View {
+    let key: String
+    let items: [TitleDetail.Item]
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        ForEach(QualityChoice.labels(items), id: \.self) { label in
+            let qualities = items.compactMap { $0.qualities.first { $0.label == label } }
+            let size = qualities.reduce(0) { $0 + ($1.copies.first?.size ?? 0) }
+            let short = qualities.first?.short ?? label
+            Button("\(short) — \(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))") {
+                library.download(key, quality: label)
+            }
         }
     }
 }

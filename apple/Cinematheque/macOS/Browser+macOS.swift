@@ -289,8 +289,8 @@ struct CoverGrid: View {
                     .contextMenu {
                         // A movie's download (the version Play plays), as an
                         // episode's is in its row's.
-                        if tile.season == nil, let detail = library.detail(tile.key), let item = detail.items.first {
-                            DownloadMenuItems(key: "\(tile.key)/\(item.key)", item: item, quality: nil)
+                        if tile.season == nil, let detail = library.detail(tile.key), let target = detail.downloadTarget {
+                            DownloadMenuItems(key: target.key, items: target.items, title: tile.key, quality: nil)
                             Divider()
                         }
                         let listed = library.isListed(tile)

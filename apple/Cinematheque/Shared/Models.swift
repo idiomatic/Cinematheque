@@ -86,6 +86,8 @@ struct TitleDetail: Codable {
         /// The one Play plays, of its season or the movie's versions, as
         /// the core decides.
         let next: Bool
+        /// A movie's item's version, its parts' alike ("Standard").
+        var version: String?
         var id: String { key }
 
         /// An episode's season and number (a special's, 0).

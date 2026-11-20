@@ -27,6 +27,22 @@ extension TitleDetail {
     }
 }
 
+extension TitleDetail {
+    /// What a movie's Download downloads, as the version Play plays: an
+    /// item alone, if it's a whole file; a version of parts alone, all its
+    /// parts. With its key, and its name among the movie's versions.
+    var downloadTarget: (key: String, items: [Item], name: String)? {
+        guard let item = items.first(where: \.next) ?? items.first else { return nil }
+        if let part = item.key.range(of: "/p/") {
+            let version = String(item.key[..<part.lowerBound])
+            if !items.contains(where: { $0.key == version }) {
+                return ("\(key)/\(version)", items.filter { $0.key.hasPrefix(version + "/p/") }, item.version ?? item.label)
+            }
+        }
+        return ("\(key)/\(item.key)", [item], item.label)
+    }
+}
+
 extension TitleDetail.Item {
     /// Its runtime, e.g., "44m" or "1h 49m".
     var runtime: String? { fields["duration"].flatMap(Int.init).flatMap(Runtime.format) }

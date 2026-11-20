@@ -71,6 +71,9 @@ pub const ItemJson = struct {
     duration: u64,
     watched: bool,
     next: bool,
+    /// A movie's item's version, its parts' alike ("Standard",
+    /// "Extended"); empty for an episode.
+    version: []const u8 = "",
 };
 
 pub const Title = struct {
@@ -130,6 +133,7 @@ pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
             .duration = item.progress.duration_ms,
             .watched = item.progress.watched,
             .next = false,
+            .version = if (code == null) try wholeLabel(arena, item.key, item.fields, null) else "",
         };
     }
     try shortNames(arena, items);
@@ -362,7 +366,7 @@ fn markNext(arena: std.mem.Allocator, items: []ItemJson) ![]const u16 {
 
 /// A quality's resolution's lines, from its label or name ("1080p",
 /// "2160p", "4K"), if either says.
-fn height(label: []const u8, name: []const u8) ?u16 {
+pub fn height(label: []const u8, name: []const u8) ?u16 {
     for ([_][]const u8{ label, name }) |text| {
         var i: usize = 0;
         while (i < text.len) : (i += 1) {

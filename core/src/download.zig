@@ -25,6 +25,7 @@ const Io = std.Io;
 const library = @import("library.zig");
 const race = @import("race.zig");
 const art = @import("art.zig");
+const views = @import("views.zig");
 const Replica = @import("replica.zig").Replica;
 
 /// One file to fetch.
@@ -40,9 +41,11 @@ pub const File = struct {
 };
 
 /// The files of `key`: a title (`t/m/alien/1979`), a season of a series
-/// (`t/s/firefly/-/e/s01`), or an item (`t/s/firefly/-/e/s01e02`). Each
-/// item's file is of `quality` if given (items without it are left out),
-/// else of the quality most of them have, so a season comes alike.
+/// (`t/s/firefly/-/e/s01`), a version (its parts, if it has no whole
+/// file), or an item (`t/s/firefly/-/e/s01e02`, that file alone). Each
+/// item's file is of `quality` if given (else, as players play it, the
+/// nearest at or below its resolution, else above), else of the quality
+/// most of them have, so a season comes alike.
 pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, quality: ?[]const u8) ![]File {
     const title_end = titleEnd(key) orelse return error.NotFound;
     const d = try library.detail(replica, arena, key[0..title_end]) orelse return error.NotFound;
@@ -53,7 +56,8 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, qualit
     for (try library.sources(replica, arena)) |rp| if (!rp.managed) try bases.put(arena, try arena.dupe(u8, &rp.id), rp.url);
 
     var items: std.ArrayList(library.Item) = .empty;
-    for (d.items.items) |item| if (within(item.key, below)) try items.append(arena, item);
+    const exact = hasItem(d, below);
+    for (d.items.items) |item| if (covers(item.key, below, exact)) try items.append(arena, item);
     if (items.items.len == 0) return error.NotFound;
     const label = quality orelse commonest(items.items);
 
@@ -61,7 +65,7 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, qualit
     for (items.items) |item| {
         const r = for (item.qualities.items) |r| {
             if (std.mem.eql(u8, r.label, label)) break r;
-        } else if (quality != null) continue else item.qualities.items[0];
+        } else if (quality != null) nearest(item.qualities.items, label) orelse continue else item.qualities.items[0];
         var urls: std.ArrayList([]const u8) = .empty;
         var path: ?[]const u8 = null;
         var size: u64 = 0;
@@ -84,6 +88,34 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, qualit
         });
     }
     return files.items;
+}
+
+/// Whether a title has an item of exactly this key (below the title's).
+fn hasItem(d: library.Detail, below: []const u8) bool {
+    for (d.items.items) |item| if (std.mem.eql(u8, item.key, below)) return true;
+    return false;
+}
+
+/// Whether `key` (below its title's) covers an item: an item's key, that
+/// item alone (`exact`), else every item within it.
+fn covers(item: []const u8, below: []const u8, exact: bool) bool {
+    return if (exact) std.mem.eql(u8, item, below) else within(item, below);
+}
+
+/// The quality an item lacking `label` plays in its place: the nearest at
+/// or below its resolution, else the nearest above; null if either's
+/// resolution is unknown.
+fn nearest(qualities: []const library.Quality, label: []const u8) ?library.Quality {
+    const target = views.height(label, label) orelse return null;
+    var below: ?library.Quality = null;
+    var above: ?library.Quality = null;
+    for (qualities) |q| {
+        const h = views.height(q.label, q.label) orelse continue;
+        if (h <= target) {
+            if (below == null or h > views.height(below.?.label, below.?.label).?) below = q;
+        } else if (above == null or h < views.height(above.?.label, above.?.label).?) above = q;
+    }
+    return below orelse above;
 }
 
 /// Where a title's key ends within `key` (its first four segments).
@@ -791,17 +823,18 @@ pub fn remove(io: Io, arena: std.mem.Allocator, replica: *Replica, writer: ?*Io.
     defer dir.close(io);
     const title_end = titleEnd(key) orelse return error.NotFound;
     const below = if (title_end < key.len) key[title_end + 1 ..] else "";
+    const exact = if (try library.detail(replica, arena, key[0..title_end])) |d| hasItem(d, below) else false;
     var out: Reconciled = .{};
     for (try held(replica, arena, s.source)) |h| {
         if (!std.mem.startsWith(u8, h.item, key[0..title_end]) or h.item.len <= title_end or h.item[title_end] != '/') continue;
-        if (!within(h.item[title_end + 1 ..], below)) continue;
+        if (!covers(h.item[title_end + 1 ..], below, exact)) continue;
         try delete(io, arena, dir, replica, writer, wall_ms, s.source, h, &out);
     }
     // Wanted but not yet fetched, too.
     for (try replica.localKeys(arena, want_prefix)) |k| {
         const wanted = k[want_prefix.len..];
         if (!std.mem.startsWith(u8, wanted, key[0..title_end]) or wanted.len <= title_end or wanted[title_end] != '/') continue;
-        if (within(wanted[title_end + 1 ..], below)) try replica.removeLocal(k);
+        if (covers(wanted[title_end + 1 ..], below, exact)) try replica.removeLocal(k);
     }
     return out.deleted;
 }
@@ -831,7 +864,20 @@ test "a title's, season's, or item's files, in the quality most have" {
     const one = try plan(&r, arena, "t/s/firefly/-/e/s01e01", "720p");
     try testing.expectEqual(1, one.len);
     try testing.expectEqual(100, one[0].size);
-    try testing.expectEqual(1, (try plan(&r, arena, "t/s/firefly/-", "720p")).len);
+    // Those without 720p come in the nearest quality: none lower, so 1080p.
+    const all = try plan(&r, arena, "t/s/firefly/-", "720p");
+    try testing.expectEqual(3, all.len);
+    try testing.expectEqualStrings("1080p", all[1].quality);
+    // A version with parts and a whole file: its key, the whole alone; a
+    // version of parts alone, its parts.
+    try r.write(2, "t/m/gandhi/1982/v/-/r/1080p", held_field, "Gandhi (1982).m4v\t300\t1");
+    try r.write(2, "t/m/gandhi/1982/v/-/p/1/r/1080p", held_field, "Gandhi (1982) - Part 1.m4v\t150\t1");
+    try r.write(2, "t/m/gandhi/1982/v/-/p/2/r/1080p", held_field, "Gandhi (1982) - Part 2.m4v\t150\t1");
+    try r.write(2, "t/m/gandhi/1982/v/extended/p/1/r/1080p", held_field, "Gandhi (1982) - Extended Part 1.m4v\t150\t1");
+    try r.write(2, "t/m/gandhi/1982/v/extended/p/2/r/1080p", held_field, "Gandhi (1982) - Extended Part 2.m4v\t150\t1");
+    try testing.expectEqual(1, (try plan(&r, arena, "t/m/gandhi/1982/v/-", null)).len);
+    try testing.expectEqual(2, (try plan(&r, arena, "t/m/gandhi/1982/v/extended", null)).len);
+    try testing.expectEqual(5, (try plan(&r, arena, "t/m/gandhi/1982", null)).len);
     try testing.expectError(error.NotFound, plan(&r, arena, "t/s/serenity/2005", null));
 }
 
