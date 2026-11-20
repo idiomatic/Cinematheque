@@ -100,11 +100,14 @@ pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
             for (rn.copies.items, copies) |h, *c| {
                 const rp = bases.get(h.source);
                 c.* = .{ .url = if (rp) |b| try art.fileUrl(arena, b.url, h.path) else "", .size = h.size, .mtime = h.mtime, .source = h.source, .unavailable = h.unavailable };
-                // The quality's name as its sources give it.
-                if (rp) |b| if (b.layout.quality.len > 0) {
-                    name = b.layout.quality;
-                };
+                // The quality's name as its sources give it: its folder's, or
+                // the source's.
+                if (rp) |b| {
+                    if (library.named(b.layout, h.path).folder) |f| name = f //
+                    else if (b.layout.quality.len > 0) name = b.layout.quality;
+                }
             }
+            name = try fullName(arena, rn.label, name);
             ro.* = .{ .label = rn.label, .name = name, .short = "", .height = height(rn.label, name), .copies = copies };
         }
         const code = episodeCode(item.key);
@@ -227,7 +230,10 @@ fn shortNames(arena: std.mem.Allocator, items: []ItemJson) !void {
 }
 
 fn short(arena: std.mem.Allocator, label: []const u8, full: []const u8) ![]const u8 {
-    if (std.mem.eql(u8, label, "-")) return if (std.mem.eql(u8, full, "-")) "Other" else full;
+    // A duplicate (`1080p~2`), as its quality, numbered: "1080p 2".
+    const dup = duplicate(label);
+    if (dup.n) |n| return std.fmt.allocPrint(arena, "{s} {s}", .{ try short(arena, dup.base, full), n });
+    if (std.mem.eql(u8, label, "-")) return "Other";
     const text = try std.ascii.allocLowerString(arena, try std.fmt.allocPrint(arena, "{s} {s}", .{ label, full }));
     const resolution: []const u8 = blk: {
         var i: usize = 0;
@@ -245,6 +251,26 @@ fn short(arena: std.mem.Allocator, label: []const u8, full: []const u8) ![]const
     };
     const hdr = std.mem.indexOf(u8, text, "hdr") != null or std.mem.indexOf(u8, text, "dolby vision") != null or std.mem.indexOf(u8, text, "dovi") != null;
     return if (hdr) std.fmt.allocPrint(arena, "{s} HDR", .{resolution}) else resolution;
+}
+
+/// A label's quality, and if it's a duplicate's (`1080p~2`, a second file
+/// of one quality in one source), its number.
+fn duplicate(label: []const u8) struct { base: []const u8, n: ?[]const u8 } {
+    const tilde = std.mem.lastIndexOfScalar(u8, label, '~') orelse return .{ .base = label, .n = null };
+    const n = label[tilde + 1 ..];
+    if (n.len == 0) return .{ .base = label, .n = null };
+    for (n) |c| if (!std.ascii.isDigit(c)) return .{ .base = label, .n = null };
+    return .{ .base = label[0..tilde], .n = n };
+}
+
+/// A quality's full name: as its sources give it, else its label's, an
+/// unknown one's "Unknown quality"; a duplicate's, its quality's with its
+/// number ("Unknown quality, copy 2").
+fn fullName(arena: std.mem.Allocator, label: []const u8, name: []const u8) ![]const u8 {
+    const dup = duplicate(label);
+    var base = if (std.mem.eql(u8, name, label)) dup.base else name;
+    if (std.mem.eql(u8, base, "-")) base = "Unknown quality";
+    return if (dup.n) |n| std.fmt.allocPrint(arena, "{s}, copy {s}", .{ base, n }) else base;
 }
 
 /// A short name with what else the full name says: its words but for a
@@ -402,6 +428,10 @@ test "items' labels and names, and qualities' short names" {
 
     try std.testing.expectEqualStrings("4K HDR", try short(arena, "2160p-hdr", "2160p-hdr"));
     try std.testing.expectEqualStrings("Other", try short(arena, "-", "-"));
+    try std.testing.expectEqualStrings("Other 2", try short(arena, "-~2", "Unknown quality, copy 2"));
+    try std.testing.expectEqualStrings("1080p 2", try short(arena, "1080p~2", "1080p, copy 2"));
+    try std.testing.expectEqualStrings("Unknown quality, copy 2", try fullName(arena, "-~2", "-~2"));
+    try std.testing.expectEqualStrings("HQ 1080p30 Surround", try fullName(arena, "hq-1080p30-surround", "HQ 1080p30 Surround"));
     var qualities = [_]QualityJson{
         .{ .label = "a", .name = "HQ 720p30 Surround", .short = "", .height = 720, .copies = &.{} },
         .{ .label = "b", .name = "Very Fast 720p30", .short = "", .height = 720, .copies = &.{} },

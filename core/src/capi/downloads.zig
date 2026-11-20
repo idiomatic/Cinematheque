@@ -243,7 +243,20 @@ export fn cq_repo_set(lib: *Library, source: [*:0]const u8, quality: ?[*:0]const
 fn sourceSet(lib: *Library, arena: std.mem.Allocator, source: []const u8, quality: ?[]const u8, skip: ?[]const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
-    _ = try library.setSource(try lib.main(), arena, lib.now(), source, quality, skip);
+    _ = try library.setSource(try lib.main(), arena, lib.now(), source, quality, skip, null);
+}
+
+/// Whether a source's files take their quality from the first folder
+/// within it (nonzero), else from its name or the files'. Copies move at
+/// the next crawl.
+export fn cq_repo_quality_by_folder(lib: *Library, source: [*:0]const u8, on: c_int) c_int {
+    return status(lib, sourceByFolder, .{ std.mem.span(source), on != 0 });
+}
+
+fn sourceByFolder(lib: *Library, arena: std.mem.Allocator, source: []const u8, on: bool) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    _ = try library.setSource(try lib.main(), arena, lib.now(), source, null, null, on);
 }
 
 /// Removes a source, by ID or URL, and the copies it held.

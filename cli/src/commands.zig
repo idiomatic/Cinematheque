@@ -157,19 +157,32 @@ pub fn device(app: *App, c: Command) !void {
     } else return error.Usage;
 }
 
+/// A source's quality setting, as listed: by its folders, a name, or the
+/// files' names.
+fn qualitySetting(arena: std.mem.Allocator, layout: lib.Layout) ![]const u8 {
+    if (layout.by_folder) return "by folder";
+    return std.fmt.allocPrint(arena, "\"{s}\"", .{layout.quality});
+}
+
 pub fn source(app: *App, c: Command) !void {
-    const settings = &.{ "--quality", "--skip" };
+    const settings = &.{ "--quality", "--skip", "--quality-by" };
+    // `--quality-by folder` reads each file's quality from the first folder
+    // within the source; `name`, from the source's name or the file's.
+    const by_folder: ?bool = if (c.args.get("--quality-by")) |v|
+        (if (std.mem.eql(u8, v, "folder")) true else if (std.mem.eql(u8, v, "name")) false else return error.Usage)
+    else
+        null;
     if (c.is("list", 0, &.{})) {
         var r = try app.open();
         defer r.close();
         for (try lib.sources(&r, app.arena)) |rp|
-            try app.out.print("{s}  {s}  quality: \"{s}\", skip: \"{s}\"\n", .{ rp.id, rp.url, rp.layout.quality, rp.layout.skip });
+            try app.out.print("{s}  {s}  quality: {s}, skip: \"{s}\"\n", .{ rp.id, rp.url, try qualitySetting(app.arena, rp.layout), rp.layout.skip });
     } else if (c.is("show", 1, &.{})) {
         var r = try app.open();
         defer r.close();
         const rp = try lib.findSource(&r, app.arena, c.rest[0]);
-        try app.out.print("source     {s}\nurl        {s}\nquality    \"{s}\"\nskip       \"{s}\"\ncopies     {d}\n", .{
-            rp.id, rp.url, rp.layout.quality, rp.layout.skip, try lib.countCopies(&r, app.arena, rp),
+        try app.out.print("source     {s}\nurl        {s}\nquality    {s}\nskip       \"{s}\"\ncopies     {d}\n", .{
+            rp.id, rp.url, try qualitySetting(app.arena, rp.layout), rp.layout.skip, try lib.countCopies(&r, app.arena, rp),
         });
         for (try lib.unavailableDirs(&r, app.arena, &rp.id)) |a|
             try app.out.print("unavailable     /{s}, since {d} days ago\n", .{ a.dir, (app.now() -| a.since_ms) / (24 * 60 * 60 * 1000) });
@@ -182,12 +195,13 @@ pub fn source(app: *App, c: Command) !void {
         var layout: lib.Layout = .{};
         if (c.args.get("--quality")) |v| layout.quality = v;
         if (c.args.get("--skip")) |v| layout.skip = v;
+        layout.by_folder = by_folder orelse false;
         try app.out.print("added source {s}\n", .{try lib.addSource(&r, app.now(), typed.items, layout)});
     } else if (c.is("set", 1, settings) and c.args.count() > 0) {
         var r = try app.open();
         defer r.close();
-        const rp = try lib.setSource(&r, app.arena, app.now(), c.rest[0], c.args.get("--quality"), c.args.get("--skip"));
-        try app.out.print("{s}  quality: \"{s}\", skip: \"{s}\"; crawl to apply\n", .{ rp.id, rp.layout.quality, rp.layout.skip });
+        const rp = try lib.setSource(&r, app.arena, app.now(), c.rest[0], c.args.get("--quality"), c.args.get("--skip"), by_folder);
+        try app.out.print("{s}  quality: {s}, skip: \"{s}\"; crawl to apply\n", .{ rp.id, try qualitySetting(app.arena, rp.layout), rp.layout.skip });
     } else if (c.is("remove", 1, &.{"--unavailable"}) and c.args.get("--unavailable") != null) {
         var r = try app.open();
         defer r.close();

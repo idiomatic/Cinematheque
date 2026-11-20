@@ -50,6 +50,9 @@ int cq_member(cq_library *library, const char *person_key, int add);
 char *cq_repos(cq_library *library);
 int cq_repo_add(cq_library *library, const char *url, const char *quality, const char *skip);
 int cq_repo_set(cq_library *library, const char *source, const char *quality, const char *skip);
+// Whether a source's files take their quality from the first folder
+// within it (nonzero), else from its name or the files'.
+int cq_repo_quality_by_folder(cq_library *library, const char *source, int on);
 int cq_repo_remove(cq_library *library, const char *source);
 // Forgets an unavailable directory of a source, as if deleted.
 int cq_remove_unavailable(cq_library *library, const char *source, const char *dir);

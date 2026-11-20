@@ -131,7 +131,7 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
         // How many titles each directory holds, so a `poster.jpg` is taken
         // as a movie's only where it's the only one there.
         var titles_in: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) = .empty;
-        const series = try library.seriesByFolder(arena, source.url, c.entries);
+        const series = try library.seriesByFolder(arena, source.url, source.layout, c.entries);
         for (c.entries) |entry| {
             if (entry.is_dir or !std.mem.startsWith(u8, entry.url, source.url)) continue;
             const rel = url.decode(try arena.dupe(u8, entry.url[source.url.len..])) catch continue;
@@ -141,7 +141,7 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
                 continue;
             }
             if (!naming.isVideo(rel) or skippedPath(rel, source.layout.skip)) continue;
-            const p = try library.parseFile(arena, rel, &series);
+            const p = try library.parseFile(arena, library.named(source.layout, rel).path, &series);
             if (p.kind == .extra or p.title.len == 0) continue;
             const k = try library.keys(arena, p);
             const is_episode = p.kind == .episode;

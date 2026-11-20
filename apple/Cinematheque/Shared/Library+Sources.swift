@@ -13,6 +13,10 @@ extension Library {
         check { cq_repo_set($0, id, quality, skip) }
     }
 
+    /// Whether a source's files take their quality from the first folder
+    /// within it, by ID or URL; copies move at its next crawl.
+    func setQualityByFolder(_ source: String, _ on: Bool) { check { cq_repo_quality_by_folder($0, source, on ? 1 : 0) } }
+
     func removeSource(_ id: String) { check { cq_repo_remove($0, id) } }
 
     func setMember(_ key: String, _ add: Bool) { check { cq_member($0, key, add ? 1 : 0) } }

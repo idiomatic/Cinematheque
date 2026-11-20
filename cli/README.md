@@ -45,7 +45,7 @@ The command-line app keeps its state in a directory of its own, its data directo
 
 State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `alias`, `progress`, and `device`. Actions on the whole app are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
 
-* **Options** are named and may come anywhere: `--port PORT`, `--media DIR`, `--quality NAME`, `--skip PREFIX`, and `--workers WORKERS` take a value. `--leave`, `--watched`, and `--unwatched` are flags. `--data DIR` works with every command.
+* **Options** are named and may come anywhere: `--port PORT`, `--media DIR`, `--quality NAME`, `--quality-by folder|name`, `--skip PREFIX`, and `--workers WORKERS` take a value. `--leave`, `--watched`, and `--unwatched` are flags. `--data DIR` works with every command.
 * **Help:** [usage.txt](src/usage.txt) lists every command, and is the help, built into the binary. `-h` or `--help` prints it all. With a noun or action (`cinematheque source -h`), or for a noun alone, only that one's commands are printed.
 * **Arguments:** keys are 64 hexadecimal digits, as `person show` prints them. Titles and items are keys, as `title list` and `title show` print them (`t/m/alien/1979`, `t/s/firefly/-/e/s01e01`). A source is its ID (16 hexadecimal digits) or its URL.
 * **Exit status:** 0 on success. A command line that isn't one prints the help for its noun (or all of it) and exits with status 2. Any other failure prints `error:` and the error's name (e.g., `error: NoLibrary`, before there's a library), and exits with status 1. Debug builds add a stack trace.
@@ -71,9 +71,9 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 
 ### Sources and crawling
 
-* `source add URL` adds a source. The URL is percent-encoded as typed, and given a trailing slash. `--quality NAME` names its files' quality (e.g., a HandBrake preset's), and `--skip PREFIX` skips names beginning with it (default `,`). It prints the source's ID, a hash of its URL.
+* `source add URL` adds a source. The URL is percent-encoded as typed, and given a trailing slash. `--quality NAME` names its files' quality (e.g., a HandBrake preset's), or `--quality-by folder` takes each file's from the first folder within the source (`Movies/HQ 1080p30 Surround/Alien (1979).m4v`), as one folder of qualities holds them all, and `--skip PREFIX` skips names beginning with it (default `,`). It prints the source's ID, a hash of its URL.
 * `source list` and `source show SOURCE` print sources' settings; `show` adds how many copies of files the source holds.
-* `source set SOURCE` changes `--quality` or `--skip`; the next crawl applies it. `source remove SOURCE` removes the source and every copy it had, for every device.
+* `source set SOURCE` changes `--quality`, `--quality-by` (`folder` or `name`), or `--skip`; the next crawl applies it. `source remove SOURCE` removes the source and every copy it had, for every device.
 * A directory that held files and lists none now, as an unplugged drive's mount point does, is unavailable: its copies stay, `crawl` counts it, and `source show` lists it (`unavailable     /archive0001, since 3 days ago`). It clears once the drive is back. `source remove SOURCE --unavailable DIR` removes its copies as if it were deleted, as they go on their own after a year.
 * `crawl [SOURCE]` crawls every source, or one, with 16 concurrent workers unless `--workers` says otherwise. It reuses the last crawl's listing of any directory whose files haven't changed. Each source gets a line of requests, files, titles added, copies changed, and duplicates. Then covers and metadata are described, with one line of totals.
 

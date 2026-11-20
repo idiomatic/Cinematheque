@@ -117,6 +117,8 @@ struct Source: Codable, Identifiable, Hashable {
     let id: String
     let url: String
     let quality: String
+    /// Its files' quality is the first folder within it, named as it is.
+    var by_folder = false
     let skip: String
     let copies: Int
     var unavailable: [Unavailable] = []

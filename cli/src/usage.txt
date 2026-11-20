@@ -57,11 +57,15 @@ device list prints it.
 
   source list                  list sources
   source show SOURCE           show a source
-  source add URL [--quality NAME] [--skip PREFIX]
+  source add URL [--quality NAME] [--quality-by folder|name]
+                [--skip PREFIX]
                                add a source: the quality of its files,
-                               if known, and the prefix of names to skip
-                               (default ",")
-  source set SOURCE [--quality NAME] [--skip PREFIX]
+                               if known, or by folder, each file's being
+                               the first folder within the source's
+                               (Movies/QUALITY/TITLE.m4v); and the prefix
+                               of names to skip (default ",")
+  source set SOURCE [--quality NAME] [--quality-by folder|name]
+                [--skip PREFIX]
                                change a source's settings; crawl to apply
   source remove SOURCE --unavailable DIR
                                remove the copies in a directory the source

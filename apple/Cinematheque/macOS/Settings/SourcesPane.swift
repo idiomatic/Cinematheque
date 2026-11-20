@@ -165,8 +165,8 @@ struct SourcesPane: View {
     }
 }
 
-/// Adding a source by its address, or editing one; its quality is
-/// advanced. (Names to skip, `,` unless set otherwise, are the command-line
+/// Adding a source by its address, or editing one; where its files'
+/// quality comes from is advanced. (Names to skip, `,` unless set otherwise, are the command-line
 /// app's to change.)
 private struct SourceSheet: View {
     let source: Source?
@@ -174,7 +174,13 @@ private struct SourceSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var url = ""
     @State private var quality = ""
+    @State private var from = QualityFrom.names
     @State private var advanced = false
+
+    /// Where a source's files' quality comes from: their names, the first
+    /// folder within the source (`Movies/QUALITY/TITLE.m4v`), or one name
+    /// for all of them.
+    private enum QualityFrom: Hashable { case names, folder, named }
     @FocusState private var typing: Bool
 
     var body: some View {
@@ -203,21 +209,25 @@ private struct SourceSheet: View {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
                 Button(source == nil ? "Add" : "Save") {
+                    let name = from == .named ? quality : ""
                     if let source {
-                        library.setSource(source.id, quality: quality, skip: nil)
+                        library.setSource(source.id, quality: name, skip: nil)
+                        if source.by_folder != (from == .folder) { library.setQualityByFolder(source.id, from == .folder) }
                     } else {
-                        library.addSource(url, quality: quality.isEmpty ? nil : quality, skip: ",")
+                        library.addSource(url, quality: name.isEmpty ? nil : name, skip: ",")
+                        if from == .folder { library.setQualityByFolder(url, true) }
                         Task { await library.crawl() }
                     }
                     dismiss()
                 }
-                .disabled(source == nil && URL(string: url)?.scheme?.hasPrefix("http") != true)
+                .disabled((source == nil && URL(string: url)?.scheme?.hasPrefix("http") != true) || (from == .named && quality.isEmpty))
             }
         }
         .onAppear {
             if let source {
                 quality = source.quality
-                advanced = !quality.isEmpty
+                from = source.by_folder ? .folder : quality.isEmpty ? .names : .named
+                advanced = from != .names
             }
         }
     }
@@ -232,10 +242,18 @@ private struct SourceSheet: View {
                 }
             }
             Section("Advanced", isExpanded: $advanced) {
-                TextField("Quality", text: $quality, prompt: Text("From file names"))
+                Picker("Quality", selection: $from) {
+                    Text("From File Names").tag(QualityFrom.names)
+                    Text("From the Folder Under It").tag(QualityFrom.folder)
+                    Text("Named").tag(QualityFrom.named)
+                }
+                // Only for a name, as Settings show a choice's details.
+                if from == .named {
+                    TextField("Name", text: $quality, prompt: Text("4K HDR"))
+                }
             }
             if advanced {
-                Footer("Name its quality (e.g., 4K HDR) only if its files' names don't show it.")
+                Footer("Its videos' quality, if their names don't show it: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them.")
             }
             // As it is now, so one removed leaves the list.
             if let current = library.sources.first(where: { $0.id == source?.id }), !current.unavailable.isEmpty {

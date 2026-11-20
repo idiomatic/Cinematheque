@@ -41,7 +41,22 @@ pub const Layout = struct {
     /// Names starting with this are skipped (e.g., housekeeping folders), or
     /// none if empty.
     skip: []const u8 = ",",
+    /// Each file's quality is the first folder within the source, named as
+    /// it is (`Movies/HQ 1080p30 Surround/Alien (1979).m4v`), and that
+    /// folder isn't read as part of the file's name. Stored as the source's
+    /// `quality-by` field, `folder`.
+    by_folder: bool = false,
 };
+
+/// How a source's file is read: the path to parse, and its quality folder,
+/// if the source names qualities by folder.
+pub const Named = struct { path: []const u8, folder: ?[]const u8 };
+
+pub fn named(layout: Layout, rel: []const u8) Named {
+    if (!layout.by_folder) return .{ .path = rel, .folder = null };
+    const slash = std.mem.indexOfScalar(u8, rel, '/') orelse return .{ .path = rel, .folder = null };
+    return .{ .path = rel[slash + 1 ..], .folder = rel[0..slash] };
+}
 
 pub const Source = struct {
     id: [16]u8,
@@ -162,12 +177,12 @@ pub const Keys = struct {
 /// so a special without an episode number can be told from a movie.
 pub const SeriesByFolder = std.StringHashMapUnmanaged(struct { title: []const u8, year: ?u16 });
 
-pub fn seriesByFolder(arena: std.mem.Allocator, base: []const u8, entries: []const crawl.Entry) !SeriesByFolder {
+pub fn seriesByFolder(arena: std.mem.Allocator, base: []const u8, layout: Layout, entries: []const crawl.Entry) !SeriesByFolder {
     var out: SeriesByFolder = .empty;
     var scratch: [1024]u8 = undefined;
     for (entries) |entry| {
         if (entry.is_dir) continue;
-        const rel = relativeOrNull(arena, base, entry.url) orelse continue;
+        const rel = named(layout, relativeOrNull(arena, base, entry.url) orelse continue).path;
         if (!naming.isVideo(rel)) continue;
         const p = naming.parse(rel, &scratch);
         if (p.kind != .episode or p.title.len == 0) continue;
@@ -249,6 +264,7 @@ pub fn addSource(replica: *Replica, wall_ms: u64, target: []const u8, layout: La
     try replica.write(wall_ms, key, "url", target);
     try replica.write(wall_ms, key, "rendition", layout.quality);
     try replica.write(wall_ms, key, "skip", layout.skip);
+    if (layout.by_folder) try replica.write(wall_ms, key, "quality-by", "folder");
     try replica.commit();
     return id;
 }
@@ -266,7 +282,7 @@ pub fn findSource(replica: *Replica, arena: std.mem.Allocator, which: []const u8
 
 /// Changes a source's settings, those given. Copies move to a new
 /// quality at the next crawl.
-pub fn setSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, which: []const u8, quality: ?[]const u8, skip: ?[]const u8) !Source {
+pub fn setSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, which: []const u8, quality: ?[]const u8, skip: ?[]const u8, by_folder: ?bool) !Source {
     var source = try findSource(replica, arena, which);
     const key = try std.fmt.allocPrint(arena, "r/{s}", .{source.id});
     try replica.begin();
@@ -278,6 +294,10 @@ pub fn setSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, whic
     if (skip) |v| {
         try replica.write(wall_ms, key, "skip", v);
         source.layout.skip = v;
+    }
+    if (by_folder) |v| {
+        try replica.write(wall_ms, key, "quality-by", if (v) "folder" else "");
+        source.layout.by_folder = v;
     }
     try replica.commit();
     return source;
@@ -377,6 +397,7 @@ pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
         if (std.mem.eql(u8, field, "url")) r.url = value //
         else if (std.mem.eql(u8, field, "rendition")) r.layout.quality = value //
         else if (std.mem.eql(u8, field, "skip")) r.layout.skip = value //
+        else if (std.mem.eql(u8, field, "quality-by")) r.layout.by_folder = std.mem.eql(u8, value, "folder") //
         else if (std.mem.eql(u8, field, "managed")) r.managed = value.len > 0 //
         else if (std.mem.eql(u8, field, "crawled")) r.crawled_ms = std.fmt.parseInt(u64, value, 10) catch 0;
     }
@@ -413,7 +434,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
     var fields: std.StringHashMapUnmanaged(void) = .empty; // title and item fields to ensure
     var titles_seen: std.ArrayList(struct { key: []const u8, name: []const u8, year: ?u16 }) = .empty;
     var items_seen: std.ArrayList(struct { key: []const u8, p: naming.Parsed }) = .empty;
-    const series = try seriesByFolder(arena, source.url, entries);
+    const series = try seriesByFolder(arena, source.url, source.layout, entries);
     for (entries) |entry| {
         if (entry.is_dir) continue;
         stats.files += 1;
@@ -422,7 +443,8 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
             stats.skipped += 1;
             continue;
         }
-        const path = rel;
+        const as = named(source.layout, rel);
+        const path = as.path;
         if (!naming.isVideo(path)) {
             stats.skipped += 1;
             continue;
@@ -440,7 +462,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
         }
         const owned = p;
         const k = try keys(arena, owned);
-        var quality = try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ k.item, try qualityOf(arena, source.layout, owned) });
+        var quality = try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ k.item, try qualityOf(arena, source.layout, owned, as.folder) });
         // Two files of one quality in one source are duplicates (or
         // misnamed); keep both, numbered, and count them for review.
         if (wanted.contains(quality)) {
@@ -654,9 +676,11 @@ const Parents = struct {
     }
 };
 
-/// A file's quality label: the source's, if it names one; else what
-/// the file's name says (e.g., `2160p-hevc-hdr`); else `-`, unknown.
-pub fn qualityOf(arena: std.mem.Allocator, layout: Layout, p: naming.Parsed) ![]const u8 {
+/// A file's quality label: its quality folder's, if the source names
+/// qualities by folder; else the source's, if it names one; else what the
+/// file's name says (e.g., `2160p-hevc-hdr`); else `-`, unknown.
+pub fn qualityOf(arena: std.mem.Allocator, layout: Layout, p: naming.Parsed, folder: ?[]const u8) ![]const u8 {
+    if (folder) |f| return normalize(arena, f);
     if (layout.quality.len > 0) return normalize(arena, layout.quality);
     if (p.quality) |r| return normalize(arena, r);
     return "-";
@@ -1219,10 +1243,18 @@ test "qualities come from the source, or else from the file's name" {
     const sd = naming.parse("Movies/Alien (1979)/Alien (1979) - 720p.mkv", &scratch[0]);
     const uhd = naming.parse("Movies/Alien (1979)/Alien (1979) - 4K HDR.mkv", &scratch[1]);
     try testing.expectEqualStrings((try keys(a, sd)).item, (try keys(a, uhd)).item);
-    try testing.expectEqualStrings("720p", try qualityOf(a, .{}, sd));
-    try testing.expectEqualStrings("2160p-hdr", try qualityOf(a, .{}, uhd));
-    try testing.expectEqualStrings("very-fast-720p30", try qualityOf(a, .{ .quality = "Very Fast 720p30" }, uhd));
-    try testing.expectEqualStrings("-", try qualityOf(a, .{}, naming.parse("Alien (1979).mkv", &scratch[2])));
+    try testing.expectEqualStrings("720p", try qualityOf(a, .{}, sd, null));
+    try testing.expectEqualStrings("2160p-hdr", try qualityOf(a, .{}, uhd, null));
+    try testing.expectEqualStrings("very-fast-720p30", try qualityOf(a, .{ .quality = "Very Fast 720p30" }, uhd, null));
+    try testing.expectEqualStrings("-", try qualityOf(a, .{}, naming.parse("Alien (1979).mkv", &scratch[2]), null));
+    // A source naming qualities by folder: the first folder is the quality,
+    // and isn't read as the file's name.
+    const by_folder: Layout = .{ .by_folder = true };
+    const as = named(by_folder, "HQ 1080p30 Surround/Firefly/Season 01/Firefly S01E02.m4v");
+    try testing.expectEqualStrings("Firefly/Season 01/Firefly S01E02.m4v", as.path);
+    try testing.expectEqualStrings("hq-1080p30-surround", try qualityOf(a, by_folder, naming.parse(as.path, &scratch[2]), as.folder));
+    try testing.expectEqual(@as(?[]const u8, null), named(by_folder, "Alien (1979).m4v").folder);
+    try testing.expectEqual(@as(?[]const u8, null), named(.{}, "HQ/Alien (1979).m4v").folder);
 }
 
 test "close matches" {
@@ -1375,7 +1407,7 @@ test "state: sources, aliases, progress, and members can be listed, set, and rem
     defer r.close();
 
     const id = try addSource(&r, 1000, "http://nas.local/Movies/", .{});
-    const changed = try setSource(&r, arena, 2000, "http://nas.local/Movies", "4K HEVC", null);
+    const changed = try setSource(&r, arena, 2000, "http://nas.local/Movies", "4K HEVC", null, null);
     try std.testing.expectEqualStrings("4K HEVC", changed.layout.quality);
     try std.testing.expectEqualStrings("4K HEVC", (try findSource(&r, arena, &id)).layout.quality);
     try std.testing.expectEqualStrings(",", (try findSource(&r, arena, &id)).layout.skip);
@@ -1420,7 +1452,7 @@ test "a numberless file beside a series' episodes is its special, not a movie" {
         .{ .url = "http://nas/Babylon%205/Babylon%205%20The%20Gathering.m4v", .parent = "http://nas/Babylon%205/", .is_dir = false, .size = 1, .mtime = "" },
         .{ .url = "http://nas/Firefly/Season%2001/Firefly%20-%20S01E01.mkv", .parent = "http://nas/Firefly/Season%2001/", .is_dir = false, .size = 1, .mtime = "" },
     };
-    const series = try seriesByFolder(arena, base, &entries);
+    const series = try seriesByFolder(arena, base, .{}, &entries);
     const special = try parseFile(arena, "Babylon 5/Babylon 5 The Gathering.m4v", &series);
     try std.testing.expectEqual(naming.Kind.episode, special.kind);
     try std.testing.expectEqualStrings("The Gathering", special.special.?);
