@@ -116,7 +116,7 @@ Their details, as built, are in [apple/README.md](apple/README.md#in-detail).
 * **Sharing:** while they run, the apps share the library (and the Mac its folders) on the port they got last, sync quietly a minute after they last did and whenever they come to the front, and a second after a change of their person's, pushing it to every device; they reload at once when a device pushes to them. Show sync activity shows the last exchange each way.
 * **Settings' notes:** each says first why one would use the setting, then only what of how it works bears on choosing it (a NAS's disks waking, say); a confirmation says what an action does.
 * **Retreat:** every flow has a way back out: a step's Back (or the platform's Back), a sheet's or dialog's Cancel, a download's Cancel; what can't be taken back is confirmed first, saying so.
-* **Project:** Xcode's recommended settings but for script sandboxing (the core's build phase), the App Sandbox, the hardened runtime (until signing for distribution), and its macOS 15 minimum; a developer's signing settings in an ignored `Local.xcconfig`; `Info.plist` allowing plain HTTP and Bonjour on the local network.
+* **Project:** Xcode's recommended settings but for script sandboxing (the core's build phase), the App Sandbox, the hardened runtime (until signing for distribution), and its macOS 15 minimum; a developer's signing settings in an ignored `Local.xcconfig`; `Info.plist` allowing plain HTTP and Bonjour on the local network, and declaring `cinematheque://` links on tvOS only, as the Mac handles none (SwiftUI would open a window for each).
 
 ## macOS player
 

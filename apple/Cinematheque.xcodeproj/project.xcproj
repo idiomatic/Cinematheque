@@ -110,6 +110,8 @@
         "INFOPLIST_FILE": "Cinematheque/Info.plist",
         "INFOPLIST_KEY_LSApplicationCategoryType[sdk=macosx*]": "public.app-category.entertainment",
         "INFOPLIST_KEY_UILaunchScreen_Generation[sdk=appletv*]": "YES",
+        "INFOPLIST_PREPROCESS": "YES",
+        "INFOPLIST_PREPROCESSOR_DEFINITIONS[sdk=appletv*]": "TVOS",
         "LD_RUNPATH_SEARCH_PATHS[sdk=appletv*]": [
           "$(inherited)",
           "@executable_path/Frameworks",

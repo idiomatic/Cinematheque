@@ -16,7 +16,12 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Cinematheque plays videos from sources on your network, and syncs with your other devices there.</string>
-	<!-- Links into the app, as the Apple TV's Top Shelf opens a title. -->
+#if TVOS
+	<!-- No apostrophes in this file: it is preprocessed, which reads one
+	     as a character constant. Links into the app, as the Top Shelf of the
+	     Apple TV opens a title: on
+	     tvOS only, as the Mac handles none, and would open a window for
+	     each. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -28,6 +33,7 @@
 			</array>
 		</dict>
 	</array>
+#endif
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_cinematheque._tcp</string>

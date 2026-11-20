@@ -70,6 +70,9 @@ enum TopShelfPublisher {
             sections.append(.init(title: title, items: items))
         }
         let content = Content(sections: sections)
+        // Not once the browser's gone, as on leaving the library, which
+        // cleared what the Top Shelf shows.
+        if Task.isCancelled { return }
         let file = directory.appending(path: "content.json")
         if let old = try? Data(contentsOf: file), (try? JSONDecoder().decode(Content.self, from: old)) == content { return }
         guard let data = try? JSONEncoder().encode(content) else { return }
