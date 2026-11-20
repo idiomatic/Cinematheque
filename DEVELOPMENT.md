@@ -97,7 +97,6 @@ What's built is in [AGENTS.md](AGENTS.md); still to come:
 * **Movies:** an alphabetical jump, and filters by decade and genre (facets), since 4,000 covers are a long way by remote; Home's recently added titles.
 * **People:** tvOS's profiles as library people (Who's watching, under Players).
 * **Icon:** real artwork for the placeholder icons (the Mac's, and tvOS's layered brand assets with the Top Shelf), from [draw-icons.swift](apple/draw-icons.swift).
-* **Later:** a Top Shelf of Continue Watching.
 
 ## Transcoder
 

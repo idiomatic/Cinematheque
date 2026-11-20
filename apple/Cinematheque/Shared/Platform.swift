@@ -29,10 +29,12 @@ enum Platform {
         #endif
     }
 
-    /// Forgets what `keep` kept, as a device removed from its library does.
+    /// Forgets what `keep` kept, as a device removed from its library does,
+    /// and what the Top Shelf shows of it.
     static func forget() {
         #if os(tvOS)
         Keys.clear()
+        TopShelfPublisher.clear()
         #endif
     }
 

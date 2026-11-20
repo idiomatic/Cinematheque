@@ -82,19 +82,43 @@ enum TopShelfPublisher {
         }
     }
 
+    /// Forgets what the Top Shelf shows, as a device leaving its library
+    /// does, so it lists none of its titles.
+    static func clear() {
+        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else { return }
+        try? FileManager.default.removeItem(at: container.appending(path: "TopShelf", directoryHint: .isDirectory))
+        TVTopShelfContentProvider.topShelfContentDidChange()
+    }
+
     /// A tile's cover as a JPEG in the directory, named for the cover, so
-    /// it's written once.
+    /// it's written once; or, without one (or until it loads), its
+    /// placeholder as the app draws it, rather than the Top Shelf's dots.
     private static func cover(_ tile: Tile, in directory: URL) async -> String? {
-        guard let cover = tile.cover else { return nil }
-        let digest = SHA256.hash(data: Data("\(cover.url) \(cover.offset) \(cover.length) \(cover.stamp)".utf8))
-        let name = digest.prefix(12).map { String(format: "%02x", $0) }.joined() + ".jpg"
+        if let cover = tile.cover {
+            let name = name("\(cover.url) \(cover.offset) \(cover.length) \(cover.stamp)")
+            let file = directory.appending(path: name)
+            if FileManager.default.fileExists(atPath: file.path) { return name }
+            if let image = await ArtCache.shared.image(cover, .tile), write(image, to: file) { return name }
+        }
+        let name = name("placeholder \(tile.name) \(tile.thumb ?? "") \(tile.season != nil)")
         let file = directory.appending(path: name)
         if FileManager.default.fileExists(atPath: file.path) { return name }
-        guard let image = await ArtCache.shared.image(cover, .tile),
-              let destination = CGImageDestinationCreateWithURL(file as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
-        else { return nil }
+        let width = CGFloat(ArtCache.Size.tile.rawValue) * 2 / 3
+        let renderer = ImageRenderer(content: CoverImage(cover: nil, thumb: tile.thumb, title: tile.name)
+            .frame(width: width, height: tile.season != nil ? width : width * 3 / 2))
+        renderer.scale = 2
+        guard let image = renderer.cgImage, write(image, to: file) else { return nil }
+        return name
+    }
+
+    private static func name(_ key: String) -> String {
+        SHA256.hash(data: Data(key.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined() + ".jpg"
+    }
+
+    private static func write(_ image: CGImage, to file: URL) -> Bool {
+        guard let destination = CGImageDestinationCreateWithURL(file as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return false }
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
-        return CGImageDestinationFinalize(destination) ? name : nil
+        return CGImageDestinationFinalize(destination)
     }
 }
 #endif
