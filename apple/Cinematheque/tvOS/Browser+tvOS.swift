@@ -159,6 +159,10 @@ struct Poster: View {
             .buttonStyle(.card)
             // Pressed and held: a series' tile stands for the whole series.
             .contextMenu {
+                let listed = library.isListed(tile, anySeason: true)
+                Button(listed ? "Remove from Watchlist" : "Add to Watchlist", systemImage: listed ? "star.slash" : "star") {
+                    library.setListed(tile, !listed, anySeason: true)
+                }
                 // Unwatched forgets where you stopped, too.
                 if !tile.watched {
                     Button("Mark as Watched", systemImage: "checkmark.circle") { library.markWatched(tile, true, wholeTitle: tile.isSeries) }

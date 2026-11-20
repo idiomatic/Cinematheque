@@ -122,6 +122,21 @@ extension Library {
         guard anySeason, tile.isSeries else { return false }
         return watchlist.contains { $0.hasPrefix(tile.key + "#") }
     }
+
+    /// Adds a tile to the watchlist, or removes it; with `anySeason`, a
+    /// series' tile standing for the whole series: removing every season
+    /// of it listed, or adding the first not watched through, as its page
+    /// outlines it.
+    func setListed(_ tile: Tile, _ on: Bool, anySeason: Bool = false) {
+        guard anySeason, tile.isSeries else { return setWatchlisted(tile.id, on) }
+        let seasons = tiles.filter { $0.key == tile.key }
+        if on {
+            let ordered = seasons.filter { $0.season != 0 } + seasons.filter { $0.season == 0 }
+            setWatchlisted((ordered.first { !$0.watched } ?? ordered.first ?? tile).id, true)
+        } else {
+            for season in seasons where watchlist.contains(season.id) { setWatchlisted(season.id, false) }
+        }
+    }
 }
 
 extension Array where Element == Tile {

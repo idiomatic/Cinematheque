@@ -293,6 +293,8 @@ struct CoverGrid: View {
                             DownloadMenuItems(key: "\(tile.key)/\(item.key)", item: item, quality: nil)
                             Divider()
                         }
+                        let listed = library.isListed(tile)
+                        Button(listed ? "Remove from Watchlist" : "Add to Watchlist") { library.setListed(tile, !listed) }
                         // Unwatched forgets where you stopped, too.
                         if !tile.watched {
                             Button("Mark as Watched") { library.markWatched(tile, true) }
