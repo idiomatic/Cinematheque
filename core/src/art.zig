@@ -567,6 +567,16 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
         .episode = 0,
         .is_episode = std.mem.indexOf(u8, item_key, "/e/") != null,
     }, info);
+    // A version's file speaks for itself alone, not its movie (whose
+    // description and release its standard version's file gave).
+    if (std.mem.indexOf(u8, item_key, "/v/") != null) {
+        var kept: usize = 0;
+        for (writes.items) |w| if (std.mem.eql(u8, w.key, item_key)) {
+            writes.items[kept] = w;
+            kept += 1;
+        };
+        writes.shrinkRetainingCapacity(kept);
+    }
     // Mark it described even if the file says nothing.
     if (writes.items.len == 0) try writes.append(arena, .{ .key = item_key, .field = "duration", .value = "0" });
     try replica.begin();

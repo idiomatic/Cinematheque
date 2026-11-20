@@ -157,9 +157,10 @@ struct SeriesView: View {
         }
         .background { if let tile { Backdrop(tile: tile) } }
         .task(id: library.revision) { detail = library.detail(key) }
-        // The chosen season's other episodes, described as it's shown.
+        // The chosen season's other episodes, or a movie's other versions,
+        // described as they're shown.
         .task(id: season) {
-            if let season { await library.describeEpisodes(of: key, season: season) }
+            if season != nil || key.hasPrefix("t/m/") { await library.describeItems(of: key, season: season) }
         }
         .onAppear {
             // The first season not yet watched through, specials last.

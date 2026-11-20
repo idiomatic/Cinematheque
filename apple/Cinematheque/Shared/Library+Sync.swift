@@ -163,9 +163,10 @@ extension Library {
     }
 
     /// Reads a season's episodes' metadata (titles, descriptions,
-    /// durations), one at a time, where not yet read: a crawl reads only a
-    /// season's first episode.
-    func describeEpisodes(of key: String, season: Int) async {
+    /// durations), or a movie's versions' (durations), one at a time, where
+    /// not yet read: a crawl reads only a season's first episode, and a
+    /// movie's first version.
+    func describeItems(of key: String, season: Int?) async {
         guard let detail = detail(key) else { return }
         for item in Playback.items(detail, season: season) where item.fields["duration"] == nil {
             if Task.isCancelled { return }

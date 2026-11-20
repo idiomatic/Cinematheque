@@ -42,7 +42,7 @@ struct InspectorView: View {
             detail = library.detail(tile.key)
             if quality == nil { quality = detail.flatMap { $0.quality(for: Playback.items($0, season: tile.season)) } }
         }
-        .task(id: tile.id) { await describeEpisodes() }
+        .task(id: tile.id) { await library.describeItems(of: tile.key, season: tile.season) }
         // Asked for by deleting an only copy, here or in an episode's menu.
         .confirmationDialog(
             deletionTitle,
@@ -214,12 +214,6 @@ struct InspectorView: View {
                 picker.labelsHidden().fixedSize()
             }
         }
-    }
-
-    /// Reads the season's episodes' metadata, one at a time, if not yet read.
-    private func describeEpisodes() async {
-        guard let season = tile.season else { return }
-        await library.describeEpisodes(of: tile.key, season: season)
     }
 }
 
