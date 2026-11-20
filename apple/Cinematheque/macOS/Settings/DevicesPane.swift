@@ -16,7 +16,7 @@ struct DevicesPane: View {
             } header: {
                 Text("Your Devices")
             } footer: {
-                Text("Everyone who shares the library sees your devices' names.")
+                Text("Everyone who shares the library sees your devices' names. Removing a device refuses what it changes from then on, and your devices stop catching up with it; it leaves the library the next time it catches up, to be paired again only as a new device.")
             }
             Section {
                 Toggle("Share this library on your network", isOn: $sharing)
@@ -41,31 +41,39 @@ struct DevicesPane: View {
                     HStack {
                         Text(device.url).lineLimit(1).truncationMode(.middle)
                         Spacer()
-                        RemoveButton(help: "Stop reaching it by this address") {
+                        RemoveButton(help: "Forget this address") {
                             library.setDeviceAddress(device.url, false)
                             Task { nearby = await library.nearby() }
                         }
                     }
                 }
+                // As Add Server… takes a server's: the field's name its
+                // prompt, the example in the text below.
                 HStack {
-                    Text("Address")
-                    TextField("Address", text: $address, prompt: Text("http://hal.example.com:8008"))
+                    TextField("Device Address", text: $address, prompt: Text("Device Address"))
                         .labelsHidden()
-                    Button("Add") {
-                        library.setDeviceAddress(address, true)
-                        address = ""
-                        Task { nearby = await library.nearby() }
-                    }
-                    .disabled(URL(string: address)?.scheme?.hasPrefix("http") != true)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(addAddress)
+                    Button("Add", action: addAddress)
+                        .disabled(!validAddress)
                 }
             }
             if advanced {
-                Footer("Devices off your network, such as one behind another router (NAT), can be reached by address.")
+                Footer("Devices off your network, such as one behind another router (NAT), can be reached by address, such as http://hal.example.com:8008.")
             }
         }
         .formStyle(.grouped)
         .modifier(Nearby(devices: $nearby))
         .onAppear { sharing = library.sharing }
+    }
+
+    private var validAddress: Bool { URL(string: address)?.scheme?.hasPrefix("http") == true }
+
+    private func addAddress() {
+        guard validAddress else { return }
+        library.setDeviceAddress(address, true)
+        address = ""
+        Task { nearby = await library.nearby() }
     }
 }
 
@@ -83,15 +91,15 @@ private struct DeviceRow: View {
                 .labelsHidden()
                 .textFieldStyle(.plain)
                 .onSubmit(rename)
+                .help("Rename")
             if device.you {
                 Text("This Mac").foregroundStyle(.secondary)
             } else {
-                RemoveButton(help: "Remove it from your devices: what it changes from now on is refused, and your devices stop catching up with it. It leaves the library the next time it catches up, within about a minute if it's on. It could still be paired again, as a new device.") {
+                RemoveButton(help: "Remove from your devices") {
                     withAnimation { library.removeDevice(device.key) }
                 }
             }
         }
-        .help("Rename it for everyone in the library")
         .onAppear { name = device.name }
         .onChange(of: device.name) { name = device.name }
         // A name typed but not submitted is kept on leaving the pane.

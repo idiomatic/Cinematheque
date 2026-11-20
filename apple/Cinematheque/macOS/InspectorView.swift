@@ -344,7 +344,7 @@ private struct DownloadControls: View {
                 .foregroundStyle(fits(size) ? AnyShapeStyle(.foreground) : AnyShapeStyle(.orange))
                 .buttonStyle(.bordered)
                 .disabled(held || coming)
-                .help(fits(size) ? "Download it to this Mac, to watch without a network" : "Download it to this Mac: more than the space downloads may take now")
+                .help(fits(size) ? "Download to watch offline" : "More than downloads have room for")
             DownloadGauge(value: library.downloadProgress([key], of: size))
                 .opacity(coming ? 1 : 0)
             Spacer()
@@ -365,10 +365,10 @@ private struct DownloadControls: View {
     private static func deleteHelp(_ library: Library, _ key: String, coming: Bool) -> String {
         if coming { return "Stop downloading it" }
         if let done = library.done(key) {
-            return done.deletable ? "Delete it from this Mac (watched: it goes when its space is needed anyway)" : "Delete it from this Mac: watched, and the only copy (or keep it, in its context menu)"
+            return done.deletable ? "Watched: deleted when space is needed anyway" : "Watched, and the only copy"
         }
-        if library.onlyCopies(key) > 0 { return "Delete it from this Mac: the only copy" }
-        return library.isKept(key) ? "Delete it from this Mac (kept, however it's watched)" : "Delete it from this Mac"
+        if library.onlyCopies(key) > 0 { return "The only copy" }
+        return library.isKept(key) ? "Kept, however it's watched" : "Delete download"
     }
 
     @ViewBuilder
@@ -405,7 +405,7 @@ private struct DownloadControls: View {
                 )
                 .fixedSize()
             }
-            .help("Which of the series' episodes download to this Mac as it's watched, to watch without a network; watched ones go as their space is needed, but for All")
+            .help("Episodes to download as you watch")
             DownloadGauge(value: library.downloadProgress(keys, of: requested))
                 .opacity(pending ? 1 : 0)
             Spacer()
@@ -414,7 +414,7 @@ private struct DownloadControls: View {
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
                 .disabled(held == 0)
-                .help((library.onlyCopies(key) > 0 ? "Delete the season's downloads from this Mac: some are the only copies" : "Delete the season's downloads from this Mac") + (keys.contains { library.isRequested($0) && library.isDownloaded($0) } && !chosen.isEmpty ? "; Download becomes Nothing, so they don't come back" : ""))
+                .help((library.onlyCopies(key) > 0 ? "Delete the season's downloads: some are the only copies" : "Delete the season's downloads") + (keys.contains { library.isRequested($0) && library.isDownloaded($0) } && !chosen.isEmpty ? "; Download becomes Nothing" : ""))
         }
         .controlSize(.small)
     }
@@ -457,11 +457,11 @@ private struct DownloadMark: View {
         if let done = library.done(key) {
             Image(systemName: done.deletable ? "hourglass.circle.fill" : "exclamationmark.circle.fill")
                 .foregroundStyle(done.deletable ? Color.secondary : Color.orange)
-                .help(done.deletable ? "Watched: deleted when its space is needed, as another source has it" : "Watched, and the only copy: delete it, or keep it")
+                .help(done.deletable ? "Watched: deleted when space is needed" : "Watched, and the only copy")
         } else if library.isDownloaded(key) {
             Image(systemName: "arrow.down.circle.fill")
                 .foregroundStyle(.secondary)
-                .help(library.isKept(key) ? "Downloaded to this Mac, and kept" : "Downloaded to this Mac")
+                .help(library.isKept(key) ? "Downloaded and kept" : "Downloaded")
         } else if library.isWanted(key) {
             DownloadGauge(value: library.downloadProgress(key))
         }
@@ -499,7 +499,7 @@ struct DownloadMenuItems: View {
             } else if library.isKept(key) {
                 Button("Stop Keeping Download") { library.keep(key, false) }
             }
-            Button(library.onlyCopies(key) > 0 ? "Delete Download (the Only Copy)…" : "Delete Download") { library.deleteDownload(key) }
+            Button(library.onlyCopies(key) > 0 ? "Delete Only Copy…" : "Delete Download") { library.deleteDownload(key) }
         } else if library.isWanted(key) {
             Button("Cancel Download") { library.removeDownload(key) }
         } else {

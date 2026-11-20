@@ -25,7 +25,7 @@ struct SourcesPane: View {
                         } icon: {
                             Image(systemName: unavailable ? "folder.badge.questionmark" : "folder")
                         }
-                        .help(unavailable ? "\(folder.path) isn't there (a share unmounted, or a drive unplugged?); its titles show dimmed until it's back." : folder.path)
+                        .help(unavailable ? "\(folder.path) isn't there; its titles are dimmed until it's back" : folder.path)
                     } else {
                         Label {
                             // Folders of it on drives that aren't there.
@@ -49,10 +49,10 @@ struct SourcesPane: View {
                         Button(openLabel(source), systemImage: library.folder(of: source) == nil ? "safari" : "folder") { open(source) }
                             .frame(width: 18)
                             .disabled(!canOpen(source))
-                            .help(library.folder(of: source) == nil ? "See what the server lists, in your browser" : "See the folder in the Finder")
+                            .help(library.folder(of: source) == nil ? "Open in Browser" : "Show in Finder")
                         Button("Remove", systemImage: "minus.circle") { removing = source }
                             .frame(width: 18)
-                            .help("Remove this source, and the copies it holds, for every device")
+                            .help("Remove this source and its videos")
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
@@ -75,7 +75,7 @@ struct SourcesPane: View {
                 Button("Add Folder…") { chooseFolder() }
                     .help("Add a folder on this Mac")
                 Button("Add Server…") { adding = true }
-                    .help("Add a server on your network, such as a NAS, by its address")
+                    .help("Add a server, such as a NAS, by its address")
                 Spacer()
                 // For every device: a NAS's disks spin up for each look.
                 Picker("Look for videos", selection: Binding(get: { library.crawlEvery }, set: { library.setCrawlEvery($0) })) {
@@ -83,7 +83,7 @@ struct SourcesPane: View {
                 }
                 .pickerStyle(.menu)
                 .fixedSize()
-                .help("How often your devices look for new videos as they open, for everyone in the library; Refresh Library looks at once. A NAS's disks spin up each time.")
+                .help("How often your devices look for new videos on their own")
                 // Nothing in the row comes or goes: the spinner keeps its
                 // place, and the button is dimmed while a refresh runs (its
                 // steps show in the library window's status bar).
@@ -151,7 +151,7 @@ struct SourcesPane: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.prompt = "Add"
-        panel.message = "Choose a folder of videos. Cinematheque shares it with your other devices while it's open."
+        panel.message = "Choose a folder of videos to share with your devices."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await library.addFolder(url.path, host: Library.localHost) }
     }
@@ -245,7 +245,7 @@ private struct SourceSheet: View {
                                 .labelStyle(.iconOnly)
                                 .buttonStyle(.borderless)
                                 .foregroundStyle(.secondary)
-                                .help("Remove its videos from the library, for every device, as if it were deleted; they come back if it does")
+                                .help("Remove its videos; they return if the folder does")
                         }
                     }
                 } header: {

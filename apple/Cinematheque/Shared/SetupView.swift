@@ -126,7 +126,7 @@ private struct SetupForm: View {
             } header: {
                 Text("Another of your devices?")
             } footer: {
-                Text("This Mac shows a code. On a device where you use Cinematheque, enter it in Settings › Devices, under New Devices, to be yourself here, with your progress and watchlist.")
+                Text("This Mac shows a code. On a device where you use Cinematheque, enter it in Settings > Devices, under New Devices, to be yourself here, with your progress and watchlist.")
             }
             Section {
                 Button("Create Library") {
@@ -147,7 +147,7 @@ private struct SetupForm: View {
             } header: {
                 Text("Join someone's library")
             } footer: {
-                Text("This Mac shows a code. Someone who shares the library enters it in Cinematheque's Settings › Devices, under New Devices, to let you in.")
+                Text("This Mac shows a code. Someone who shares the library enters it in Cinematheque's Settings > Devices, under New Devices, to let you in.")
             }
         }
         .formStyle(.grouped)

@@ -16,16 +16,14 @@ struct DownloadsPane: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .help(library.downloadsDir)
-                        // Symbols: choosing a folder, and revealing it, as
-                        // the Finder's own reveal arrow does.
-                        Button("Choose Folder…", systemImage: "folder", action: choose)
-                            .labelStyle(.iconOnly)
-                            .help("Choose another folder for downloads")
-                        Button("Show in Finder", systemImage: "arrow.forward.circle") {
+                        // Show in Finder's symbol, as in the inspector.
+                        Button("Show in Finder", systemImage: "folder") {
                             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: library.downloadsDir)
                         }
                         .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
                         .help("Show in Finder")
+                        Button("Choose…", action: choose)
                     }
                 }
                 LabeledContent("Downloaded", value: downloaded)
@@ -37,7 +35,7 @@ struct DownloadsPane: View {
                     }
                 }
             } footer: {
-                Text("Your other devices can play what this Mac downloads while Cinematheque is open. It always leaves \(floor) free.")
+                Text("Your other devices can play what this Mac downloads while Cinematheque is open. It always leaves \(floor) free. In another folder, your downloads download again; the old folder's files stay until you delete them.")
                     .foregroundStyle(.secondary)
             }
             Section {
@@ -72,7 +70,7 @@ struct DownloadsPane: View {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.prompt = "Choose"
-        panel.message = "Choose where Cinematheque keeps downloads. What you've downloaded downloads again there; the old folder's files stay until you delete them."
+        panel.message = "Choose where to keep downloads."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         library.setDownloads(dir: url.path)
     }

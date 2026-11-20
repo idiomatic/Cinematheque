@@ -82,7 +82,7 @@ struct SettingsView: View {
                 : "This Apple TV leaves the library, and your other devices no longer list it. To come back, pair it again.")
         }
         // The founder's only device leaving: someone takes over first.
-        .confirmationDialog("Who Takes Over the Library?", isPresented: $choosingSuccessor, titleVisibility: .visible) {
+        .confirmationDialog("Who takes over the library?", isPresented: $choosingSuccessor, titleVisibility: .visible) {
             ForEach(others) { member in
                 Button(member.name ?? "Someone Unnamed") { leave(successor: member.key, alone: false) }
             }

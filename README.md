@@ -25,7 +25,7 @@ A source is a folder of videos your devices can reach over your network. The eas
 
 ### A folder
 
-* **On a Mac,** choose Add Folder… in the app's Settings › Sources: a folder on the Mac, on a drive plugged into it, or on a NAS share mounted in the Finder. While the app runs, it shares the folder with your other devices (an Apple TV, say), which play from it. If the drive is unplugged or the share unmounted, its videos stay in the library, dimmed, until it's back.
+* **On a Mac,** choose Add Folder… in the app's Settings > Sources: a folder on the Mac, on a drive plugged into it, or on a NAS share mounted in Finder. While the app runs, it shares the folder with your other devices (an Apple TV, say), which play from it. If the drive is unplugged or the share unmounted, its videos stay in the library, dimmed, until it's back.
 * **Anywhere else,** on macOS or Linux (a home server, or a NAS that runs Linux), the command-line app shares a folder, then adds it:
 
 ```sh
@@ -47,7 +47,7 @@ find . -type f ! -name INDEX > INDEX
 
 and remake it whenever the files change. The command works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to read a large source: one request instead of one per folder. The command-line app's server serves one for you.
 
-Refresh Library (⌘R on the Mac) catches up with your other devices, then looks for new videos: it reads each source's listings, recognizes titles from file and folder names, and records each file as a copy of its title, in its quality. Later looks are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title. When a folder's drive is unplugged or its share unmounted, its videos stay in the library, dimmed, until it's back, a year passes, or you remove them in Settings › Sources.
+Refresh Library (⌘R on the Mac) catches up with your other devices, then looks for new videos: it reads each source's listings, recognizes titles from file and folder names, and records each file as a copy of its title, in its quality. Later looks are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title. When a folder's drive is unplugged or its share unmounted, its videos stay in the library, dimmed, until it's back, a year passes, or you remove them in Settings > Sources.
 
 A source skips names beginning with a prefix, by default `,`, for folders like `,obsolete` that hold files you don't want in the library. Removing a source removes its copies on every device, so titles it alone held stop showing; its files stay where they are.
 
@@ -80,7 +80,7 @@ Movies/Network.Effect.2020.1080p.BluRay.x264-GROUP.mkv
 
 Names give the resolution, origin (Blu-ray, web, DVD, or HDTV), codec, and dynamic range; a file whose name says none of these is of unknown quality.
 
-If a folder holds files of one quality whose names don't say which (say, everything one encoder preset made), add that folder as a source of its own and name its quality: under Advanced in Settings › Sources on the Mac, or with `source add --quality` on the command line.
+If a folder holds files of one quality whose names don't say which (say, everything one encoder preset made), add that folder as a source of its own and name its quality: under Advanced in Settings > Sources on the Mac, or with `source add --quality` on the command line.
 
 ## Watching
 
@@ -94,11 +94,11 @@ On first run, an app creates a library, or pairs with one of your devices or som
 
 On a Mac, you can download what you'll watch away from home, or keep on hand when the network is slow. A movie's Download button says its size. A season's Download menu chooses which of the series' episodes the Mac keeps as you watch: the Current one, the Next few, the Unwatched ones of a season or of the whole series, or All of them. The menu gives each choice's size, and the space free, in orange when a choice wouldn't fit.
 
-Downloads go to `~/Movies/Cinematheque` (Settings › Downloads changes it), wait while something streams so as not to slow it, and are shared with your other devices like any source. Once you've watched a download, it's deleted when its space is needed, but only if a source still holds the same file, and never if it's the only copy; Keep Download, in its context menu, spares it. The trash button beside the Download controls deletes them yourself, and asks first if any is the only copy. Cinematheque always leaves 20 GB free.
+Downloads go to `~/Movies/Cinematheque` (Settings > Downloads changes it), wait while something streams so as not to slow it, and are shared with your other devices like any source. Once you've watched a download, it's deleted when its space is needed, but only if a source still holds the same file, and never if it's the only copy; Keep Download, in its context menu, spares it. The trash button beside the Download controls deletes them yourself, and asks first if any is the only copy. Cinematheque always leaves 20 GB free.
 
 ## Sharing a library
 
-A library is shared by pairing: the new device shows a 6-digit code, and someone already in the library enters it, in the Mac app under Settings › Devices › New Devices, or with the command-line app. Pair as another of your own devices to use the library as yourself, with your progress and watchlist; or as someone new, who joins as a member. The code seals what's sent, so only the device showing it can open it, and the new device stops after 3 wrong tries. [cli/README.md](cli/README.md#sharing-a-library) covers the command line, and pairing from off your network.
+A library is shared by pairing: the new device shows a 6-digit code, and someone already in the library enters it, in the Mac app under Settings > Devices › New Devices, or with the command-line app. Pair as another of your own devices to use the library as yourself, with your progress and watchlist; or as someone new, who joins as a member. The code seals what's sent, so only the device showing it can open it, and the new device stops after 3 wrong tries. [cli/README.md](cli/README.md#sharing-a-library) covers the command line, and pairing from off your network.
 
 Devices find each other on your network, and while an app runs, it shares the library with your other devices, and syncs with them every minute and whenever you make a change. Each device checks, by signature, that every change comes from a member, so a device that relays the library can't alter it, and it serves the library only to members' devices. Removing a member stops their later changes everywhere, while what they did before stands; removing one of your devices does the same for that device.
 

@@ -23,7 +23,7 @@ struct PeoplePane: View {
             } header: {
                 Text("People")
             } footer: {
-                Text("Everyone who shares the library sees your name. To add someone, they choose Join Someone's Library on their device, which shows a code: enter it in Devices, under New Devices.")
+                Text("Everyone who shares the library sees your name. To add someone, they choose Join Someone's Library on their device, which shows a code: enter it in Devices, under New Devices. Removing someone refuses what they change from then on; their devices leave the library the next time each catches up.")
             }
         }
         .formStyle(.grouped)
@@ -53,7 +53,7 @@ private struct MemberRow: View {
                     .textFieldStyle(.plain)
                     .fixedSize()
                     .onSubmit { library.setName(.person, name) }
-                    .help("Rename yourself for everyone in the library")
+                    .help("Rename yourself")
                 Text("You").foregroundStyle(.secondary)
             } else {
                 Text(member.name ?? "Someone")
@@ -62,7 +62,7 @@ private struct MemberRow: View {
             if member.founder {
                 Text("Founder").foregroundStyle(.secondary)
             } else if !member.you {
-                RemoveButton(help: "Remove them from the library: what they change from now on is refused. Their devices leave it the next time each catches up, within about a minute if it's on.") {
+                RemoveButton(help: "Remove from the library, with their devices") {
                     library.setMember(member.key, false)
                 }
             }

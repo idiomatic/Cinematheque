@@ -338,7 +338,7 @@ struct TileView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 // Its copies are all on drives that aren't there.
                 .opacity(tile.unavailable ? 0.4 : 1)
-                .help(tile.unavailable ? "Unavailable: its copies are on a drive that isn't connected" : "")
+                .help(tile.unavailable ? "Unavailable until its drive or share is back" : "")
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 3 : 1)
@@ -347,10 +347,10 @@ struct TileView: View {
                 .overlay(alignment: .bottomTrailing) {
                     if let waiting = library.watchedTiles[tile.id] {
                         DownloadBadge(symbol: waiting ? "hourglass.circle.fill" : "exclamationmark.circle.fill", color: waiting ? .gray : .orange, raised: !tile.watched && tile.progress > 0)
-                            .help(waiting ? "Watched: deleted when its space is needed, as another source has it" : "Watched, and the only copy: delete it, or keep it")
+                            .help(waiting ? "Watched: deleted when space is needed" : "Watched, and the only copy")
                     } else if library.downloadedTiles.contains(tile.id) {
                         DownloadBadge(symbol: "arrow.down.circle.fill", color: .blue, raised: !tile.watched && tile.progress > 0)
-                            .help("Downloaded to this Mac")
+                            .help("Downloaded")
                     }
                 }
                 .overlay(alignment: .bottom) {
@@ -492,7 +492,7 @@ struct StatusBar: View {
         }
     }
 
-    /// "Looking in 3 of 6 sources", "Covers 1,200 of 5,000" (covers and
+    /// "Looking in 3 of 6 sources", "Finding covers for 1,200 of 5,000" (covers and
     /// details found), "Catching up with 1 of 2 devices", or what's running.
     static func describe(_ activity: String, _ p: Library.Steps?) -> String {
         guard let p, let phase = p.phase else { return activity + "…" }
@@ -500,7 +500,7 @@ struct StatusBar: View {
         let total = p.total.formatted()
         return switch phase {
         case "crawling": "Looking in \(done) of \(total) \(p.total == 1 ? "source" : "sources")…"
-        case "describing": p.total == 0 ? "Covers…" : "Covers \(p.done.formatted()) of \(total)"
+        case "describing": p.total == 0 ? "Finding covers…" : "Finding covers for \(p.done.formatted()) of \(total)…"
         case "syncing": p.total == 0 ? "Looking for devices…" : "Catching up with \(done) of \(total) \(p.total == 1 ? "device" : "devices")…"
         default: activity + "…"
         }
