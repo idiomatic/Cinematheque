@@ -63,7 +63,7 @@ struct OfferedCode: View {
 /// A pairing code's six digits, a squircle each, in two groups of three
 /// (as codes are read): filled as far as `digits` goes, the rest empty,
 /// so the boxes show how long a code is before it's typed. The box the
-/// next digit goes in is ringed if `caret`.
+/// next digit goes in is ringed if `caret`; none, once the code is whole.
 struct CodeBoxes: View {
     static let length = 6
     let digits: String
@@ -92,7 +92,7 @@ struct CodeBoxes: View {
             .frame(width: size * 1.1, height: size * 1.45)
             .background(.quaternary, in: shape)
             .overlay {
-                if caret, i == min(digits.count, Self.length - 1) {
+                if caret, i == digits.count {
                     shape.strokeBorder(Color.accentColor, lineWidth: max(2, size / 12))
                 }
             }

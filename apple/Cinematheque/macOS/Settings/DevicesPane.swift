@@ -35,7 +35,7 @@ struct DevicesPane: View {
             } header: {
                 Text("New Devices")
             } footer: {
-                Text("A new device shows a code once Join a Library is chosen on it. Choose whether it's yours or someone new's, then enter its code here, beside its name.")
+                Text("A new device shows a code once Join a Library is chosen on it. Enter its code here, beside its name, then choose Yours or Someone New.")
             }
             Section("Advanced", isExpanded: $advanced) {
                 ForEach(nearby.filter(\.added)) { device in

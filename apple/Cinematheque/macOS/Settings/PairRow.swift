@@ -2,17 +2,15 @@
 import AppKit
 import SwiftUI
 
-/// A new device nearby offering to be added: chosen as yours or someone
-/// new's, the code it shows, entered here, pairs it (and adds its person,
-/// if someone new's), and `paired` moves it on.
+/// A new device nearby offering to be added: the code it shows, entered
+/// here, then Yours or Someone New, pairs it (and adds its person, if
+/// someone new's), and `paired` moves it on. Once the code's in, Yours is
+/// the default, Return in the code pressing it; someone else's device takes
+/// a click on Someone New.
 struct PairRow: View {
     let device: NearbyDevice
     let paired: (NearbyDevice) -> Void
     @Environment(Library.self) private var library
-    /// Whose it is: yours (false) or someone new's (true); none until
-    /// chosen, as giving yours to someone else's device would let it act as
-    /// you.
-    @State private var join: Bool?
     @State private var code = ""
     @State private var pairing = false
     @State private var failure: String?
@@ -24,23 +22,24 @@ struct PairRow: View {
             HStack {
                 Label(device.deviceName ?? "A new device", systemImage: "plus.circle")
                 Spacer()
-                Picker("Whose", selection: $join) {
-                    Text("Yours").tag(Optional(false))
-                    Text("Someone New").tag(Optional(true))
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .disabled(pairing)
                 // Before the boxes, in the row's slack: appearing, it moves
                 // nothing, the row being right-aligned.
                 if pairing {
                     ProgressView().controlSize(.small)
                 }
-                CodeField(code: $code, shakes: shakes, complete: pair)
-                    .disabled(pairing || join == nil)
-                Button("Add", action: pair)
-                    .disabled(code.count != CodeBoxes.length || pairing || join == nil)
+                CodeField(code: $code, shakes: shakes) { pair(join: false) }
+                    .disabled(pairing)
+                // Whose it is, once its code is in: each pairs it.
+                Group {
+                    // The default, drawn so only once it can act.
+                    if code.count == CodeBoxes.length {
+                        Button("Yours") { pair(join: false) }.buttonStyle(.borderedProminent)
+                    } else {
+                        Button("Yours") { pair(join: false) }
+                    }
+                    Button("Someone New") { pair(join: true) }
+                }
+                .disabled(code.count != CodeBoxes.length || pairing)
             }
             if let failure {
                 Text(failure).font(.caption).foregroundStyle(.secondary)
@@ -48,15 +47,17 @@ struct PairRow: View {
         }
     }
 
-    private func pair() {
-        guard code.count == CodeBoxes.length, !pairing, let join else { return }
+    private func pair(join: Bool) {
+        guard code.count == CodeBoxes.length, !pairing else { return }
         pairing = true
         Task {
             let (joined, why) = await library.pair(device, code: code, join: join)
             failure = why
-            pairing = false
-            // A wrong code: shaken off, to type again.
+            // A wrong code: shaken off, to type again. Paired, it stays
+            // pairing (its buttons dimmed) until it leaves New Devices, as
+            // the device stops offering.
             if joined == nil {
+                pairing = false
                 withAnimation(.linear(duration: 0.4)) { shakes += 1 }
                 code = ""
             }
@@ -74,12 +75,12 @@ struct PairRow: View {
 /// Where a pairing code is typed: six boxes, showing its length before
 /// it's typed, over a field that's invisible but takes focus, typing, and
 /// pasting ("123 456" as well as "123456"), keeping digits alone, six at
-/// most. The sixth digit pairs at once (`complete`); a wrong code shakes it,
-/// as the login window shakes off a wrong password.
+/// most. Return submits it, once whole; a wrong code shakes it, as the
+/// login window shakes off a wrong password.
 private struct CodeField: View {
     @Binding var code: String
     let shakes: Int
-    let complete: () -> Void
+    let submit: () -> Void
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -90,6 +91,7 @@ private struct CodeField: View {
                     .textFieldStyle(.plain)
                     .labelsHidden()
                     .focused($focused)
+                    .onSubmit(submit)
                     // Not hidden, which would stop it taking focus.
                     .opacity(0.011)
                     .accessibilityLabel("Pairing code, 6 digits")
@@ -102,7 +104,6 @@ private struct CodeField: View {
             .onChange(of: code) { _, typed in
                 let digits = String(typed.filter(\.isNumber).prefix(CodeBoxes.length))
                 if digits != typed { code = digits }
-                if digits.count == CodeBoxes.length { complete() }
             }
     }
 }
