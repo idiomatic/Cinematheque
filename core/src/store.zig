@@ -52,7 +52,19 @@ pub const Store = struct {
             error.FileNotFound => {},
             else => |e| return e,
         }
+        try tighten(io, arena, dir);
         return .{ .io = io, .gpa = gpa, .dir = dir, .identity = identity };
+    }
+
+    /// Makes a data directory, its seeds, and its replica (which holds
+    /// people's progress) its owner's alone, as an older build, or a
+    /// directory made before, may have left them readable by others.
+    fn tighten(io: Io, arena: std.mem.Allocator, dir: []const u8) !void {
+        if (!@hasDecl(Io.File.Permissions, "fromMode")) return;
+        const cwd = Io.Dir.cwd();
+        cwd.setFilePermissions(io, dir, private(0o700), .{}) catch {};
+        for ([_][]const u8{ "identity", "user", "library", "replica.db", "replica.db-wal", "replica.db-shm" }) |name|
+            cwd.setFilePermissions(io, try path(arena, dir, name), private(0o600), .{ .follow_symlinks = false }) catch {};
     }
 
     /// Permissions only the owner has, where the platform has such modes.

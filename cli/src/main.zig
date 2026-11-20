@@ -196,13 +196,62 @@ fn explain(err: anyerror) []const u8 {
     };
 }
 
+/// Standard output, its control characters (but newlines and tabs) as `?`:
+/// names come from files and other devices, and one with an escape
+/// sequence could otherwise act on the terminal.
+const Filtered = struct {
+    inner: *Io.Writer,
+    interface: Io.Writer,
+
+    fn init(inner: *Io.Writer, buffer: []u8) Filtered {
+        return .{ .inner = inner, .interface = .{ .vtable = &.{ .drain = drain, .flush = flush }, .buffer = buffer } };
+    }
+
+    fn put(f: *Filtered, bytes: []const u8) Io.Writer.Error!void {
+        for (bytes) |c| try f.inner.writeByte(if ((c < 0x20 and c != '\n' and c != '\t') or c == 0x7f) '?' else c);
+    }
+
+    fn drain(w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
+        const f: *Filtered = @alignCast(@fieldParentPtr("interface", w));
+        try f.put(w.buffered());
+        w.end = 0;
+        var n: usize = 0;
+        for (data[0 .. data.len - 1]) |d| {
+            try f.put(d);
+            n += d.len;
+        }
+        const last = data[data.len - 1];
+        for (0..splat) |_| try f.put(last);
+        return n + last.len * splat;
+    }
+
+    fn flush(w: *Io.Writer) Io.Writer.Error!void {
+        const f: *Filtered = @alignCast(@fieldParentPtr("interface", w));
+        try f.put(w.buffered());
+        w.end = 0;
+        try f.inner.flush();
+    }
+};
+
+test "control characters are shown as ?" {
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    var buffer: [4]u8 = undefined;
+    var f: Filtered = .init(&out.writer, &buffer);
+    try f.interface.print("Alien\x1b[2J (1979)\t1080p\n", .{});
+    try f.interface.flush();
+    try std.testing.expectEqualStrings("Alien?[2J (1979)\t1080p\n", out.written());
+}
+
 fn run(init: std.process.Init) !void {
     const io = init.io;
     const arena = init.arena.allocator();
     const argv = try init.minimal.args.toSlice(arena);
     var buffer: [8192]u8 = undefined;
     var stdout = Io.File.stdout().writer(io, &buffer);
-    const out = &stdout.interface;
+    var filtered_buffer: [1024]u8 = undefined;
+    var filtered: Filtered = .init(&stdout.interface, &filtered_buffer);
+    const out = &filtered.interface;
     defer out.flush() catch {};
 
     const args = Args.parse(arena, argv[1..]) catch usage(out, null);

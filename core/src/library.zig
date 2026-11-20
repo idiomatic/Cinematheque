@@ -1529,10 +1529,13 @@ pub fn setName(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [
     if (person) |u| try replica.write(wall_ms, k, "user", &std.fmt.bytesToHex(u, .lower));
 }
 
-/// Every name set, people's and devices'.
+/// Every name set, people's and devices'. A device's person (`user`) is
+/// taken only as one of that person's own devices wrote it, or its
+/// certificate says: any member may write a name, and a device counted as
+/// someone's could keep them from handing the library over as they leave.
 pub fn names(replica: *Replica, arena: std.mem.Allocator) ![]Name {
     var out: std.ArrayList(Name) = .empty;
-    const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key >= 'n/' AND key < 'n0' AND length(value) > 0 ORDER BY key");
+    const s = try replica.db.prepare("SELECT key, field, value, device FROM winners WHERE key >= 'n/' AND key < 'n0' AND length(value) > 0 ORDER BY key");
     defer s.finalize();
     while (try s.step()) {
         const key = s.blob(0)["n/".len..];
@@ -1540,9 +1543,25 @@ pub fn names(replica: *Replica, arena: std.mem.Allocator) ![]Name {
             try out.append(arena, .{ .key = try arena.dupe(u8, key), .name = "" });
         const n = &out.items[out.items.len - 1];
         const value = try arena.dupe(u8, s.blob(2));
-        if (std.mem.eql(u8, s.blob(1), "name")) n.name = value else if (std.mem.eql(u8, s.blob(1), "user")) n.person = value;
+        if (std.mem.eql(u8, s.blob(1), "name")) {
+            n.name = value;
+        } else if (std.mem.eql(u8, s.blob(1), "user")) {
+            if (try ownedBy(replica, try replica.keyOf(s.int(3)), key, value)) n.person = value;
+        }
     }
     return out.items;
+}
+
+/// Whether `person` (hex) is the one `writer` acts for, or the one the
+/// certificate of `device` (hex) names.
+fn ownedBy(replica: *Replica, writer: [32]u8, device: []const u8, person: []const u8) !bool {
+    var claimed: [32]u8 = undefined;
+    _ = std.fmt.hexToBytes(&claimed, person) catch return false;
+    if (try replica.certifiedPerson(writer, &.{})) |p| if (std.mem.eql(u8, &p, &claimed)) return true;
+    var key: [32]u8 = undefined;
+    _ = std.fmt.hexToBytes(&key, device) catch return false;
+    const p = try replica.certifiedPerson(key, &.{}) orelse return false;
+    return std.mem.eql(u8, &p, &claimed);
 }
 
 /// The name of `key` (hex), if set.

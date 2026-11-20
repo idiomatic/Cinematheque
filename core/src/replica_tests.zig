@@ -375,6 +375,33 @@ test "only the founder removes the founder's devices, and a removal can't be und
     try testing.expectEqualStrings("Alien", try p.value(0, "t/00001", "name"));
 }
 
+test "a batch over numbers another batch holds is refused" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const b = &p.replicas[1];
+
+    try b.begin();
+    for (0..3) |i| {
+        var key: [16]u8 = undefined;
+        try b.write(1000, try std.fmt.bufPrint(&key, "t/{d:0>5}", .{i}), "name", "first");
+    }
+    try b.commit();
+    _ = try p.sync(0, 1);
+    // b numbers writes again, from within the batch a holds to past it,
+    // and signs them as one batch.
+    b.seq -= 2;
+    try b.begin();
+    for (10..13) |i| {
+        var key: [16]u8 = undefined;
+        try b.write(2000, try std.fmt.bufPrint(&key, "t/{d:0>5}", .{i}), "name", "again");
+    }
+    try b.commit();
+    const stats = try p.sync(0, 1);
+    try testing.expectEqual(@as(usize, 1), stats.refused);
+    try testing.expectError(error.Missing, p.value(0, "t/00012", "name"));
+}
+
 test "fetched fields are verified by shared proof" {
     var p: Devices = undefined;
     try p.init();

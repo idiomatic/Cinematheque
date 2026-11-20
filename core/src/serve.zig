@@ -268,7 +268,12 @@ fn respond(ctx: *const Context, request: *http.Server.Request) !void {
     @memcpy(target_buf[0..path_end], raw[0..path_end]);
     const path = url.decode(target_buf[0..path_end]) catch return request.respond("", .{ .status = .bad_request });
     var segments = std.mem.splitScalar(u8, path, '/');
-    while (segments.next()) |s| if (std.mem.eql(u8, s, "..")) return request.respond("", .{ .status = .forbidden });
+    while (segments.next()) |s| {
+        if (std.mem.eql(u8, s, "..")) return request.respond("", .{ .status = .forbidden });
+        // Nor anything hidden, which listings leave out too (a folder's
+        // `.ssh`, say, if someone shares their home).
+        if (s.len > 0 and s[0] == '.') return request.respond("not found\n", .{ .status = .not_found });
+    }
 
     // The mount, and the path within it.
     const found: struct { mount: *Served, within: []const u8 } = for (ctx.mounts) |*m| {
@@ -485,6 +490,13 @@ fn appendRfc3339(gpa: std.mem.Allocator, out: *std.ArrayList(u8), t: Io.Timestam
     });
 }
 
+/// Whether a path has a hidden segment (`.ssh/id_ed25519`).
+fn hidden(path: []const u8) bool {
+    var segments = std.mem.splitAny(u8, path, "/\\");
+    while (segments.next()) |s| if (s.len > 0 and s[0] == '.') return true;
+    return false;
+}
+
 /// Lists every file as `path<TAB>size<TAB>mtime` (Unix seconds), one per
 /// line, and every directory as `path/`, so an empty one (an unplugged
 /// drive's mount point) shows it's still there.
@@ -494,6 +506,7 @@ fn buildIndex(io: Io, gpa: std.mem.Allocator, root: Io.Dir) ![]u8 {
     var walker = try root.walk(gpa);
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
+        if (hidden(entry.path)) continue;
         if (entry.kind == .directory) {
             try out.print(gpa, "{s}/\n", .{entry.path});
             continue;

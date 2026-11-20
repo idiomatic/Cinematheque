@@ -22,16 +22,27 @@ enum Keys {
         for name in files {
             let file = dataDir.appending(path: name)
             guard !FileManager.default.fileExists(atPath: file.path), let data = read(name) else { continue }
-            try? data.write(to: file, options: .atomic)
+            // Its owner's alone, as the core writes them.
+            FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600])
         }
     }
 
-    /// Keeps any seed the data directory has gained (e.g., on pairing or joining).
+    /// Keeps any seed the data directory has gained (e.g., on pairing or
+    /// joining), and one kept by an earlier build, before it was kept to
+    /// this device, afresh.
     static func save() {
         for name in files {
-            guard let data = try? Data(contentsOf: dataDir.appending(path: name)), read(name) != data else { continue }
+            guard let data = try? Data(contentsOf: dataDir.appending(path: name)), read(name) != data || !thisDeviceOnly(name) else { continue }
             write(name, data)
         }
+    }
+
+    private static func thisDeviceOnly(_ name: String) -> Bool {
+        var q = query(name)
+        q[kSecReturnAttributes] = true
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let attributes = out as? [CFString: Any] else { return false }
+        return attributes[kSecAttrAccessible] as? String == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
     }
 
     /// Forgets the seeds, so a device removed from its library pairs afresh,
@@ -60,7 +71,9 @@ enum Keys {
         SecItemDelete(query(name) as CFDictionary)
         var q = query(name)
         q[kSecValueData] = data
-        q[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
+        // Never in a backup restored to another device, which would then
+        // act as this one.
+        q[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(q as CFDictionary, nil)
     }
 }
