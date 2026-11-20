@@ -264,6 +264,8 @@ private struct DownloadControls: View {
     @State private var requested: Library.DownloadSize?
 
     private static let counts = [1, 3, 10]
+    /// The pop-up's Available item's tag, which no choice is.
+    private static let available = "-available"
 
     var body: some View {
         Group {
@@ -288,10 +290,18 @@ private struct DownloadControls: View {
     /// A size, as Finder gives it ("4.2 GB").
     private static func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
 
-    /// Whether what isn't here yet fits in the space downloads may take.
+    /// Whether what isn't here yet fits in the space available for
+    /// downloads.
     private func fits(_ size: Library.DownloadSize?) -> Bool {
-        guard let size, let space = library.spaceForDownloads else { return true }
+        guard let size, let space = library.availableForDownloads else { return true }
         return size.needed <= space
+    }
+
+    /// A warning that what isn't here yet wouldn't fit, saying what would;
+    /// else nothing, as the control says the rest.
+    private func fitHelp(_ size: Library.DownloadSize?) -> String {
+        guard !fits(size), let space = library.availableForDownloads else { return "" }
+        return "More than the \(Self.bytes(space)) available for downloads"
     }
 
     /// A choice in the pop-up, with its size (all its files'), a warning
@@ -337,7 +347,7 @@ private struct DownloadControls: View {
                 .foregroundStyle(fits(size) ? AnyShapeStyle(.foreground) : AnyShapeStyle(.orange))
                 .buttonStyle(.bordered)
                 .disabled(held || coming)
-                .help(fits(size) ? "Download to watch offline" : "More than downloads have room for")
+                .help(fitHelp(size))
                 // Under a heading, as Show in Finder's places are.
                 .contextMenu { if !held && !coming { DownloadSection(key: key, items: target.items) } }
             DownloadGauge(value: library.downloadProgress(keys, of: size))
@@ -374,18 +384,25 @@ private struct DownloadControls: View {
         // while nothing comes, the trash button dimmed while nothing's here.
         HStack {
             // A pop-up, so the choice opens under the pointer, each with its
-            // size; the space free in its help. A count chosen elsewhere (the
-            // core takes any).
+            // size, then the space available, said, not offered (a disabled
+            // item, as the other download menus show text), its tag no
+            // choice. A count chosen elsewhere (the core takes any).
             let other = Int(chosen).map { !Self.counts.contains($0) } ?? false
-            Picker("Download", selection: Binding(get: { chosen }, set: { library.chooseDownloads(detail.key, $0) })) {
+            Picker("Download", selection: Binding(get: { chosen }, set: { if $0 != Self.available { library.chooseDownloads(detail.key, $0) } })) {
                 choice("")
                 ForEach(Self.counts, id: \.self) { choice(String($0)) }
                 if other { choice(chosen) }
                 Divider()
                 choice("all")
+                if let space = library.availableForDownloads {
+                    Divider()
+                    Text("Available — \(Self.bytes(space))")
+                        .tag(Self.available)
+                        .selectionDisabled()
+                }
             }
             .fixedSize()
-            .help("Episodes to download as you watch" + (library.spaceForDownloads.map { "; \(Self.bytes($0)) free" } ?? ""))
+            .help("Episodes to download as you watch")
             DownloadGauge(value: library.downloadProgress(keys, of: requested))
                 .opacity(pending ? 1 : 0)
             Spacer()
@@ -500,27 +517,30 @@ struct DownloadMenuItems: View {
 
 /// Downloading, in a menu: under a heading, each quality the items have,
 /// by its short name, with what its files come to (a warning symbol for one
-/// that wouldn't fit, as menus can't be colored), then the space free.
+/// whose files not here yet wouldn't fit, as menus can't be colored), then
+/// the space available.
 struct DownloadSection: View {
     let key: String
     let items: [TitleDetail.Item]
     @Environment(Library.self) private var library
 
     var body: some View {
-        let space = library.spaceForDownloads
+        let space = library.availableForDownloads
         Section("Download") {
             ForEach(QualityChoice.labels(items), id: \.self) { label in
                 let qualities = items.compactMap { $0.qualities.first { $0.label == label } }
                 let size = qualities.reduce(0) { $0 + ($1.copies.first?.size ?? 0) }
                 let short = qualities.first?.short ?? label
-                let fits = space.map { size <= $0 } ?? true
+                // What isn't here yet, as the inspector's Download weighs it.
+                let needed = library.downloadSizes(key, choices: [""], quality: label)[""]?.needed ?? size
+                let fits = space.map { needed <= $0 } ?? true
                 Button("\(short) — \(Self.bytes(size))", systemImage: fits ? "arrow.down.circle" : "exclamationmark.triangle") {
                     library.download(key, quality: label)
                 }
             }
             if let space {
                 // Said, not offered: a menu shows text as a dimmed item.
-                Text("Free Space — \(Self.bytes(space))")
+                Text("Available — \(Self.bytes(space))")
             }
         }
         .labelStyle(.titleAndIcon)

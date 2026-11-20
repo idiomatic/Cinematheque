@@ -182,8 +182,9 @@ extension Library {
         return Dictionary(sizes.map { ($0.choice, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
-    /// The space downloads may take: what's free, less what they keep free.
-    var spaceForDownloads: Int? {
+    /// The space available for downloads: what's free, less what they keep
+    /// free. Free is the disk's; available, what Cinematheque recommends.
+    var availableForDownloads: Int? {
         guard let d = downloads, let free = d.free else { return nil }
         return max(0, free - d.floor)
     }

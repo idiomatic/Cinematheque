@@ -51,7 +51,11 @@ struct DownloadsPane: View {
     private var downloaded: String {
         let held = library.downloads?.held.count ?? 0
         let size = library.downloadedBytes.formatted(.byteCount(style: .file))
-        let free = library.downloads?.free.map { ", \($0.formatted(.byteCount(style: .file))) free" } ?? ""
+        // The disk's free space, and of it what Cinematheque recommends.
+        let free = library.downloads?.free.map { free in
+            let available = (library.availableForDownloads ?? 0).formatted(.byteCount(style: .file))
+            return "; \(free.formatted(.byteCount(style: .file))) free, \(available) of it available for downloads"
+        } ?? ""
         return "\(held == 1 ? "1 video" : "\(held.formatted()) videos"), \(size)\(free)"
     }
 
