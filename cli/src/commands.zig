@@ -230,10 +230,7 @@ pub fn title(app: *App, c: Command) !void {
     } else if (c.is("show", 1, &.{})) {
         var r = try app.open();
         defer r.close();
-        const d = try lib.detail(&r, app.arena, c.rest[0]) orelse {
-            try out.print("no title {s}\n", .{c.rest[0]});
-            return error.NotFound;
-        };
+        const d = try lib.detail(&r, app.arena, c.rest[0]) orelse return error.NoSuchTitle;
         var urls: std.StringHashMapUnmanaged([]const u8) = .empty;
         for (try lib.sources(&r, app.arena)) |rp| try urls.put(app.arena, try app.arena.dupe(u8, &rp.id), rp.url);
         try out.print("{s}", .{d.name});
@@ -281,10 +278,7 @@ fn download(app: *App, c: Command) !void {
         var r = try app.open();
         defer r.close();
         break :blk core.download.plan(&r, app.arena, c.rest[0], c.args.get("--quality")) catch |err| switch (err) {
-            error.NotFound => {
-                try out.print("nothing held for {s}{s}{s}\n", .{ c.rest[0], if (c.args.get("--quality") != null) " in " else "", c.args.get("--quality") orelse "" });
-                return err;
-            },
+            error.NotFound => return error.NothingHeld,
             else => |e| return e,
         };
     };

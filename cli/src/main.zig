@@ -144,7 +144,53 @@ const actions = [_]Noun{
     .{ .name = "refresh", .run = commands.refresh },
 };
 
-pub fn main(init: std.process.Init) !void {
+/// Runs the command line; a failure is said in words, on stderr, with no
+/// trace (an expected error isn't a crash), and exits with status 1.
+pub fn main(init: std.process.Init) void {
+    run(init) catch |err| {
+        var buffer: [512]u8 = undefined;
+        var stderr = Io.File.stderr().writer(init.io, &buffer);
+        stderr.interface.print("error: {s}\n", .{explain(err)}) catch {};
+        stderr.interface.flush() catch {};
+        std.process.exit(1);
+    };
+}
+
+/// What went wrong, as a person would put it, naming what to do where
+/// there's something to do; else the error's name.
+fn explain(err: anyerror) []const u8 {
+    return switch (err) {
+        error.NoLibrary => "this device has no library: create one (library create), or join one (library join)",
+        error.LibraryExists => "this device already has a library (library leave forgets it)",
+        error.NoHome => "HOME isn't set, so give a data directory with --data",
+        error.NoSuchTitle => "there's no such title (title list shows them)",
+        error.NoSuchSource => "there's no such source (source list shows them)",
+        error.NothingHeld => "no source holds it (in that quality, if one was given)",
+        error.BadKey => "that isn't a key (64 hex digits)",
+        error.WrongCode => "that isn't the code the new device shows",
+        error.Closed, error.TooManyWrongCodes => "pairing stopped after too many wrong codes: offer again, for a new code",
+        error.NoneOffering => "no new device nearby is offering a code: give its URL after the code",
+        error.SeveralOffering => "several new devices nearby are offering codes: give the one's URL after the code",
+        error.NotAMember => "that device's library doesn't have this person as a member",
+        error.WrongLibrary => "that device is in another library",
+        error.Removed => "this device was removed from the library: library leave, then join again as a new device",
+        error.NotFounder => "only the library's founder can do that",
+        error.FounderIsPermanent => "the founder can't be removed: hand the library over first (library handover)",
+        error.ThisDevice => "that's this device",
+        error.Busy => "another long operation is using the library: try again once it's done",
+        error.AddressInUse => "that port is taken: choose another with --port",
+        error.ConnectionRefused => "nothing answered there (is it running?)",
+        error.ConnectionTimedOut, error.Timeout => "it didn't answer in time",
+        error.UnknownHostName, error.NameServerFailure, error.TemporaryNameServerFailure => "no device or server by that name was found",
+        error.NetworkUnreachable => "it can't be reached from this network",
+        error.HostUnreachable => "it can't be reached (on macOS, Terminal may need Local Network access, in System Settings > Privacy & Security)",
+        error.AccessDenied => "permission denied",
+        error.NotFound => "the server has nothing at that address",
+        else => @errorName(err),
+    };
+}
+
+fn run(init: std.process.Init) !void {
     const io = init.io;
     const arena = init.arena.allocator();
     const argv = try init.minimal.args.toSlice(arena);
@@ -164,7 +210,7 @@ pub fn main(init: std.process.Init) !void {
     }
     if (w.len == 0) usage(out, null);
     const action = find(&actions, w[0]);
-    const run = if (action) |found| found else find(&nouns, w[0]) orelse usage(out, null);
+    const found = if (action) |a| a else find(&nouns, w[0]) orelse usage(out, null);
     if (action == null and w.len == 1) usage(out, w[0]);
 
     const dir = args.get("--data") orelse init.environ_map.get("CINEMATHEQUE_DATA") orelse
@@ -181,7 +227,7 @@ pub fn main(init: std.process.Init) !void {
         .{ .verb = "", .rest = w[1..], .args = &args }
     else
         .{ .verb = w[1], .rest = w[2..], .args = &args };
-    run.run(&app, command) catch |err| switch (err) {
+    found.run(&app, command) catch |err| switch (err) {
         error.Usage => usage(out, w[0]),
         else => return err,
     };

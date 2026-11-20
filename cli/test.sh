@@ -115,7 +115,7 @@ b2_device=$($cq $b device list | grep -E '^[0-9a-f]{64}  ' | grep -v "this devic
 $cq $b device remove $b2_device
 $cq $b2 sync http://127.0.0.1:8192 | grep -q Removed || { echo "FAIL: a removed device wasn't told"; exit 1; }
 $cq $b2 library leave
-$cq $b2 library show 2>&1 | grep -q NoLibrary || { echo "FAIL: library leave"; exit 1; }
+$cq $b2 library show 2>&1 | grep -q "has no library" || { echo "FAIL: library leave"; exit 1; }
 
 source=$($cq $a source list | cut -d" " -f1)
 $cq $a source set $source --quality "Test 720p"
