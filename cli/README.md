@@ -159,6 +159,18 @@ cinematheque sync http://hal.example.net:8008
 cinematheque device add http://hal.example.net:8008
 ```
 
+## The web client in detail
+
+`serve --web` serves one at the root (embedded in the app: plain HTML, CSS, and JavaScript, no framework), off unless asked for, since anyone who can reach the port can use it. A browser acts as this device's person, having no keys.
+
+* **Shelves:** Home (Continue Watching, the watchlist), Movies, Series, Watchlist, In Progress, and Watched, as the Mac's sidebar has them, searchable, each laid out as the Mac's grid (its movies, then each series' seasons under its name, so each shape has rows of its own, room above the first). A tab shows chosen at once, its shelf built a screenful first and the rest a slice a frame, each tile's cover and placeholder fetched only as it nears the screen.
+* **Tiles:** the apps' tiles with their marks, drawn as the Mac's (white on a yellow circle for the star, a green one for the check), over the cover.
+* **Status line:** each shelf's counts, as the Mac's status bar says them (a series' shelf counting its seasons and episodes too), fading out 3 seconds after they last changed and back when the pointer nears it, as the Mac's does; a problem stays until something replaces it.
+* **Title page,** as the apps' are laid out: Play or Resume on a row of its own, filled, Start Over before Resume, the watchlist and watched marks quieter at its far end; a movie's progress, and each episode's in its row, with what's left; then an Episodes heading with a Season pop-up (the season named there, not in the facts) and, at its trailing edge as the Mac's, if there's a choice, a Quality pop-up (of what browsers play: MP4, M4V, or MOV, HEVC only where supported, best first, by the apps' short names), or a Versions heading with it, or for a movie of one version, it alone. A season's episodes are described as it's shown, each once a page load.
+* **Playing,** as the apps do: full height with nothing over the video but the browser's own controls (the browser's Back or Escape leaving it, as a history entry; what's playing as the window's title); fading, resuming 4 seconds before where it was left, saving every 10 seconds past the first 10 and where it's paused or left, marking it watched at its end, going on to the next, and trying the next copy when one doesn't load.
+* **API:** under `/api/`, the apps' tile and title JSON (shared with the C interface, in `views.zig`), covers (a source's byte range, fetched by the server, since sources answer other sites' scripts nothing, and cached for good), placeholders (ThumbHashes drawn as small BMPs), copy racing (`race`, `lost`), describing an episode (`describe`), and this person's writes (`progress`, `watched`, `watchlist`). It fetches and races only URLs within the library's sources.
+* **Syncing:** a second after a browser's last change of this person's (not an episode described), it syncs with every device found or added, as the apps do after theirs.
+
 ## Limits
 
 What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
