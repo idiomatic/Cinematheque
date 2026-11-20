@@ -15,6 +15,10 @@ struct SettingsView: View {
     @State private var leaving = false
     @State private var problem: String?
     @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
+    /// The focused row, whose explanation shows under the picture.
+    @FocusState private var focus: Row?
+
+    private enum Row: Hashable { case device, person, refresh, interval, activity, leave }
 
     private var me: Member? { library.members.first(where: \.you) }
     private var others: [Member] { library.members.filter { !$0.you } }
@@ -23,39 +27,71 @@ struct SettingsView: View {
     private var foundersOnly: Bool { me?.founder == true && library.status?.others == 0 }
 
     var body: some View {
+        // As tvOS's Settings: a picture in the left half, and under it what
+        // the focused row does; the list in the right.
+        HStack(spacing: 80) {
+            VStack(spacing: 60) {
+                AppIcon()
+                Text(explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 640, minHeight: 160, alignment: .top)
+                    .animation(.default, value: focus)
+            }
+            .frame(maxWidth: .infinity)
+            list
+                .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 80)
+    }
+
+    /// What the focused row does; a problem leaving, whatever's focused.
+    private var explanation: String {
+        if leaving { return "Leaving…" }
+        if let problem { return problem }
+        switch focus {
+        case .device, .person: return "Everyone in the library sees these names."
+        case .refresh, .interval: return "Refresh Library looks for new videos in the library's sources. Otherwise your devices look as often as chosen, as they open; a NAS's disks spin up each time."
+        case .activity: return "The last changes received from and sent to your devices, in the corner after each."
+        case .leave: return "Returns to setup, to join a library again, as yours or someone else's."
+        case nil: return ""
+        }
+    }
+
+    private var list: some View {
         List {
             Section("Names") {
                 nameRow("This Apple TV", library.devices.first(where: \.you)?.name, .device)
+                    .focused($focus, equals: .device)
                 nameRow("You", me?.name, .person)
+                    .focused($focus, equals: .person)
             }
-            Section {
-                Button("Refresh Library", systemImage: "arrow.clockwise") {
+            Section("Library") {
+                Button("Refresh Library") {
                     Task { await library.refresh() }
                 }
                 .disabled(library.activity != nil || leaving)
+                .focused($focus, equals: .refresh)
                 Picker("Look for New Videos", selection: Binding(get: { library.crawlEvery }, set: { library.setCrawlEvery($0) })) {
                     ForEach(Library.crawlChoices, id: \.hours) { Text($0.name).tag($0.hours) }
                 }
                 // A row opening its choices, as tvOS's Settings has them.
                 .pickerStyle(.navigationLink)
-            } footer: {
-                Text("Refresh Library looks for new videos in the library's sources. Otherwise your devices look as often as chosen, as they open; a NAS's disks spin up each time.")
-            }
-            Section {
+                .focused($focus, equals: .interval)
                 Toggle("Show Sync Activity", isOn: $showsSyncActivity)
-            } footer: {
-                Text("The last changes received from and sent to your devices, in the corner after each.")
+                    .focused($focus, equals: .activity)
             }
             Section {
-                Button("Leave This Library…", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive, action: askToLeave)
-                .disabled(leaving)
-            } footer: {
-                Text(leaving ? "Leaving…" : problem ?? "Returns to setup, to join a library again, as yours or someone else's.")
+                Button("Leave This Library…", role: .destructive, action: askToLeave)
+                    .disabled(leaving)
+                    .focused($focus, equals: .leave)
             }
         }
+        // Each row on a rounded plate, headings small and uppercase.
+        .listStyle(.grouped)
         // Narrowed, it would clip a focused row, which grows past its edges.
         .scrollClipDisabled()
-        .frame(maxWidth: 1100)
         #if DEBUG
         .task {
             guard let how = Launch.leave else { return }
@@ -97,6 +133,23 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You founded this library, and this Apple TV is your only device in it, so someone takes over as its founder before it leaves.")
+        }
+    }
+
+    /// The app's icon, as its placeholder icons draw it (draw-icons.swift):
+    /// Settings' picture of what it sets.
+    private struct AppIcon: View {
+        var body: some View {
+            RoundedRectangle(cornerRadius: 24)
+                .fill(LinearGradient(
+                    colors: [Color(red: 0.62, green: 0.07, blue: 0.12), Color(red: 0.30, green: 0.02, blue: 0.07)],
+                    startPoint: .top, endPoint: .bottom))
+                .frame(width: 320, height: 192)
+                .overlay {
+                    Image(systemName: "film.stack")
+                        .font(.system(size: 96))
+                        .foregroundStyle(.white)
+                }
         }
     }
 
