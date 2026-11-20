@@ -3,6 +3,7 @@
 const std = @import("std");
 const capi = @import("../capi.zig");
 const connection = @import("long.zig").connection;
+const release = @import("long.zig").release;
 const library = @import("../library.zig");
 const store_ = @import("../store.zig");
 const sync = @import("../sync.zig");
@@ -108,7 +109,7 @@ export fn cq_nearby(lib: *Library) ?[*:0]u8 {
 
 fn nearby(lib: *Library, arena: std.mem.Allocator) ![]const NearbyJson {
     var r = try connection(lib, arena);
-    defer r.close();
+    defer release(lib, &r);
     const mine = std.fmt.bytesToHex(r.library, .lower);
     const own = try lib.store.serviceName(arena);
     const list = try r.members(arena);

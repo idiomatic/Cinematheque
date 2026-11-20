@@ -65,6 +65,11 @@ export fn cq_leave(lib: *Library) c_int {
 fn leave(lib: *Library, arena: std.mem.Allocator) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
+    // Not while another thread has a connection open (looking for devices,
+    // reconciling downloads), whose files and store this would pull away.
+    lib.leaving.store(true, .seq_cst);
+    defer lib.leaving.store(false, .seq_cst);
+    if (lib.connections.load(.seq_cst) > 0) return error.Busy;
     stopServing(lib);
     stopPairing(lib);
     if (lib.replica) |*r| r.close();

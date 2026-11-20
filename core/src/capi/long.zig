@@ -19,7 +19,16 @@ const HeardJson = capi.HeardJson;
 const steps = capi.steps;
 
 pub fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
+    _ = lib.connections.fetchAdd(1, .seq_cst);
+    errdefer _ = lib.connections.fetchSub(1, .seq_cst);
+    if (lib.leaving.load(.seq_cst)) return error.Busy;
     return lib.store.openReplica(arena);
+}
+
+/// Closes a connection `connection` opened.
+pub fn release(lib: *Library, r: *Replica) void {
+    r.close();
+    _ = lib.connections.fetchSub(1, .seq_cst);
 }
 
 /// How often refreshes not asked for (at launch, on a timer) look in the
@@ -56,7 +65,7 @@ export fn cq_crawl_due(lib: *Library) ?[*:0]u8 {
 
 fn crawlAll(lib: *Library, arena: std.mem.Allocator, due: bool) ![]const CrawlJson {
     var r = try connection(lib, arena);
-    defer r.close();
+    defer release(lib, &r);
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     const list = try library.sources(&r, arena);
@@ -190,7 +199,7 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8, known: 
     lib.steps.start(.syncing, 0);
     defer lib.steps.finish();
     var r = try connection(lib, arena);
-    defer r.close();
+    defer release(lib, &r);
     const reachable = if (target != null)
         try sync.reachable(lib.io(), arena, &r, try lib.store.serviceName(arena), target)
     else found: {
@@ -257,7 +266,7 @@ fn describeItem(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !
     try lib.writer.lock(lib.io());
     defer lib.writer.unlock(lib.io());
     var r = try connection(lib, arena);
-    defer r.close();
+    defer release(lib, &r);
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     try art.describeItem(&r, arena, &client, lib.now(), item_key);

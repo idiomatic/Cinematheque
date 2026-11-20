@@ -52,6 +52,11 @@ pub const Library = struct {
     replica: ?Replica = null,
     /// Held while a connection writes as this device.
     writer: Io.Mutex = .init,
+    /// Connections other threads have open (`connection`), and whether
+    /// the library is being left: leaving waits for none, but refuses
+    /// while any is open, and none opens while it leaves.
+    connections: std.atomic.Value(u32) = .init(0),
+    leaving: std.atomic.Value(bool) = .init(false),
     /// Titles to describe first while a crawl runs, such as those on screen.
     priority: art.Priority = .{},
     /// How far the long operation running has come.

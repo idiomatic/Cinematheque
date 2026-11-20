@@ -3,6 +3,7 @@
 const std = @import("std");
 const capi = @import("../capi.zig");
 const connection = @import("long.zig").connection;
+const release = @import("long.zig").release;
 const library = @import("../library.zig");
 const download = @import("../download.zig");
 const gpa = capi.gpa;
@@ -177,7 +178,7 @@ fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
     if (lib.reconciling.swap(true, .acq_rel)) return .{ .busy = true };
     errdefer lib.reconciling.store(false, .release);
     var r = try connection(lib, arena);
-    defer r.close();
+    defer release(lib, &r);
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     var out: ReconciledJson = .{};

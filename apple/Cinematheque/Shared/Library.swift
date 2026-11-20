@@ -287,6 +287,7 @@ final class Library {
         case "ConnectionTimedOut", "Timeout": "it didn't answer in time"
         case "UnknownHostName", "NameServerFailure", "TemporaryNameServerFailure": "no server by that name was found"
         case "NetworkUnreachable", "HostUnreachable": "it can't be reached from this network"
+        case "Busy": "something else is using the library: try again in a moment"
         case "FoundersDevice": "only the founder can remove the founder's devices"
         case "Refused": "that device refused (is it up to date? Devices sync only with others as new)"
         case "PathTaken": "another file is already where it would go"
