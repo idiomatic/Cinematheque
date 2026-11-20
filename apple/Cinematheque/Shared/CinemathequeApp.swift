@@ -13,11 +13,11 @@ struct CinemathequeApp: App {
         WindowGroup("Cinematheque") {
             RootView()
                 .environment(library)
-                #if os(macOS)
-                .frame(minWidth: 900, minHeight: 560)
-                #endif
         }
         #if os(macOS)
+        // Sized by what it shows: the welcome window fixed, the library's
+        // from its minimum up.
+        .windowResizability(.contentSize)
         .commands {
             CommandGroup(after: .toolbar) {
                 Button("Refresh Library") { Task { await library.refresh() } }
@@ -53,10 +53,12 @@ struct RootView: View {
         Group {
             if library.status == nil {
                 ContentUnavailableView("Can't Open the Library", systemImage: "exclamationmark.triangle", description: Text(library.problem ?? ""))
+                    .browsingSize()
             } else if !library.hasLibrary {
                 SetupView()
             } else {
                 Browser()
+                    .browsingSize()
             }
         }
         // Again once set up.
@@ -88,5 +90,16 @@ private struct PhaseWatcher: View {
                 #endif
                 if phase == .active { Task { await library.syncQuietly() } }
             }
+    }
+}
+
+extension View {
+    /// The library window's least size, on the Mac (setup's is its own).
+    func browsingSize() -> some View {
+        #if os(macOS)
+        frame(minWidth: 900, minHeight: 560)
+        #else
+        self
+        #endif
     }
 }

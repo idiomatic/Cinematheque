@@ -100,51 +100,120 @@ struct CodeBoxes: View {
 }
 
 #if !os(tvOS)
+/// The Mac's first run, as its welcome windows are (Xcode's, Keynote's): a
+/// small fixed window of the app's icon and name over two large choices;
+/// joining shows its code in the same window, as Setup Assistant moves
+/// between panes.
 private struct SetupForm: View {
     @Environment(Library.self) private var library
     /// Whether this Mac shows a code, to be added to a library.
-    @State private var offering = false
+    @State private var joining = false
 
     var body: some View {
-        Form {
-            Section {
-                if let device = library.removedBy {
-                    Label("This Mac was removed from its library (as \(device) said). Join it again to use the library, or start another.", systemImage: "exclamationmark.triangle.fill")
-                }
-                Text("A library of the movies and series your household keeps, shared among your devices.")
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Welcome to Cinematheque").font(.largeTitle.weight(.semibold))
-            }
-            Section {
-                if offering {
-                    OfferedCode(size: 44)
-                } else {
-                    Button("Join a Library") { offering = true }
-                }
-            } header: {
-                Text("Join a library")
-            } footer: {
-                Text("This Mac shows a code. On a device in the library, yours or that of someone who shares it, enter it in Cinematheque's Settings > Devices, under New Devices.")
-            }
-            Section {
-                Button("Create Library") {
-                    offering = false
-                    library.found()
-                }
-            } header: {
-                Text("Start a library")
-            } footer: {
-                Text("You'll found it, and can add the people you share it with.")
-            }
+        Group {
+            if joining { joinStep } else { welcome }
         }
-        .formStyle(.grouped)
-        .frame(maxWidth: 640)
-        .frame(maxWidth: .infinity)
+        .frame(width: 520, height: 400)
+        // As welcome windows have: no title, the title bar part of the window.
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         #if DEBUG
         // `CINEMATHEQUE_TAB` names a step, as on tvOS: `join`, to show a code.
-        .onAppear { if Launch.tab == "join" { offering = true } }
+        .onAppear { if Launch.tab == "join" { joining = true } }
         #endif
+    }
+
+    private var welcome: some View {
+        VStack(spacing: 0) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .frame(width: 96, height: 96)
+            Text("Welcome to Cinematheque")
+                .font(.largeTitle.weight(.semibold))
+                .padding(.top, 8)
+            Text("The movies and series your household keeps, shared among your devices.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 4)
+            if let device = library.removedBy {
+                Label("This Mac was removed from its library (as \(device) said). Join it again, or create another.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .padding(.top, 12)
+            }
+            Spacer(minLength: 24)
+            VStack(spacing: 10) {
+                Button { library.found() } label: {
+                    Choice(symbol: "plus.rectangle.on.folder", title: "Create a Library", detail: "Start with your own movies and series.")
+                }
+                .keyboardShortcut(.defaultAction)
+                Button { joining = true } label: {
+                    Choice(symbol: "person.2", title: "Join a Library", detail: "Use one that you or your household already has.")
+                }
+            }
+            .buttonStyle(ChoiceStyle())
+        }
+        .padding(.horizontal, 40)
+        .padding(.top, 8)
+        .padding(.bottom, 32)
+    }
+
+    private var joinStep: some View {
+        VStack(spacing: 20) {
+            Text("Join a Library").font(.title.weight(.semibold))
+            Text("On a Mac in the library, open Cinematheque's Settings > Devices, and enter this code beside this Mac.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Spacer(minLength: 0)
+            OfferedCode(size: 40)
+            Spacer(minLength: 0)
+            HStack {
+                Button("Back") { joining = false }
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 40)
+        .padding(.top, 24)
+        .padding(.bottom, 20)
+        .onDisappear { library.stopPairing() }
+    }
+}
+
+/// A welcome window's choice: a symbol, a title, and a line saying what it's for.
+private struct Choice: View {
+    let symbol: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.title)
+                .foregroundStyle(.tint)
+                .frame(width: 36)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(detail).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+    }
+}
+
+/// A choice's row, as Xcode's welcome window draws its own: quiet until the
+/// pointer's over it or it's pressed.
+private struct ChoiceStyle: ButtonStyle {
+    @State private var hovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(.quaternary.opacity(configuration.isPressed ? 1 : hovering ? 0.7 : 0.4))
+            )
+            .onHover { hovering = $0 }
     }
 }
 #endif

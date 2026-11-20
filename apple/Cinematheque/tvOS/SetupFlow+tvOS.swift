@@ -28,8 +28,8 @@ struct SetupFlow: View {
                     }
                 }
                 VStack(spacing: 24) {
+                    Button { library.found() } label: { Choice("Create a Library") }
                     NavigationLink(value: Step.join) { Choice("Join a Library") }
-                    Button { library.found() } label: { Choice("Start a New Library") }
                 }
             }
             .frame(maxWidth: 1200)
