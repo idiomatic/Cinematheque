@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var problem: String?
     /// The name whose keyboard is up.
     @State private var naming: Library.Named?
+    /// Whether Look for New Videos' choices are open.
+    @State private var choosingInterval = false
     @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
     /// The focused row, whose explanation shows under the picture.
     @FocusState private var focus: SettingsRow?
@@ -55,12 +57,8 @@ struct SettingsView: View {
                 }
                 .disabled(library.activity != nil || leaving)
                 .settingsRow(.refresh, $focus)
-                // A row opening its choices, as tvOS's Settings has them
-                // (a picker's `.navigationLink` style opens an empty list).
-                NavigationLink {
-                    IntervalPage()
-                } label: {
-                    LabeledContent("Look for New Videos", value: Library.crawlChoices.first { $0.hours == library.crawlEvery }?.name ?? "")
+                Button { choosingInterval = true } label: {
+                    DisclosureLabel(title: "Look for New Videos", value: Library.crawlChoices.first { $0.hours == library.crawlEvery }?.name ?? "")
                 }
                 .settingsRow(.interval, $focus)
                 Toggle("Show Sync Activity", isOn: $showsSyncActivity)
@@ -78,6 +76,7 @@ struct SettingsView: View {
         }
         // Narrowed, it would clip a focused row, which grows past its edges.
         .scrollClipDisabled()
+        .navigationDestination(isPresented: $choosingInterval) { IntervalPage() }
         #if DEBUG
         // Once the library's people are read.
         .task(id: me?.key) {
@@ -130,6 +129,9 @@ struct SettingsView: View {
                 library.setName(which, $0)
             }
             .frame(width: 1, height: 1)
+            // tvOS's fields keep a size of their own, whose plate would
+            // show through the row's.
+            .clipped()
             .opacity(0.01)
             .accessibilityHidden(true)
         }
@@ -176,6 +178,30 @@ private extension View {
     }
 }
 
+/// A row's title and value, and a chevron saying it opens a page, as
+/// tvOS's Settings draws them (measured against it: the chevron 18 by 32
+/// points, 32 after the value and 36 short of the plate's edge).
+private struct DisclosureLabel: View {
+    let title: String
+    let value: String
+    /// The chevron's size, scaling with Larger Text as the row's text does.
+    @ScaledMetric(relativeTo: .headline) private var chevron = 39.0
+
+    var body: some View {
+        LabeledContent(title) {
+            HStack(spacing: 23) {
+                // On one line, as the system's values, so rows keep one height.
+                Text(value).lineLimit(1)
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: chevron, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .padding(.trailing, 3)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
 /// Look for New Videos' choices, as tvOS's Settings lists a setting's: the
 /// current one checked and focused first; choosing one sets it and goes
 /// back.
@@ -185,7 +211,7 @@ private struct IntervalPage: View {
     @FocusState private var focus: Int?
 
     var body: some View {
-        SettingsPage(explanation: SettingsRow.interval.explanation) {
+        SettingsPage(title: "Look for New Videos", explanation: SettingsRow.interval.explanation) {
             Form {
                 Section {
                     ForEach(Library.crawlChoices, id: \.hours) { choice in
@@ -200,14 +226,14 @@ private struct IntervalPage: View {
                         .focused($focus, equals: choice.hours)
                         .accessibilityAddTraits(choice.hours == library.crawlEvery ? .isSelected : [])
                     }
-                } header: {
-                    Text("Look for New Videos").bold()
                 }
                 .listRowInsets(SettingsView.rowInsets)
             }
             .scrollClipDisabled()
             .defaultFocus($focus, library.crawlEvery)
         }
+        // A page of its own, as the system's subpages are.
+        .toolbar(.hidden, for: .tabBar)
     }
 }
 
@@ -218,15 +244,19 @@ private struct IntervalPage: View {
 /// of the right edge, in the system's row text size (`.headline`), under
 /// the tab bar.
 private struct SettingsPage<List: View>: View {
+    /// A subpage's title, at the top in the middle, as the system's are
+    /// (SwiftUI's navigation title sits lower and pushes the list down).
+    var title: String?
     let explanation: String
     @ViewBuilder let list: List
 
-    private static var left: CGFloat { 1056 / 1920 }
-    private static var listWidth: CGFloat { 788 / 1920 }
+    private static var left: CGFloat { 1060 / 1920 }
+    private static var listWidth: CGFloat { 780 / 1920 }
     private static var pictureWidth: CGFloat { 540 / 1920 }
     private static var pictureCenter: CGFloat { 506 / 1080 }
     private static var explanationWidth: CGFloat { 768 / 1920 }
     private static var explanationCenter: CGFloat { 940 / 1080 }
+    private static var titleCenter: CGFloat { 90.5 / 1080 }
 
     var body: some View {
         GeometryReader { screen in
@@ -262,6 +292,18 @@ private struct SettingsPage<List: View>: View {
             }
         }
         .ignoresSafeArea(edges: .horizontal)
+        .overlay {
+            if let title {
+                GeometryReader { screen in
+                    Text(title)
+                        .font(.title2.bold())
+                        .foregroundStyle(.tertiary)
+                        .accessibilityAddTraits(.isHeader)
+                        .position(x: screen.size.width / 2, y: screen.size.height * Self.titleCenter)
+                }
+                .ignoresSafeArea()
+            }
+        }
     }
 }
 
@@ -278,6 +320,9 @@ private struct KeyboardField: UIViewRepresentable {
         let field = UITextField()
         field.delegate = context.coordinator
         field.returnKeyType = .done
+        // No plate of its own, which would show through the row's.
+        field.borderStyle = .none
+        field.backgroundColor = .clear
         // Unseen, so VoiceOver reads only its row (SwiftUI's
         // accessibilityHidden doesn't reach a UIKit view).
         field.accessibilityElementsHidden = true
