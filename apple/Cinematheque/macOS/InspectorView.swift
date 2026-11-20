@@ -443,7 +443,8 @@ private struct StandIn: View {
 
     var body: some View {
         if let q = Playback.standIn(item, for: quality, in: detail) {
-            Text(text) + Text(" (\(q.short))").foregroundStyle(.secondary)
+            // Its spaces unbreaking, so it wraps whole, if at all.
+            Text(text) + Text(" (\(q.short.replacingOccurrences(of: " ", with: "\u{00A0}")))").foregroundStyle(.secondary)
         } else {
             Text(text)
         }

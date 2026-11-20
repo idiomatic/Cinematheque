@@ -200,30 +200,23 @@ fn itemLabel(arena: std.mem.Allocator, key: []const u8, fields: std.StringArrayH
 /// with HDR if it says so ("1080p", "4K HDR"); "Other" for one of unknown
 /// quality; its full name where it gives no resolution; and where two of a
 /// title's would read alike, each with what else its full name says, its
-/// resolution and options' syntax aside ("720p Very Fast"), failing that
-/// its full name.
+/// resolution and options (`--colorspace=bt709`) aside ("720p Very Fast"),
+/// failing that with its options' values too, failing that its full name.
 fn shortNames(arena: std.mem.Allocator, items: []ItemJson) !void {
     var labels: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
     for (items) |it| for (it.qualities) |q| if (!labels.contains(q.label)) try labels.put(arena, q.label, q.name);
     const n = labels.count();
     const shorts = try arena.alloc([]const u8, n);
     for (labels.keys(), labels.values(), shorts) |label, full, *s| s.* = try short(arena, label, full);
+    const plain = try arena.alloc([]const u8, n);
+    for (labels.values(), shorts, plain) |full, s, *p|
+        p.* = if (alike(shorts, s)) try withRest(arena, s, full, false) else s;
     const told = try arena.alloc([]const u8, n);
-    for (labels.values(), shorts, told) |full, s, *t| {
-        var alike: usize = 0;
-        for (shorts) |o| if (std.mem.eql(u8, o, s)) {
-            alike += 1;
-        };
-        t.* = if (alike > 1) try withRest(arena, s, full) else s;
-    }
+    for (labels.values(), shorts, plain, told) |full, s, p, *t|
+        t.* = if (alike(plain, p)) try withRest(arena, s, full, true) else p;
     var names: std.StringHashMapUnmanaged([]const u8) = .empty;
-    for (labels.keys(), labels.values(), told) |label, full, t| {
-        var alike: usize = 0;
-        for (told) |o| if (std.mem.eql(u8, o, t)) {
-            alike += 1;
-        };
-        try names.put(arena, label, if (alike > 1) full else t);
-    }
+    for (labels.keys(), labels.values(), told) |label, full, t|
+        try names.put(arena, label, if (alike(told, t)) full else t);
     for (items) |it| for (it.qualities) |*q| {
         @constCast(q).short = names.get(q.label) orelse q.label;
     };
@@ -273,18 +266,28 @@ fn fullName(arena: std.mem.Allocator, label: []const u8, name: []const u8) ![]co
     return if (dup.n) |n| std.fmt.allocPrint(arena, "{s}, copy {s}", .{ base, n }) else base;
 }
 
+/// Whether another of `names` reads as `name` does.
+fn alike(names: []const []const u8, name: []const u8) bool {
+    var count: usize = 0;
+    for (names) |o| if (std.mem.eql(u8, o, name)) {
+        count += 1;
+    };
+    return count > 1;
+}
+
 /// A short name with what else the full name says: its words but for a
-/// resolution (`720p30`) and options' syntax (`--encoder=`).
-fn withRest(arena: std.mem.Allocator, s: []const u8, full: []const u8) ![]const u8 {
+/// resolution (`720p30`) and options (`--encoder=x265`), or with options'
+/// values (x265) if asked.
+fn withRest(arena: std.mem.Allocator, s: []const u8, full: []const u8, options: bool) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     try out.appendSlice(arena, s);
     var words = std.mem.tokenizeScalar(u8, full, ' ');
     while (words.next()) |w0| {
         var w = w0;
-        // Options' syntax: "--encoder=x265" says x265.
-        if (std.mem.startsWith(u8, w, "-")) if (std.mem.indexOfScalar(u8, w, '=')) |eq| {
-            w = w[eq + 1 ..];
-        };
+        if (std.mem.startsWith(u8, w, "-")) {
+            if (!options) continue;
+            if (std.mem.indexOfScalar(u8, w, '=')) |eq| w = w[eq + 1 ..];
+        }
         if (isResolution(w) or w.len == 0) continue;
         try out.append(arena, ' ');
         try out.appendSlice(arena, w);
@@ -434,7 +437,7 @@ test "items' labels and names, and qualities' short names" {
     try std.testing.expectEqualStrings("HQ 1080p30 Surround", try fullName(arena, "hq-1080p30-surround", "HQ 1080p30 Surround"));
     var qualities = [_]QualityJson{
         .{ .label = "a", .name = "HQ 720p30 Surround", .short = "", .height = 720, .copies = &.{} },
-        .{ .label = "b", .name = "Very Fast 720p30", .short = "", .height = 720, .copies = &.{} },
+        .{ .label = "b", .name = "Very Fast 720p30 --colorspace=bt709", .short = "", .height = 720, .copies = &.{} },
         .{ .label = "c", .name = "HQ 1080p30 Surround --encoder=x265", .short = "", .height = 1080, .copies = &.{} },
     };
     var items = [_]ItemJson{.{ .key = "v/-", .season = null, .number = null, .aired = null, .label = "Standard", .name = "Standard", .fields = .{}, .qualities = &qualities, .position = 0, .duration = 0, .watched = false, .next = false }};
@@ -442,4 +445,13 @@ test "items' labels and names, and qualities' short names" {
     try std.testing.expectEqualStrings("720p HQ Surround", qualities[0].short);
     try std.testing.expectEqualStrings("720p Very Fast", qualities[1].short);
     try std.testing.expectEqualStrings("1080p", qualities[2].short);
+    // Told apart only by an option: its value.
+    var by_option = [_]QualityJson{
+        .{ .label = "a", .name = "HQ 1080p30 --encoder=x264", .short = "", .height = 1080, .copies = &.{} },
+        .{ .label = "b", .name = "HQ 1080p30 --encoder=x265", .short = "", .height = 1080, .copies = &.{} },
+    };
+    items[0].qualities = &by_option;
+    try shortNames(arena, &items);
+    try std.testing.expectEqualStrings("1080p HQ x264", by_option[0].short);
+    try std.testing.expectEqualStrings("1080p HQ x265", by_option[1].short);
 }
