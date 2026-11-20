@@ -10,7 +10,7 @@ work=${1:-/tmp/cinematheque-cli-test}
 cq=$here/zig-out/bin/cinematheque
 gen=$here/zig-out/bin/gen
 
-(cd $here && zig build --release=fast && zig build gen --release=fast)
+(cd $here && zig build --release=safe && zig build gen --release=fast)
 # Only a directory this test could have made is cleared.
 if [[ -e $work && -n $(ls -A $work 2> /dev/null) && ${work:t} != cinematheque-cli-test* ]]; then
     echo "refusing to clear $work: not named cinematheque-cli-test..." >&2

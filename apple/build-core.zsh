@@ -20,7 +20,7 @@ for arch in ${=ARCHS}; do
         arm64) zig_arch=aarch64 ;;
         *) zig_arch=$arch ;;
     esac
-    zig build --release=fast -Dtarget=$zig_arch-$os.$version$abi --sysroot "$SDKROOT" --prefix "$out/$arch"
+    zig build --release=safe -Dtarget=$zig_arch-$os.$version$abi --sysroot "$SDKROOT" --prefix "$out/$arch"
     xcrun ld -r -arch $arch -platform_version $platform $version $version -exported_symbol '_cq_*' -all_load "$out/$arch/lib/libcinematheque.a" -o "$out/$arch/core.o"
     rm -f "$out/$arch/libcore.a"
     xcrun libtool -static -o "$out/$arch/libcore.a" "$out/$arch/core.o"

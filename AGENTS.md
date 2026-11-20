@@ -157,6 +157,7 @@ Their details, as built, are in [apple/README.md](apple/README.md#in-detail).
 ## Implementation
 
 * Zig 0.17+ for the core and the command-line app, with no dependencies beyond the system's SQLite and DNS-SD. Whatever waits (networking, sleeping, SQLite waiting out another connection's write, DNS-SD waiting for results) does so through Zig's `Io`, so it can be canceled; only what `Io` can't reach blocks outside it (SQLite's own disk I/O, and the system's name lookup, which copy racing avoids on Apple platforms by looking names up through DNS-SD).
+* Releases of the core and the command-line app are built ReleaseSafe, never ReleaseFast: they parse what sources and other devices send, so a bug must stop them, not corrupt memory.
 * SwiftUI for Apple players.
 * SQLite for each device's replica.
 * Tests: the core's unit tests (`zig build test`; `zig build` compiles the C interface too), [cli/test.sh](cli/test.sh) (two devices and more, end to end), screenshots of the macOS player in a macOS VM (terrarium's `macos-27.2-quiet`), and of the Apple TV player in the tvOS simulator (an Apple TV 4K, 3rd generation).

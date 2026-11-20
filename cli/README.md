@@ -7,7 +7,7 @@ The command-line app, `cinematheque`, for macOS and Linux, on the [core](../core
 It needs [Zig](https://ziglang.org) 0.17 or later and SQLite (built into macOS; on Linux, your distribution's package). On Linux, finding other devices on your network needs Avahi and its Bonjour compatibility library (`libdns_sd`; e.g., `avahi` and `avahi-compat-libdns_sd` on Alpine).
 
 ```sh
-zig build --release=fast
+zig build --release=safe
 cp zig-out/bin/cinematheque ~/bin/   # or anywhere on your PATH
 ./test.sh       # devices, a generated source, sync, and every command
 ```
