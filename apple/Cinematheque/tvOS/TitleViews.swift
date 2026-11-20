@@ -31,17 +31,15 @@ struct MovieView: View {
                         Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality))
                         }
+                        // What Play plays in, beside it.
+                        QualityPicker(detail: detail, items: detail.items, chosen: $quality)
                         // The marks, quieter than what plays: icons, named
                         // for VoiceOver.
                         Marks(detail: detail, items: detail.items).labelStyle(.iconOnly)
                     }
                     if detail.items.count > 1 {
                         VStack(alignment: .leading, spacing: 16) {
-                            HStack {
-                                Text("Versions").font(.headline)
-                                Spacer()
-                                QualityPicker(detail: detail, items: detail.items, chosen: $quality)
-                            }
+                            Text("Versions").font(.headline)
                             ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
                                 Button(item.label, systemImage: item.watched ? "checkmark.circle.fill" : "play.circle") {
                                     playing = Playback.request(detail, items: [item], from: 0, quality: detail.quality(for: [item], chosen: quality))
@@ -51,10 +49,6 @@ struct MovieView: View {
                     }
                     if let description = detail.summary {
                         Text(description).lineLimit(8)
-                    }
-                    // A movie of one version: its quality alone, under its description.
-                    if detail.items.count <= 1 {
-                        QualityPicker(detail: detail, items: detail.items, chosen: $quality)
                     }
                 }
             }
@@ -131,18 +125,14 @@ struct SeriesView: View {
                         Button(Playback.playLabel(Playback.nextItem(detail, season: tile.season)), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items, chosen: quality))
                         }
+                        QualityPicker(detail: detail, items: items, chosen: $quality)
                         Marks(detail: detail, items: items, season: tile.season).labelStyle(.iconOnly)
                     }
                     if let description = detail.fields["description"] {
                         Text(description).lineLimit(4).foregroundStyle(.secondary)
                     }
                     VStack(alignment: .leading, spacing: 12) {
-                        // The season's quality, in the heading of the episodes it plays.
-                        HStack {
-                            Text("Episodes").font(.headline)
-                            Spacer()
-                            QualityPicker(detail: detail, items: items, chosen: $quality)
-                        }
+                        Text("Episodes").font(.headline)
                         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                             Button {
                                 playing = Playback.request(detail, items: items, from: index, quality: detail.quality(for: items, chosen: quality))
@@ -201,9 +191,10 @@ private struct Backdrop: View {
     }
 }
 
-/// The quality to play, when there's a choice: the best this Apple TV plays
-/// (MP4, MOV, or M4V, up to its display's resolution), unless one's chosen,
-/// as a quicker copy in another quality may be, or a direct one.
+/// The quality to play, after Play: the best this Apple TV plays (MP4,
+/// MOV, or M4V, up to its display's resolution), unless one's chosen, as a
+/// quicker copy in another quality may be, or a direct one; of one quality,
+/// said, not offered, as on the Mac.
 private struct QualityPicker: View {
     let detail: TitleDetail
     let items: [TitleDetail.Item]
@@ -211,7 +202,9 @@ private struct QualityPicker: View {
 
     var body: some View {
         let labels = QualityChoice.labels(items)
-        if labels.count > 1 {
+        if labels.count == 1, let label = labels.first {
+            Text(QualityChoice.shortNames(labels, in: items)[label] ?? label).foregroundStyle(.secondary)
+        } else if labels.count > 1 {
             let short = QualityChoice.shortNames(labels, in: items)
             Picker(selection: Binding(get: { detail.quality(for: items, chosen: chosen) }, set: { chosen = $0 })) {
                 ForEach(labels, id: \.self) { label in
