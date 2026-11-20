@@ -84,26 +84,71 @@ function el(tag, attributes = {}, ...children) {
 
 /// Covers and placeholders are fetched only as their tiles near the screen:
 /// a shelf of thousands asked for them all at once, and the browser's few
-/// connections to the server queued them behind one another.
+/// connections to the server queued them behind one another. A tile that
+/// leaves before its cover starts loading gives up its turn.
 const nearScreen = new IntersectionObserver((entries) => {
-  for (const e of entries) if (e.isIntersecting) {
-    nearScreen.unobserve(e.target);
-    e.target.load();
+  for (const e of entries) {
+    if (e.isIntersecting) e.target.near();
+    else covers.waiting.delete(e.target);
   }
 }, { rootMargin: "1000px 0px" });
+
+/// Covers come from sources through the server, which waits on a NAS's
+/// disks as they wake: so a few at a time, nearest the screen first, never
+/// all of the browser's six connections to the server, which placeholders,
+/// pages, and playing need meanwhile (a page opened while a shelf's covers
+/// waited took 20 seconds). A page left behind abandons its covers.
+const covers = { waiting: new Set(), loading: new Set(), most: 3 };
+
+function nextCovers() {
+  while (covers.loading.size < covers.most && covers.waiting.size) {
+    let best = null;
+    let nearest = Infinity;
+    for (const c of covers.waiting) {
+      if (!c.isConnected) { covers.waiting.delete(c); continue; }
+      const r = c.getBoundingClientRect();
+      const away = r.bottom < 0 ? -r.bottom : Math.max(0, r.top - innerHeight);
+      if (away < nearest) { nearest = away; best = c; }
+    }
+    if (!best) return;
+    covers.waiting.delete(best);
+    best.fetchCover();
+  }
+}
+
+/// Stops loading the covers of tiles no longer shown.
+function abandonCovers() {
+  for (const img of covers.loading) if (!img.isConnected) img.stop();
+}
 
 /// A tile; under its series' name (`underSeries`), a season says only which.
 function tileView(tile, underSeries = false) {
   const cover = el("div", { class: "cover" });
   if ((tile.thumb && tile.thumb !== "-") || tile.cover) {
-    cover.load = () => {
-      if (tile.thumb && tile.thumb !== "-") cover.style.backgroundImage = `url("${thumbURL(tile.thumb)}")`;
-      if (!tile.cover) return;
-      const img = el("img", { alt: "", decoding: "async", src: coverURL(tile.cover) });
+    let placed = false;
+    cover.near = () => {
+      // Its placeholder at once, as the server draws it; its cover in turn.
+      if (!placed && tile.thumb && tile.thumb !== "-") cover.style.backgroundImage = `url("${thumbURL(tile.thumb)}")`;
+      placed = true;
+      if (!tile.cover) return nearScreen.unobserve(cover);
+      covers.waiting.add(cover);
+      nextCovers();
+    };
+    cover.fetchCover = () => {
+      nearScreen.unobserve(cover);
+      const img = el("img", { alt: "", decoding: "async" });
+      covers.loading.add(img);
+      const done = () => {
+        if (!covers.loading.delete(img)) return;
+        nextCovers();
+      };
       // Shown at once, once loaded, without a fade, over its placeholder.
       img.style.visibility = "hidden";
-      img.onload = () => { img.style.visibility = ""; };
-      img.onerror = () => img.remove();
+      img.onload = () => { img.style.visibility = ""; done(); };
+      img.onerror = () => { img.remove(); done(); };
+      // Clearing its address cancels the request.
+      img.stop = () => { img.removeAttribute("src"); done(); };
+      img.src = coverURL(tile.cover);
       // Under the marks (star, check, progress), which come before it.
       cover.prepend(img);
     };
@@ -632,6 +677,7 @@ async function route() {
   }
   if (mine !== showing) return;
   main.replaceChildren(...parts);
+  abandonCovers();
   scrollTo(0, 0);
 }
 
