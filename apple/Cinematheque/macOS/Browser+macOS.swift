@@ -1,6 +1,35 @@
 #if os(macOS)
 import SwiftUI
 
+extension FocusedValues {
+    /// Focuses the library window's search, as Edit › Find does.
+    @Entry var find: FindAction?
+}
+
+/// Focusing a window's search: compared by the window it's for, as a
+/// closure can't be, so views depending on it aren't redrawn on every
+/// update.
+struct FindAction: Equatable {
+    let window: UUID
+    let perform: () -> Void
+
+    func callAsFunction() { perform() }
+
+    static func == (a: FindAction, b: FindAction) -> Bool { a.window == b.window }
+}
+
+/// Edit › Find (⌘F), focusing the library window's search, as the covers
+/// have the keys at launch.
+struct FindCommand: View {
+    @FocusedValue(\.find) private var find
+
+    var body: some View {
+        Button("Find") { find?() }
+            .keyboardShortcut("f")
+            .disabled(find == nil)
+    }
+}
+
 /// The library as a grid of covers: movies, and series by season, filtered
 /// by shelf and search, beside an inspector for the one selected.
 struct Browser: View {
@@ -12,6 +41,10 @@ struct Browser: View {
     @AppStorage("shelf") private var lastShelf: Shelf = .inProgress
     @State private var shelf: Shelf?
     @State private var search = ""
+    /// Whether search has the keys (Find, ⌘F, gives it them).
+    @FocusState private var searching: Bool
+    /// This window's, for its Find action.
+    @State private var window = UUID()
     @State private var selection: Tile.ID?
     @State private var inspecting = true
     /// Each shelf's scroll position, to return to.
@@ -74,6 +107,8 @@ struct Browser: View {
                 // Search, as SwiftUI places it, goes last; the inspector's
                 // toggle just before it, as in Photos.
                 .searchable(text: $search, placement: .toolbar)
+                .searchFocused($searching)
+                .focusedSceneValue(\.find, FindAction(window: window) { searching = true })
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         inspectorToggle
@@ -169,6 +204,10 @@ struct CoverGrid: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
+        // The covers take the keys at launch, rather than search, which
+        // AppKit makes the window's first responder (`defaultFocus` doesn't
+        // outrank it).
+        .onAppear { focused = true }
         .onMoveCommand { direction in move(direction, in: [movies] + series.map(\.seasons)) }
         .onKeyPress(.return) {
             guard let tile = tiles.first(where: { $0.id == selection }) else { return .ignored }
