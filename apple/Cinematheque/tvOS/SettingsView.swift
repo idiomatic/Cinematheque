@@ -7,9 +7,6 @@ import SwiftUI
 /// and people stays on the Mac.
 struct SettingsView: View {
     @Environment(Library.self) private var library
-    /// The name being edited, and its draft.
-    @State private var editing: Library.Named?
-    @State private var draft = ""
     @State private var confirmingLeave = false
     @State private var choosingSuccessor = false
     @State private var leaving = false
@@ -27,23 +24,8 @@ struct SettingsView: View {
     private var foundersOnly: Bool { me?.founder == true && library.status?.others == 0 }
 
     var body: some View {
-        // As tvOS's Settings: a picture in the left half, and under it what
-        // the focused row does; the list in the right.
-        HStack(spacing: 80) {
-            VStack(spacing: 60) {
-                AppIcon()
-                Text(explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 640, minHeight: 160, alignment: .top)
-                    .animation(.default, value: focus)
-            }
-            .frame(maxWidth: .infinity)
-            list
-                .frame(maxWidth: .infinity)
-        }
-        .padding(.horizontal, 80)
+        SettingsPage(explanation: explanation) { list }
+            .animation(.default, value: focus)
     }
 
     /// What the focused row does; a problem leaving, whatever's focused.
@@ -60,14 +42,16 @@ struct SettingsView: View {
     }
 
     private var list: some View {
-        List {
-            Section("Names") {
+        Form {
+            Section {
                 nameRow("This Apple TV", library.devices.first(where: \.you)?.name, .device)
                     .focused($focus, equals: .device)
                 nameRow("You", me?.name, .person)
                     .focused($focus, equals: .person)
+            } header: {
+                Text("Names")
             }
-            Section("Library") {
+            Section {
                 Button("Refresh Library") {
                     Task { await library.refresh() }
                 }
@@ -81,6 +65,8 @@ struct SettingsView: View {
                 .focused($focus, equals: .interval)
                 Toggle("Show Sync Activity", isOn: $showsSyncActivity)
                     .focused($focus, equals: .activity)
+            } header: {
+                Text("Library")
             }
             Section {
                 Button("Leave This Library…", role: .destructive, action: askToLeave)
@@ -88,8 +74,6 @@ struct SettingsView: View {
                     .focused($focus, equals: .leave)
             }
         }
-        // Each row on a rounded plate, headings small and uppercase.
-        .listStyle(.grouped)
         // Narrowed, it would clip a focused row, which grows past its edges.
         .scrollClipDisabled()
         #if DEBUG
@@ -109,13 +93,6 @@ struct SettingsView: View {
             }
         }
         #endif
-        .alert(editing == .person ? "Your Name" : "This Apple TV's Name", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
-            TextField("Name", text: $draft)
-            Button("Save") { if let which = editing { library.setName(which, draft) } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Everyone in the library sees it.")
-        }
         // Hard to undo, so asked first.
         .alert(foundersOnly ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
             Button(foundersOnly ? "Leave and End It" : "Leave", role: .destructive) { leave(successor: nil, alone: foundersOnly) }
@@ -136,27 +113,11 @@ struct SettingsView: View {
         }
     }
 
-    /// The app's icon, as its placeholder icons draw it (draw-icons.swift):
-    /// Settings' picture of what it sets.
-    private struct AppIcon: View {
-        var body: some View {
-            RoundedRectangle(cornerRadius: 24)
-                .fill(LinearGradient(
-                    colors: [Color(red: 0.62, green: 0.07, blue: 0.12), Color(red: 0.30, green: 0.02, blue: 0.07)],
-                    startPoint: .top, endPoint: .bottom))
-                .frame(width: 320, height: 192)
-                .overlay {
-                    Image(systemName: "film.stack")
-                        .font(.system(size: 96))
-                        .foregroundStyle(.white)
-                }
-        }
-    }
 
+    /// A name, as tvOS's Name is: a link to its page.
     private func nameRow(_ title: String, _ name: String?, _ which: Library.Named) -> some View {
-        Button {
-            draft = name ?? ""
-            editing = which
+        NavigationLink {
+            NamePage(title: title, name: name, which: which)
         } label: {
             LabeledContent(title, value: name ?? "Unnamed")
         }
@@ -174,6 +135,150 @@ struct SettingsView: View {
         Task {
             problem = await library.leaveLibrary(successor: successor, alone: alone)
             leaving = false
+        }
+    }
+}
+
+/// The app's icon, as its placeholder icons draw it (draw-icons.swift):
+/// Settings' picture of what it sets.
+private struct AppIcon: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 24)
+            .fill(LinearGradient(
+                colors: [Color(red: 0.62, green: 0.07, blue: 0.12), Color(red: 0.30, green: 0.02, blue: 0.07)],
+                startPoint: .top, endPoint: .bottom))
+            .frame(width: 540, height: 324)
+            .overlay {
+                Image(systemName: "film.stack")
+                    .font(.system(size: 160))
+                    .foregroundStyle(.white)
+            }
+    }
+}
+
+/// A page laid out as tvOS's Settings lays its out, measured against it
+/// across the screen (1920 points): the app's icon a little below the
+/// middle of the left 55%, and low under it, 40% of the screen wide, what
+/// the focused row does; the list from there to 4% short of the right edge.
+private struct SettingsPage<List: View>: View {
+    let explanation: String
+    @ViewBuilder let list: List
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ZStack {
+                AppIcon()
+                    .position(x: 528, y: 506)
+                Text(explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 768, height: 180, alignment: .top)
+                    .position(x: 528, y: 940)
+            }
+            .frame(width: 1056, height: 1080)
+            .ignoresSafeArea()
+            list
+                .formStyle(.grouped)
+                // The system's rows' text size.
+                .font(.headline)
+                .frame(width: 788)
+            Spacer(minLength: 0)
+        }
+        .ignoresSafeArea(edges: .horizontal)
+    }
+}
+
+/// A name's page, as tvOS's Name is: names to choose (this Apple TV's, the
+/// rooms tvOS offers), the current one checked, then Custom…, which brings
+/// up the full-screen keyboard. Choosing one saves it and goes back.
+private struct NamePage: View {
+    let title: String
+    let name: String?
+    let which: Library.Named
+    @State private var typing = false
+    @Environment(Library.self) private var library
+    @Environment(\.dismiss) private var dismiss
+
+    private static let rooms = ["Bedroom", "Den", "Dining Room", "Family Room", "Game Room", "Guest Room", "Kitchen", "Living Room", "Media Room", "Office", "Playroom"]
+
+    private var choices: [String] {
+        let offered = which == .device ? Self.rooms : []
+        guard let name, !offered.contains(name) else { return offered }
+        return [name] + offered
+    }
+
+    var body: some View {
+        SettingsPage(explanation: "Everyone in the library sees it.") {
+            Form {
+                Section {
+                    ForEach(choices, id: \.self) { choice in
+                        Button { save(choice) } label: {
+                            LabeledContent(choice) {
+                                if choice == name { Image(systemName: "checkmark") }
+                            }
+                        }
+                    }
+                    Button("Custom…") { typing = true }
+                        .background {
+                            KeyboardField(title: title, text: name ?? "", typing: $typing) { save($0) }
+                                .frame(width: 1, height: 1)
+                                .opacity(0.01)
+                                .accessibilityHidden(true)
+                        }
+                }
+            }
+        }
+        .navigationTitle(title)
+    }
+
+    private func save(_ new: String) {
+        let trimmed = new.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { library.setName(which, trimmed) }
+        dismiss()
+    }
+}
+
+/// A UIKit text field, unseen, whose keyboard comes up full screen as
+/// `typing` turns on, holding `text`; `submit` takes what's typed when it's
+/// submitted, not when it's dismissed.
+private struct KeyboardField: UIViewRepresentable {
+    let title: String
+    let text: String
+    @Binding var typing: Bool
+    let submit: (String) -> Void
+
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.delegate = context.coordinator
+        field.returnKeyType = .done
+        return field
+    }
+
+    func updateUIView(_ field: UITextField, context: Context) {
+        context.coordinator.parent = self
+        if typing, !field.isFirstResponder {
+            field.placeholder = title
+            field.text = text
+            field.becomeFirstResponder()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: KeyboardField
+
+        init(_ parent: KeyboardField) { self.parent = parent }
+
+        func textFieldShouldReturn(_ field: UITextField) -> Bool {
+            parent.submit(field.text ?? "")
+            field.resignFirstResponder()
+            return false
+        }
+
+        func textFieldDidEndEditing(_ field: UITextField) {
+            parent.typing = false
         }
     }
 }

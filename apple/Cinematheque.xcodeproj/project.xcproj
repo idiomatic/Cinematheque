@@ -28,11 +28,34 @@
     },
     { "path": "build-core.zsh" },
     { "path": "Signing.xcconfig" },
+    { "path": "Cinematheque.entitlements" },
+    { "path": "TopShelf.entitlements" },
     {
+      "kind": "folder",
+      "path": "TopShelf",
+      "target-membership": [
+        "TopShelf",
+      ],
+      "membership-exceptions": [
+        {
+          "target": "TopShelf",
+          "exclusions": [
+            "Info.plist",
+          ],
+        },
+      ],
+    }, {
+      "kind": "group",
+      "name": "Frameworks",
+      "children": [
+        { "path": "<DEVELOPER>/Library/Frameworks/TVServices.framework", "target-membership": [ "TopShelf/frameworks" ] },
+      ],
+    }, {
       "kind": "group",
       "name": "Products",
       "children": [
         { "path": "<PRODUCTS>/Cinematheque.app", "id": "00C1E0000000000000000003", "type": "wrapper.application", "index": false },
+        { "path": "<PRODUCTS>/TopShelf.appex", "id": "D393C48D30B0303500241D38", "type": "wrapper.app-extension", "index": false, "target-membership": [ { "build-phase": "Cinematheque/copy/Embed Foundation Extensions", "platforms": [ "tvos" ], "header-preservation": "remove-on-copy" } ] },
       ],
     },
   ],
@@ -45,6 +68,9 @@
       "specialized-configurations": [
         { "name": "Debug", "file": "Signing.xcconfig" },
         { "name": "Release", "file": "Signing.xcconfig" },
+      ],
+      "dependencies": [
+        { "target": "TopShelf", "platforms": [ "tvos" ] },
       ],
       "build-phases": [
         {
@@ -60,10 +86,16 @@
         "compile-sources",
         "frameworks",
         "resources",
+        {
+          "kind": "copy",
+          "name": "Embed Foundation Extensions",
+          "bundle-base-path": "plugins-directory",
+        },
       ],
       "build-settings": {
         "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletv*]": "App Icon & Top Shelf Image",
         "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]": "AppIcon",
+        "CODE_SIGN_ENTITLEMENTS[sdk=appletv*]": "Cinematheque.entitlements",
         "CODE_SIGN_IDENTITY[sdk=macosx*]": "-",
         "CODE_SIGN_STYLE[sdk=appletv*]": "Automatic",
         "CODE_SIGN_STYLE[sdk=macosx*]": "Manual",
@@ -103,6 +135,47 @@
         "SWIFT_VERSION": "6.0",
         "TARGETED_DEVICE_FAMILY": "3",
         "TVOS_DEPLOYMENT_TARGET": "18.0",
+      },
+    }, {
+      "name": "TopShelf",
+      "id": "D393C48C30B0303500241D38",
+      "product": "Products/TopShelf.appex",
+      "product-type": "app-extension",
+      "specialized-configurations": [
+        { "name": "Debug", "file": "Signing.xcconfig" },
+        { "name": "Release", "file": "Signing.xcconfig" },
+      ],
+      "build-phases": [
+        "compile-sources",
+        "frameworks",
+        "resources",
+      ],
+      "build-settings": {
+        "CODE_SIGN_ENTITLEMENTS": "TopShelf.entitlements",
+        "CODE_SIGN_STYLE": "Automatic",
+        "CURRENT_PROJECT_VERSION": "1",
+        "GENERATE_INFOPLIST_FILE": "YES",
+        "INFOPLIST_FILE": "TopShelf/Info.plist",
+        "INFOPLIST_KEY_CFBundleDisplayName": "Cinematheque",
+        "INFOPLIST_KEY_NSHumanReadableCopyright": "",
+        "LD_RUNPATH_SEARCH_PATHS": [
+          "$(inherited)",
+          "@executable_path/Frameworks",
+          "@executable_path/../../Frameworks",
+        ],
+        "MARKETING_VERSION": "0.1",
+        "PRODUCT_BUNDLE_IDENTIFIER": "com.rbrian.cinematheque.TopShelf",
+        "PRODUCT_NAME": "$(TARGET_NAME)",
+        "SDKROOT": "appletvos",
+        "SKIP_INSTALL": "YES",
+        "STRING_CATALOG_GENERATE_SYMBOLS": "YES",
+        "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
+        "SWIFT_EMIT_LOC_STRINGS": "YES",
+        "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
+        "SWIFT_VERSION": "6.0",
+        "TARGETED_DEVICE_FAMILY": "3",
+        "TVOS_DEPLOYMENT_TARGET": "18.0",
+        "VALIDATE_PRODUCT[config=Release]": "YES",
       },
     },
   ],

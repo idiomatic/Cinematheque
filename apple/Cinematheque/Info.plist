@@ -16,6 +16,18 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Cinematheque plays videos from sources on your network, and syncs with your other devices there.</string>
+	<!-- Links into the app, as the Apple TV's Top Shelf opens a title. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.rbrian.cinematheque</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>cinematheque</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_cinematheque._tcp</string>

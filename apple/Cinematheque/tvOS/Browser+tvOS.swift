@@ -11,12 +11,16 @@ struct Browser: View {
 
     @Environment(Library.self) private var library
     @State private var tab: Tab = .shelf(.home)
+    /// A link's title to open on Home (the Top Shelf's), once the library
+    /// has it; then the title itself.
+    @State private var link: URL?
+    @State private var opening: Tile?
 
     var body: some View {
         TabView(selection: $tab) {
             ForEach(Shelf.allCases.filter { !Shelf.macOnly.contains($0) }) { shelf in
                 SwiftUI.Tab(shelf.title, systemImage: shelf.symbol, value: Tab.shelf(shelf)) {
-                    Stack {
+                    Stack(opening: shelf == .home ? $opening : nil) {
                         if shelf == .home {
                             HomeView()
                         } else {
@@ -42,6 +46,18 @@ struct Browser: View {
         }
         .overlay(alignment: .bottomTrailing) { Activity() }
         .task { TVPlayer.warmUp() }
+        .onOpenURL { link = $0 }
+        .task(id: "\(link?.absoluteString ?? "") \(library.tiles.count)") {
+            guard let url = link, let tile = TopShelfPublisher.tile(url, in: library) else { return }
+            link = nil
+            tab = .shelf(.home)
+            opening = tile
+        }
+        // What Home shows, for the Top Shelf, once changes settle.
+        .task(id: library.revision) {
+            try? await Task.sleep(for: .seconds(2))
+            if !Task.isCancelled { await TopShelfPublisher.publish(library) }
+        }
         #if DEBUG
         .onAppear {
             if let name = Launch.tab { tab = name == "search" ? .search : name == "settings" ? .settings : Shelf(rawValue: name).map(Tab.shelf) ?? tab }
@@ -52,6 +68,8 @@ struct Browser: View {
 
 /// A tab's navigation stack, opening a movie's page or a series'.
 private struct Stack<Content: View>: View {
+    /// A title to open, as a link asks (Home's).
+    var opening: Binding<Tile?>? = nil
     @ViewBuilder let content: Content
     @Environment(Library.self) private var library
     @State private var path: [Tile] = []
@@ -62,6 +80,11 @@ private struct Stack<Content: View>: View {
                 .navigationDestination(for: Tile.self) { tile in
                     if tile.isSeries { SeriesView(key: tile.key) } else { MovieView(tile: tile) }
                 }
+        }
+        .onChange(of: opening?.wrappedValue) { _, tile in
+            guard let tile else { return }
+            path = [tile]
+            opening?.wrappedValue = nil
         }
         #if DEBUG
         // Once the title has arrived (a first launch's sync brings it).
