@@ -189,8 +189,6 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8, known: 
     // Devices are counted once they're found.
     lib.steps.start(.syncing, 0);
     defer lib.steps.finish();
-    try lib.writer.lock(lib.io());
-    defer lib.writer.unlock(lib.io());
     var r = try connection(lib, arena);
     defer r.close();
     const reachable = if (target != null)
@@ -205,6 +203,11 @@ fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8, known: 
     };
     const urls = reachable.urls;
     const names = reachable.names;
+    // Found before writing, so looking (however long the network makes
+    // it) holds up no one else's writes; then caught up with theirs.
+    try lib.writer.lock(lib.io());
+    defer lib.writer.unlock(lib.io());
+    try r.refresh();
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     const out = try arena.alloc(SyncJson, urls.len);

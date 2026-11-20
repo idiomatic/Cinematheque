@@ -62,13 +62,15 @@ pub const Web = struct {
         var arena_state = std.heap.ArenaAllocator.init(gpa);
         defer arena_state.deinit();
         const arena = arena_state.allocator();
-        try w.writer.lock(io);
-        defer w.writer.unlock(io);
         var r = try open(w, io, gpa);
         defer r.close();
+        // Found before writing, so looking holds up no page's writes.
+        const found = try core.sync.reachable(io, arena, &r, w.own, null);
+        try w.writer.lock(io);
+        defer w.writer.unlock(io);
+        try r.refresh();
         var client: http.Client = .{ .allocator = gpa, .io = io };
         defer client.deinit();
-        const found = try core.sync.reachable(io, arena, &r, w.own, null);
         for (found.urls) |u| _ = core.sync.exchange(arena, &client, &r, u, now(io)) catch |err| {
             std.log.warn("syncing with {s} after a change: {t}", .{ u, err });
         };

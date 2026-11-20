@@ -106,8 +106,11 @@ const Resolving = struct {
 fn onBrowse(_: c.DNSServiceRef, flags: c.Flags, interface: u32, err: c.Error, name: [*:0]const u8, regtype: [*:0]const u8, domain: [*:0]const u8, context: ?*anyopaque) callconv(.c) void {
     const state: *State = @ptrCast(@alignCast(context.?));
     if (err != 0 or flags & c.flags_add == 0) return;
-    // A service appears once per interface; keep the first.
+    // A service appears once per interface; keep the first. And keep no
+    // more than a network has, so advertisements made up by the hundred
+    // can't stall a sync resolving them.
     for (state.found.items) |f| if (std.mem.eql(u8, f.name, std.mem.span(name))) return;
+    if (state.found.items.len == max_services) return;
     const f: Found = .{
         .name = state.arena.dupeSentinel(u8, std.mem.span(name), 0) catch |e| return fail(state, e),
         .regtype = state.arena.dupeSentinel(u8, std.mem.span(regtype), 0) catch |e| return fail(state, e),
@@ -224,7 +227,12 @@ pub fn lookup(io: Io, host: [:0]const u8, port: u16, ms: i64, out: []Io.net.IpAd
     return out[0..l.len];
 }
 
-/// Browses for Cinematheque devices for `ms` milliseconds, then resolves each.
+/// The most services kept, and the longest all of them take to resolve.
+const max_services = 64;
+const resolving_ms = 4000;
+
+/// Browses for Cinematheque devices for `ms` milliseconds, then resolves
+/// each, within `resolving_ms` in all.
 pub fn browse(io: Io, arena: std.mem.Allocator, ms: i64) ![]Service {
     var state: State = .{ .arena = arena };
     var ref: c.DNSServiceRef = null;
@@ -233,12 +241,15 @@ pub fn browse(io: Io, arena: std.mem.Allocator, ms: i64) ![]Service {
     var browsing: Browsing = .{ .state = &state };
     try pump(io, ref, ms, &browsing, Browsing.finished);
     var services: std.ArrayList(Service) = .empty;
+    const start = Io.Timestamp.now(io, .awake);
     for (state.found.items) |f| {
+        const left = resolving_ms - start.durationTo(Io.Timestamp.now(io, .awake)).toMilliseconds();
+        if (left <= 0) break;
         var resolving: Resolving = .{ .state = &state, .name = f.name };
         var resolve: c.DNSServiceRef = null;
         if (c.DNSServiceResolve(&resolve, 0, f.interface, f.name.ptr, f.regtype.ptr, f.domain.ptr, onResolve, &resolving) != 0) return error.DnsSd;
         defer c.DNSServiceRefDeallocate(resolve);
-        try pump(io, resolve, 2000, &resolving, Resolving.finished);
+        try pump(io, resolve, @min(2000, left), &resolving, Resolving.finished);
         // A service that didn't resolve keeps the list aligned with an empty host.
         try services.append(arena, resolving.service orelse .{ .name = f.name, .host = "", .port = 0, .txt = "" });
     }

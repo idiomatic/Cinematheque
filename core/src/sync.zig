@@ -186,6 +186,11 @@ fn removedMessage(library: [16]u8, device: [32]u8, time_ms: u64) [20 + 16 + 32 +
     return out;
 }
 
+/// The most of a sync's body (gzipped) read before it's applied. It's read
+/// whole first, since applying holds the replica's write lock, which a
+/// sender slow to send (or never finishing) would otherwise hold too.
+const max_body_bytes = replica_.max_pending_bytes;
+
 /// How far a request's time may be from the server's.
 const freshness_ms = 10 * 60 * 1000;
 
@@ -335,7 +340,8 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     const window = try arena.alloc(u8, flate.max_window_len);
 
     if (pushed) {
-        var gunzip: flate.Decompress = .init(body, .gzip, window);
+        var whole: Io.Reader = .fixed(try body.allocRemaining(arena, .limited(max_body_bytes)));
+        var gunzip: flate.Decompress = .init(&whole, .gzip, window);
         src.now_ms = now;
         const stats = replica_.readSync(&src, &gunzip.reader, null, .{ .request = head[head.len - 64 ..][0..64].*, .sender = checked[0].device }) catch |err| {
             try request.respond(@errorName(err), .{ .status = .bad_request });
@@ -511,10 +517,11 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
     if (!std.mem.eql(u8, &sender, &recipient)) return error.Refused;
     const binding: replica_.Binding = .{ .request = body[body.len - 64 ..][0..64].*, .sender = sender };
     var transfer: [64 * 1024]u8 = undefined;
-    var decompress: http.Decompress = undefined;
     const window = try arena.alloc(u8, flate.max_window_len);
+    var whole: Io.Reader = .fixed(try response.reader(&transfer).allocRemaining(arena, .limited(max_body_bytes)));
+    var gunzip: flate.Decompress = .init(&whole, .gzip, window);
     dst.now_ms = now_ms;
-    var stats = try replica_.readSync(dst, response.readerDecompressing(&transfer, &decompress, window), .{ .arena = arena, .vector = theirs }, binding);
+    var stats = try replica_.readSync(dst, &gunzip.reader, .{ .arena = arena, .vector = theirs }, binding);
     stats.wire_bytes += body.len;
     return .{ .stats = stats, .person = person };
 }
@@ -581,9 +588,10 @@ fn repairFrom(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url
         else => return error.BadStatus,
     }
     var transfer: [64 * 1024]u8 = undefined;
-    var decompress: http.Decompress = undefined;
+    var whole: Io.Reader = .fixed(try response.reader(&transfer).allocRemaining(arena, .limited(max_body_bytes)));
+    var gunzip: flate.Decompress = .init(&whole, .gzip, try arena.alloc(u8, flate.max_window_len));
     dst.now_ms = now_ms;
-    const stats = try replica_.readRepair(dst, response.readerDecompressing(&transfer, &decompress, try arena.alloc(u8, flate.max_window_len)));
+    const stats = try replica_.readRepair(dst, &gunzip.reader);
     return stats.won;
 }
 
