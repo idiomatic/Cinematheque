@@ -186,6 +186,8 @@ fn explain(err: anyerror) []const u8 {
         error.HostUnreachable => "it can't be reached (on macOS, Terminal may need Local Network access, in System Settings > Privacy & Security)",
         error.AccessDenied => "permission denied",
         error.NotFound => "the server has nothing at that address",
+        error.TooMany => "the server lists far more than any library holds",
+        error.TooDeep => "the server's folders nest too deeply",
         else => @errorName(err),
     };
 }

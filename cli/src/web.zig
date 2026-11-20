@@ -195,7 +195,7 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
 }
 
 fn sendJson(arena: std.mem.Allocator, request: *http.Server.Request, value: anytype) !void {
-    const text = try std.json.Stringify.valueAlloc(arena, value, .{});
+    const text = try core.json.valueAlloc(arena, value);
     try request.respond(text, .{ .extra_headers = &.{
         .{ .name = "content-type", .value = "application/json" },
         .{ .name = "cache-control", .value = "no-store" },

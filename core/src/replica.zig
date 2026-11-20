@@ -343,6 +343,9 @@ pub const Replica = struct {
             return error.NotPrivate;
         // A batch holds 1 to `merkle.max_leaves` operations.
         if (fields.len == 0 or fields.len > merkle.max_leaves) return error.BadBatchSize;
+        // As `writeOp`'s.
+        if (key.len > std.math.maxInt(u16)) return error.TooLong;
+        for (fields) |f| if (f[0].len > std.math.maxInt(u16) or f[1].len > max_value_len) return error.TooLong;
         try replica.flush();
         // The private stream's certificate travels on the device's own.
         try replica.checkCertificate(wall_ms);
@@ -913,6 +916,9 @@ pub const Replica = struct {
     }
 
     pub fn writeOp(replica: *Replica, kind: op_.Kind, wall_ms: u64, key: []const u8, field: []const u8, value: []const u8) !void {
+        // What its encoding can carry, and other devices take: else the
+        // write, signed into the stream, would stop them taking any more.
+        if (key.len > std.math.maxInt(u16) or field.len > std.math.maxInt(u16) or value.len > max_value_len) return error.TooLong;
         var own_key: [66]u8 = undefined;
         if (!std.mem.eql(u8, key, certKey(&own_key, replica.device()))) try replica.checkCertificate(wall_ms);
         if (!replica.batching) {

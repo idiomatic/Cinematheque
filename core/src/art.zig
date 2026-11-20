@@ -556,7 +556,7 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
     // A file that isn't an MP4, or can't be read, is marked described too,
     // so it isn't read again; a network failure is tried again later.
     const info = mp4.read(arena, client, try fileUrl(arena, source.url, path)) catch |err| if (unreachable_(err)) return err else mp4.Info{};
-    const title_end = std.mem.indexOf(u8, item_key, "/e/") orelse std.mem.indexOf(u8, item_key, "/v/") orelse item_key.len;
+    const title_end = library.pastTitle(item_key, "/e/") orelse library.pastTitle(item_key, "/v/") orelse item_key.len;
     var writes: std.ArrayList(Write) = .empty;
     try appendInfo(arena, &writes, .{
         .title_key = item_key[0..title_end],
@@ -565,11 +565,11 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
         .path = path,
         .stamp = "",
         .episode = 0,
-        .is_episode = std.mem.indexOf(u8, item_key, "/e/") != null,
+        .is_episode = library.pastTitle(item_key, "/e/") != null,
     }, info);
     // A version's file speaks for itself alone, not its movie (whose
     // description and release its standard version's file gave).
-    if (std.mem.indexOf(u8, item_key, "/v/") != null) {
+    if (library.pastTitle(item_key, "/v/") != null) {
         var kept: usize = 0;
         for (writes.items) |w| if (std.mem.eql(u8, w.key, item_key)) {
             writes.items[kept] = w;
@@ -625,18 +625,20 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     {
         const unavailable = try library.UnavailableDirs.load(replica, arena);
         var seen: std.StringHashMapUnmanaged(void) = .empty;
-        const s = try replica.db.prepare("SELECT substr(key, 1, instr(key, '/r/') - 1), field, value FROM winners WHERE key LIKE 't/%/r/%' AND field LIKE 'held:%' AND length(value) > 0");
+        const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key LIKE 't/%/r/%' AND field LIKE 'held:%' AND length(value) > 0");
         defer s.finalize();
         while (try s.step()) {
             const here = !unavailable.has(s.blob(1)["held:".len..], s.blob(2));
-            if (seen.contains(s.blob(0))) {
-                if (here) if (tileOf(s.blob(0))) |id| try present.put(arena, try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season }), {});
+            const whole = s.blob(0);
+            const held = whole[0 .. library.pastTitle(whole, "/r/") orelse continue];
+            if (seen.contains(held)) {
+                if (here) if (tileOf(held)) |id| try present.put(arena, try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season }), {});
                 continue;
             }
-            const item = try arena.dupe(u8, s.blob(0));
+            const item = try arena.dupe(u8, held);
             try seen.put(arena, item, {});
-            const e = std.mem.indexOf(u8, item, "/e/s");
-            const title_key = item[0 .. e orelse (std.mem.indexOf(u8, item, "/v/") orelse item.len)];
+            const e = library.pastTitle(item, "/e/s");
+            const title_key = item[0 .. e orelse (library.pastTitle(item, "/v/") orelse item.len)];
             const n: u16 = if (e) |i| seasonNumber(item[i + 4 ..]) orelse continue else 0;
             const id = try std.fmt.allocPrint(arena, "{s}#{d}", .{ title_key, n });
             if (here) try present.put(arena, id, {});
@@ -706,8 +708,8 @@ test "season numbers of any width" {
 
 /// An item's tile: its title's key, and its season (0 for a movie's).
 fn tileOf(item: []const u8) ?struct { title: []const u8, season: u16 } {
-    const e = std.mem.indexOf(u8, item, "/e/s");
-    const title_key = item[0 .. e orelse (std.mem.indexOf(u8, item, "/v/") orelse item.len)];
+    const e = library.pastTitle(item, "/e/s");
+    const title_key = item[0 .. e orelse (library.pastTitle(item, "/v/") orelse item.len)];
     const n: u16 = if (e) |i| seasonNumber(item[i + 4 ..]) orelse return null else 0;
     return .{ .title = title_key, .season = n };
 }
@@ -756,7 +758,7 @@ fn distinctItems(list: []const []const u8) usize {
 
 /// An episode's item key without its version or part (`.../e/s01e02`).
 fn withoutVersion(item: []const u8) []const u8 {
-    const e = std.mem.indexOf(u8, item, "/e/") orelse return item;
+    const e = library.pastTitle(item, "/e/") orelse return item;
     const end = std.mem.indexOfScalarPos(u8, item, e + 3, '/') orelse return item;
     return item[0..end];
 }

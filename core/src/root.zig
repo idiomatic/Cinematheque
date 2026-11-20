@@ -19,6 +19,7 @@ pub const host = @import("host.zig");
 pub const race = @import("race.zig");
 pub const download = @import("download.zig");
 pub const views = @import("views.zig");
+pub const json = @import("json.zig");
 
 test {
     _ = replica;
@@ -41,6 +42,7 @@ test {
     _ = race;
     _ = download;
     _ = views;
+    _ = json;
     _ = @import("merkle.zig");
     _ = @import("hlc.zig");
     _ = @import("op.zig");

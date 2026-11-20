@@ -306,12 +306,11 @@ pub fn decodeDc(arena: std.mem.Allocator, bytes: []const u8) Error!Image {
                     pos = bits.pos;
                 }
                 pos = nextScanEnd(bytes, pos);
-                // Progressive: done once every component's DC is in.
-                if (progressive) {
-                    for (comps[0..ncomps]) |c| {
-                        if (!c.seen) break;
-                    } else break;
-                }
+                // Done once every component's DC is in, so scans repeated
+                // can't cost a decode each.
+                for (comps[0..ncomps]) |c| {
+                    if (!c.seen) break;
+                } else break;
             },
             else => {},
         }

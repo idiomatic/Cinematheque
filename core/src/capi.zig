@@ -176,7 +176,7 @@ export fn cq_close(lib: ?*Library) void {
 }
 
 pub fn stringify(value: anytype) ![*:0]u8 {
-    const text = try std.json.Stringify.valueAlloc(gpa, value, .{});
+    const text = try @import("json.zig").valueAlloc(gpa, value);
     defer gpa.free(text);
     return (try gpa.dupeSentinel(u8, text, 0)).ptr;
 }

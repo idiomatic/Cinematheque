@@ -42,6 +42,10 @@ pub const Info = struct {
 /// The most of `udta` read at once: covers are a few hundred kilobytes.
 const max_udta = 16 << 20;
 
+/// The most atoms walked at a level: a movie has a few at the top, and in
+/// `moov` a track each besides a few others.
+const max_atoms = 256;
+
 /// Reads `url`'s cover and metadata. Fails with `error.NoRanges` if the
 /// server ignores range requests, rather than downloading the file.
 pub fn read(arena: std.mem.Allocator, client: *http.Client, target: []const u8) !Info {
@@ -51,19 +55,25 @@ pub fn read(arena: std.mem.Allocator, client: *http.Client, target: []const u8) 
     _ = try f.get(0, 64);
     const size = f.size orelse return error.NoRanges;
     // Sizes are the file's word: add them saturating, and stop at its end.
+    // And walk no more atoms than a real file has, so one of many tiny
+    // atoms, each a request, can't hold a worker indefinitely.
+    var walked: usize = 0;
     var at: u64 = 0;
-    const moov = while (at < size and size - at >= 8) {
+    const moov = while (at < size and size - at >= 8) : (walked += 1) {
+        if (walked == max_atoms) return error.Malformed;
         const a = try f.atomAt(at);
         if (std.mem.eql(u8, &a.kind, "moov")) break a;
         at = @min(size, at +| a.size);
     } else return error.NoMovie;
     // moov's children: mvhd, traks (skipped), udta, and perhaps meta.
-    at = moov.offset + moov.header;
+    at = moov.offset +| moov.header;
     const moov_end = @min(size, moov.offset +| moov.size);
-    while (at < moov_end and moov_end - at >= 8) {
+    walked = 0;
+    while (at < moov_end and moov_end - at >= 8) : (walked += 1) {
+        if (walked == max_atoms) return error.Malformed;
         const a = try f.atomAt(at);
         if (std.mem.eql(u8, &a.kind, "mvhd")) {
-            info.duration_ms = duration(try f.get(a.offset + a.header, 32));
+            info.duration_ms = duration(try f.get(a.offset +| a.header, 32));
         } else if (std.mem.eql(u8, &a.kind, "udta") or std.mem.eql(u8, &a.kind, "meta")) {
             if (a.size <= max_udta) {
                 const bytes = try f.get(a.offset, a.size);
@@ -213,7 +223,9 @@ fn parseItems(info: *Info, bytes: []const u8, base: u64) void {
 
 fn setItem(info: *Info, name: [4]u8, kind: u32, value: []const u8, offset: u64) void {
     const eql = std.mem.eql;
-    const text: ?[]const u8 = if (kind == 1 and std.unicode.utf8ValidateSlice(value)) value else null;
+    // Text in reason: a description longer would be no one's, and would
+    // be written into the library, for every device.
+    const text: ?[]const u8 = if (kind == 1 and value.len <= 64 << 10 and std.unicode.utf8ValidateSlice(value)) value else null;
     if (eql(u8, &name, "covr") and info.cover == null and (kind == 13 or kind == 14)) {
         info.cover = .{ .offset = offset, .length = value.len, .image = if (kind == 14) .png else .jpeg, .bytes = value };
     } else if (eql(u8, &name, "\xa9nam")) {

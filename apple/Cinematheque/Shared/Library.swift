@@ -287,6 +287,8 @@ final class Library {
         case "ConnectionTimedOut", "Timeout": "it didn't answer in time"
         case "UnknownHostName", "NameServerFailure", "TemporaryNameServerFailure": "no server by that name was found"
         case "NetworkUnreachable", "HostUnreachable": "it can't be reached from this network"
+        case "TooMany": "the server lists far more than any library holds"
+        case "TooDeep": "the server's folders nest too deeply"
         case "NotAMember": "that device isn't part of this library"
         case "NoLibrary": "this device has no library yet"
         case "ProcessFdQuotaExceeded", "SystemFdQuotaExceeded": "too many files are open"

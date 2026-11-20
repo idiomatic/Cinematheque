@@ -212,9 +212,24 @@ const Worker = struct {
             if (href.len == 0 or href[0] == '/' or std.mem.indexOfAny(u8, href, "?#") != null or
                 std.mem.indexOf(u8, href, "://") != null) continue;
             const target = try unescapeHtml(w.arena, if (std.mem.startsWith(u8, href, "./")) href[2..] else href);
-            if (target.len == 0 or escapes(target)) continue;
+            if (target.len == 0) continue;
             const is_dir = target[target.len - 1] == '/';
-            try w.found(try std.mem.concat(w.arena, u8, &.{ dir, target }), dir, is_dir, 0, "");
+            // Decoded, checked, and encoded afresh, as JSON's and INDEX's
+            // names are, so `%2e%2e` or an encoded control character can't
+            // pass for a name.
+            const name = url.decode(try w.arena.dupe(u8, std.mem.trimEnd(u8, target, "/"))) catch continue;
+            if (escapes(name)) continue;
+            var link: std.ArrayList(u8) = .empty;
+            try link.appendSlice(w.arena, dir);
+            var segments = std.mem.splitScalar(u8, name, '/');
+            var first = true;
+            while (segments.next()) |seg| {
+                if (!first) try link.append(w.arena, '/');
+                first = false;
+                try url.encode(w.arena, &link, seg);
+            }
+            if (is_dir) try link.append(w.arena, '/');
+            try w.found(link.items, dir, is_dir, 0, "");
         }
     }
 
@@ -301,6 +316,7 @@ pub fn crawl(io: Io, arena: std.mem.Allocator, client: *http.Client, base: []con
         for (pool[0..n]) |*w| {
             if (w.err) |err| return err;
             result.add(w.result);
+            if (result.files +| result.dirs > max_entries) return error.TooMany;
             try next.appendSlice(arena, w.next.items);
             if (entries) |e| try e.appendSlice(arena, w.entries.items);
         }
@@ -313,6 +329,9 @@ pub fn crawl(io: Io, arena: std.mem.Allocator, client: *http.Client, base: []con
 /// broken server (or a symlink loop) can't exhaust memory or never finish.
 const max_listing_bytes = 64 << 20;
 const max_depth = 64;
+/// The most entries a crawl takes, many times the largest library it's
+/// made for, so a server inventing directories can't exhaust memory.
+const max_entries = 4 << 20;
 
 const Fetched = struct { status: http.Status, body: []const u8 };
 
@@ -346,11 +365,22 @@ fn dotSegment(s: []const u8) bool {
     return s.len == 0 or std.mem.eql(u8, s, ".") or std.mem.eql(u8, s, "..");
 }
 
-/// Whether a relative path has an empty, `.`, or `..` segment (a trailing
-/// slash aside), which could leave the source's tree.
+/// The longest name a crawl takes, and the longest path: what a file
+/// system allows, well within what a signed write can carry (a key's 64
+/// KiB), and short enough to parse quickly.
+const max_segment_bytes = 255;
+const max_path_bytes = 4096;
+
+/// Whether a relative path is one a crawl refuses: one with an empty, `.`,
+/// or `..` segment (a trailing slash aside), which could leave the
+/// source's tree; one too long; or one with a control character, which
+/// would cut the records it's written in short.
 fn escapes(path: []const u8) bool {
-    var segments = std.mem.splitScalar(u8, std.mem.trimEnd(u8, path, "/"), '/');
-    while (segments.next()) |s| if (dotSegment(s)) return true;
+    const trimmed = std.mem.trimEnd(u8, path, "/");
+    if (trimmed.len > max_path_bytes) return true;
+    for (trimmed) |ch| if (ch < 0x20 or ch == 0x7f) return true;
+    var segments = std.mem.splitScalar(u8, trimmed, '/');
+    while (segments.next()) |s| if (dotSegment(s) or s.len > max_segment_bytes) return true;
     return false;
 }
 
@@ -396,6 +426,7 @@ fn crawlIndex(arena: std.mem.Allocator, client: *http.Client, base: []const u8, 
         const is_dir = std.mem.endsWith(u8, path, "/");
         if (is_dir) path = path[0 .. path.len - 1];
         if (escapes(path) or path.len == 0) continue;
+        if (result.files +| result.dirs >= max_entries) return error.TooMany;
         const size = if (fields.next()) |f| std.fmt.parseInt(u64, f, 10) catch 0 else 0;
         const mtime = fields.next() orelse "";
         var href: std.ArrayList(u8) = .empty;
@@ -446,4 +477,13 @@ test "paths that leave or loop within the tree are refused" {
     try std.testing.expect(escapes("a//b"));
     try std.testing.expect(!escapes("a/b/"));
     try std.testing.expect(!escapes("a.b/..c"));
+    // Nor a name too long, or with a control character.
+    const long: [256]u8 = @splat('x');
+    try std.testing.expect(escapes("a/" ++ long));
+    try std.testing.expect(!escapes("a/" ++ long[1..]));
+    var deep: [21 * 201]u8 = @splat('x');
+    for (1..22) |i| deep[i * 201 - 1] = '/';
+    try std.testing.expect(escapes(&deep));
+    try std.testing.expect(escapes("a\tb.mp4"));
+    try std.testing.expect(escapes("a\x00.mp4"));
 }

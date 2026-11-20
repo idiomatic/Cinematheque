@@ -133,7 +133,8 @@ pub fn normalize(arena: std.mem.Allocator, text: []const u8) ![]const u8 {
 /// matches ("amélie" and "amelie").
 pub fn fold(arena: std.mem.Allocator, text: []const u8) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
-    var it = std.unicode.Utf8View.initUnchecked(text).iterator();
+    // A name needn't be UTF-8 (a Latin-1 file's): then it's left as it is.
+    var it = (std.unicode.Utf8View.init(text) catch return text).iterator();
     while (it.nextCodepoint()) |cp| {
         if (cp < 0x80) {
             try out.append(arena, @intCast(cp));
@@ -763,7 +764,7 @@ pub fn titles(replica: *Replica, arena: std.mem.Allocator) ![]Title {
             t.items += 1;
         }
         if (std.mem.startsWith(u8, field, "held:") and value.len > 0) {
-            if (std.mem.indexOf(u8, key, "/r/")) |r| {
+            if (pastTitle(key, "/r/")) |r| {
                 t.qualities += 1;
                 const label = key[r + 3 ..];
                 for (t.labels.items) |l| {
@@ -776,6 +777,19 @@ pub fn titles(replica: *Replica, arena: std.mem.Allocator) ![]Title {
 }
 
 /// The length of `key`'s first `n` slash-separated segments.
+/// Where `needle` (as `/r/`) first falls in a title's key or one below it,
+/// past the title's own segments, which may hold it too (a film named "R",
+/// `t/m/r/2010`).
+pub fn pastTitle(key: []const u8, needle: []const u8) ?usize {
+    return std.mem.indexOfPos(u8, key, prefixSegments(key, 4) orelse key.len, needle);
+}
+
+test "a title's own name isn't taken for what's below it" {
+    try std.testing.expectEqual(@as(?usize, 14), pastTitle("t/m/r/2010/v/-/r/-", "/r/"));
+    try std.testing.expectEqual(@as(?usize, 10), pastTitle("t/s/e/2010/e/s01e02", "/e/"));
+    try std.testing.expectEqual(@as(?usize, null), pastTitle("t/m/v/2010", "/v/"));
+}
+
 fn prefixSegments(key: []const u8, n: usize) ?usize {
     var count: usize = 0;
     for (key, 0..) |ch, i| if (ch == '/') {
@@ -950,7 +964,7 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
             else if (value.len > 0) try d.fields.put(arena, try arena.dupe(u8, field), try arena.dupe(u8, value));
             continue;
         }
-        const r = std.mem.indexOf(u8, k, "/r/") orelse {
+        const r = pastTitle(k, "/r/") orelse {
             if (value.len > 0) {
                 const gop = try item_fields.getOrPut(arena, try arena.dupe(u8, k[key.len + 1 ..]));
                 if (!gop.found_existing) gop.value_ptr.* = .empty;

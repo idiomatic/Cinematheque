@@ -237,8 +237,14 @@ fn shortNames(arena: std.mem.Allocator, items: []ItemJson) !void {
 
 fn short(arena: std.mem.Allocator, label: []const u8, full: []const u8) ![]const u8 {
     // A duplicate (`1080p~2`), as its quality, numbered: "1080p 2".
+    // Once: a label of many (`a~1~1~...`), written by another device,
+    // can't recurse deep.
     const dup = duplicate(label);
-    if (dup.n) |n| return std.fmt.allocPrint(arena, "{s} {s}", .{ try short(arena, dup.base, full), n });
+    if (dup.n) |n| return std.fmt.allocPrint(arena, "{s} {s}", .{ try plainShort(arena, dup.base, full), n });
+    return plainShort(arena, label, full);
+}
+
+fn plainShort(arena: std.mem.Allocator, label: []const u8, full: []const u8) ![]const u8 {
     if (std.mem.eql(u8, label, "-")) return "Other";
     const text = try std.ascii.allocLowerString(arena, try std.fmt.allocPrint(arena, "{s} {s}", .{ label, full }));
     const resolution: []const u8 = blk: {
