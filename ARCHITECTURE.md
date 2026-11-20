@@ -90,6 +90,7 @@ So a stream's batches are admitted whole if its certificate names a member. They
 * anything but its person's private data on a private stream;
 * an operation of the wrong kind for its key, or a `members` count but 1 or an even one;
 * an operation dated more than a day ahead;
+* a cutoff (`revoked`) of the founder's devices but from the founder's own, or the device itself, else not 8 bytes; and between cutoffs, the lower wins, so a removal can't be undone;
 * a certificate (`c/<stream key>`) but a device's own `user` one, or a `private` one naming its writer's person when the receiver holds none naming another, so no member can claim another's private stream and be sent its data.
 
 A batch over a range of its stream that another batch held already covers, but that same batch, is refused, as a stream numbers each write once.

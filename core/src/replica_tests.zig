@@ -344,6 +344,37 @@ test "a certificate for another device's stream is refused" {
         try testing.expect(!std.mem.eql(u8, &entry.device, &stream));
 }
 
+test "only the founder removes the founder's devices, and a removal can't be undone" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const a = &p.replicas[0]; // the founder's
+    const b = &p.replicas[1];
+    const c = &p.replicas[2];
+    try a.write(1000, "t/00001", "name", "Alien");
+    _ = try p.sync(1, 0);
+    _ = try p.sync(2, 0);
+
+    // a removes c's device; b can't raise the cutoff to undo it.
+    try a.revokeDevice(2000, c.device());
+    _ = try p.sync(1, 0);
+    const cutoff = (try b.revoked(c.device())).?;
+    var higher: [8]u8 = undefined;
+    std.mem.writeInt(u64, &higher, replica.max_seq, .little);
+    try b.write(3000, "revoked", &std.fmt.bytesToHex(c.device(), .lower), &higher);
+    try testing.expectEqual(cutoff, (try b.revoked(c.device())).?);
+
+    // b may not remove the founder's device, nor by writing it outright:
+    // a device that hears of it (here, one of the founder's) refuses it.
+    try testing.expectError(error.FoundersDevice, b.revokeDevice(4000, a.device()));
+    var zero: [8]u8 = @splat(0);
+    try b.write(4000, "revoked", &std.fmt.bytesToHex(a.device(), .lower), &zero);
+    const stats = try p.sync(0, 1);
+    try testing.expectEqual(@as(usize, 1), stats.refused);
+    try testing.expectEqual(@as(?u64, null), try a.revoked(a.device()));
+    try testing.expectEqualStrings("Alien", try p.value(0, "t/00001", "name"));
+}
+
 test "fetched fields are verified by shared proof" {
     var p: Devices = undefined;
     try p.init();

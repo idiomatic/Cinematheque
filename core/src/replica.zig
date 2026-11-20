@@ -532,8 +532,23 @@ pub const Replica = struct {
                 refused.set(i);
             } else if (std.mem.startsWith(u8, op.key, "c/") and !try replica.certificateAllowed(device_key, op, ops)) {
                 refused.set(i);
+            } else if (std.mem.eql(u8, op.key, "revoked") and !try replica.removalAllowed(device_key, op, ops)) {
+                refused.set(i);
             }
         }
+    }
+
+    /// A cutoff (`revoked`) is 8 bytes, and of the founder's streams, the
+    /// founder's own devices', or the stream's own, alone: no one else may
+    /// remove the founder's device, whose leaving would forget the founder.
+    fn removalAllowed(replica: *Replica, writer: Device, op: Op, ops: []const Op) !bool {
+        if (op.value.len != 8) return false;
+        const stream = parseHex(op.field) orelse return false;
+        if (std.mem.eql(u8, &stream, &writer)) return true;
+        const c = try replica.certified(stream, ops) orelse return true;
+        if (!std.mem.eql(u8, &c.person, &replica.founder)) return true;
+        const author = try replica.certifiedPerson(writer, ops) orelse return false;
+        return std.mem.eql(u8, &author, &replica.founder);
     }
 
     fn validLength(length: u32) bool {
@@ -596,6 +611,9 @@ pub const Replica = struct {
     /// it already has, and could pair afresh as another device.
     pub fn revokeDevice(replica: *Replica, wall_ms: u64, device_key: Device) !void {
         if (std.mem.eql(u8, &device_key, &replica.device())) return error.ThisDevice;
+        // The founder's devices are the founder's to remove.
+        if (try replica.certifiedPerson(device_key, &.{})) |p| if (std.mem.eql(u8, &p, &replica.founder) and !std.mem.eql(u8, &replica.personKey(), &replica.founder))
+            return error.FoundersDevice;
         try replica.revokeStreams(wall_ms, device_key);
     }
 
@@ -1061,6 +1079,13 @@ pub const Replica = struct {
                     // But a handover stands once made: the earliest of a
                     // generation's wins, so a founder can't take one back.
                     if (std.mem.eql(u8, op.key, "founders")) break :blk op.hlc < hlc or (op.hlc == hlc and order == .lt);
+                    // And a removal only stands or tightens: the lower
+                    // cutoff wins, so no one can undo another's.
+                    if (std.mem.eql(u8, op.key, "revoked")) {
+                        const held = s.blob(3);
+                        if (held.len != 8) break :blk true;
+                        break :blk std.mem.readInt(u64, op.value[0..8], .little) < std.mem.readInt(u64, held[0..8], .little);
+                    }
                     break :blk op.hlc > hlc or (op.hlc == hlc and order == .gt);
                 },
                 // A removal (an even causal length) wins over any addition,

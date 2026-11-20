@@ -176,6 +176,7 @@ fn explain(err: anyerror) []const u8 {
         error.Removed => "this device was removed from the library: library leave, then join again as a new device",
         error.NotFounder => "only the library's founder can do that",
         error.FounderIsPermanent => "the founder can't be removed: hand the library over first (library handover)",
+        error.FoundersDevice => "only the founder can remove the founder's devices",
         error.ThisDevice => "that's this device",
         error.Busy => "another long operation is using the library: try again once it's done",
         error.AddressInUse => "that port is taken: choose another with --port",

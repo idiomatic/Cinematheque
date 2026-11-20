@@ -527,6 +527,37 @@ pub fn confirmed(replica: *Replica, sources: []const library.Source, unavailable
     return false;
 }
 
+/// Whether another source's server answers for a download's file alike: a
+/// `HEAD` of a copy that `confirmed` counts, giving its size.
+fn answered(io: Io, arena: std.mem.Allocator, client: *std.http.Client, replica: *Replica, h: Held) !bool {
+    _ = io;
+    const sources = try library.sources(replica, arena);
+    const unavailable = try library.UnavailableDirs.load(replica, arena);
+    const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND field >= 'held:' AND field < 'held;' AND length(value) > 0");
+    defer s.finalize();
+    try s.bindText(1, h.key);
+    var urls: std.ArrayList([]const u8) = .empty;
+    while (try s.step()) {
+        const source_id = s.blob(0)["held:".len..];
+        const source = for (sources) |rp| {
+            if (std.mem.eql(u8, &rp.id, source_id)) break rp;
+        } else continue;
+        if (source.managed or unavailable.has(source_id, s.blob(1))) continue;
+        var parts = std.mem.splitScalar(u8, s.blob(1), '\t');
+        const path = parts.first();
+        if ((std.fmt.parseInt(u64, parts.next() orelse "", 10) catch continue) != h.size or !safe(path)) continue;
+        try urls.append(arena, try art.fileUrl(arena, source.url, path));
+    }
+    for (urls.items) |u| {
+        var request = client.request(.HEAD, std.Uri.parse(u) catch continue, .{ .redirect_behavior = .not_allowed }) catch continue;
+        defer request.deinit();
+        request.sendBodiless() catch continue;
+        const response = request.receiveHead(&.{}) catch continue;
+        if (response.head.status == .ok and response.head.content_length == h.size) return true;
+    }
+    return false;
+}
+
 /// The item keys (below the title's) of a series' episodes `choice` comes
 /// to for this person. For the next `n`, specials aside: the latest in
 /// progress and the `n` unwatched after it, so the next is there before
@@ -780,8 +811,12 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
             while (freeBytes(arena, s.dir)) |free| {
                 if (free >= need +| floor()) break;
                 if (next_spare == spare.items.len) break;
-                try delete(io, arena, dir, replica, writer, wall_ms, s.source, spare.items[next_spare], &out);
+                const h = spare.items[next_spare];
                 next_spare += 1;
+                // Another copy's word is its record, which any member may
+                // write: its server must hold it alike too.
+                if (!try answered(io, arena, client, replica, h)) continue;
+                try delete(io, arena, dir, replica, writer, wall_ms, s.source, h, &out);
             }
             if (freeBytes(arena, s.dir)) |free| if (free < need +| floor()) {
                 out.no_room += 1;
