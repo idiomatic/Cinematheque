@@ -10,6 +10,7 @@ struct SourcesPane: View {
     /// A source to remove, once confirmed: removing one takes its copies
     /// from the library on every device.
     @State private var removing: Source?
+    @State private var advanced = false
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -77,13 +78,6 @@ struct SourcesPane: View {
                 Button("Add Server…") { adding = true }
                     .help("Add a server, such as a NAS, by its address")
                 Spacer()
-                // For every device: a NAS's disks spin up for each look.
-                Picker("Look for videos", selection: Binding(get: { library.crawlEvery }, set: { library.setCrawlEvery($0) })) {
-                    ForEach(Library.crawlChoices, id: \.hours) { Text($0.name).tag($0.hours) }
-                }
-                .pickerStyle(.menu)
-                .fixedSize()
-                .help("How often your devices look for new videos on their own")
                 // Nothing in the row comes or goes: the spinner keeps its
                 // place, and the button is dimmed while a refresh runs (its
                 // steps show in the library window's status bar).
@@ -92,6 +86,20 @@ struct SourcesPane: View {
                 Button("Refresh Library") { Task { await library.refresh() } }
                     .help("Catch up with your devices, then look for new videos")
                     .disabled(library.sources.isEmpty || library.activity != nil)
+            }
+            // For every device: a NAS's disks spin up for each look.
+            DisclosureGroup("Advanced", isExpanded: $advanced) {
+                VStack(alignment: .leading) {
+                    Picker("Look for videos", selection: Binding(get: { library.crawlEvery }, set: { library.setCrawlEvery($0) })) {
+                        ForEach(Library.crawlChoices, id: \.hours) { Text($0.name).tag($0.hours) }
+                    }
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    Text("How often your devices look for new videos on their own, for everyone in the library. A NAS's disks spin up each time.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 4)
             }
         }
         .padding()
@@ -157,15 +165,15 @@ struct SourcesPane: View {
     }
 }
 
-/// Adding a source by its address, or editing one; its quality and the
-/// names to skip are advanced.
+/// Adding a source by its address, or editing one; its quality is
+/// advanced. (Names to skip, `,` unless set otherwise, are the command-line
+/// app's to change.)
 private struct SourceSheet: View {
     let source: Source?
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var url = ""
     @State private var quality = ""
-    @State private var skip = ","
     @State private var advanced = false
     @FocusState private var typing: Bool
 
@@ -196,9 +204,9 @@ private struct SourceSheet: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button(source == nil ? "Add" : "Save") {
                     if let source {
-                        library.setSource(source.id, quality: quality, skip: skip)
+                        library.setSource(source.id, quality: quality, skip: nil)
                     } else {
-                        library.addSource(url, quality: quality.isEmpty ? nil : quality, skip: skip)
+                        library.addSource(url, quality: quality.isEmpty ? nil : quality, skip: ",")
                         Task { await library.crawl() }
                     }
                     dismiss()
@@ -209,8 +217,7 @@ private struct SourceSheet: View {
         .onAppear {
             if let source {
                 quality = source.quality
-                skip = source.skip
-                advanced = !quality.isEmpty || skip != ","
+                advanced = !quality.isEmpty
             }
         }
     }
@@ -229,9 +236,6 @@ private struct SourceSheet: View {
             }
             if advanced {
                 Footer("Name its quality (e.g., 4K HDR) only if its files' names don't show it.")
-                Section {
-                    TextField("Skip names starting with", text: $skip)
-                }
             }
             // As it is now, so one removed leaves the list.
             if let current = library.sources.first(where: { $0.id == source?.id }), !current.unavailable.isEmpty {
