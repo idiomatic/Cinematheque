@@ -162,10 +162,12 @@ private enum SettingsRow: Hashable {
     /// as its hint, since what's shown only on focus it never reaches.
     var explanation: String {
         switch self {
-        case .device, .person: "Everyone in the library sees these names."
-        case .refresh, .interval: "Refresh Library looks for new videos in the library's sources. Otherwise your devices look as often as chosen, as they open; a NAS's disks spin up each time."
-        case .activity: "The last changes received from and sent to your devices, in the corner after each."
-        case .leave: "Returns to setup, to join a library again, as yours or someone else's."
+        case .device: "A name your other devices know this Apple TV by, so you can tell it apart from them."
+        case .person: "Your name, so others in the library know whose devices are whose."
+        case .refresh: "Added videos to a server or folder? Refresh to see them now, rather than waiting for the next look."
+        case .interval: "Look more often to see new videos sooner, or less often to let a NAS's disks rest; each look wakes them."
+        case .activity: "Shows when your devices catch up with one another, to check that a change made elsewhere has arrived."
+        case .leave: "Takes this Apple TV out of the library, to join another or give it to someone. Its videos stay where they are."
         }
     }
 }

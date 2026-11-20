@@ -17,15 +17,15 @@ struct DevicesPane: View {
             } header: {
                 Text("Your Devices")
             } footer: {
-                Text("Everyone who shares the library sees your devices' names. Removing a device refuses what it changes from then on, and your devices stop catching up with it; it leaves the library the next time it catches up, to be paired again only as a new device.")
+                Text("Names tell your devices apart wherever they're listed. Remove one you've given away or no longer use: it leaves the library the next time it catches up, and comes back only by joining again.")
             }
             Section {
                 Toggle("Share this library on your network", isOn: $sharing)
                     .onChange(of: sharing) { library.sharing = sharing }
             } footer: {
                 Text(library.servingPort != nil
-                    ? "Your other devices, and the people who share the library, get your changes (such as where you are in what you're watching) from this Mac, and can play videos from its folders, while Cinematheque is open."
-                    : "Your changes reach your other devices only when this Mac catches up with them.")
+                    ? "Lets your other devices, and the people you share the library with, catch up with this Mac (such as where you stopped watching), and play from its folders and downloads, while Cinematheque is open."
+                    : "Share so your other devices get your changes and can play from this Mac; until then, they get your changes only when this Mac catches up with them.")
             }
             Section {
                 ForEach(nearby.filter { $0.pairing != nil }) { device in
@@ -35,7 +35,7 @@ struct DevicesPane: View {
             } header: {
                 Text("New Devices")
             } footer: {
-                Text("A new device shows a code once Join a Library is chosen on it. Enter its code here, beside its name, then choose Yours or Someone New.")
+                Text("To add a device, choose Join a Library on it, and enter the code it shows here. Choose Yours for your own device, or Someone New to give the person using it their own progress and watchlist.")
             }
             Section("Advanced", isExpanded: $advanced) {
                 ForEach(nearby.filter(\.added)) { device in
@@ -60,11 +60,11 @@ struct DevicesPane: View {
                 }
             }
             if advanced {
-                Footer("Devices off your network, such as one behind another router (NAT), can be reached by address, such as http://hal.example.com:8008.")
+                Footer("Add a device by address if it isn't found nearby, such as one at another home or behind another router: http://hal.example.com:8008.")
                 Section {
                     Toggle("Show sync activity", isOn: $showsSyncActivity)
                 } footer: {
-                    Text("The last changes received from and sent to your devices, in the library window's status bar.")
+                    Text("Shows in the status bar when your devices last caught up with this Mac, to check that a change made elsewhere has arrived.")
                 }
             }
         }

@@ -35,7 +35,7 @@ struct PeoplePane: View {
             } header: {
                 Text("People")
             } footer: {
-                Text("Everyone who shares the library sees your name. To add someone, they choose Join a Library on their device, which shows a code: enter it in Devices, under New Devices, as someone new's. Removing someone refuses what they change from then on; their devices leave the library the next time each catches up.")
+                Text("Share the library with the people you watch with: each keeps their own progress and watchlist. To add someone, have them choose Join a Library on their device, then enter the code it shows in Devices, under New Devices, as Someone New.")
             }
             Section {
                 Button("Leave This Library…", action: askToLeave)

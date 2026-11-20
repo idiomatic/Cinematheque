@@ -16,7 +16,7 @@ struct SourcesPane: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text("Cinematheque finds videos in folders on this Mac, and on servers on your network, such as a NAS.")
+            Text("Add the folders and servers that hold your videos, such as a NAS, and every device in the library can browse and play them.")
                 .foregroundStyle(.secondary)
             // Devices' downloads are theirs to manage (see Downloads).
             Table(library.sources.filter { !$0.managed }, selection: $selection) {
@@ -55,7 +55,7 @@ struct SourcesPane: View {
                             .help(library.folder(of: source) == nil ? "Open in Browser" : "Show in Finder")
                         Button("Remove", systemImage: "minus.circle") { removing = source }
                             .frame(width: 18)
-                            .help("Remove this source and its videos")
+                            .help("Remove this source and its videos, on every device")
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
@@ -78,7 +78,7 @@ struct SourcesPane: View {
                 Button("Add Folder…") { choosingFolder = true }
                     .help("Add a folder on this Mac")
                 Button("Add Server…") { adding = true }
-                    .help("Add a server, such as a NAS, by its address")
+                    .help("Add a server, such as a NAS")
                 Spacer()
                 // Nothing in the row comes or goes: the spinner keeps its
                 // place, and the button is dimmed while a refresh runs (its
@@ -97,7 +97,7 @@ struct SourcesPane: View {
                     }
                     .pickerStyle(.menu)
                     .fixedSize()
-                    Text("How often your devices look for new videos on their own, for everyone in the library. A NAS's disks spin up each time.")
+                    Text("Look more often to see new videos sooner, or less often to let a NAS's disks rest; each look wakes them. This applies to everyone in the library.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -252,7 +252,7 @@ private struct SourceSheet: View {
                 }
             }
             if advanced {
-                Footer("Its videos' quality, if their names don't show it: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them.")
+                Footer("If the videos' names don't say their quality, set it here so you can choose which quality plays: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them.")
             }
             // As it is now, so one removed leaves the list.
             if let current = library.sources.first(where: { $0.id == source?.id }), !current.unavailable.isEmpty {
@@ -272,7 +272,7 @@ private struct SourceSheet: View {
                 } header: {
                     Text("Unavailable")
                 } footer: {
-                    Text("Folders that held videos and are empty now, as a drive's is when it's unplugged. Their videos stay, dimmed, until they're back, for a year, or until you remove them.")
+                    Text("Folders that are empty now, as when a drive is unplugged. Their videos stay, dimmed, so nothing's lost while it's away; remove them if it's gone for good. After a year, they go on their own.")
                 }
             }
         }
