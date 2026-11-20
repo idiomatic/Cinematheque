@@ -148,7 +148,7 @@ struct InspectorView: View {
         let items = Playback.items(detail, season: tile.season)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Episodes").font(.headline)
+                Text("Episodes").font(.headline).fixedSize()
                 Spacer()
                 qualityPicker(items)
             }
@@ -166,7 +166,7 @@ struct InspectorView: View {
     private func versions(_ detail: TitleDetail) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Versions").font(.headline)
+                Text("Versions").font(.headline).fixedSize()
                 Spacer()
                 qualityPicker(detail.items)
             }
@@ -195,20 +195,24 @@ struct InspectorView: View {
 
     /// The quality to play, when there's a choice, by its short name, in the
     /// heading of what it plays; its full name, as its sources give it, is its
-    /// help.
+    /// help. Where the heading's narrow, it gives up its label, so the
+    /// heading never wraps.
     @ViewBuilder
     private func qualityPicker(_ items: [TitleDetail.Item]) -> some View {
         let labels = Array(Set(items.flatMap { $0.qualities.map(\.label) })).sorted()
         if labels.count > 1 {
             let short = QualityChoice.shortNames(labels, in: items)
-            Picker("Quality", selection: $quality) {
+            let picker = Picker("Quality", selection: $quality) {
                 ForEach(labels, id: \.self) { label in
                     Text(short[label] ?? label).tag(Optional(label))
                 }
             }
-            .fixedSize()
             .controlSize(.small)
             .help(quality.map { QualityChoice.name($0, in: items) } ?? "The quality to play")
+            ViewThatFits(in: .horizontal) {
+                picker.fixedSize()
+                picker.labelsHidden().fixedSize()
+            }
         }
     }
 
