@@ -15,44 +15,36 @@ struct SettingsView: View {
     @State private var naming: Library.Named?
     @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
     /// The focused row, whose explanation shows under the picture.
-    @FocusState private var focus: Row?
-
-    private enum Row: Hashable { case device, person, refresh, interval, activity, leave }
+    @FocusState private var focus: SettingsRow?
 
     private var me: Member? { library.members.first(where: \.you) }
     private var others: [Member] { library.members.filter { !$0.you } }
     /// The founder's only device: leaving takes the founder with it, so it
     /// hands the library over first, or, if no one else is in it, ends it.
-    /// The system's rows' text inset in its plate, wider than a form's.
-    private static let rowInsets = EdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
+    /// The system's rows' text (and headings') inset in its plate, wider
+    /// than a form's.
+    static let rowInsets = EdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
 
     private var foundersOnly: Bool { me?.founder == true && library.status?.others == 0 }
 
     var body: some View {
         SettingsPage(explanation: explanation) { list }
-            .animation(.default, value: focus)
     }
 
     /// What the focused row does; a problem leaving, whatever's focused.
     private var explanation: String {
         if leaving { return "Leaving…" }
         if let problem { return problem }
-        switch focus {
-        case .device, .person: return "Everyone in the library sees these names."
-        case .refresh, .interval: return "Refresh Library looks for new videos in the library's sources. Otherwise your devices look as often as chosen, as they open; a NAS's disks spin up each time."
-        case .activity: return "The last changes received from and sent to your devices, in the corner after each."
-        case .leave: return "Returns to setup, to join a library again, as yours or someone else's."
-        case nil: return ""
-        }
+        return focus?.explanation ?? ""
     }
 
     private var list: some View {
         Form {
             Section {
                 nameRow("This Apple TV", library.devices.first(where: \.you)?.name, .device)
-                    .focused($focus, equals: .device)
+                    .settingsRow(.device, $focus)
                 nameRow("You", me?.name, .person)
-                    .focused($focus, equals: .person)
+                    .settingsRow(.person, $focus)
             } header: {
                 Text("Names").bold()
             }
@@ -62,15 +54,17 @@ struct SettingsView: View {
                     Task { await library.refresh() }
                 }
                 .disabled(library.activity != nil || leaving)
-                .focused($focus, equals: .refresh)
-                Picker("Look for New Videos", selection: Binding(get: { library.crawlEvery }, set: { library.setCrawlEvery($0) })) {
-                    ForEach(Library.crawlChoices, id: \.hours) { Text($0.name).tag($0.hours) }
+                .settingsRow(.refresh, $focus)
+                // A row opening its choices, as tvOS's Settings has them
+                // (a picker's `.navigationLink` style opens an empty list).
+                NavigationLink {
+                    IntervalPage()
+                } label: {
+                    LabeledContent("Look for New Videos", value: Library.crawlChoices.first { $0.hours == library.crawlEvery }?.name ?? "")
                 }
-                // A row opening its choices, as tvOS's Settings has them.
-                .pickerStyle(.navigationLink)
-                .focused($focus, equals: .interval)
+                .settingsRow(.interval, $focus)
                 Toggle("Show Sync Activity", isOn: $showsSyncActivity)
-                    .focused($focus, equals: .activity)
+                    .settingsRow(.activity, $focus)
             } header: {
                 Text("Library").bold()
             }
@@ -78,17 +72,16 @@ struct SettingsView: View {
             Section {
                 Button("Leave This Library…", role: .destructive, action: askToLeave)
                     .disabled(leaving)
-                    .focused($focus, equals: .leave)
+                    .settingsRow(.leave, $focus)
             }
             .listRowInsets(Self.rowInsets)
         }
         // Narrowed, it would clip a focused row, which grows past its edges.
         .scrollClipDisabled()
         #if DEBUG
-        .task {
-            guard let how = Launch.leave else { return }
-            // Once the library's people are read.
-            for _ in 0..<50 where me == nil { try? await Task.sleep(for: .milliseconds(200)) }
+        // Once the library's people are read.
+        .task(id: me?.key) {
+            guard me != nil, let how = Launch.leave else { return }
             askToLeave()
             guard how == "confirm" else { return }
             try? await Task.sleep(for: .seconds(1))
@@ -121,19 +114,17 @@ struct SettingsView: View {
         }
     }
 
-
     /// A name: pressing it brings up the full-screen keyboard at once,
-    /// holding the name (an unseen UIKit field's, as SwiftUI's fields need
-    /// pressing themselves); saved as it's submitted (a blank one
-    /// ignored), and Back leaves it as it was.
+    /// holding the name (an unseen UIKit field's: a SwiftUI field in a row
+    /// draws a plate of its own in the row's and crowds the name); saved as
+    /// it's submitted (a blank one ignored), and Back leaves it as it was.
     private func nameRow(_ title: String, _ name: String?, _ which: Library.Named) -> some View {
         Button { naming = which } label: {
             LabeledContent(title, value: name ?? "Unnamed")
         }
         .background {
             KeyboardField(title: title, text: name ?? "", typing: Binding(get: { naming == which }, set: { if !$0 { naming = nil } })) {
-                let new = $0.trimmingCharacters(in: .whitespaces)
-                if !new.isEmpty { library.setName(which, new) }
+                library.setName(which, $0)
             }
             .frame(width: 1, height: 1)
             .opacity(0.01)
@@ -157,51 +148,115 @@ struct SettingsView: View {
     }
 }
 
-/// The app's icon, as its placeholder icons draw it (draw-icons.swift):
-/// Settings' picture of what it sets.
-private struct AppIcon: View {
-    var body: some View {
-        RoundedRectangle(cornerRadius: 24)
-            .fill(LinearGradient(
-                colors: [Color(red: 0.62, green: 0.07, blue: 0.12), Color(red: 0.30, green: 0.02, blue: 0.07)],
-                startPoint: .top, endPoint: .bottom))
-            .frame(width: 540, height: 324)
-            .overlay {
-                Image(systemName: "film.stack")
-                    .font(.system(size: 160))
-                    .foregroundStyle(.white)
-            }
+/// A row of Settings, by what it does.
+private enum SettingsRow: Hashable {
+    case device, person, refresh, interval, activity, leave
+
+    /// Shown under the picture as the row's focused, and read by VoiceOver
+    /// as its hint, since what's shown only on focus it never reaches.
+    var explanation: String {
+        switch self {
+        case .device, .person: "Everyone in the library sees these names."
+        case .refresh, .interval: "Refresh Library looks for new videos in the library's sources. Otherwise your devices look as often as chosen, as they open; a NAS's disks spin up each time."
+        case .activity: "The last changes received from and sent to your devices, in the corner after each."
+        case .leave: "Returns to setup, to join a library again, as yours or someone else's."
+        }
     }
 }
 
-/// A page laid out as tvOS's Settings lays its out, measured against it
-/// across the screen (1920 points): the app's icon a little below the
-/// middle of the left 55%, and low under it, 40% of the screen wide, what
-/// the focused row does; the list from there to 4% short of the right edge.
+private extension View {
+    /// A row of Settings, followed by focus for its explanation, which is
+    /// its hint too.
+    func settingsRow(_ row: SettingsRow, _ focus: FocusState<SettingsRow?>.Binding) -> some View {
+        focused(focus, equals: row)
+            .accessibilityHint(row.explanation)
+    }
+}
+
+/// Look for New Videos' choices, as tvOS's Settings lists a setting's: the
+/// current one checked and focused first; choosing one sets it and goes
+/// back.
+private struct IntervalPage: View {
+    @Environment(Library.self) private var library
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focus: Int?
+
+    var body: some View {
+        SettingsPage(explanation: SettingsRow.interval.explanation) {
+            Form {
+                Section {
+                    ForEach(Library.crawlChoices, id: \.hours) { choice in
+                        Button {
+                            library.setCrawlEvery(choice.hours)
+                            dismiss()
+                        } label: {
+                            LabeledContent(choice.name) {
+                                if choice.hours == library.crawlEvery { Image(systemName: "checkmark") }
+                            }
+                        }
+                        .focused($focus, equals: choice.hours)
+                        .accessibilityAddTraits(choice.hours == library.crawlEvery ? .isSelected : [])
+                    }
+                } header: {
+                    Text("Look for New Videos").bold()
+                }
+                .listRowInsets(SettingsView.rowInsets)
+            }
+            .scrollClipDisabled()
+            .defaultFocus($focus, library.crawlEvery)
+        }
+    }
+}
+
+/// A page laid out as tvOS's Settings lays its out, by its proportions of
+/// the screen (measured on its 1920 by 1080 points): the app's icon a
+/// little below the middle of the left 55%, and low under it, 40% of the
+/// screen wide, what the focused row does; the list from there to 4% short
+/// of the right edge, in the system's row text size (`.headline`), under
+/// the tab bar.
 private struct SettingsPage<List: View>: View {
     let explanation: String
     @ViewBuilder let list: List
 
+    private static var left: CGFloat { 1056 / 1920 }
+    private static var listWidth: CGFloat { 788 / 1920 }
+    private static var pictureWidth: CGFloat { 540 / 1920 }
+    private static var pictureCenter: CGFloat { 506 / 1080 }
+    private static var explanationWidth: CGFloat { 768 / 1920 }
+    private static var explanationCenter: CGFloat { 940 / 1080 }
+
     var body: some View {
-        HStack(spacing: 0) {
-            ZStack {
-                AppIcon()
-                    .position(x: 528, y: 506)
-                Text(explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(width: 768, height: 180, alignment: .top)
-                    .position(x: 528, y: 940)
+        GeometryReader { screen in
+            let width = screen.size.width
+            HStack(spacing: 0) {
+                GeometryReader { pane in
+                    Image("SettingsIcon")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .clipShape(.rect(cornerRadius: 24))
+                        .frame(width: width * Self.pictureWidth)
+                        .position(x: pane.size.width / 2, y: pane.size.height * Self.pictureCenter)
+                        .accessibilityHidden(true)
+                    Text(explanation)
+                        // VoiceOver reads it as each row's hint instead.
+                        .accessibilityHidden(true)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .contentTransition(.opacity)
+                        .animation(.default, value: explanation)
+                        .frame(width: width * Self.explanationWidth, height: pane.size.height / 6, alignment: .top)
+                        .position(x: pane.size.width / 2, y: pane.size.height * Self.explanationCenter)
+                }
+                // The whole height, behind the tab bar too, as the system's.
+                .ignoresSafeArea(edges: .vertical)
+                .frame(width: width * Self.left)
+                list
+                    .formStyle(.grouped)
+                    .font(.headline)
+                    .frame(width: width * Self.listWidth)
+                Spacer(minLength: 0)
             }
-            .frame(width: 1056, height: 1080)
-            .ignoresSafeArea()
-            list
-                .formStyle(.grouped)
-                // The system's rows' text size.
-                .font(.headline)
-                .frame(width: 788)
-            Spacer(minLength: 0)
         }
         .ignoresSafeArea(edges: .horizontal)
     }
@@ -220,6 +275,10 @@ private struct KeyboardField: UIViewRepresentable {
         let field = UITextField()
         field.delegate = context.coordinator
         field.returnKeyType = .done
+        // Unseen, so VoiceOver reads only its row (SwiftUI's
+        // accessibilityHidden doesn't reach a UIKit view).
+        field.accessibilityElementsHidden = true
+        field.isAccessibilityElement = false
         return field
     }
 

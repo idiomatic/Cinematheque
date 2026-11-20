@@ -1,7 +1,8 @@
 // Draws Cinematheque's placeholder icons: a cinema-red gradient, and the
 // film.stack symbol in white, as layers (tvOS's parallax) or flattened.
 // Usage: swift draw-icons.swift OUTPUT_DIR, then copy the PNGs into
-// Cinematheque/Assets.xcassets (AppIcon, and App Icon & Top Shelf Image),
+// Cinematheque/Assets.xcassets (AppIcon, App Icon & Top Shelf Image, and
+// SettingsIcon),
 // whose file names they keep.
 import AppKit
 
@@ -77,4 +78,9 @@ for (name, w, h) in [("Top Shelf Image", 1920, 720), ("Top Shelf Image Wide", 23
     for scale in [1, 2] {
         draw(w * scale, h * scale, .flat, title: true, symbolScale: 0.32, to: "tv/\(name)/shelf@\(scale)x.png")
     }
+}
+// tvOS: Settings' picture, the icon flattened at the size Settings shows
+// it (its corners rounded by the app).
+for scale in [1, 2] {
+    draw(540 * scale, 324 * scale, .flat, symbolScale: 0.67, to: "tv/SettingsIcon/icon@\(scale)x.png")
 }
