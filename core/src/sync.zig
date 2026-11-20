@@ -22,6 +22,7 @@
 //! device can't reach it (behind a NAT), syncs both ways.
 
 const std = @import("std");
+const deadline = @import("deadline.zig");
 const Io = std.Io;
 const http = std.http;
 const flate = std.compress.flate;
@@ -410,6 +411,12 @@ pub const Exchanged = struct {
 /// `http://perihelion.local:8008/sync`): pulls what `dst` lacks, then pushes
 /// what the other device does, if it's a member's device that takes pushes.
 pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !Exchanged {
+    // Within ten minutes, so a device that answers a byte at a time holds
+    // up no sync with the others for longer.
+    return deadline.within(client.io, 10 * 60 * 1000, exchangeNow, .{ arena, client, dst, url, now_ms });
+}
+
+fn exchangeNow(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !Exchanged {
     var theirs: std.ArrayList(replica_.Entry) = .empty;
     const recipient = try hello(client, url);
     const pulled = try pull(arena, client, dst, url, now_ms, recipient, &theirs);

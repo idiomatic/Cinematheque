@@ -6,6 +6,7 @@
 const std = @import("std");
 const Io = std.Io;
 const http = std.http;
+const deadline = @import("deadline.zig");
 const url = @import("url.zig");
 
 /// Answers requests the server doesn't, such as another device's `POST /sync`.
@@ -57,32 +58,58 @@ const Context = struct {
 /// descriptor. Media transfers, long as they run, hold one each.
 const max_connections = 256;
 
+/// How many of them one address may hold, so one host can't take them all;
+/// a player streaming, and a device syncing, hold a few.
+const max_per_host = 32;
+
+/// How long a request's head may take to arrive, so a connection that says
+/// nothing (or a byte at a time) doesn't hold its place for good. A
+/// response's body, as long as a stream runs, has no such limit.
+const head_ms = 30 * 1000;
+
 const Connections = struct {
     open: std.atomic.Value(usize) = .init(0),
     max: usize = max_connections,
+    per_host: usize = max_per_host,
+    /// Connections per address, counted in a slot by its hash: addresses
+    /// that share one share its limit, which only errs toward refusing.
+    hosts: [1024]std.atomic.Value(u16) = @splat(.init(0)),
 
-    /// Counts a connection in, unless there are too many. Only the accepting
-    /// task admits, so a count of others closing meanwhile only errs toward
-    /// room.
-    fn admit(c: *Connections) bool {
-        if (c.open.load(.acquire) >= c.max) return false;
+    /// Counts a connection from `slot` in, unless there are too many, in
+    /// all or from its address. Only the accepting task admits, so a count
+    /// of others closing meanwhile only errs toward room.
+    fn admit(c: *Connections, host: usize) bool {
+        if (c.open.load(.acquire) >= c.max or c.hosts[host].load(.acquire) >= c.per_host) return false;
         _ = c.open.fetchAdd(1, .acq_rel);
+        _ = c.hosts[host].fetchAdd(1, .acq_rel);
         return true;
     }
 
-    fn release(c: *Connections) void {
+    fn release(c: *Connections, host: usize) void {
         _ = c.open.fetchSub(1, .acq_rel);
+        _ = c.hosts[host].fetchSub(1, .acq_rel);
+    }
+
+    /// An address's slot, by its host alone (not its port).
+    fn slotOf(address: Io.net.IpAddress) usize {
+        const hash = switch (address) {
+            .ip4 => |a| std.hash.Wyhash.hash(4, &a.bytes),
+            .ip6 => |a| std.hash.Wyhash.hash(6, &a.bytes),
+        };
+        return @intCast(hash % 1024);
     }
 };
 
-test "connections beyond the limit are refused until others close" {
-    var c: Connections = .{ .max = 2 };
-    try std.testing.expect(c.admit());
-    try std.testing.expect(c.admit());
-    try std.testing.expect(!c.admit());
-    c.release();
-    try std.testing.expect(c.admit());
-    try std.testing.expect(!c.admit());
+test "connections beyond the limit, or one address's, are refused until others close" {
+    var c: Connections = .{ .max = 3, .per_host = 2 };
+    try std.testing.expect(c.admit(1));
+    try std.testing.expect(c.admit(1));
+    try std.testing.expect(!c.admit(1));
+    try std.testing.expect(c.admit(2));
+    try std.testing.expect(!c.admit(3));
+    c.release(1);
+    try std.testing.expect(c.admit(3));
+    try std.testing.expect(!c.admit(2));
 }
 
 /// How old an `INDEX` may be before a request for it rebuilds it, so the
@@ -212,13 +239,14 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
             stream.close(io);
             return;
         };
-        if (!connections.admit()) {
+        const slot = Connections.slotOf(stream.socket.address);
+        if (!connections.admit(slot)) {
             stream.close(io);
             continue;
         }
-        group.concurrent(io, handle, .{ &ctx, stream }) catch |err| {
+        group.concurrent(io, handle, .{ &ctx, stream, slot }) catch |err| {
             std.log.err("connection: {t}", .{err});
-            connections.release();
+            connections.release(slot);
             stream.close(io);
         };
     }
@@ -234,9 +262,9 @@ pub fn wake(io: Io, port: u16) void {
     stream.close(io);
 }
 
-fn handle(ctx: *const Context, stream: Io.net.Stream) Io.Cancelable!void {
+fn handle(ctx: *const Context, stream: Io.net.Stream, slot: usize) Io.Cancelable!void {
     const io = ctx.io;
-    defer ctx.connections.release();
+    defer ctx.connections.release(slot);
     defer stream.close(io);
     var in_buf: [16 * 1024]u8 = undefined;
     var out_buf: [64 * 1024]u8 = undefined;
@@ -244,13 +272,20 @@ fn handle(ctx: *const Context, stream: Io.net.Stream) Io.Cancelable!void {
     var writer = stream.writer(io, &out_buf);
     var server = http.Server.init(&reader.interface, &writer.interface);
     while (true) {
-        var request = server.receiveHead() catch return;
+        var request = deadline.within(io, head_ms, receiveHead, .{&server}) catch |err| switch (err) {
+            error.Canceled => return error.Canceled,
+            else => return,
+        };
         respond(ctx, &request) catch |err| {
             if (err == error.Canceled) return error.Canceled;
             return;
         };
         if (!request.head.keep_alive) return;
     }
+}
+
+fn receiveHead(server: *http.Server) http.Server.ReceiveHeadError!http.Server.Request {
+    return server.receiveHead();
 }
 
 fn header(request: *const http.Server.Request, name: []const u8) ?[]const u8 {

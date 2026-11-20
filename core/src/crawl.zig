@@ -3,6 +3,7 @@
 //! `INDEX` file.
 
 const std = @import("std");
+const deadline = @import("deadline.zig");
 const Io = std.Io;
 const http = std.http;
 const url = @import("url.zig");
@@ -345,6 +346,12 @@ const Fetched = struct { status: http.Status, body: []const u8 };
 /// 3 redirects, each within the source's own origin: a listing's server
 /// could otherwise aim a crawl at any other server it can reach.
 fn get(arena: std.mem.Allocator, client: *http.Client, location: []const u8, extra_headers: []const http.Header) !Fetched {
+    // Within two minutes: a listing of a large folder from a slow server
+    // takes seconds, and one sent a byte at a time no longer holds a worker.
+    return deadline.within(client.io, 2 * 60 * 1000, getNow, .{ arena, client, location, extra_headers });
+}
+
+fn getNow(arena: std.mem.Allocator, client: *http.Client, location: []const u8, extra_headers: []const http.Header) !Fetched {
     const origin = try std.Uri.parse(location);
     var uri = origin;
     var hops: usize = 0;

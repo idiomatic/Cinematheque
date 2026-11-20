@@ -16,6 +16,7 @@
 //! don't replicate: players fetch them from sources by range request.
 
 const std = @import("std");
+const deadline = @import("deadline.zig");
 const Io = std.Io;
 const Replica = @import("replica.zig").Replica;
 const library = @import("library.zig");
@@ -300,7 +301,12 @@ pub fn placeholder(arena: std.mem.Allocator, bytes: []const u8) ![]const u8 {
 }
 
 /// A file's bytes, or the range of them given; at most 16 MB.
+/// Within a minute, as `mp4.read`'s requests are.
 fn fetch(arena: std.mem.Allocator, client: *std.http.Client, target: []const u8, offset: u64, length: u64) ![]const u8 {
+    return deadline.within(client.io, 60 * 1000, fetchNow, .{ arena, client, target, offset, length });
+}
+
+fn fetchNow(arena: std.mem.Allocator, client: *std.http.Client, target: []const u8, offset: u64, length: u64) ![]const u8 {
     if (length == 0 or length > 16 << 20) return error.TooLarge;
     var range_buf: [64]u8 = undefined;
     const last = std.math.add(u64, offset, length - 1) catch return error.TooLarge;

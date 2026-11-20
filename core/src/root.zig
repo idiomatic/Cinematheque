@@ -43,6 +43,7 @@ test {
     _ = download;
     _ = views;
     _ = json;
+    _ = @import("deadline.zig");
     _ = @import("merkle.zig");
     _ = @import("hlc.zig");
     _ = @import("op.zig");

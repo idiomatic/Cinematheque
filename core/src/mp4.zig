@@ -6,6 +6,7 @@
 //! eight requests.
 
 const std = @import("std");
+const deadline = @import("deadline.zig");
 const http = std.http;
 
 pub const Image = enum { jpeg, png };
@@ -131,7 +132,12 @@ const File = struct {
         return header(try f.get(offset, 16), offset, f.size.?);
     }
 
+    /// Within a minute, as a server can be slow to answer but not that slow.
     fn get(f: *File, offset: u64, length: u64) ![]const u8 {
+        return deadline.within(f.client.io, 60 * 1000, getNow, .{ f, offset, length });
+    }
+
+    fn getNow(f: *File, offset: u64, length: u64) ![]const u8 {
         var range_buf: [64]u8 = undefined;
         if (length == 0) return error.Malformed;
         const last = std.math.add(u64, offset, length - 1) catch return error.Malformed;
