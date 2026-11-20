@@ -258,6 +258,7 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
     var stats: Stats = .{};
     try dst.begin();
     errdefer dst.rollback();
+    const sender_was_member = try dst.admission(binding.sender, &.{}) == .all;
     while (true) {
         const tag = try r.takeByte();
         stats.wire_bytes += 1;
@@ -296,7 +297,8 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
                 }
                 dst.receiveBatch(batch, leaves.items, ops.items, &stats) catch |err| switch (err) {
                     error.Unauthorized => {
-                        pending_bytes += max_batch_bytes - budget;
+                        // Its text, leaves, and operations, all held to the end.
+                        pending_bytes += max_batch_bytes - budget + 32 * count + @sizeOf(Op) * ops.items.len;
                         if (pending_bytes > max_pending_bytes) return error.Malformed;
                         const copied = try pa.dupe(Op, ops.items);
                         for (copied) |*op| {
@@ -357,9 +359,16 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
             }
         }
     }
+    // What the sender holds is believed only from a member's device: a
+    // stranger's word could have this device skip any stream's writes.
+    // Nor for this device's own streams, which only it numbers.
+    // (A member then: a founder handing over and leaving is one no more.)
+    const believed = sender_was_member or try dst.admission(binding.sender, &.{}) == .all;
+    const own_private = dst.private_pair.public_key.toBytes();
     // Don't claim what was rejected, so it can be accepted once its
     // device's invitation arrives.
     for (vector.items) |entry| {
+        if (!believed or std.mem.eql(u8, &entry.device, &dst.device()) or std.mem.eql(u8, &entry.device, &own_private)) continue;
         var seq = entry.seq;
         for (pending.items) |p| if (std.mem.eql(u8, &p.batch.device, &entry.device)) {
             seq = @min(seq, p.batch.first - 1);

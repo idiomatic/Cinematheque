@@ -232,27 +232,116 @@ test "a response is believed only from the device that signed it, for its reques
     try testing.expectEqualStrings("Metropolis", try p.value(1, "t/00001", "name"));
 }
 
-test "set membership: concurrent add and remove, then re-add" {
+test "membership: a removal wins over a concurrent addition, and stands" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const a = &p.replicas[0];
+    const b = &p.replicas[1];
+    const hex = std.fmt.bytesToHex(try testPerson(9), .lower);
+
+    try a.setMember(1000, "members", &hex, true);
+    _ = try p.sync(1, 0);
+    // Concurrently, a removes the person and b re-adds them (a no-op, since
+    // b already holds them): the removal wins.
+    try a.setMember(2000, "members", &hex, false);
+    try b.setMember(2000, "members", &hex, true);
+    _ = try p.sync(1, 0);
+    _ = try p.sync(0, 1);
+    try testing.expect(!try a.isMember("members", &hex));
+    try testing.expect(!try b.isMember("members", &hex));
+    // Removed for good: they come back as someone new.
+    try testing.expectError(error.RemovedForGood, b.setMember(3000, "members", &hex, true));
+}
+
+test "a count no removal could outrank, and one of the wrong kind, are refused" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const b = &p.replicas[1];
+    const hex = std.fmt.bytesToHex(try testPerson(9), .lower);
+
+    var huge: [4]u8 = undefined;
+    std.mem.writeInt(u32, &huge, std.math.maxInt(u32), .little);
+    try b.begin();
+    try b.writeOp(.causal_length, 1000, "members", &hex, &huge);
+    try b.writeOp(.lww, 1000, "members", &std.fmt.bytesToHex(try testPerson(8), .lower), &.{ 1, 0, 0, 0 });
+    try b.writeOp(.causal_length, 1000, "t/00001", "name", &.{ 9, 0, 0, 0 });
+    try b.commit();
+    const stats = try p.sync(0, 1);
+    try testing.expectEqual(@as(usize, 3), stats.refused);
+    try testing.expect(!try p.replicas[0].isMember("members", &hex));
+}
+
+test "an operation dated over a day ahead is refused, and a clock can't wrap" {
     var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
 
-    try a.setMember(1000, "l/watchlist", "t/00001", true);
+    try b.write(2000, "t/00002", "name", "Now");
+    try b.write(std.math.maxInt(u64) >> 16, "t/00001", "name", "Forever");
+    a.now_ms = 2000;
+    const stats = try p.sync(0, 1);
+    try testing.expectEqual(@as(usize, 1), stats.refused);
+    try testing.expectError(error.Missing, p.value(0, "t/00001", "name"));
+    try testing.expectEqualStrings("Now", try p.value(0, "t/00002", "name"));
+    // b's own clock is at its end, and stays there.
+    var hlc: Hlc = .{ .last = std.math.maxInt(u64) };
+    try testing.expectEqual(std.math.maxInt(u64), hlc.tick(1));
+}
+
+test "a stranger's word for what it holds isn't taken" {
+    var p: Devices = undefined;
+    try p.initAdding(1); // replica 2's person isn't a member
+    defer p.deinit();
+    const a = &p.replicas[0];
+    const c = &p.replicas[2];
+    const arena = p.arena_state.allocator();
+
+    // c claims to hold everything of a's stream, and of the founder's
+    // device's, signed by c itself.
+    const request: [64]u8 = @splat(5);
+    var response: std.Io.Writer.Allocating = .init(arena);
+    const forged = try arena.dupe(replica.Entry, &.{ .{ .device = a.device(), .seq = replica.max_seq }, .{ .device = p.replicas[1].device(), .seq = replica.max_seq } });
+    _ = try writeSync(c, arena, forged, c.personKey(), request, &response.writer);
+    var r: std.Io.Reader = .fixed(response.written());
+    _ = try readSync(a, &r, null, .{ .request = request, .sender = c.device() });
+    try a.write(3000, "t/00001", "name", "Still numbered");
+    // a still numbers its writes where they were, so b takes them.
     _ = try p.sync(1, 0);
-    // Concurrently, a removes the element and b re-adds it (a no-op, since
-    // b already holds it): the removal wins.
-    try a.setMember(2000, "l/watchlist", "t/00001", false);
-    try b.setMember(2000, "l/watchlist", "t/00001", true);
+    try testing.expectEqualStrings("Still numbered", try p.value(1, "t/00001", "name"));
+}
+
+test "a certificate for another device's stream is refused" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const a = &p.replicas[0];
+    const b = &p.replicas[1];
+    const arena = p.arena_state.allocator();
+    const private_key = try std.fmt.allocPrint(arena, "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(a.personKey(), .lower)});
+    try a.writePrivate(1000, private_key, &.{.{ "position", "1234" }});
     _ = try p.sync(1, 0);
-    _ = try p.sync(0, 1);
-    try testing.expect(!try a.isMember("l/watchlist", "t/00001"));
-    try testing.expect(!try b.isMember("l/watchlist", "t/00001"));
-    // Re-adding after seeing the removal brings it back everywhere.
-    try b.setMember(3000, "l/watchlist", "t/00001", true);
-    _ = try p.sync(0, 1);
-    try testing.expect(try a.isMember("l/watchlist", "t/00001"));
+
+    // b claims a's private stream as its person's, as a device and as a
+    // private stream, by certificates its person signs.
+    const stream = a.private_pair.public_key.toBytes();
+    var key: [66]u8 = undefined;
+    var forged: [96]u8 = undefined;
+    forged[0..32].* = b.personKey();
+    for ([_]bool{ false, true }) |private| {
+        forged[32..].* = (try b.person.sign(&replica.certMessage(b.library, stream, private), null)).toBytes();
+        try b.write(2000, certKey(&key, stream), if (private) "private" else "user", &forged);
+    }
+    const stats = try p.sync(0, 1);
+    try testing.expectEqual(@as(usize, 2), stats.refused);
+    const c = (try a.certified(stream, &.{})).?;
+    try testing.expect(c.private and std.mem.eql(u8, &c.person, &a.personKey()));
+    // So a doesn't offer b's person its private stream.
+    for (try a.readableVector(arena, b.personKey())) |entry|
+        try testing.expect(!std.mem.eql(u8, &entry.device, &stream));
 }
 
 test "fetched fields are verified by shared proof" {

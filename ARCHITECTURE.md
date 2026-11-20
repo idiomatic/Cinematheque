@@ -23,12 +23,12 @@ Values are bytes, mostly UTF-8 text: numbers in decimal, flags as `1` and `0` (o
 
 ### Kinds
 
-* **Last writer wins** (`lww`), for nearly everything: of two operations on one field, the later clock wins, and on a tie, the greater device key.
-* **Causal length** (`causal_length`), for set elements (`members`): the field is the element and the value a u32 count of its additions and removals, odd while present. Adding an unavailable element, or removing a present one, writes the next count; the longer count wins. So a removal beats the addition it saw, and an addition after it beats both, whatever the clocks say.
+* **Last writer wins** (`lww`), for everything but `members`: of two operations on one field, the later clock wins, and on a tie, the greater device key. Handovers (`founders`) are the exception: the earliest wins, so a handover stands once made.
+* **Causal length** (`causal_length`), for `members` alone: the field is the element and the value a u32 count, 1 once added and even once removed. A removal wins over any addition, whatever the clocks say, so it's for good: a person removed comes back as someone new. (A count could otherwise be written so high that no removal outranked it.)
 
 ### Clocks
 
-A hybrid logical clock packs wall-clock milliseconds into the high 48 bits and a counter into the low 16. Writing ticks it: the wall clock, if that's later than the last value, else the last value plus one, so a device's clocks always rise, even if its wall clock stalls or steps back. Receiving an operation folds its clock in, so what a device writes after it orders after it. Clocks stay close to real time, which lets the newest write win as people expect, without trusting any one device's clock to be right.
+A hybrid logical clock packs wall-clock milliseconds into the high 48 bits and a counter into the low 16. Writing ticks it: the wall clock, if that's later than the last value, else the last value plus one, so a device's clocks always rise, even if its wall clock stalls or steps back. Receiving an operation folds its clock in, so what a device writes after it orders after it; one dated more than a day past the receiver's wall clock is refused, else it would hold its field for good and drag every clock to its end. A clock that reached its end would stay there rather than wrap. Clocks stay close to real time, which lets the newest write win as people expect, without trusting any one device's clock to be right.
 
 ## Streams
 
@@ -87,11 +87,18 @@ So a stream's batches are admitted whole if its certificate names a member. They
 
 * a handover not from the previous founder;
 * private data (`p/<person>/...`) not on that person's private stream;
-* anything but its person's private data on a private stream.
+* anything but its person's private data on a private stream;
+* an operation of the wrong kind for its key, or a `members` count but 1 or an even one;
+* an operation dated more than a day ahead;
+* a certificate (`c/<stream key>`) but a device's own `user` one, or a `private` one naming its writer's person when the receiver holds none naming another, so no member can claim another's private stream and be sent its data.
+
+A batch over a range of its stream that another batch held already covers, but that same batch, is refused, as a stream numbers each write once.
 
 A device always admits its own streams, so one whose replica was lost gets its private data back before its certificate arrives.
 
-A response is applied in one transaction. A batch whose stream isn't admitted yet waits until the end of the response, since the response may also hold the certificate or membership that admits it. If nothing admits it by then, it's rejected, and its stream isn't advanced in the version vector, so a later sync offers it again.
+A response is applied in one transaction. A batch whose stream isn't admitted yet waits until the end of the response, since the response may also hold the certificate or membership that admits it. If nothing admits it by then, it's rejected, and its stream isn't advanced in the version vector, so a later sync offers it again. Held batches count against the response's limit by everything they hold (text, leaves, and operations).
+
+The version vector a response ends with is taken only from a member's device (a member before the response or after it, as a founder handing over and leaving is), and never for the receiver's own streams, which only it numbers: else a stranger who answered could have a device skip any stream's writes, or number its own past what any device accepts.
 
 ## Sync
 

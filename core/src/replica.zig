@@ -177,6 +177,11 @@ pub const Replica = struct {
     hlc: Hlc = .{},
     /// Check signatures of received batches; off only to measure their cost.
     verify: bool = true,
+    /// The wall-clock time operations are received at, in milliseconds,
+    /// set by syncing: an operation dated more than a day past it is
+    /// refused, else it could hold its field for good, and push every
+    /// device's clock to its end. Unset, as in tests, any date is taken.
+    now_ms: ?u64 = null,
     /// Interned device keys: `keys[id - 1]` is the key of device `id`.
     keys: std.ArrayList(Device) = .empty,
     ids: std.AutoHashMapUnmanaged(Device, i64) = .empty,
@@ -445,7 +450,7 @@ pub const Replica = struct {
     /// removed device (or a removed member's), writes through its cutoff.
     const Admission = union(enum) { all, none, through: u64 };
 
-    fn admission(replica: *Replica, device_key: Device, ops: []const Op) !Admission {
+    pub fn admission(replica: *Replica, device_key: Device, ops: []const Op) !Admission {
         if (std.mem.eql(u8, &device_key, &replica.device())) return .all;
         if (std.mem.eql(u8, &device_key, &replica.private_pair.public_key.toBytes())) return .all;
         const c = try replica.certified(device_key, ops) orelse return .none;
@@ -503,6 +508,66 @@ pub const Replica = struct {
                 if (!is_private or op.key.len < 67 or !std.mem.eql(u8, op.key[2..66], &hex) or op.key[66] != '/') refused.set(i);
             } else if (is_private) refused.set(i);
         }
+    }
+
+    /// Refuses what no device may write: an operation of the wrong kind
+    /// for its key (`members` causal lengths, 1 or a removal's even one;
+    /// everything else last-writer-wins), one dated more than a day past
+    /// `now_ms`, and a certificate (`c/<key>`) but a device's own (`user`)
+    /// or, for a private stream, one naming the writer's person when none
+    /// held names another (`private`), so no one can claim another's
+    /// stream and be sent its private data.
+    fn checkOps(replica: *Replica, device_key: Device, ops: []const Op, refused: *std.StaticBitSet(merkle.max_leaves)) !void {
+        const horizon: ?u64 = if (replica.now_ms) |now| (now +| std.time.ms_per_day) << 16 else null;
+        for (ops, 0..) |op, i| {
+            const counted = std.mem.eql(u8, op.key, "members");
+            const ok = if (counted)
+                op.kind == .causal_length and op.value.len == 4 and validLength(op_.causalLength(op.value))
+            else
+                op.kind == .lww;
+            if (!ok or horizon != null and op.hlc > horizon.?) {
+                refused.set(i);
+            } else if (std.mem.startsWith(u8, op.key, "c/") and !try replica.certificateAllowed(device_key, op, ops)) {
+                refused.set(i);
+            }
+        }
+    }
+
+    fn validLength(length: u32) bool {
+        return length == 1 or length > 0 and length % 2 == 0;
+    }
+
+    fn certificateAllowed(replica: *Replica, writer: Device, op: Op, ops: []const Op) !bool {
+        const subject = (if (op.key.len == 66) parseHex(op.key[2..]) else null) orelse return false;
+        if (std.mem.eql(u8, op.field, "user")) return std.mem.eql(u8, &subject, &writer);
+        if (!std.mem.eql(u8, op.field, "private") or op.value.len != 96) return false;
+        const person = verifyCertificate(replica.library, subject, true, op.value[0..96].*) orelse return false;
+        const author = try replica.certifiedPerson(writer, ops) orelse return false;
+        if (!std.mem.eql(u8, &person, &author)) return false;
+        const s = replica.select_winner;
+        defer s.reset();
+        try s.bindText(1, op.key);
+        try s.bindText(2, "private");
+        if (try s.step()) if (s.blob(3).len == 96) {
+            if (verifyCertificate(replica.library, subject, true, s.blob(3)[0..96].*)) |held|
+                return std.mem.eql(u8, &held, &person);
+        };
+        return true;
+    }
+
+    /// Whether the stream `id` holds a batch over any of `first`'s `count`
+    /// numbers but this one (the same range and root).
+    fn overlaps(replica: *Replica, id: i64, first: u64, count: usize, root: Hash) !bool {
+        const s = try replica.db.prepare(
+            \\SELECT 1 FROM batches WHERE device = ?1 AND first < ?2 + ?3 AND first + count > ?2
+            \\  AND NOT (first = ?2 AND count = ?3 AND root = ?4) LIMIT 1
+        );
+        defer s.finalize();
+        try s.bindInt(1, id);
+        try s.bindInt(2, @intCast(first));
+        try s.bindInt(3, @intCast(count));
+        try s.bindBlob(4, &root);
+        return try s.step();
     }
 
     /// Devices certified for `person`, by the certificates held.
@@ -635,7 +700,8 @@ pub const Replica = struct {
         if (value.len != 8) return;
         var stream: Device = undefined;
         _ = std.fmt.hexToBytes(&stream, stream_hex) catch return;
-        const id = replica.ids.get(stream) orelse return;
+        // As another connection may have learned of it.
+        const id = try replica.deviceId(stream);
         const through = std.mem.readInt(u64, value[0..8], .little);
         inline for (.{
             "INSERT OR IGNORE INTO repair SELECT key, field FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'",
@@ -807,10 +873,13 @@ pub const Replica = struct {
         try replica.writeOp(.lww, wall_ms, key, field, value);
     }
 
-    /// Adds or removes `element` of the set at `key`.
+    /// Adds or removes `element` of the set at `key` (`members`, the only
+    /// set). Removal is for good: an element removed can't be added again
+    /// (a person removed comes back as someone new).
     pub fn setMember(replica: *Replica, wall_ms: u64, key: []const u8, element: []const u8, present: bool) !void {
         const length = try replica.causalLength(key, element);
         if ((length % 2 == 1) == present) return;
+        if (present and length > 0) return error.RemovedForGood;
         var value: [4]u8 = undefined;
         std.mem.writeInt(u32, &value, length + 1, .little);
         try replica.writeOp(.causal_length, wall_ms, key, element, &value);
@@ -843,7 +912,7 @@ pub const Replica = struct {
         return if (try s.step()) op_.causalLength(s.blob(3)) else 0;
     }
 
-    fn writeOp(replica: *Replica, kind: op_.Kind, wall_ms: u64, key: []const u8, field: []const u8, value: []const u8) !void {
+    pub fn writeOp(replica: *Replica, kind: op_.Kind, wall_ms: u64, key: []const u8, field: []const u8, value: []const u8) !void {
         var own_key: [66]u8 = undefined;
         if (!std.mem.eql(u8, key, certKey(&own_key, replica.device()))) try replica.checkCertificate(wall_ms);
         if (!replica.batching) {
@@ -914,7 +983,15 @@ pub const Replica = struct {
         var bad: std.StaticBitSet(merkle.max_leaves) = .empty;
         try replica.checkHandovers(batch.device, ops, &bad);
         try replica.checkPrivate(batch.device, ops, &bad);
+        try replica.checkOps(batch.device, ops, &bad);
         const id = try replica.deviceId(batch.device);
+        // A stream numbers each write once: a batch over a range another
+        // already holds, but for that one itself, is refused, else a device
+        // could be left holding numbers whose batch doesn't hold them.
+        if (try replica.overlaps(id, batch.first, leaves.len, root)) {
+            stats.refused += ops.len;
+            return;
+        }
         try replica.storeBatch(id, batch.first, leaves, root, batch.sig);
         const seen_seq = try replica.seen(id);
         for (ops, 0..) |op, i| {
@@ -951,6 +1028,7 @@ pub const Replica = struct {
         var bad: std.StaticBitSet(merkle.max_leaves) = .empty;
         try replica.checkHandovers(batch.device, ops, &bad);
         try replica.checkPrivate(batch.device, ops, &bad);
+        try replica.checkOps(batch.device, ops, &bad);
         const id = try replica.deviceId(batch.device);
         for (ops, 0..) |op, i| {
             if (bad.isSet(i) or admitted == .through and op.seq > admitted.through) {
@@ -973,12 +1051,15 @@ pub const Replica = struct {
                 // Last writer wins, by hybrid logical clock, then device key.
                 .lww => blk: {
                     const hlc: u64 = @bitCast(s.int(1));
-                    const holder = try replica.keyOf(s.int(2));
-                    break :blk op.hlc > hlc or
-                        (op.hlc == hlc and std.mem.order(u8, &op.device, &holder) == .gt);
+                    const order = std.mem.order(u8, &op.device, &try replica.keyOf(s.int(2)));
+                    // But a handover stands once made: the earliest of a
+                    // generation's wins, so a founder can't take one back.
+                    if (std.mem.eql(u8, op.key, "founders")) break :blk op.hlc < hlc or (op.hlc == hlc and order == .lt);
+                    break :blk op.hlc > hlc or (op.hlc == hlc and order == .gt);
                 },
-                // The longer causal length wins.
-                .causal_length => op_.causalLength(op.value) > op_.causalLength(s.blob(3)),
+                // A removal (an even causal length) wins over any addition,
+                // so it's for good; else the longer wins.
+                .causal_length => outranks(op_.causalLength(op.value), op_.causalLength(s.blob(3))),
             };
             if (!newer) return .lost;
         }
@@ -997,6 +1078,12 @@ pub const Replica = struct {
         if (std.mem.eql(u8, op.key, "revoked")) try replica.cut(op.field, op.value);
         if (std.mem.eql(u8, op.key, "founders")) replica.founder = (try replica.founderAt(std.math.maxInt(u32))).person;
         return .won;
+    }
+
+    fn outranks(length: u32, held: u32) bool {
+        const removed = length > 0 and length % 2 == 0;
+        const held_removed = held > 0 and held % 2 == 0;
+        return if (removed != held_removed) removed else length > held;
     }
 
     fn repaired(replica: *Replica, op: Op) !void {

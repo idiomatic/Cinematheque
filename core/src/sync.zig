@@ -286,6 +286,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
 
     if (pushed) {
         var gunzip: flate.Decompress = .init(body, .gzip, window);
+        src.now_ms = now;
         const stats = replica_.readSync(&src, &gunzip.reader, null, .{ .request = head[head.len - 64 ..][0..64].*, .sender = checked[0].device }) catch |err| {
             try request.respond(@errorName(err), .{ .status = .bad_request });
             return true;
@@ -441,6 +442,7 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
     var transfer: [64 * 1024]u8 = undefined;
     var decompress: http.Decompress = undefined;
     const window = try arena.alloc(u8, flate.max_window_len);
+    dst.now_ms = now_ms;
     var stats = try replica_.readSync(dst, response.readerDecompressing(&transfer, &decompress, window), .{ .arena = arena, .vector = theirs }, binding);
     stats.wire_bytes += body.len;
     return .{ .stats = stats, .person = person };
@@ -509,6 +511,7 @@ fn repairFrom(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url
     }
     var transfer: [64 * 1024]u8 = undefined;
     var decompress: http.Decompress = undefined;
+    dst.now_ms = now_ms;
     const stats = try replica_.readRepair(dst, response.readerDecompressing(&transfer, &decompress, try arena.alloc(u8, flate.max_window_len)));
     return stats.won;
 }

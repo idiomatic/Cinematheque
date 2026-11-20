@@ -216,7 +216,8 @@ pub fn readRepair(dst: *Replica, r: *std.Io.Reader) !Stats {
                 for (ops, indices) |*op, i| op.* = try readOpFrame(r, ta, dst.library, batch.device, batch.first + i, &budget);
                 dst.receiveShared(batch, count, indices, siblings, ops, &stats) catch |err| switch (err) {
                     error.Unauthorized => {
-                        pending_bytes += max_batch_bytes - budget;
+                        // Its text, proof, and operations, all held to the end.
+                        pending_bytes += max_batch_bytes - budget + 32 * siblings.len + (@sizeOf(usize) + @sizeOf(Op)) * n;
                         if (pending_bytes > max_pending_bytes) return error.Malformed;
                         const copied = try pa.dupe(Op, ops);
                         for (copied) |*op| {

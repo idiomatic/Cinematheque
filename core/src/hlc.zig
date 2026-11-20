@@ -10,7 +10,8 @@ pub const Hlc = struct {
     /// Timestamps a local event.
     pub fn tick(hlc: *Hlc, wall_ms: u64) u64 {
         const physical = wall_ms << 16;
-        hlc.last = if (physical > hlc.last) physical else hlc.last + 1;
+        // Saturating, should a clock ever reach its end.
+        hlc.last = if (physical > hlc.last) physical else hlc.last +| 1;
         return hlc.last;
     }
 
