@@ -287,6 +287,7 @@ final class Library {
         case "ConnectionTimedOut", "Timeout": "it didn't answer in time"
         case "UnknownHostName", "NameServerFailure", "TemporaryNameServerFailure": "no server by that name was found"
         case "NetworkUnreachable", "HostUnreachable": "it can't be reached from this network"
+        case "Refused": "that device refused (is it up to date? Devices sync only with others as new)"
         case "PathTaken": "another file is already where it would go"
         case "BadAddress": "that isn't a web address (http or https)"
         case "TooMany": "the server lists far more than any library holds"

@@ -115,12 +115,13 @@ fn nearby(lib: *Library, arena: std.mem.Allocator) ![]const NearbyJson {
     var out: std.ArrayList(NearbyJson) = .empty;
     for (try discover.browse(lib.io(), arena, 2000)) |s| {
         if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
+        const found = sync.foundUrl(arena, s) catch continue;
         const person = s.get("user");
         const is_member = if (person) |u| for (list) |m| {
             if (std.mem.eql(u8, &std.fmt.bytesToHex(m, .lower), u)) break true;
         } else false else false;
         try out.append(arena, .{
-            .url = try sync.foundUrl(arena, s),
+            .url = found,
             .device = s.get("name"),
             // As DNS-SD resolved it: an Apple TV's is its own name
             // (`Not-Your-AppleTV.local`), when tvOS tells apps only "Apple TV".

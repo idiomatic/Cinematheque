@@ -104,7 +104,7 @@ The version vector a response ends with is taken only from a member's device (a 
 
 Sync runs both ways, started by either side: a device asks a device for what it lacks, then sends the other device what it lacks. So a device that can reach another, though that one can't reach it (behind a NAT), still syncs both ways, and only one of them need accept connections.
 
-* **Request:** `POST /sync` with the device key, its certificate, the time, and the version vector, signed by the device (the bytes are in [HTTP endpoints](#post-sync)). The other device answers only a member's device that isn't removed, and only within ten minutes of its own clock.
+* **Request:** first `GET /sync`, which names the other device (its device key and certificate, in headers); then `POST /sync` with the device key, its certificate, the time, the other device's key, and the version vector, signed by the device (the bytes are in [HTTP endpoints](#post-sync)). The other device refuses a request for another device, and the device a response from any but the one asked, so a request one device was sent (a host posing as a device of the library, say) can't be replayed to another to read what it would be sent. The other device answers only a member's device that isn't removed, and only within ten minutes of its own clock.
 * **Response,** gzipped, as frames:
   * `B`, a batch: device, first sequence number, count, signature, a bitmap of which operations follow, and the leaf hashes of those that don't. That's enough to rebuild the root and check the signature against only what's sent.
   * `O`, one per operation sent: its sequence number, clock, kind, key, field, and value. The library and device are the batch's.
@@ -122,10 +122,11 @@ The apps' status line ("Received 3 changes from firefly") counts operations: rec
 
 ## HTTP endpoints
 
-Devices speak plain HTTP/1.1, without TLS: operations are signed, and pairing seals what it sends. Integers are little-endian, keys are 32 bytes, and signatures are Ed25519's 64.
+Devices speak plain HTTP/1.1, without TLS: operations are signed, and pairing seals what it sends; what a sync sends is readable by anyone listening on the network. Integers are little-endian, keys are 32 bytes, and signatures are Ed25519's 64.
 
 | Endpoint | Answered by | For |
 |---|---|---|
+| `GET /sync` | Every device that serves | Naming itself, for a request to be for it alone |
 | `POST /sync` | Every device that serves | Pulling operations, and pushing them |
 | `GET` and `POST /pair` | A new device offering to pair | Pairing by code |
 | `GET` and `HEAD` of any other path | A device serving media | Files, listings, and `INDEX` |
@@ -141,8 +142,10 @@ The request's body, up to 1 MiB:
 | Device key | 32 |
 | Certificate: the person's key, and the person's signature | 96 |
 | Time, in milliseconds since the epoch | u64 |
+| The other device's key, whom it's for (from `GET /sync`) | 32 |
+| A repair's field list's BLAKE3 hash (of its encoding, below), else zeros | 32 |
 | Version vector: a count (u32), then per stream its key (32) and highest sequence number (u64) | 4 + 40 per stream |
-| The device's signature over everything before it | 64 |
+| The device's signature over `cinematheque request`, the library ID, and everything before it | 64 |
 
 Answers:
 * **200,** `application/octet-stream` with `Content-Encoding: gzip`: frames, each starting with a tag byte, until `E`.
@@ -152,12 +155,12 @@ Answers:
   * `S`, the sender's signature (64), as above.
   * `E`: the end.
   With it, two headers name the other device: `x-cinematheque-device`, its device key, and `x-cinematheque-certificate`, its certificate, each in hex.
-* **400,** the error's name as text: `Malformed`, `BadSignature`, `BadCertificate` (one that doesn't verify for this library), or `Stale` (a time more than ten minutes from the other device's).
+* **400,** the error's name as text: `Malformed`, `BadSignature`, `BadCertificate` (one that doesn't verify for this library), `Stale` (a time more than ten minutes from the other device's), or `WrongRecipient` (a request for another device).
 * **403,** `not a member`: the certificate's person isn't a member. Or `removed`, for a device that was removed, with `x-cinematheque-device` and `x-cinematheque-certificate` as above and `x-cinematheque-signature`, the other device's signature (hex) over `cinematheque removed`, the library ID, the asking device's key, and its request's time (u64): proof enough, from a member's device, for the device to leave.
 
 A push is a `POST /sync` with `Content-Type: application/x-cinematheque-push`: the request's length (u32) and a request, as above (its vector unused), then frames, as a response's, gzipped. It's answered with 204, once applied, or 400 or 403 as above. A device too old to take pushes reads the whole body as a request, and refuses it as `BadSignature`.
 
-A repair is a `POST /sync` with `Content-Type: application/x-cinematheque-repair`: the request's length (u32) and a request, as a push's, then, gzipped, the fields wanted: a count (u32), then each one's key and field, each its length (u16) and bytes. It's answered, after the same checks, with 200 and gzipped frames: per batch the fields come from, `R`, device key (32), first sequence number (u64), count (u32), signature (64), the number of operations (u16) and their indices in the batch (u16 each), the number of proof hashes (u16) and the hashes (32 each), then an `O` frame for each operation; then `E`. One shared proof covers a batch's operations, which the receiver verifies against its signed root. Private streams not the requester's person's are left out. There's no `S`: nothing is adopted into the version vector.
+A repair is a `POST /sync` with `Content-Type: application/x-cinematheque-repair`: the request's length (u32) and a request, as a push's, then, gzipped, the fields wanted: a count (u32), then each one's key and field, each its length (u16) and bytes. It's answered, after the same checks and that the fields are those the request's hash signs, with 200 and gzipped frames: per batch the fields come from, `R`, device key (32), first sequence number (u64), count (u32), signature (64), the number of operations (u16) and their indices in the batch (u16 each), the number of proof hashes (u16) and the hashes (32 each), then an `O` frame for each operation; then `E`. One shared proof covers a batch's operations, which the receiver verifies against its signed root. Private streams not the requester's person's are left out. There's no `S`: nothing is adopted into the version vector.
 
 ### `/pair`
 

@@ -1,11 +1,18 @@
-//! Sync over HTTP, both ways, started by either side. A device POSTs to
-//! `/sync` a request signed by its device:
+//! Sync over HTTP, both ways, started by either side. A device first asks
+//! the other which device it is (a GET of `/sync`, answered with its device
+//! key and certificate in headers), then POSTs to `/sync` a request signed
+//! by its device, for that device alone:
 //!
 //! device key (32) | certificate (96) | time, Unix milliseconds (8) |
-//! version vector (see `replica.writeVector`) | signature (64)
+//! recipient's device key (32) | digest (32) | version vector (see
+//! `replica.writeVector`) | signature (64)
 //!
-//! The certificate is the device's person's signature over the device key
-//! (see `Replica.certificate`). The other device answers only members, with its
+//! The signature is over `"cinematheque request"`, the library ID, and
+//! the rest; the digest is a repair's field list's (BLAKE3 of
+//! `replica.writeFields`), else zeros. So a request a device was sent can't
+//! be replayed to another, nor its fields changed. The certificate is the
+//! device's person's signature over the device key (see
+//! `Replica.certificate`). The other device answers only members, with its
 //! frames (see `replica.writeSync`), in a chunked, gzipped response, leaving
 //! out other people's private streams, and with its own device key and
 //! certificate in headers. The device then pushes what the other device lacks: a
@@ -67,6 +74,9 @@ fn plainPath(p: []const u8) bool {
 /// The sync URL of a device found nearby: its host and port as resolved, and
 /// the path it advertises if that's a plain one, else the default.
 pub fn foundUrl(arena: std.mem.Allocator, s: discover.Service) ![]const u8 {
+    // A host name as DNS-SD resolves one, nothing that could aim the
+    // request at another authority (`a@skynet.example`).
+    for (s.host) |ch| if (!std.ascii.isAlphanumeric(ch) and ch != '-' and ch != '.') return error.BadHost;
     const advertised = s.get("path") orelse path;
     return std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, if (plainPath(advertised)) advertised else path });
 }
@@ -114,7 +124,7 @@ pub fn nearby(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8) !D
     for (try discover.browse(io, arena, 2000)) |s| {
         if (s.host.len == 0 or std.mem.eql(u8, s.name, own)) continue;
         if (!std.mem.eql(u8, s.get("library") orelse "", &mine)) continue;
-        const u = try foundUrl(arena, s);
+        const u = foundUrl(arena, s) catch continue;
         try urls.append(arena, u);
         if (s.get("name")) |n| if (n.len > 0) try names.put(arena, u, n);
     }
@@ -141,6 +151,7 @@ test "a found device's advertised path can't aim a request elsewhere" {
         const txt = try discover.txtRecord(arena, &.{.{ "path", bad }});
         try std.testing.expectEqualStrings("http://hal:8008/sync", try foundUrl(arena, .{ .name = "x", .host = "hal", .port = 8008, .txt = txt }));
     }
+    try std.testing.expectError(error.BadHost, foundUrl(arena, .{ .name = "x", .host = "a@skynet.example", .port = 8008, .txt = "" }));
     const txt = try discover.txtRecord(arena, &.{.{ "path", "/other/sync" }});
     try std.testing.expectEqualStrings("http://hal:8008/other/sync", try foundUrl(arena, .{ .name = "x", .host = "hal", .port = 8008, .txt = txt }));
 }
@@ -201,42 +212,80 @@ pub const Request = struct {
     device: [32]u8,
     certificate: [96]u8,
     time_ms: u64,
+    /// The device it's for.
+    recipient: [32]u8,
+    /// A repair's field list's digest, else zeros.
+    digest: [32]u8,
     vector: replica_.VersionVector,
 };
 
-/// Writes `dst`'s request, signed by its device.
-pub fn writeRequest(arena: std.mem.Allocator, dst: *Replica, time_ms: u64) ![]u8 {
+/// What a request's signature covers: its domain, the library, and the
+/// request but the signature.
+fn requestMessage(arena: std.mem.Allocator, library: [16]u8, signed: []const u8) ![]u8 {
+    return std.mem.concat(arena, u8, &.{ "cinematheque request", &library, signed });
+}
+
+/// Writes `dst`'s request to `recipient`, signed by its device, with a
+/// repair's field list's `digest` (else zeros).
+pub fn writeRequest(arena: std.mem.Allocator, dst: *Replica, time_ms: u64, recipient: [32]u8, digest: [32]u8) ![]u8 {
     var out: Io.Writer.Allocating = .init(arena);
     try out.writer.writeAll(&dst.device());
     try out.writer.writeAll(&try dst.certificate(false));
     try out.writer.writeInt(u64, time_ms, .little);
+    try out.writer.writeAll(&recipient);
+    try out.writer.writeAll(&digest);
     try replica_.writeVector(&out.writer, try dst.versionVector(arena));
-    const sig = try dst.key_pair.sign(out.written(), null);
+    const sig = try dst.key_pair.sign(try requestMessage(arena, dst.library, out.written()), null);
     try out.writer.writeAll(&sig.toBytes());
     return out.written();
 }
 
-/// Reads and checks a request: its signature, its certificate, and its time.
-/// Returns it and the person it's from.
-pub fn readRequest(arena: std.mem.Allocator, library: [16]u8, body: []const u8, now_ms: u64) !struct { Request, [32]u8 } {
-    if (body.len < 32 + 96 + 8 + 4 + 64) return error.Malformed;
+/// Reads and checks a request: its signature, its certificate, its time,
+/// and that it's for `recipient`. Returns it and the person it's from.
+pub fn readRequest(arena: std.mem.Allocator, library: [16]u8, body: []const u8, now_ms: u64, recipient: [32]u8) !struct { Request, [32]u8 } {
+    if (body.len < 32 + 96 + 8 + 32 + 32 + 4 + 64) return error.Malformed;
     const signed = body[0 .. body.len - 64];
     var r: Io.Reader = .fixed(signed);
     var request: Request = undefined;
     try r.readSliceAll(&request.device);
     try r.readSliceAll(&request.certificate);
     request.time_ms = try r.takeInt(u64, .little);
+    try r.readSliceAll(&request.recipient);
+    try r.readSliceAll(&request.digest);
     request.vector = try replica_.readVector(arena, &r);
     const key = Ed25519.PublicKey.fromBytes(request.device) catch return error.BadSignature;
-    Ed25519.Signature.fromBytes(body[body.len - 64 ..][0..64].*).verify(signed, key) catch return error.BadSignature;
+    Ed25519.Signature.fromBytes(body[body.len - 64 ..][0..64].*).verify(try requestMessage(arena, library, signed), key) catch return error.BadSignature;
     const person = replica_.verifyCertificate(library, request.device, false, request.certificate) orelse return error.BadCertificate;
     if (@max(now_ms, request.time_ms) - @min(now_ms, request.time_ms) > freshness_ms) return error.Stale;
+    if (!std.mem.eql(u8, &request.recipient, &recipient)) return error.WrongRecipient;
     return .{ request, person };
 }
 
+/// The digest a repair's request carries of its fields.
+pub fn fieldsDigest(arena: std.mem.Allocator, fields: []const replica_.Field) ![32]u8 {
+    var out: Io.Writer.Allocating = .init(arena);
+    try replica_.writeFields(&out.writer, fields);
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.Blake3.hash(out.written(), &digest, .{});
+    return digest;
+}
+
 fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool {
-    if (request.head.method != .POST or !std.mem.eql(u8, request.head.target, path)) return false;
+    if (!std.mem.eql(u8, request.head.target, path)) return false;
     const sharing: *Sharing = @ptrCast(@alignCast(context.?));
+    // Which device this is, for a request to be for it alone.
+    if (request.head.method == .GET or request.head.method == .HEAD) {
+        var r = try Replica.open(gpa, io, sharing.path, sharing.founder, sharing.identity);
+        defer r.close();
+        const device_hex = std.fmt.bytesToHex(r.device(), .lower);
+        const certificate_hex = std.fmt.bytesToHex(try r.certificate(false), .lower);
+        try request.respond("", .{ .extra_headers = &.{
+            .{ .name = device_header, .value = &device_hex },
+            .{ .name = certificate_header, .value = &certificate_hex },
+        } });
+        return true;
+    }
+    if (request.head.method != .POST) return false;
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -261,7 +310,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     var src = try Replica.open(gpa, io, sharing.path, sharing.founder, sharing.identity);
     defer src.close();
     const now: u64 = @intCast(Io.Timestamp.now(io, .real).toMilliseconds());
-    const checked = readRequest(arena, src.library, head, now) catch |err| {
+    const checked = readRequest(arena, src.library, head, now, src.device()) catch |err| {
         try request.respond(@errorName(err), .{ .status = .bad_request });
         return true;
     };
@@ -303,6 +352,11 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
             try request.respond(@errorName(err), .{ .status = .bad_request });
             return true;
         };
+        // The fields the request signed for, and no others.
+        if (!std.mem.eql(u8, &try fieldsDigest(arena, fields), &checked[0].digest)) {
+            try request.respond("BadSignature", .{ .status = .bad_request });
+            return true;
+        }
         var repair_buf: [64 * 1024]u8 = undefined;
         var response = try request.respondStreaming(&repair_buf, .{ .respond_options = .{
             .extra_headers = &.{
@@ -351,16 +405,17 @@ pub const Exchanged = struct {
 /// what the other device does, if it's a member's device that takes pushes.
 pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !Exchanged {
     var theirs: std.ArrayList(replica_.Entry) = .empty;
-    const pulled = try pull(arena, client, dst, url, now_ms, &theirs);
+    const recipient = try hello(client, url);
+    const pulled = try pull(arena, client, dst, url, now_ms, recipient, &theirs);
     var out: Exchanged = .{ .stats = pulled.stats };
     const person = pulled.person orelse return out;
     if (!try dst.isMemberPerson(person)) return out;
     // Fields a removal dropped, from a device that may hold what stands.
-    out.repaired = repairFrom(arena, client, dst, url, now_ms) catch |err| switch (err) {
+    out.repaired = repairFrom(arena, client, dst, url, now_ms, recipient) catch |err| switch (err) {
         error.Refused => 0,
         else => |e| return e,
     };
-    out.sent = push(arena, client, dst, url, now_ms, theirs.items, person) catch |err| switch (err) {
+    out.sent = push(arena, client, dst, url, now_ms, recipient, theirs.items, person) catch |err| switch (err) {
         // A device too old to take pushes, which still pulls from this one.
         error.Refused => 0,
         else => |e| return e,
@@ -369,6 +424,18 @@ pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, u
 }
 
 const Pulled = struct { stats: replica_.Stats, person: ?[32]u8 };
+
+/// Which device answers at `url`: its device key, for requests to be for
+/// it alone. A device that doesn't say (an older build's) can't be synced
+/// with.
+fn hello(client: *http.Client, url: []const u8) ![32]u8 {
+    var request = try client.request(.GET, try std.Uri.parse(url), .{ .redirect_behavior = .not_allowed });
+    defer request.deinit();
+    try request.sendBodiless();
+    const response = try request.receiveHead(&.{});
+    if (response.head.status != .ok) return error.Refused;
+    return Named.of(response.head).device orelse error.Refused;
+}
 
 /// Who a device's response says answered: its device key, certificate, and
 /// (refusing a removed device) signature, as headers give them.
@@ -417,8 +484,8 @@ fn removed(dst: *Replica, other: Named, time_ms: u64) !bool {
 
 /// Pulls from the other device at `url`, collecting its vector into `theirs`, and
 /// the person its certificate names, if it sent one that verifies.
-fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64, theirs: *std.ArrayList(replica_.Entry)) !Pulled {
-    const body = try writeRequest(arena, dst, now_ms);
+fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64, recipient: [32]u8, theirs: *std.ArrayList(replica_.Entry)) !Pulled {
+    const body = try writeRequest(arena, dst, now_ms, recipient, @splat(0));
     var request = try client.request(.POST, try std.Uri.parse(url), .{
         .headers = .{ .accept_encoding = .{ .override = "gzip" } },
     });
@@ -439,7 +506,10 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
     const person = other.person(dst.library);
     // The frames must be signed by the device that says it answered, for
     // this request: its certificate alone is public, so proves nothing.
-    const binding: replica_.Binding = .{ .request = body[body.len - 64 ..][0..64].*, .sender = other.device orelse return error.Refused };
+    // And by the device the request was for.
+    const sender = other.device orelse return error.Refused;
+    if (!std.mem.eql(u8, &sender, &recipient)) return error.Refused;
+    const binding: replica_.Binding = .{ .request = body[body.len - 64 ..][0..64].*, .sender = sender };
     var transfer: [64 * 1024]u8 = undefined;
     var decompress: http.Decompress = undefined;
     const window = try arena.alloc(u8, flate.max_window_len);
@@ -452,8 +522,8 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
 /// Pushes to the other device at `url` what `wanted` (its vector) shows it lacks,
 /// leaving out private streams that aren't `reader`'s (its person's); returns
 /// how many operations it sent. Nothing to send sends nothing.
-fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []const u8, now_ms: u64, wanted: replica_.VersionVector, reader: [32]u8) !usize {
-    const head = try writeRequest(arena, src, now_ms);
+fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []const u8, now_ms: u64, recipient: [32]u8, wanted: replica_.VersionVector, reader: [32]u8) !usize {
+    const head = try writeRequest(arena, src, now_ms, recipient, @splat(0));
     var body: Io.Writer.Allocating = .init(arena);
     try body.writer.writeInt(u32, @intCast(head.len), .little);
     try body.writer.writeAll(head);
@@ -483,10 +553,10 @@ fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []co
 /// Asks the other device at `url` for the fields a removal dropped from `dst`
 /// (see `Replica.cut`), and applies what it holds of them; returns how many
 /// came back. Nothing dropped asks nothing.
-fn repairFrom(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !usize {
+fn repairFrom(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64, recipient: [32]u8) !usize {
     const fields = try replica_.repairFields(dst, arena);
     if (fields.len == 0) return 0;
-    const head = try writeRequest(arena, dst, now_ms);
+    const head = try writeRequest(arena, dst, now_ms, recipient, try fieldsDigest(arena, fields));
     var body: Io.Writer.Allocating = .init(arena);
     try body.writer.writeInt(u32, @intCast(head.len), .little);
     try body.writer.writeAll(head);
@@ -524,13 +594,17 @@ test "requests are checked" {
     const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
     var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(2)));
     defer r.close();
-    const body = try writeRequest(arena, &r, 1_000_000);
-    const checked = try readRequest(arena, r.library, body, 1_000_000 + 60_000);
+    const hal: [32]u8 = @splat(3);
+    const body = try writeRequest(arena, &r, 1_000_000, hal, @splat(0));
+    const checked = try readRequest(arena, r.library, body, 1_000_000 + 60_000, hal);
     try std.testing.expectEqual(r.personKey(), checked[1]);
-    try std.testing.expectError(error.Stale, readRequest(arena, r.library, body, 1_000_000 + freshness_ms + 1));
-    try std.testing.expectError(error.BadCertificate, readRequest(arena, @splat(9), body, 1_000_000));
+    try std.testing.expectError(error.Stale, readRequest(arena, r.library, body, 1_000_000 + freshness_ms + 1, hal));
+    // One sent to hal can't be replayed to another device.
+    try std.testing.expectError(error.WrongRecipient, readRequest(arena, r.library, body, 1_000_000, @splat(4)));
+    // Nor to another library's, nor changed.
+    try std.testing.expectError(error.BadSignature, readRequest(arena, @splat(9), body, 1_000_000, hal));
     body[40] ^= 1;
-    try std.testing.expectError(error.BadSignature, readRequest(arena, r.library, body, 1_000_000));
+    try std.testing.expectError(error.BadSignature, readRequest(arena, r.library, body, 1_000_000, hal));
 }
 
 test "a removed device is told so, believably, and can tell" {

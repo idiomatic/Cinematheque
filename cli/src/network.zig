@@ -17,8 +17,10 @@ pub const media_prefix = "media";
 
 /// Devices found nearby (listening for 2 seconds), and addresses added.
 pub fn listNearby(p: *App) !void {
-    for (try core.discover.browse(p.io, p.arena, 2000)) |s|
-        try p.out.print("{s}  nearby  {s}, library {s}\n", .{ try core.sync.foundUrl(p.arena, s), s.name, s.get("library") orelse "?" });
+    for (try core.discover.browse(p.io, p.arena, 2000)) |s| {
+        const found = core.sync.foundUrl(p.arena, s) catch continue;
+        try p.out.print("{s}  nearby  {s}, library {s}\n", .{ found, s.name, s.get("library") orelse "?" });
+    }
     var r = try p.open();
     defer r.close();
     for (try core.sync.addedAddresses(&r, p.arena)) |u| try p.out.print("{s}  added\n", .{u});
