@@ -11,6 +11,10 @@ xcuserdata/
 # Files collected to fork or migrate elsewhere
 *.egress/
 
+# Agents' notes and locks
+.coordination/locks/
+.coordination/sessions/
+
 .DS_Store
 
 # A developer's own signing settings
