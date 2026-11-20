@@ -53,6 +53,8 @@ struct SettingsView: View {
                 Text(leaving ? "Leaving…" : problem ?? "Returns to setup, to join a library again, as yours or someone else's.")
             }
         }
+        // Narrowed, it would clip a focused row, which grows past its edges.
+        .scrollClipDisabled()
         .frame(maxWidth: 1100)
         #if DEBUG
         .task {
