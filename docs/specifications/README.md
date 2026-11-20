@@ -59,6 +59,13 @@ External specifications and papers Cinematheque relies on. They're linked rather
 | ThumbHash (MIT) | https://github.com/evanw/thumbhash | The placeholder format, and the reference implementation the core's port reproduces. |
 | QuickTime File Format: metadata | https://developer.apple.com/documentation/quicktime-file-format | Atom layout, and the `ilst` items (`covr`, `©nam`, `ldes`) MP4 covers and metadata come from. |
 
+## Apple players
+
+| Title | Source | Why it applies |
+|---|---|---|
+| Human Interface Guidelines: designing for tvOS | https://developer.apple.com/design/human-interface-guidelines/designing-for-tvos | Focus, the remote, text entry, and layout on the Apple TV. |
+| platform-design-skills: tvOS (MIT) | https://github.com/ehmo/platform-design-skills/tree/main/skills/tvos | Apple's tvOS guidelines as numbered rules and a checklist, for reviewing the Apple TV player; check a rule against Apple's before relying on it. |
+
 ## Transcoding
 
 | Title | Source | Why it applies |
