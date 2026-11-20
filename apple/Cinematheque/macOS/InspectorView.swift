@@ -406,7 +406,8 @@ private struct DownloadControls: View {
     }
 
     /// Show in Finder, beside the trash button: what of it is on this Mac
-    /// (downloaded, or in its folders), dimmed while none is.
+    /// (downloaded, or in its folders), dimmed while none is; its context
+    /// menu, every place that holds it.
     private var showInFinder: some View {
         let files = items.compactMap(library.fileHere)
         return Button("Show in Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting(files) }
@@ -414,6 +415,7 @@ private struct DownloadControls: View {
             .buttonStyle(.borderless)
             .disabled(files.isEmpty)
             .help("Show in Finder")
+            .contextMenu { PlaceItems(items: items) }
     }
 
     /// A choice of episodes, as the menu says it: short, read after its
@@ -466,8 +468,14 @@ struct DownloadMenuItems: View {
     @Environment(Library.self) private var library
 
     var body: some View {
-        if let file = library.fileHere(item) {
+        let file = library.fileHere(item)
+        if let file {
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+        }
+        // Every place that holds it, if there's more than Show in Finder's.
+        let places = library.places([item])
+        if places.count > (file == nil ? 0 : 1) {
+            Menu("Show Files") { PlaceItems(items: [item]) }
         }
         if library.isDownloaded(key) {
             Button(library.onlyCopies(key) > 0 ? "Delete Only Copy…" : "Delete Download") { library.deleteDownload(key) }
@@ -490,5 +498,67 @@ private struct TitleAndIconOrIconOnly: LabelStyle {
 
 extension LabelStyle where Self == TitleAndIconOrIconOnly {
     static func titleAndIconOrIconOnly(_ labeled: Bool) -> TitleAndIconOrIconOnly { .init(labeled: labeled) }
+}
+/// Where a title's files are: its download, then each quality's sources,
+/// a folder on this Mac (shown in Finder) or a server (its folder's
+/// listing, in the browser), so none needs finding by hand.
+struct Place: Identifiable {
+    let id: String
+    let title: String
+    let symbol: String
+    let open: () -> Void
+}
+
+extension Library {
+    func places(_ items: [TitleDetail.Item]) -> [Place] {
+        var out: [Place] = []
+        let copies = items.flatMap { $0.qualities.flatMap(\.copies) }
+        let downloaded = copies.compactMap(Playback.downloaded).compactMap { URL(string: $0.url) }
+        if !downloaded.isEmpty {
+            out.append(.init(id: "download", title: "Download", symbol: "arrow.down.circle") { NSWorkspace.shared.activateFileViewerSelecting(downloaded) })
+        }
+        // By quality, then source, as the items list them.
+        var order: [String] = []
+        var groups: [String: (short: String, source: Source, copies: [TitleDetail.Copy])] = [:]
+        for item in items {
+            for quality in item.qualities {
+                for copy in quality.copies where !copy.unavailable {
+                    guard let source = sources.first(where: { $0.id == copy.source }), !source.managed else { continue }
+                    let key = "\(quality.label)|\(source.id)"
+                    if groups[key] == nil {
+                        order.append(key)
+                        groups[key] = (quality.short, source, [])
+                    }
+                    groups[key]!.copies.append(copy)
+                }
+            }
+        }
+        for key in order {
+            guard let g = groups[key] else { continue }
+            if let folder = folder(of: g.source) {
+                guard !unavailableFolders.contains(folder.prefix) else { continue }
+                let files = g.copies.compactMap { copy -> URL? in
+                    guard let path = String(copy.url.dropFirst(folder.url.count)).removingPercentEncoding else { return nil }
+                    return URL(fileURLWithPath: folder.path).appending(path: path)
+                }
+                out.append(.init(id: key, title: "\(g.short) — \(folder.name)", symbol: "folder") { NSWorkspace.shared.activateFileViewerSelecting(files) })
+            } else if let listing = URL(string: g.copies[0].url)?.deletingLastPathComponent() {
+                out.append(.init(id: key, title: "\(g.short) — \(g.source.displayName)", symbol: "safari") { NSWorkspace.shared.open(listing) })
+            }
+        }
+        return out
+    }
+}
+
+/// A menu's items for a title's places (see `Library.places`).
+struct PlaceItems: View {
+    let items: [TitleDetail.Item]
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        ForEach(library.places(items)) { place in
+            Button(place.title, systemImage: place.symbol, action: place.open)
+        }
+    }
 }
 #endif
