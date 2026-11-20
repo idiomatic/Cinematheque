@@ -57,6 +57,12 @@ final class Library {
     private var loadedVersion: Int64 = -2
     /// The tiles as the core gave them, before sorting.
     private var unsortedTiles: [Tile] = []
+    /// Counts reloads, so one read off the main thread (`reloadApart`)
+    /// that another overtook is dropped.
+    private var reloads = 0
+    /// Reads under way off the main thread, each holding a connection,
+    /// which leaving waits out (the core refuses to leave while one's open).
+    private var readingApart = 0
 
     /// Reads the library again, unless nothing has changed since it was
     /// last read; assigns only what differs, so views showing the rest
@@ -76,24 +82,67 @@ final class Library {
         guard hasLibrary, let handle else { return }
         let version = cq_data_version(handle.pointer)
         guard dirty || version < 0 || version != loadedVersion else { return }
-        let wrote = dirty
         // Another connection's commit (a crawl's describing, a sync) may
         // change a title's details without changing its tile.
-        let committed = version != loadedVersion
+        let changed = dirty || version != loadedVersion
         dirty = false
         loadedVersion = version
+        reloads += 1
         let read = decode([Tile].self) { cq_tiles($0) } ?? []
-        var changed = false
-        if read != unsortedTiles {
+        apply(read, sorted: read == unsortedTiles ? nil : Self.sorted(read), sources: decode([Source].self) { cq_repos($0) } ?? [], changed: changed)
+    }
+
+    /// Reloads as `reload` does, but reads the tiles and sources, and
+    /// decodes and sorts them, off the main thread, as a long operation's
+    /// watcher does each second it commits: they're the whole catalog, so
+    /// on the main thread a crawl would stall the Apple TV's focus. A
+    /// reload that overtakes it (as a change of this person's makes) wins.
+    func reloadApart() async {
+        guard hasLibrary, let handle else { return }
+        let version = cq_data_version(handle.pointer)
+        guard dirty || version < 0 || version != loadedVersion else { return }
+        let pass = reloads
+        readingApart += 1
+        defer { readingApart -= 1 }
+        let read: (tiles: [Tile], sorted: [Tile], sources: [Source])? = await Task.detached {
+            guard let tiles = Self.read([Tile].self, handle, { cq_tiles($0) }),
+                  let sources = Self.read([Source].self, handle, { cq_repos($0) })
+            else { return nil }
+            return (tiles, Self.sorted(tiles), sources)
+        }.value
+        // A failed read is left to the reload that ends the operation.
+        guard let read, pass == reloads, hasLibrary else { return }
+        dirty = false
+        loadedVersion = version
+        reloads += 1
+        apply(read.tiles, sorted: read.tiles == unsortedTiles ? nil : read.sorted, sources: read.sources, changed: true)
+    }
+
+    /// The tiles by name, then year and season.
+    private nonisolated static func sorted(_ tiles: [Tile]) -> [Tile] {
+        tiles.sorted {
+            ($0.name.localizedStandardCompare($1.name), $0.year ?? 0, $0.season ?? 0) < (.orderedSame, $1.year ?? 0, $1.season ?? 0)
+        }
+    }
+
+    /// A result of the core's, decoded, on any thread.
+    private nonisolated static func read<T: Decodable>(_ type: T.Type, _ handle: Handle, _ body: (OpaquePointer) -> UnsafeMutablePointer<CChar>?) -> T? {
+        guard let text = body(handle.pointer) else { return nil }
+        defer { cq_free(text) }
+        return try? JSONDecoder().decode(T.self, from: Data(bytes: text, count: strlen(text)))
+    }
+
+    /// Takes what a reload read, assigning only what differs, and reads the
+    /// rest (small) here: `sorted` is nil if the tiles are as they were.
+    private func apply(_ read: [Tile], sorted: [Tile]?, sources repos: [Source], changed: Bool) {
+        var changed = changed
+        if let sorted {
             changed = true
             unsortedTiles = read
-            tiles = read.sorted {
-                ($0.name.localizedStandardCompare($1.name), $0.year ?? 0, $0.season ?? 0) < (.orderedSame, $1.year ?? 0, $1.season ?? 0)
-            }
+            tiles = sorted
         }
         let list = Set(decode([String].self) { cq_watchlist($0) } ?? [])
         if list != watchlist { watchlist = list }
-        let repos = decode([Source].self) { cq_repos($0) } ?? []
         if repos != sources { sources = repos }
         let people = decode([Member].self) { cq_members($0) } ?? []
         if people != members { members = people }
@@ -105,7 +154,7 @@ final class Library {
         // Views of a title's details (which reread them with it) wait for a
         // change in the data, not each reload: a crawl or sync reloads at
         // most every second, and one that changed nothing doesn't.
-        if changed || wrote || committed { revision += 1 }
+        if changed { revision += 1 }
     }
 
     func detail(_ key: String) -> TitleDetail? {
@@ -185,10 +234,10 @@ final class Library {
         guard let handle else { return nil }
         afterChange?.cancel()
         // Once a refresh or quiet sync under way is done (it holds the
-        // writer), starting none meanwhile.
+        // writer), and reads off the main thread, starting none meanwhile.
         leavingLibrary = true
         defer { leavingLibrary = false }
-        while activity != nil || syncingQuietly {
+        while activity != nil || syncingQuietly || readingApart > 0 {
             try? await Task.sleep(for: .milliseconds(250))
         }
         if !alone {
@@ -337,7 +386,7 @@ final class Library {
                 let now = cq_data_version(handle.pointer)
                 if now != seen {
                     seen = now
-                    self.reload()
+                    await self.reloadApart()
                 }
             }
         }

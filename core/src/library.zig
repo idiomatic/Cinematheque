@@ -363,11 +363,17 @@ pub fn removeSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, w
 
 /// How many copies a source holds.
 pub fn countCopies(replica: *Replica, arena: std.mem.Allocator, source: Source) !i64 {
-    const s = try replica.db.prepare("SELECT count(*) FROM winners WHERE field = ?1 AND length(value) > 0");
+    return (try copyCounts(replica, arena)).get(&source.id) orelse 0;
+}
+
+/// How many copies each source holds, by its ID, in one pass (a field
+/// has no index of its own, so each count alone is a pass of its own).
+pub fn copyCounts(replica: *Replica, arena: std.mem.Allocator) !std.StringHashMapUnmanaged(i64) {
+    var out: std.StringHashMapUnmanaged(i64) = .empty;
+    const s = try replica.db.prepare("SELECT field, count(*) FROM winners WHERE field >= 'held:' AND field < 'held;' AND length(value) > 0 GROUP BY field");
     defer s.finalize();
-    try s.bindText(1, try std.fmt.allocPrint(arena, "held:{s}", .{source.id}));
-    _ = try s.step();
-    return s.int(0);
+    while (try s.step()) try out.put(arena, try arena.dupe(u8, s.blob(0)["held:".len..]), s.int(1));
+    return out;
 }
 
 fn snapshotKey(arena: std.mem.Allocator, id: [16]u8) ![]u8 {
@@ -823,7 +829,7 @@ test "a title's own name isn't taken for what's below it" {
     try std.testing.expectEqual(@as(?usize, null), pastTitle("t/m/v/2010", "/v/"));
 }
 
-fn prefixSegments(key: []const u8, n: usize) ?usize {
+pub fn prefixSegments(key: []const u8, n: usize) ?usize {
     var count: usize = 0;
     for (key, 0..) |ch, i| if (ch == '/') {
         count += 1;

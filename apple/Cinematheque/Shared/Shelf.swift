@@ -99,9 +99,11 @@ extension Library {
     /// for the whole series, with its progress over every season's
     /// running time, and watched once every season is.
     func perTitle(_ tiles: [Tile]) -> [Tile] {
-        tiles.oneEach.map { tile in
+        // Grouped once, as shelves redraw with each reload.
+        let bySeries = tiles.contains(where: \.isSeries) ? Dictionary(grouping: self.tiles.filter(\.isSeries), by: \.key) : [:]
+        return tiles.oneEach.map { tile in
             guard tile.isSeries else { return tile }
-            let seasons = self.tiles.filter { $0.key == tile.key }
+            let seasons = bySeries[tile.key] ?? []
             let elapsed = seasons.reduce(0) { $0 + $1.elapsed }
             let runtime = seasons.reduce(0) { $0 + $1.runtime }
             return Tile(

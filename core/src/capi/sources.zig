@@ -4,6 +4,7 @@ const std = @import("std");
 const capi = @import("../capi.zig");
 const library = @import("../library.zig");
 const race = @import("../race.zig");
+const long = @import("long.zig");
 const gpa = capi.gpa;
 const Library = capi.Library;
 const json = capi.json;
@@ -13,7 +14,8 @@ const span = capi.span;
 /// `quality`, `skip`, `copies`, `managed` (a device's downloads), and
 /// `unavailable`, its unavailable directories
 /// (`dir`, relative to it, empty for the whole of it, and `since`, in
-/// milliseconds since the epoch).
+/// milliseconds since the epoch). Any thread, on a connection of its own,
+/// as `cq_tiles` is (counting copies reads every one).
 export fn cq_repos(lib: *Library) ?[*:0]u8 {
     return json(lib, sources, .{});
 }
@@ -22,16 +24,19 @@ const AbsenceJson = struct { dir: []const u8, since: u64 };
 const SourceJson = struct { id: []const u8, url: []const u8, quality: []const u8, by_folder: bool, skip: []const u8, copies: i64, unavailable: []const AbsenceJson, managed: bool };
 
 fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
-    const r = try lib.main();
+    var connection = try long.reader(lib, arena);
+    defer long.release(lib, &connection);
+    const r = &connection;
     const list = try library.sources(r, arena);
     const out = try arena.alloc(SourceJson, list.len);
+    const counts = try library.copyCounts(r, arena);
     for (list, out) |rp, *o| o.* = .{
         .id = try arena.dupe(u8, &rp.id),
         .url = rp.url,
         .quality = rp.layout.quality,
         .by_folder = rp.layout.by_folder,
         .skip = rp.layout.skip,
-        .copies = try library.countCopies(r, arena, rp),
+        .copies = counts.get(&rp.id) orelse 0,
         .managed = rp.managed,
         .unavailable = blk: {
             const list_ = try library.unavailableDirs(r, arena, &rp.id);

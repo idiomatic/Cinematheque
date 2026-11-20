@@ -25,6 +25,13 @@ pub fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
     return lib.store.openReplica(arena);
 }
 
+/// A connection of its own for reading, on any thread, once there's a
+/// library.
+pub fn reader(lib: *Library, arena: std.mem.Allocator) !Replica {
+    if (lib.replica == null) return error.NoLibrary;
+    return connection(lib, arena);
+}
+
 /// Closes a connection `connection` opened.
 pub fn release(lib: *Library, r: *Replica) void {
     r.close();

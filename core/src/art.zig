@@ -628,14 +628,35 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     // and the tiles with a copy that isn't unavailable.
     var items: std.StringHashMapUnmanaged(std.ArrayList([]const u8)) = .empty;
     var present: std.StringHashMapUnmanaged(void) = .empty;
+    // Items' lengths, as their files' metadata gives them.
+    var durations: std.StringHashMapUnmanaged(u64) = .empty;
+    // Titles' covers and placeholders (`art`, `art:s01`, `thumb`...), by
+    // their key and field (`<key> <field>`).
+    var covers: std.StringHashMapUnmanaged([]const u8) = .empty;
     {
+        // In one pass over the titles' keys, by range (as `LIKE` can't use
+        // the key's index), as this runs on each reload, every second of a
+        // crawl: copies, lengths, and covers.
         const unavailable = try library.UnavailableDirs.load(replica, arena);
         var seen: std.StringHashMapUnmanaged(void) = .empty;
-        const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key LIKE 't/%/r/%' AND field LIKE 'held:%' AND length(value) > 0");
+        const s = try replica.db.prepare(
+            \\SELECT key, field, value FROM winners WHERE key >= 't/' AND key < 't0' AND length(value) > 0
+            \\AND (field = 'duration' OR (field >= 'held:' AND field < 'held;') OR (field >= 'art' AND field < 'aru') OR (field >= 'thumb' AND field < 'thumc'))
+        );
         defer s.finalize();
         while (try s.step()) {
-            const here = !unavailable.has(s.blob(1)["held:".len..], s.blob(2));
             const whole = s.blob(0);
+            const field = s.blob(1);
+            if (std.mem.eql(u8, field, "duration")) {
+                const ms = std.fmt.parseInt(u64, s.blob(2), 10) catch continue;
+                if (ms > 0) try durations.put(arena, try arena.dupe(u8, whole), ms);
+                continue;
+            }
+            if (!std.mem.startsWith(u8, field, "held:")) {
+                if (library.prefixSegments(whole, 4) == whole.len) try covers.put(arena, try std.fmt.allocPrint(arena, "{s} {s}", .{ whole, field }), try arena.dupe(u8, s.blob(2)));
+                continue;
+            }
+            const here = !unavailable.has(field["held:".len..], s.blob(2));
             const held = whole[0 .. library.pastTitle(whole, "/r/") orelse continue];
             if (seen.contains(held)) {
                 if (here) if (tileOf(held)) |id| try present.put(arena, try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season }), {});
@@ -662,20 +683,10 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     }
     var heads: std.StringHashMapUnmanaged(library.Progress) = .empty;
     for (try library.progressOf(replica, arena, null)) |h| try heads.put(arena, h.item, h.progress);
-    // Items' lengths, as their files' metadata gives them.
-    var durations: std.StringHashMapUnmanaged(u64) = .empty;
-    {
-        const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = 'duration' AND key LIKE 't/%' AND length(value) > 0");
-        defer s.finalize();
-        while (try s.step()) {
-            const ms = std.fmt.parseInt(u64, s.blob(1), 10) catch continue;
-            if (ms > 0) try durations.put(arena, try arena.dupe(u8, s.blob(0)), ms);
-        }
-    }
     for (try library.titles(replica, arena)) |t| {
         if (t.qualities == 0 or t.alias != null) continue;
-        const own = coverOf(try library.fieldValue(replica, arena, t.key, "art"));
-        const own_thumb = if (own != null) thumbOf(try library.fieldValue(replica, arena, t.key, "thumb")) else null;
+        const own = coverOf(try coverField(arena, &covers, t.key, "art"));
+        const own_thumb = if (own != null) thumbOf(try coverField(arena, &covers, t.key, "thumb")) else null;
         if (t.kind != 's') {
             const id = try std.fmt.allocPrint(arena, "{s}#0", .{t.key});
             var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb, .unavailable = !present.contains(id) };
@@ -687,14 +698,19 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
         std.mem.sort(u16, list, {}, std.sort.asc(u16));
         for (list) |n| {
             const field = try std.fmt.allocPrint(arena, "art:s{d:0>2}", .{n});
-            const cover = coverOf(try library.fieldValue(replica, arena, t.key, field));
+            const cover = coverOf(try coverField(arena, &covers, t.key, field));
             const id = try std.fmt.allocPrint(arena, "{s}#{d}", .{ t.key, n });
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try library.fieldValue(replica, arena, t.key, try thumbField(arena, field))) else own_thumb, .unavailable = !present.contains(id) };
+            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try coverField(arena, &covers, t.key, try thumbField(arena, field))) else own_thumb, .unavailable = !present.contains(id) };
             progress(&tile, &items, &heads, &durations, id);
             try out.append(arena, tile);
         }
     }
     return out.items;
+}
+
+/// A title's cover field, as `tiles` gathered them.
+fn coverField(arena: std.mem.Allocator, covers: *const std.StringHashMapUnmanaged([]const u8), key: []const u8, field: []const u8) !?[]const u8 {
+    return covers.get(try std.fmt.allocPrint(arena, "{s} {s}", .{ key, field }));
 }
 
 /// A season's number from the digits that start `rest` (after `/e/s`), of

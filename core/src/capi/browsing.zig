@@ -4,6 +4,7 @@ const std = @import("std");
 const capi = @import("../capi.zig");
 const art = @import("../art.zig");
 const views = @import("../views.zig");
+const long = @import("long.zig");
 const Library = capi.Library;
 const json = capi.json;
 const span = capi.span;
@@ -16,13 +17,16 @@ const span = capi.span;
 /// this person's `watched` (every item), `progress` (0 to 1, by running time),
 /// `elapsed` and `runtime` (milliseconds played, of how many), and `started`;
 /// `items`, how many it holds; and `unavailable`, whether every copy it has is under an unavailable directory.
+/// Any thread, on a connection of its own, so the apps read it off the
+/// main thread as a long operation commits (it reads the whole catalog).
 export fn cq_tiles(lib: *Library) ?[*:0]u8 {
     return json(lib, tiles, .{});
 }
 
-
 fn tiles(lib: *Library, arena: std.mem.Allocator) ![]const views.TileJson {
-    return views.tiles(try lib.main(), arena);
+    var r = try long.reader(lib, arena);
+    defer long.release(lib, &r);
+    return views.tiles(&r, arena);
 }
 
 /// One title, as a JSON object with `key`, `name`, `year`, `aliasOf`,

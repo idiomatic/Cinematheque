@@ -255,7 +255,7 @@ extension Library {
                     let now = cq_data_version(handle.pointer)
                     if now != seen {
                         seen = now
-                        self.reload()
+                        await self.reloadApart()
                     } else {
                         self.reloadDownloads()
                     }

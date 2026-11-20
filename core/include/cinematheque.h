@@ -4,7 +4,8 @@
 // documents each result's form.
 //
 // Functions belong to one thread, the app's main one, except the long ones
-// (cq_crawl, cq_sync, cq_describe), which may run on any thread. While a
+// (cq_crawl, cq_sync, cq_describe) and those marked "any thread", which
+// may run on any thread. While a
 // long one runs, other changes to the library fail with "Busy"; progress
 // and the watchlist don't wait.
 
@@ -47,7 +48,7 @@ int cq_member(cq_library *library, const char *person_key, int add);
 
 // Sources; quality and skip may be NULL, for the default or no
 // change.
-char *cq_repos(cq_library *library);
+char *cq_repos(cq_library *library); // any thread
 int cq_repo_add(cq_library *library, const char *url, const char *quality, const char *skip);
 int cq_repo_set(cq_library *library, const char *source, const char *quality, const char *skip);
 // Whether a source's files take their quality from the first folder
@@ -127,7 +128,9 @@ long long cq_data_version(cq_library *library);
 // "total" steps of it. Any thread.
 char *cq_steps(cq_library *library);
 
-// Browsing: the grid's tiles, with their covers' byte ranges, and one
+// Browsing: the grid's tiles, with their covers' byte ranges (any
+// thread, as cq_repos: each reads on a connection of its own, so apps
+// read them off the main thread while a long operation commits), and one
 // title, with its metadata and each copy's playable URL.
 char *cq_tiles(cq_library *library);
 char *cq_title(cq_library *library, const char *key);

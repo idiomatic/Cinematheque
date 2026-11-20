@@ -1,7 +1,7 @@
 import Foundation
 
 /// A cover: a byte range of a file in a source.
-struct Cover: Codable, Hashable {
+nonisolated struct Cover: Codable, Hashable {
     let url: String
     let offset: Int
     let length: Int
@@ -10,7 +10,7 @@ struct Cover: Codable, Hashable {
 }
 
 /// One tile of the grid: a movie, or a season of a series.
-struct Tile: Codable, Identifiable, Hashable {
+nonisolated struct Tile: Codable, Identifiable, Hashable {
     let key: String
     let name: String
     let year: Int?
@@ -104,7 +104,7 @@ struct TitleDetail: Codable {
     let items: [Item]
 }
 
-struct Source: Codable, Identifiable, Hashable {
+nonisolated struct Source: Codable, Identifiable, Hashable {
     /// A directory of it that held files and lists none now (an unplugged
     /// drive's mount point): relative to it, empty for the whole of it, and
     /// when it was noticed, in milliseconds since the epoch.
@@ -236,7 +236,7 @@ nonisolated struct Handle: @unchecked Sendable {
 
 /// The library, through the core's C interface.
 
-extension ComparisonResult: @retroactive Comparable {
+nonisolated extension ComparisonResult: @retroactive Comparable {
     public static func < (a: ComparisonResult, b: ComparisonResult) -> Bool { a.rawValue < b.rawValue }
 }
 
