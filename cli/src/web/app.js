@@ -458,10 +458,14 @@ function ramp(to, ms) {
 }
 
 /// An item's copies in the order to try them: the chosen quality's, raced
-/// by the server (the one whose server answers first), then the rest.
-async function copiesOf(item, quality) {
+/// by the server (the one whose server answers first), then the rest, as
+/// the apps order them: the nearest at or below the chosen's resolution,
+/// then the nearest above, those of unknown resolution last.
+async function copiesOf(item, quality, chosenHeight) {
   const chosen = item.qualities.find((q) => q.label === quality);
-  const others = item.qualities.filter((q) => q !== chosen && rank(q) >= 0);
+  const near = (q) => !chosenHeight || !q.height ? [3, 0] : q.height <= chosenHeight ? [1, -q.height] : [2, q.height];
+  const others = item.qualities.filter((q) => q !== chosen && rank(q) >= 0)
+    .map((q, i) => [near(q), i, q]).sort((a, b) => a[0][0] - b[0][0] || a[0][1] - b[0][1] || a[1] - b[1]).map((e) => e[2]);
   const usable = (q) => q.copies.filter((c) => c.url && playable(c.url));
   const contenders = chosen ? usable(chosen).sort((a, b) => a.unavailable - b.unavailable).map((c) => c.url) : [];
   const rest = others.flatMap(usable).map((c) => c.url);
@@ -487,7 +491,8 @@ async function start(me, fromStart) {
   me.item = item;
   me.started = false;
   document.title = item.season != null ? `${me.detail.name} · ${itemTitle(me.detail, item)}` : itemTitle(me.detail, item);
-  const urls = await copiesOf(item, me.quality);
+  const height = me.detail.items.flatMap((i) => i.qualities).find((q) => q.label === me.quality)?.height;
+  const urls = await copiesOf(item, me.quality, height);
   for (const url of urls) {
     if (session !== me) return;
     try {

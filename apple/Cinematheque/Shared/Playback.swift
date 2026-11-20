@@ -58,7 +58,7 @@ enum Playback {
     /// `overFromStart`, then the rest in order.
     static func request(_ detail: TitleDetail, items: [TitleDetail.Item], from index: Int, quality: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
         let queue = items[index...].compactMap { item -> PlayRequest.Entry? in
-            let ordered = copies(item, quality: quality)
+            let ordered = copies(item, quality: quality, in: detail)
             let urls = ordered.copies.compactMap { URL(string: $0.url) }
             guard let url = urls.first else { return nil }
             return .init(url: url, item: "\(detail.key)/\(item.key)", title: name(item, in: detail), alternates: Array(urls.dropFirst()), contenders: max(1, min(ordered.contenders, urls.count)))
@@ -68,16 +68,36 @@ enum Playback {
         return PlayRequest(url: first.url, item: first.item, start: item.watched || overFromStart ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()), alternates: first.alternates, contenders: first.contenders)
     }
 
-    /// The copies to try, in order: the chosen quality's (if the item has
-    /// it, else its first quality's), then its other qualities', so one
+    /// An item's qualities in the order to play them: the chosen one, then
+    /// the nearest at or below its resolution (so a missing quality costs
+    /// picture, not bandwidth or space), then the nearest above, those of
+    /// unknown resolution last.
+    static func qualities(_ item: TitleDetail.Item, near quality: String?, in detail: TitleDetail) -> [TitleDetail.Quality] {
+        let height = detail.items.lazy.flatMap(\.qualities).first { $0.label == quality }?.height
+        func rank(_ q: TitleDetail.Quality, _ offset: Int) -> (Int, Int, Int) {
+            if q.label == quality { return (0, 0, offset) }
+            guard let height, let h = q.height else { return (3, 0, offset) }
+            return h <= height ? (1, -h, offset) : (2, h, offset)
+        }
+        return item.qualities.enumerated().sorted { rank($0.element, $0.offset) < rank($1.element, $1.offset) }.map(\.element)
+    }
+
+    /// The quality an item plays in place of the chosen one, which it
+    /// lacks; nil if it has it.
+    static func standIn(_ item: TitleDetail.Item, for quality: String?, in detail: TitleDetail) -> TitleDetail.Quality? {
+        guard let quality, !item.qualities.contains(where: { $0.label == quality }) else { return nil }
+        return qualities(item, near: quality, in: detail).first
+    }
+
+    /// The copies to try, in order: by quality (see `qualities`), so one
     /// on a device that's asleep, or a drive that's unplugged, gives way to
     /// another.
     /// With how many of them, from the first, copy racing orders: the
-    /// chosen quality's available copies (none to race before a download).
-    static func copies(_ item: TitleDetail.Item, quality: String?) -> (copies: [TitleDetail.Copy], contenders: Int) {
-        let chosen = item.qualities.first { $0.label == quality } ?? item.qualities.first
-        guard let chosen else { return ([], 0) }
-        let others = item.qualities.filter { $0.label != chosen.label }.flatMap(\.copies)
+    /// first quality's available copies (none to race before a download).
+    static func copies(_ item: TitleDetail.Item, quality: String?, in detail: TitleDetail) -> (copies: [TitleDetail.Copy], contenders: Int) {
+        let ordered = qualities(item, near: quality, in: detail)
+        guard let chosen = ordered.first else { return ([], 0) }
+        let others = ordered.dropFirst().flatMap(\.copies)
         // A download on this device first, from its file, in whatever
         // quality: it's there to play, online or not.
         let local = (chosen.copies + others).compactMap(downloaded)

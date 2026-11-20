@@ -181,7 +181,7 @@ struct InspectorView: View {
                             .foregroundStyle(item.watched ? Color.secondary : Color.accentColor)
                     }
                     .buttonStyle(.plain)
-                    Text(item.label)
+                    StandIn(text: item.label, item: item, quality: quality, detail: detail)
                     Spacer()
                     if let runtime = item.runtime {
                         Text(runtime).font(.caption).foregroundStyle(.secondary).monospacedDigit()
@@ -235,7 +235,7 @@ private struct EpisodeRow: View {
             .help(item.watched ? "Watched; play again" : "Play")
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(item.name)
+                    StandIn(text: item.name, item: item, quality: quality, detail: detail)
                         .lineLimit(1)
                     Spacer()
                     DownloadMark(key: "\(detail.key)/\(item.key)")
@@ -429,6 +429,23 @@ private struct DownloadControls: View {
         case "1": return "Next"
         case "all": return "All"
         default: return "Next \(choice)"
+        }
+    }
+}
+
+/// An item's name, and if it lacks the chosen quality, the one it plays
+/// instead, dimmed: "Standard (720p Very Fast)".
+private struct StandIn: View {
+    let text: String
+    let item: TitleDetail.Item
+    let quality: String?
+    let detail: TitleDetail
+
+    var body: some View {
+        if let q = Playback.standIn(item, for: quality, in: detail) {
+            Text(text) + Text(" (\(q.short))").foregroundStyle(.secondary)
+        } else {
+            Text(text)
         }
     }
 }
