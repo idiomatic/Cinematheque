@@ -77,9 +77,9 @@ pub const Web = struct {
     }
 };
 
-fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool {
+fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request, peer: Io.net.IpAddress) anyerror!bool {
     const w: *Web = @ptrCast(@alignCast(context.?));
-    if (try w.next.function(w.next.context, io, gpa, request)) return true;
+    if (try w.next.function(w.next.context, io, gpa, request, peer)) return true;
     const target = request.head.target;
     const path = target[0 .. std.mem.indexOfScalar(u8, target, '?') orelse target.len];
     const page = for (files) |f| {

@@ -167,7 +167,7 @@ A repair is a `POST /sync` with `Content-Type: application/x-cinematheque-repair
 
 Only while a new device offers to be added, by the 6-digit code it shows; the member's device decides what it is, sending the person's seed (another of its person's devices) or zeros (a new member's). Both sides derive the session's generator, a ristretto255 point, from SHA-512 over, each prefixed by its length in a byte: `CPaceRistretto255`, the code, `Cinematheque pairing`, `pair` (once the offer's kind, now fixed, so offers from before still pair), and the session ID. The key is the first 32 bytes of SHA-512 over, prefixed likewise: `CPaceRistretto255_ISK`, the session ID, the shared point, the sender's share, and the new device's share.
 
-* **`GET`** starts an attempt, ending any other: 200 with the session ID (16) and the new device's share (32). Once paired, or after 3 wrong codes, 410, `Closed`.
+* **`GET`** starts an attempt, ending any other: 200 with the session ID (16) and the new device's share (32). Once paired, or after 3 wrong codes from the asking address, or 30 from all, 410, `Closed`.
 * **`POST`** answers the attempt: the session ID (16), the sender's share (32), and the sealed secrets (80): the person's seed (zeros when joining) and the founder's key, sealed with ChaCha20-Poly1305 under the key, nonce 0, and associated data `Cinematheque pairing secrets`. 200 answers with the sealed reply (80): the new device's person key and device key, under the key, nonce 1, and `Cinematheque pairing reply`. A wrong code is 403, `WrongCode`, and counts toward the 3; an attempt that isn't the current one, or a body of the wrong size, is 400; a closed offer is 410.
 
 ### Media

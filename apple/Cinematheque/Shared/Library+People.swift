@@ -54,7 +54,7 @@ extension Library {
         guard let failure else { return (paired, nil) }
         switch failure {
         case "WrongCode": return (nil, "That isn't the code \(name) shows. Check it, and try again.")
-        case "Closed": return (nil, "\(name) stopped pairing after too many wrong codes. On it, show a new code.")
+        case "Closed": return (nil, "\(name) stopped taking codes from this Mac after too many wrong ones. On it, show a new code.")
         default: return (nil, "Couldn't pair with \(name): \(failure).")
         }
     }

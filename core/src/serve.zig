@@ -12,8 +12,9 @@ const url = @import("url.zig");
 /// Answers requests the server doesn't, such as another device's `POST /sync`.
 pub const Handler = struct {
     context: ?*anyopaque,
-    /// Returns false to let the server answer instead.
-    function: *const fn (context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool,
+    /// Returns false to let the server answer instead. `peer` is the
+    /// address the request came from.
+    function: *const fn (context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request, peer: Io.net.IpAddress) anyerror!bool,
 };
 
 /// A directory served as a source, at `/` (an empty prefix, as the only
@@ -276,7 +277,7 @@ fn handle(ctx: *const Context, stream: Io.net.Stream, slot: usize) Io.Cancelable
             error.Canceled => return error.Canceled,
             else => return,
         };
-        respond(ctx, &request) catch |err| {
+        respond(ctx, &request, stream.socket.address) catch |err| {
             if (err == error.Canceled) return error.Canceled;
             return;
         };
@@ -294,8 +295,8 @@ fn header(request: *const http.Server.Request, name: []const u8) ?[]const u8 {
     return null;
 }
 
-fn respond(ctx: *const Context, request: *http.Server.Request) !void {
-    if (ctx.handler) |h| if (try h.function(h.context, ctx.io, ctx.gpa, request)) return;
+fn respond(ctx: *const Context, request: *http.Server.Request, peer: Io.net.IpAddress) !void {
+    if (ctx.handler) |h| if (try h.function(h.context, ctx.io, ctx.gpa, request, peer)) return;
     var target_buf: [4096]u8 = undefined;
     const raw = request.head.target;
     const path_end = std.mem.indexOfScalar(u8, raw, '?') orelse raw.len;

@@ -276,7 +276,7 @@ pub fn fieldsDigest(arena: std.mem.Allocator, fields: []const replica_.Field) ![
     return digest;
 }
 
-fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool {
+fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request, _: Io.net.IpAddress) anyerror!bool {
     if (!std.mem.eql(u8, request.head.target, path)) return false;
     const sharing: *Sharing = @ptrCast(@alignCast(context.?));
     // Which device this is, for a request to be for it alone.

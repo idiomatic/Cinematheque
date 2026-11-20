@@ -26,8 +26,11 @@ const Aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 const serve_ = @import("serve.zig");
 
 pub const path = "/pair";
-/// Wrong codes the new device takes before it stops pairing.
+/// Wrong codes the new device takes from one address, and from all, before
+/// it stops pairing: so no one host can stop it, and thirty guesses at a
+/// million codes are all anyone gets.
 pub const max_failures = 3;
+pub const max_total_failures = 30;
 
 pub const Code = [6]u8;
 
@@ -174,23 +177,47 @@ pub const Offer = struct {
     /// An attempt takes one answer either way, so it's still one guess.
     reuse_ms: i64 = 10_000,
     failures: u8 = 0,
+    /// Wrong codes by address (a hash of its host), the first few seen.
+    by_address: [max_total_failures]struct { peer: u64, failures: u8 } = undefined,
+    addresses: usize = 0,
     received: ?Secrets = null,
+
+    fn failuresFrom(o: *Offer, peer: u64) u8 {
+        for (o.by_address[0..o.addresses]) |a| if (a.peer == peer) return a.failures;
+        return 0;
+    }
+
+    fn fail(o: *Offer, peer: u64) void {
+        o.failures += 1;
+        for (o.by_address[0..o.addresses]) |*a| if (a.peer == peer) {
+            a.failures += 1;
+            return;
+        };
+        if (o.addresses < o.by_address.len) {
+            o.by_address[o.addresses] = .{ .peer = peer, .failures = 1 };
+            o.addresses += 1;
+        }
+    }
+
+    fn closedTo(o: *Offer, peer: u64) bool {
+        return o.received != null or o.failures >= max_total_failures or o.failuresFrom(peer) >= max_failures;
+    }
 
     /// What's come of it: the secrets, once received, and whether it has
     /// stopped, after too many wrong codes.
     pub fn outcome(o: *Offer, io: Io) struct { ?Secrets, bool } {
         o.mutex.lockUncancelable(io);
         defer o.mutex.unlock(io);
-        return .{ o.received, o.failures >= max_failures };
+        return .{ o.received, o.failures >= max_total_failures };
     }
 
     /// Starts an attempt (ending any other, but one started within
     /// `reuse_ms`, which it returns again): its session ID and this device's
     /// share.
-    pub fn challenge(o: *Offer, io: Io) ![challenge_length]u8 {
+    pub fn challenge(o: *Offer, io: Io, peer: u64) ![challenge_length]u8 {
         try o.mutex.lock(io);
         defer o.mutex.unlock(io);
-        if (o.received != null or o.failures >= max_failures) return error.Closed;
+        if (o.closedTo(peer)) return error.Closed;
         const now = Io.Timestamp.now(io, .awake);
         if (o.attempt) |a| if (a.started.durationTo(now).toMilliseconds() < o.reuse_ms) return a.sid ++ a.share.point;
         var sid: [sid_length]u8 = undefined;
@@ -203,21 +230,21 @@ pub const Offer = struct {
     /// Takes the other device's answer to the attempt under way: its share
     /// and the sealed secrets, which open only if it had the code. Returns
     /// the reply: this device's person's key and its own, sealed.
-    pub fn answer(o: *Offer, io: Io, body: []const u8) ![reply_length]u8 {
+    pub fn answer(o: *Offer, io: Io, peer: u64, body: []const u8) ![reply_length]u8 {
         if (body.len != answer_length) return error.Malformed;
         try o.mutex.lock(io);
         defer o.mutex.unlock(io);
-        if (o.received != null or o.failures >= max_failures) return error.Closed;
+        if (o.closedTo(peer)) return error.Closed;
         const attempt = o.attempt orelse return error.NoAttempt;
         if (!std.mem.eql(u8, &attempt.sid, body[0..sid_length])) return error.NoAttempt;
         o.attempt = null;
         const theirs = body[sid_length..][0..32].*;
         const key = sessionKey(attempt.share, theirs, attempt.sid, theirs, attempt.share.point) catch {
-            o.failures += 1;
+            o.fail(peer);
             return error.WrongCode;
         };
         o.received = open(key, body[sid_length + 32 ..][0..sealed_length]) catch {
-            o.failures += 1;
+            o.fail(peer);
             return error.WrongCode;
         };
         return sealReply(key, .{ .person = o.person, .device = o.device });
@@ -228,12 +255,21 @@ pub const Offer = struct {
     }
 };
 
-fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request) anyerror!bool {
+/// An address's host (not its port), as a key.
+fn peerKey(address: Io.net.IpAddress) u64 {
+    return switch (address) {
+        .ip4 => |a| std.hash.Wyhash.hash(4, &a.bytes),
+        .ip6 => |a| std.hash.Wyhash.hash(6, &a.bytes),
+    };
+}
+
+fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request, address: Io.net.IpAddress) anyerror!bool {
     if (!std.mem.eql(u8, request.head.target, path)) return false;
     const o: *Offer = @ptrCast(@alignCast(context.?));
+    const peer = peerKey(address);
     switch (request.head.method) {
         .GET => {
-            const challenge = o.challenge(io) catch |err| {
+            const challenge = o.challenge(io, peer) catch |err| {
                 try request.respond(@errorName(err), .{ .status = .gone });
                 return true;
             };
@@ -243,7 +279,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
             var body_buf: [1024]u8 = undefined;
             const body = try (try request.readerExpectContinue(&body_buf)).allocRemaining(gpa, .limited(1024));
             defer gpa.free(body);
-            const reply = o.answer(io, body) catch |err| {
+            const reply = o.answer(io, peer, body) catch |err| {
                 try request.respond(@errorName(err), .{ .status = switch (err) {
                     error.WrongCode => .forbidden,
                     error.Closed => .gone,
@@ -316,61 +352,75 @@ test "the right code pairs, and the reply carries the new person; wrong ones cou
     var offer: Offer = .{ .code = "042917".*, .person = @splat(3), .device = @splat(4), .reuse_ms = 0 };
 
     for (0..max_failures - 1) |_| {
-        const c = try offer.challenge(io);
+        const c = try offer.challenge(io, 1);
         const wrong, _ = try answerFor(io, c, "042918", secrets);
-        try std.testing.expectError(error.WrongCode, offer.answer(io, &wrong));
+        try std.testing.expectError(error.WrongCode, offer.answer(io, 1, &wrong));
     }
     // An answer to an attempt since replaced is refused, uncounted.
-    const stale = try offer.challenge(io);
-    _ = try offer.challenge(io);
+    const stale = try offer.challenge(io, 1);
+    _ = try offer.challenge(io, 1);
     const late, _ = try answerFor(io, stale, "042917", secrets);
-    try std.testing.expectError(error.NoAttempt, offer.answer(io, &late));
+    try std.testing.expectError(error.NoAttempt, offer.answer(io, 1, &late));
 
-    const c = try offer.challenge(io);
+    const c = try offer.challenge(io, 1);
     const right, const key = try answerFor(io, c, "042917", secrets);
-    const reply = try offer.answer(io, &right);
+    const reply = try offer.answer(io, 1, &right);
     try std.testing.expectEqualDeep(Joined{ .person = @splat(3), .device = @splat(4) }, try openReply(key, &reply));
     const got, const closed = offer.outcome(io);
     try std.testing.expectEqualDeep(secrets, got.?);
     try std.testing.expect(!closed);
-    try std.testing.expectError(error.Closed, offer.challenge(io));
+    try std.testing.expectError(error.Closed, offer.challenge(io, 1));
 }
 
 test "asking again soon doesn't end the attempt under way, which still takes one guess" {
     const io = std.testing.io;
     const secrets: Secrets = .{ .person = @splat(7), .founder = @splat(9) };
     var offer: Offer = .{ .code = "042917".*, .person = @splat(3), .device = @splat(4) };
-    const c = try offer.challenge(io);
+    const c = try offer.challenge(io, 1);
     // Someone else asks meanwhile, and is given the same attempt.
-    try std.testing.expectEqualSlices(u8, &c, &(try offer.challenge(io)));
+    try std.testing.expectEqualSlices(u8, &c, &(try offer.challenge(io, 1)));
     const right, _ = try answerFor(io, c, "042917", secrets);
-    _ = try offer.answer(io, &right);
+    _ = try offer.answer(io, 1, &right);
     // Taken, an attempt takes no second answer.
-    try std.testing.expectError(error.Closed, offer.answer(io, &right));
+    try std.testing.expectError(error.Closed, offer.answer(io, 1, &right));
 }
 
 test "the member's device decides: a new member's gets no secret" {
     const io = std.testing.io;
     var offer: Offer = .{ .code = "123456".*, .person = @splat(3), .device = @splat(4) };
-    const c = try offer.challenge(io);
+    const c = try offer.challenge(io, 1);
     const joining, _ = try answerFor(io, c, "123456", .{ .person = @splat(0), .founder = @splat(9) });
-    _ = try offer.answer(io, &joining);
+    _ = try offer.answer(io, 1, &joining);
     const got, _ = offer.outcome(io);
     try std.testing.expect(got.?.joining());
     try std.testing.expect(!(Secrets{ .person = @splat(7), .founder = @splat(9) }).joining());
 }
 
-test "too many wrong codes close it" {
+test "too many wrong codes close it to their address, and to all" {
     const io = std.testing.io;
-    var offer: Offer = .{ .code = "111111".*, .person = @splat(3), .device = @splat(4) };
-    for (0..max_failures) |_| {
-        const c = try offer.challenge(io);
-        const wrong, _ = try answerFor(io, c, "222222", .{ .person = @splat(1), .founder = @splat(2) });
-        try std.testing.expectError(error.WrongCode, offer.answer(io, &wrong));
-    }
-    _, const closed = offer.outcome(io);
+    var offer: Offer = .{ .code = "111111".*, .person = @splat(3), .device = @splat(4), .reuse_ms = 0 };
+    const guess = struct {
+        fn wrong(o: *Offer, peer: u64) !void {
+            const c = try o.challenge(std.testing.io, peer);
+            const w, _ = try answerFor(std.testing.io, c, "222222", .{ .person = @splat(1), .founder = @splat(2) });
+            try std.testing.expectError(error.WrongCode, o.answer(std.testing.io, peer, &w));
+        }
+    };
+    for (0..max_failures) |_| try guess.wrong(&offer, 1);
+    // Closed to that address, not to the device with the code.
+    try std.testing.expectError(error.Closed, offer.challenge(io, 1));
+    _, var closed = offer.outcome(io);
+    try std.testing.expect(!closed);
+    _ = try offer.challenge(io, 2);
+    // Enough wrong codes from enough addresses close it to all.
+    var peer: u64 = 3;
+    while (offer.failures < max_total_failures) : (peer += 1) for (0..max_failures) |_| {
+        if (offer.failures == max_total_failures) break;
+        try guess.wrong(&offer, peer);
+    };
+    _, closed = offer.outcome(io);
     try std.testing.expect(closed);
-    try std.testing.expectError(error.Closed, offer.challenge(io));
+    try std.testing.expectError(error.Closed, offer.challenge(io, 2));
 }
 
 test "codes are six digits" {
