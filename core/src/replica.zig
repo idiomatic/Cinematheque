@@ -534,6 +534,8 @@ pub const Replica = struct {
                 refused.set(i);
             } else if (std.mem.eql(u8, op.key, "revoked") and !try replica.removalAllowed(device_key, op, ops)) {
                 refused.set(i);
+            } else if (op.key.len == 18 and std.mem.startsWith(u8, op.key, "r/") and !try replica.sourceFieldAllowed(device_key, op, ops)) {
+                refused.set(i);
             }
         }
     }
@@ -549,6 +551,30 @@ pub const Replica = struct {
         if (!std.mem.eql(u8, &c.person, &replica.founder)) return true;
         const author = try replica.certifiedPerson(writer, ops) orelse return false;
         return std.mem.eql(u8, &author, &replica.founder);
+    }
+
+    /// A source's address (`url`) is the one its ID hashes, or empty (as
+    /// a removal leaves it), and stands from whichever device wrote it, so
+    /// no one can take a source over; and only that device marks it as its
+    /// downloads (`managed`), so no one can stop crawls of another's.
+    fn sourceFieldAllowed(replica: *Replica, writer: Device, op: Op, ops: []const Op) !bool {
+        const url = std.mem.eql(u8, op.field, "url");
+        if (!url and !std.mem.eql(u8, op.field, "managed")) return true;
+        if (url and op.value.len == 0) return true;
+        if (url) {
+            var hash: [8]u8 = undefined;
+            Blake3.hash(op.value, &hash, .{});
+            if (!std.mem.eql(u8, &std.fmt.bytesToHex(hash, .lower), op.key[2..])) return false;
+        }
+        // Whose the address is: a held one's writer, or this batch's.
+        const s = replica.select_winner;
+        defer s.reset();
+        try s.bindText(1, op.key);
+        try s.bindText(2, "url");
+        if (try s.step() and s.blob(3).len > 0) return std.mem.eql(u8, &try replica.keyOf(s.int(2)), &writer);
+        if (url) return true;
+        for (ops) |o| if (std.mem.eql(u8, o.key, op.key) and std.mem.eql(u8, o.field, "url") and o.value.len > 0) return true;
+        return false;
     }
 
     fn validLength(length: u32) bool {

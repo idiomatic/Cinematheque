@@ -402,6 +402,31 @@ test "a batch over numbers another batch holds is refused" {
     try testing.expectError(error.Missing, p.value(0, "t/00012", "name"));
 }
 
+test "a source's address is its own, and its device's alone to mark as downloads" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const a = &p.replicas[0];
+    const b = &p.replicas[1];
+    const nas = "http://nas.local/Movies/";
+    var hash: [8]u8 = undefined;
+    Blake3.hash(nas, &hash, .{});
+    const key = try std.fmt.allocPrint(p.arena_state.allocator(), "r/{s}", .{std.fmt.bytesToHex(hash, .lower)});
+    try a.write(1000, key, "url", nas);
+    _ = try p.sync(1, 0);
+
+    // b points it elsewhere, claims it (as if re-adding it), and marks it
+    // as its downloads, so no one would crawl it: c takes none of that.
+    try b.write(2000, key, "url", "http://skynet.example/");
+    try b.write(2001, key, "url", nas);
+    try b.write(2002, key, "managed", "1");
+    _ = try p.sync(2, 0);
+    const stats = try p.sync(2, 1);
+    try testing.expectEqual(@as(usize, 2), stats.refused);
+    try testing.expectEqualStrings(nas, try p.value(2, key, "url"));
+    try testing.expectError(error.Missing, p.value(2, key, "managed"));
+}
+
 test "fetched fields are verified by shared proof" {
     var p: Devices = undefined;
     try p.init();
