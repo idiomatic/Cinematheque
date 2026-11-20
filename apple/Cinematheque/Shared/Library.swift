@@ -1233,6 +1233,10 @@ final class Library {
     private(set) var sent: Exchange?
     private var syncingQuietly = false
 
+    /// The setting that shows sync activity (`syncLine`, or the Apple TV's
+    /// corner), for diagnosis; off, as most people needn't see it.
+    static let showsSyncActivity = "showSyncActivity"
+
     /// One line telling of the last exchange each way that changed
     /// something, for diagnosis: "Received 3 changes from firefly 1m ago ·
     /// Sent 12 changes to Den just now", counting operations (a field's

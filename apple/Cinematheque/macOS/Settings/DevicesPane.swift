@@ -7,6 +7,7 @@ struct DevicesPane: View {
     @State private var nearby: [NearbyDevice] = []
     @State private var sharing = true
     @State private var advanced = false
+    @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
     @State private var address = ""
 
     var body: some View {
@@ -60,6 +61,11 @@ struct DevicesPane: View {
             }
             if advanced {
                 Footer("Devices off your network, such as one behind another router (NAT), can be reached by address, such as http://hal.example.com:8008.")
+                Section {
+                    Toggle("Show sync activity", isOn: $showsSyncActivity)
+                } footer: {
+                    Text("The last changes received from and sent to your devices, in the library window's status bar.")
+                }
             }
         }
         .formStyle(.grouped)

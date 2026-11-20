@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var choosingSuccessor = false
     @State private var leaving = false
     @State private var problem: String?
+    @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
 
     private var me: Member? { library.members.first(where: \.you) }
     private var others: [Member] { library.members.filter { !$0.you } }
@@ -39,6 +40,11 @@ struct SettingsView: View {
                 .pickerStyle(.navigationLink)
             } footer: {
                 Text("Refresh Library looks for new videos in the library's sources. Otherwise your devices look as often as chosen, as they open; a NAS's disks spin up each time.")
+            }
+            Section {
+                Toggle("Show Sync Activity", isOn: $showsSyncActivity)
+            } footer: {
+                Text("The last changes received from and sent to your devices, in the corner after each.")
             }
             Section {
                 Button("Leave This Library…", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive, action: askToLeave)

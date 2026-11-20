@@ -187,11 +187,12 @@ private struct Activity: View {
     @Environment(Library.self) private var library
     /// Whether to show the last exchange with devices, for a while after it.
     @State private var showsExchange = false
+    @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
 
     var body: some View {
         content
             .task(id: "\(library.received?.at ?? .distantPast)|\(library.sent?.at ?? .distantPast)") {
-                guard library.received != nil || library.sent != nil else { return }
+                guard showsSyncActivity, library.received != nil || library.sent != nil else { return }
                 showsExchange = true
                 try? await Task.sleep(for: .seconds(6))
                 if !Task.isCancelled { showsExchange = false }
