@@ -33,7 +33,8 @@ struct InspectorView: View {
         }
         .task(id: library.revision) {
             detail = library.detail(tile.key)
-            if quality == nil { quality = detail.flatMap { $0.quality(for: Playback.items($0, season: tile.season)) } }
+            // At first, the best of what Play plays, so it needs no stand-in.
+            if quality == nil { quality = detail.flatMap { d in Playback.nextItem(d, season: tile.season).flatMap { d.quality(for: [$0]) } ?? d.quality(for: Playback.items(d, season: tile.season)) } }
         }
         .task(id: tile.id) { await library.describeItems(of: tile.key, season: tile.season) }
         // Asked for by deleting an only copy, here or in an episode's menu.
@@ -167,14 +168,21 @@ struct InspectorView: View {
         }
     }
 
-    /// The quality to play and download, when there's a choice, by its short
-    /// name, in a row of its own above Play; its full name, as its sources
-    /// give it, is its help. Where the inspector's narrow, it gives up its
+    /// The quality to play and download, by its short name, in a row of its
+    /// own above Play; its full name, as its sources give it, is its help.
+    /// Of one quality, it's said, not offered, so a title still says what
+    /// it plays in. Where the inspector's narrow, the picker gives up its
     /// label.
     @ViewBuilder
     private func qualityPicker(_ items: [TitleDetail.Item]) -> some View {
         let labels = QualityChoice.labels(items)
-        if labels.count > 1 {
+        if labels.count == 1, let label = labels.first {
+            HStack {
+                Text("Quality")
+                Text(QualityChoice.shortNames(labels, in: items)[label] ?? label).foregroundStyle(.secondary)
+            }
+            .help(QualityChoice.name(label, in: items))
+        } else if labels.count > 1 {
             let short = QualityChoice.shortNames(labels, in: items)
             let picker = Picker("Quality", selection: $quality) {
                 ForEach(labels, id: \.self) { label in
@@ -316,7 +324,16 @@ private struct DownloadControls: View {
             // Its size, all its files', fixed for the quality picked; orange
             // if what isn't here yet wouldn't fit. Another quality by
             // Control-click.
-            Button(size.map { "\(what) \(Self.bytes($0.size))" } ?? what, systemImage: "arrow.down.circle") { library.download(key, quality: quality) }
+            // The quality it comes in, dimmed, if not the one picked, as the
+            // rows say it.
+            let standIn = target.items.first.flatMap { Playback.standIn($0, for: quality, in: detail) }.map { " (\($0.short))" } ?? ""
+            Button { library.download(key, quality: quality) } label: {
+                Label {
+                    Text(what) + Text(standIn).foregroundStyle(.secondary) + Text(size.map { " \(Self.bytes($0.size))" } ?? "")
+                } icon: {
+                    Image(systemName: "arrow.down.circle")
+                }
+            }
                 .foregroundStyle(fits(size) ? AnyShapeStyle(.foreground) : AnyShapeStyle(.orange))
                 .buttonStyle(.bordered)
                 .disabled(held || coming)
