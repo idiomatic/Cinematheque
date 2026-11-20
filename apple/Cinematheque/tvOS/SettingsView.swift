@@ -58,11 +58,15 @@ struct SettingsView: View {
                 .disabled(library.activity != nil || leaving)
                 .settingsRow(.refresh, $focus)
                 Button { choosingInterval = true } label: {
-                    DisclosureLabel(title: "Look for New Videos", value: Library.crawlChoices.first { $0.hours == library.crawlEvery }?.name ?? "")
+                    ValueLabel(title: "Look for New Videos", opens: true, value: Library.crawlChoices.first { $0.hours == library.crawlEvery }?.name ?? "")
                 }
                 .settingsRow(.interval, $focus)
-                Toggle("Show Sync Activity", isOn: $showsSyncActivity)
-                    .settingsRow(.activity, $focus)
+                // A toggle's row, its state as its value, as the system's.
+                Button { showsSyncActivity.toggle() } label: {
+                    ValueLabel(title: "Show Sync Activity", value: showsSyncActivity ? "On" : "Off")
+                }
+                .accessibilityAddTraits(.isToggle)
+                .settingsRow(.activity, $focus)
             } header: {
                 Text("Library").bold()
             }
@@ -119,10 +123,7 @@ struct SettingsView: View {
     /// it's submitted (a blank one ignored), and Back leaves it as it was.
     private func nameRow(_ title: String, _ name: String?, _ which: Library.Named) -> some View {
         Button { naming = which } label: {
-            LabeledContent(title) {
-                // On one line, as the system's values, so rows keep one height.
-                Text(name ?? "Unnamed").lineLimit(1)
-            }
+            ValueLabel(title: title, value: name ?? "Unnamed")
         }
         .background {
             KeyboardField(title: title, text: name ?? "", typing: Binding(get: { naming == which }, set: { if !$0 { naming = nil } })) {
@@ -178,20 +179,38 @@ private extension View {
     }
 }
 
-/// A row's title and value, and a chevron saying it opens a page, as
-/// tvOS's Settings draws them (measured against it: the chevron 18 by 32
-/// points, 32 after the value and 36 short of the plate's edge).
-private struct DisclosureLabel: View {
+/// A row's title and value, as tvOS's Settings draws them: side by side,
+/// the value giving way first, or at accessibility text sizes, the value
+/// under the title; and for a row opening a page, a chevron (measured
+/// against the system's: 18 by 32 points, 32 after the value and 36 short
+/// of the plate's edge, scaling with the text).
+private struct ValueLabel: View {
     let title: String
+    var opens = false
     let value: String
-    /// The chevron's size, scaling with Larger Text as the row's text does.
+    @Environment(\.dynamicTypeSize) private var size
     @ScaledMetric(relativeTo: .headline) private var chevron = 39.0
 
     var body: some View {
-        LabeledContent(title) {
-            HStack(spacing: 23) {
+        HStack(spacing: 23) {
+            if size.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title)
+                    Text(value).foregroundStyle(.secondary)
+                }
+                .lineLimit(1)
+                Spacer(minLength: 0)
+            } else {
+                Text(title)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Spacer(minLength: 0)
                 // On one line, as the system's values, so rows keep one height.
-                Text(value).lineLimit(1)
+                Text(value)
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+            }
+            if opens {
                 Image(systemName: "chevron.forward")
                     .font(.system(size: chevron, weight: .regular))
                     .foregroundStyle(.secondary)
@@ -199,6 +218,7 @@ private struct DisclosureLabel: View {
                     .accessibilityHidden(true)
             }
         }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -252,10 +272,19 @@ private struct SettingsPage<List: View>: View {
 
     private static var left: CGFloat { 1060 / 1920 }
     private static var listWidth: CGFloat { 780 / 1920 }
-    private static var pictureWidth: CGFloat { 540 / 1920 }
-    private static var pictureCenter: CGFloat { 506 / 1080 }
+    /// The picture, smaller and higher at accessibility text sizes, as the
+    /// system's.
+    private var pictureWidth: CGFloat { (size.isAccessibilitySize ? 316 : 540) / 1920 }
+    private var pictureCenter: CGFloat { (size.isAccessibilitySize ? 344 : 506) / 1080 }
+    @Environment(\.dynamicTypeSize) private var size
+    /// A row's line of text, of which, at accessibility sizes, a row is
+    /// three, as the system's (200 points to its 66.7).
+    @ScaledMetric(relativeTo: .headline) private var line = 46.0
     private static var explanationWidth: CGFloat { 768 / 1920 }
-    private static var explanationCenter: CGFloat { 940 / 1080 }
+    /// The explanation's box, low under the picture, or at accessibility
+    /// text sizes, from under the smaller picture, so larger text fits.
+    private var explanationTop: CGFloat { (size.isAccessibilitySize ? 500 : 850) / 1080 }
+    private var explanationHeight: CGFloat { (size.isAccessibilitySize ? 520 : 180) / 1080 }
     private static var titleCenter: CGFloat { 90.5 / 1080 }
 
     var body: some View {
@@ -267,8 +296,8 @@ private struct SettingsPage<List: View>: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .clipShape(.rect(cornerRadius: 24))
-                        .frame(width: width * Self.pictureWidth)
-                        .position(x: pane.size.width / 2, y: pane.size.height * Self.pictureCenter)
+                        .frame(width: width * pictureWidth)
+                        .position(x: pane.size.width / 2, y: pane.size.height * pictureCenter)
                         .accessibilityHidden(true)
                     Text(explanation)
                         // VoiceOver reads it as each row's hint instead.
@@ -278,8 +307,8 @@ private struct SettingsPage<List: View>: View {
                         .multilineTextAlignment(.center)
                         .contentTransition(.opacity)
                         .animation(.default, value: explanation)
-                        .frame(width: width * Self.explanationWidth, height: pane.size.height / 6, alignment: .top)
-                        .position(x: pane.size.width / 2, y: pane.size.height * Self.explanationCenter)
+                        .frame(width: width * Self.explanationWidth, height: pane.size.height * explanationHeight, alignment: .top)
+                        .position(x: pane.size.width / 2, y: pane.size.height * (explanationTop + explanationHeight / 2))
                 }
                 // The whole height, behind the tab bar too, as the system's.
                 .ignoresSafeArea(edges: .vertical)
@@ -287,6 +316,7 @@ private struct SettingsPage<List: View>: View {
                 list
                     .formStyle(.grouped)
                     .font(.headline)
+                    .environment(\.defaultMinListRowHeight, size.isAccessibilitySize ? 3 * line : 66)
                     .frame(width: width * Self.listWidth)
                 Spacer(minLength: 0)
             }
