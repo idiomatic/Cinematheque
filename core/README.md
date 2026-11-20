@@ -34,4 +34,4 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 
 [ARCHITECTURE.md](../ARCHITECTURE.md) explains how the replica writes, signs, merges, and syncs operations, and lists every key and field the library writes; [library.zig](src/library.zig) documents its keys beside the code that derives them from titles' parsed identities.
 
-The measurements behind its design are in the [experiments](../experiments/README.md).
+The measurements behind its design are in [ARCHITECTURE.md](../ARCHITECTURE.md#measurements).

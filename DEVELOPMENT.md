@@ -1,6 +1,6 @@
 # Development
 
-Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defines. Each item moves into [AGENTS.md](AGENTS.md) when it ships. The [experiments](experiments/README.md) hold the measurements cited here.
+Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defines. Each item moves into [AGENTS.md](AGENTS.md) when it ships. The measurements cited here are in [ARCHITECTURE.md](ARCHITECTURE.md#measurements).
 
 ## Next
 

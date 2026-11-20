@@ -189,3 +189,16 @@ The library ([library.zig](core/src/library.zig), [art.zig](core/src/art.zig)) w
 | `founders` | `000001`...: the next founder's key | Handing over |
 
 Title and item keys derive from a file's parsed identity, so devices that crawl the same files write the same keys, and their operations merge field by field instead of duplicating titles.
+
+## Measurements
+
+The prototypes the core grew from measured what the design rests on; figures are from an Apple M2. Their writeups, and the browse and transcoder prototypes' code (for work not built yet; see [DEVELOPMENT.md](DEVELOPMENT.md)), were retired after commit `436e5ea`: `git checkout 436e5ea -- experiments` restores them.
+
+| Experiment | What it measured | Headline |
+|---|---|---|
+| CRDT | The replica: signed operations in SQLite, sync, membership, thin fetches | 409,500 operations (100,000 renditions): 1.1 s to build, 1.1 s to sync cold, in memory or over HTTP, 24.5 MB on the wire (4.0 MB with Zig's gzip, 2.4 MB with zstd), 56 MB on disk; one series fetched thin in 3 ms and 51 KB. Signing each operation instead of each batch took 17 s, and verifying 21 s. |
+| Repository | Crawling listings, the repository server, re-crawls | 100,000 files: one `INDEX` request, 8 ms; JSON or HTML from Cinematheque's server, 8,503 requests, 0.2 s; rclone 1.5 s; Python 3.3 s (and no byte ranges); Apache 9–18 s. At a 4 ms round trip, 31 s with one worker, 0.9 s with 32. An unchanged re-crawl took 503 requests instead of 8,503, and every one of 800 changes was found. A real Caddy NAS over Wi-Fi: 20,000 files in 0.24 s with 32 workers. |
+| Naming | The filename parser | 100,000 paths in 80 ms; on a real library of tens of thousands of videos, under 0.2% left for review once compact episode codes were read. |
+| Discovery | DNS-SD from Zig | Bonjour on macOS and Avahi on Linux, which found each other. |
+| browse | Facet intersections | A four-facet query and its refinement menu over 4,500 titles: 13 ms in SQLite, 43 µs with 105 KB of bitmaps. |
+| transcoder | Remux-first transcoding over HTTP | 60-second remuxes in 0.1–0.4 s, converting DTS and SubRip; an MPEG-2 re-encode in 8.5 s; AVFoundation plays every output, but not MKV, nor HEVC tagged `hev1`. |

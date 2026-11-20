@@ -2,7 +2,7 @@
 
 Local-first video libraries. Players on Apple devices, macOS, Linux, and Windows browse shared libraries and play each video from any source that holds it. There is no central server: each library's titles, metadata, and people's data replicate among devices, so every device works offline and catches up when it reconnects.
 
-This file specifies what's built. How operations are written, merged, and synced, and the keys and fields the library writes, are in [ARCHITECTURE.md](ARCHITECTURE.md); plans and open questions are in [DEVELOPMENT.md](DEVELOPMENT.md); the measurements behind the design are in [experiments](experiments/README.md); outside specifications are indexed in [docs/specifications](docs/specifications/README.md).
+This file specifies what's built. How operations are written, merged, and synced, the keys and fields the library writes, and the measurements behind the design are in [ARCHITECTURE.md](ARCHITECTURE.md); plans and open questions are in [DEVELOPMENT.md](DEVELOPMENT.md); outside specifications are indexed in [docs/specifications](docs/specifications/README.md).
 
 ## Lexicon
 
@@ -28,7 +28,6 @@ One word for each thing, in the spec, the code, the command-line app, and the ap
 * [cli](cli/README.md): the command-line app, `cinematheque`, for macOS and Linux.
 * [apple](apple/README.md): the Apple players, in SwiftUI: one multiplatform app, `com.rbrian.cinematheque`, for macOS 15 or later and tvOS 18 or later (see [Apple players](#apple-players)).
 * [tools](tools/README.md): scripts alongside the apps, such as fetching a YouTube channel into a folder that reads as a series.
-* [experiments](experiments/README.md): the prototypes the components grew from, kept for reference.
 
 ## Core interface
 

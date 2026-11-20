@@ -111,7 +111,6 @@ Cinematheque has no accounts and no central server, and nothing leaves your devi
 * [AGENTS.md](AGENTS.md) specifies what's built; [DEVELOPMENT.md](DEVELOPMENT.md) holds the plans, open questions, and known issues.
 * [ARCHITECTURE.md](ARCHITECTURE.md) explains operations: how devices write, sign, merge, and sync them, and every key and field the library writes.
 * [core](core/README.md) is the Zig library, [cli](cli/README.md) the command-line app, and [apple](apple/README.md) the Apple players.
-* [experiments](experiments/README.md) hold the measurements behind the design.
 * [docs/specifications](docs/specifications/README.md) indexes the outside specifications and papers Cinematheque relies on.
 
 ## How it was made
