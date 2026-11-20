@@ -493,7 +493,7 @@ struct StatusBar: View {
     }
 
     /// "Looking in 3 of 6 sources", "Finding covers for 1,200 of 5,000" (covers and
-    /// details found), "Catching up with 1 of 2 devices", or what's running.
+    /// details found), or what's running ("Looking for new videos").
     static func describe(_ activity: String, _ p: Library.Steps?) -> String {
         guard let p, let phase = p.phase else { return activity + "…" }
         let done = min(p.done + (phase == "describing" ? 0 : 1), p.total).formatted()
@@ -501,7 +501,8 @@ struct StatusBar: View {
         return switch phase {
         case "crawling": "Looking in \(done) of \(total) \(p.total == 1 ? "source" : "sources")…"
         case "describing": p.total == 0 ? "Finding covers…" : "Finding covers for \(p.done.formatted()) of \(total)…"
-        case "syncing": p.total == 0 ? "Looking for devices…" : "Catching up with \(done) of \(total) \(p.total == 1 ? "device" : "devices")…"
+        // Catching up, as a refresh does first, says only what it's for.
+        case "syncing": activity + "…"
         default: activity + "…"
         }
     }

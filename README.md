@@ -47,7 +47,7 @@ find . -type f ! -name INDEX > INDEX
 
 and remake it whenever the files change. The command works the same on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to read a large source: one request instead of one per folder. The command-line app's server serves one for you.
 
-Refresh Library (⌘R on the Mac) catches up with your other devices, then looks for new videos: it reads each source's listings, recognizes titles from file and folder names, and records each file as a copy of its title, in its quality. Later looks are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title. When a folder's drive is unplugged or its share unmounted, its videos stay in the library, dimmed, until it's back, a year passes, or you remove them in Settings > Sources.
+Refresh Library (⌘R on the Mac) looks for new videos (catching up with your other devices first, as they do on their own anyway): it reads each source's listings, recognizes titles from file and folder names, and records each file as a copy of its title, in its quality. Later looks are quick, rereading only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title. When a folder's drive is unplugged or its share unmounted, its videos stay in the library, dimmed, until it's back, a year passes, or you remove them in Settings > Sources.
 
 A source skips names beginning with a prefix, by default `,`, for folders like `,obsolete` that hold files you don't want in the library. Removing a source removes its copies on every device, so titles it alone held stop showing; its files stay where they are.
 

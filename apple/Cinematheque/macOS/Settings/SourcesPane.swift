@@ -84,7 +84,7 @@ struct SourcesPane: View {
                 ProgressView().controlSize(.small).opacity(library.activity == nil ? 0 : 1)
                     .help(library.activity.map { $0 + "…" } ?? "")
                 Button("Refresh Library") { Task { await library.refresh() } }
-                    .help("Catch up with your devices, then look for new videos")
+                    .help("Look for new videos")
                     .disabled(library.sources.isEmpty || library.activity != nil)
             }
             // For every device: a NAS's disks spin up for each look.

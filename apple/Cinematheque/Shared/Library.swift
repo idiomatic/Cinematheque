@@ -800,9 +800,10 @@ final class Library {
 
     /// Syncs with devices found or added, then crawls every source: what
     /// devices have crawled and described arrives first, so crawling then
-    /// finds little to do.
+    /// finds little to do. Shown as looking for new videos throughout, as
+    /// catching up goes on by itself anyway.
     func refresh() async {
-        let synced = await long("Catching up", results: noteReceived) { cq_sync($0, nil) }
+        let synced = await long("Looking for new videos", results: noteReceived) { cq_sync($0, nil) }
         let crawled = await crawlSources()
         report(.refresh, synced ?? crawled)
         #if os(macOS)

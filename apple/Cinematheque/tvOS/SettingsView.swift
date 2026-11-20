@@ -38,7 +38,7 @@ struct SettingsView: View {
                 // A row opening its choices, as tvOS's Settings has them.
                 .pickerStyle(.navigationLink)
             } footer: {
-                Text("Refresh Library catches up with your other devices, then looks for new videos in the library's sources. Otherwise your devices look as often as chosen, as they open; a NAS's disks spin up each time.")
+                Text("Refresh Library looks for new videos in the library's sources. Otherwise your devices look as often as chosen, as they open; a NAS's disks spin up each time.")
             }
             Section {
                 Button("Leave This Library…", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive, action: askToLeave)
