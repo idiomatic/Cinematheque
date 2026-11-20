@@ -326,21 +326,23 @@ fn scanName(p: *Parsed, name: []const u8, scratch: []u8, used: *usize) void {
         if (year_at != null and pa < year_at.?) p.part = null else title_end = @min(title_end, pa);
     }
     if (year_at) |at| title_end = @min(title_end, at);
+    // A version's name ends where a part begins: "- Extended Part 1".
+    const label_end = if (p.part != null) part_at orelse name.len else name.len;
     // Jellyfin's version label: "Title (2010) - Director's Cut".
-    if (p.edition == null) if (mem.indexOf(u8, name, " - ")) |dash| if (dash >= title_end) {
-        var label = mem.trim(u8, name[dash + 3 ..], " ");
+    if (p.edition == null) if (mem.indexOf(u8, name, " - ")) |dash| if (dash >= title_end and dash + 3 <= label_end) {
+        var label = mem.trim(u8, name[dash + 3 .. label_end], " ");
         // "- 2160p" names a quality, not a version; "- Director's Cut -
         // 1080p", a version and a quality.
         while (mem.lastIndexOf(u8, label, " - ")) |last| {
             if (!allTechnical(label[last + 3 ..])) break;
             label = mem.trimEnd(u8, label[0..last], " ");
         }
-        if (label.len > 0 and p.episode == null and p.part == null and !allTechnical(label)) p.edition = label;
+        if (label.len > 0 and p.episode == null and !allTechnical(label)) p.edition = label;
     };
     // Words after a parenthesized year name a version too: "Fight Club
     // (1999) Unrated", but not scene tokens ("(2010) 1080p").
-    if (p.edition == null and p.episode == null and p.part == null and p.kind != .extra) if (year_at) |at| if (name[at] == '(') {
-        const label = mem.trim(u8, name[@min(name.len, at + 6)..], " ._-");
+    if (p.edition == null and p.episode == null and p.kind != .extra) if (year_at) |at| if (name[at] == '(' and at + 6 <= label_end) {
+        const label = mem.trim(u8, name[at + 6 .. label_end], " ._-");
         if (label.len > 0 and !startsWithSceneToken(label)) p.edition = label;
     };
     p.title = cleanTitle(name[0..title_end], scratch, used);

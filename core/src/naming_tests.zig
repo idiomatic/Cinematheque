@@ -41,6 +41,8 @@ const cases = [_]Case{
     .{ .path = "Movies/1917 (2019)/1917 (2019).mkv", .kind = .movie, .title = "1917", .year = 2019 },
     .{ .path = "Movies/The Lord of the Rings (2001)/The Lord of the Rings (2001) - part1.mkv", .kind = .movie, .title = "The Lord of the Rings", .year = 2001, .part = 1 },
     .{ .path = "Movies/Gone with the Wind (1939)/Gone with the Wind (1939) cd2.avi", .kind = .movie, .title = "Gone with the Wind", .year = 1939, .part = 2 },
+    .{ .path = "Movies/The Lord of the Rings The Fellowship of the Ring (2001) - Extended Part 1.m4v", .kind = .movie, .title = "The Lord of the Rings The Fellowship of the Ring", .year = 2001, .edition = "Extended", .part = 1 },
+    .{ .path = "Movies/Gandhi (1982) - Part 2.m4v", .kind = .movie, .title = "Gandhi", .year = 1982, .part = 2 },
     .{ .path = "Inception.2010.1080p.BluRay.x264-SPARKS.mkv", .kind = .movie, .title = "Inception", .year = 2010, .resolution = "1080p", .quality = "1080p bluray h264" },
     .{ .path = "Movies/Some Movie (2015)/Some.Movie.2015.2160p.UHD.BluRay.REMUX.HDR.HEVC.Atmos-GROUP.mkv", .kind = .movie, .title = "Some Movie", .year = 2015, .resolution = "2160p", .quality = "2160p remux hevc hdr" },
     .{ .path = "Movies/S.W.A.T. (2003)/S.W.A.T. (2003).mkv", .kind = .movie, .title = "S.W.A.T", .year = 2003 },
