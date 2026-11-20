@@ -210,7 +210,7 @@ private struct QualityPicker: View {
     @Binding var chosen: String?
 
     var body: some View {
-        let labels = Array(Set(items.flatMap { $0.qualities.map(\.label) })).sorted()
+        let labels = QualityChoice.labels(items)
         if labels.count > 1 {
             let short = QualityChoice.shortNames(labels, in: items)
             Picker(selection: Binding(get: { detail.quality(for: items, chosen: chosen) }, set: { chosen = $0 })) {

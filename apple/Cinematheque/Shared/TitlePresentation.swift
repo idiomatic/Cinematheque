@@ -84,6 +84,16 @@ enum QualityChoice {
         return (playable.isEmpty ? qualities : playable).max { score($0.height, limit) < score($1.height, limit) }?.label
     }
 
+    /// The items' qualities for a picker, by label: highest resolution
+    /// first, those of unknown resolution last, then by short name.
+    static func labels(_ items: [TitleDetail.Item]) -> [String] {
+        var seen: [String: TitleDetail.Quality] = [:]
+        for q in items.lazy.flatMap(\.qualities) where seen[q.label] == nil { seen[q.label] = q }
+        return seen.values.sorted {
+            ($0.height ?? 0, $1.short) > ($1.height ?? 0, $0.short)
+        }.map(\.label)
+    }
+
     /// A quality's name for a picker, by its label.
     static func name(_ label: String, in items: [TitleDetail.Item]) -> String {
         items.lazy.flatMap(\.qualities).first { $0.label == label }?.name ?? label
