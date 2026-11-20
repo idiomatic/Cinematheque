@@ -248,7 +248,7 @@ private struct EpisodeRow: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .contextMenu {
-            DownloadMenuItems(key: "\(detail.key)/\(item.key)", quality: quality)
+            DownloadMenuItems(key: "\(detail.key)/\(item.key)", item: item, quality: quality)
             Divider()
             Button(item.watched ? "Mark as Unwatched" : "Mark as Watched") {
                 library.setWatched("\(detail.key)/\(item.key)", !item.watched)
@@ -348,6 +348,7 @@ private struct DownloadControls: View {
             DownloadGauge(value: library.downloadProgress([key], of: size))
                 .opacity(coming ? 1 : 0)
             Spacer()
+            showInFinder
             Button(coming ? "Cancel Download" : "Delete Download", systemImage: "trash") {
                 if coming { library.removeDownload(key) } else { library.deleteDownload(key) }
             }
@@ -408,6 +409,7 @@ private struct DownloadControls: View {
             DownloadGauge(value: library.downloadProgress(keys, of: requested))
                 .opacity(pending ? 1 : 0)
             Spacer()
+            showInFinder
             Button(season == 0 ? "Delete Specials' Downloads" : "Delete Season's Downloads", systemImage: "trash") { library.deleteDownload(key) }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
@@ -415,6 +417,17 @@ private struct DownloadControls: View {
                 .help((library.onlyCopies(key) > 0 ? "Delete the season's downloads from this Mac: some are the only copies" : "Delete the season's downloads from this Mac") + (keys.contains { library.isRequested($0) && library.isDownloaded($0) } && !chosen.isEmpty ? "; Download becomes Nothing, so they don't come back" : ""))
         }
         .controlSize(.small)
+    }
+
+    /// Show in Finder, beside the trash button: what of it is on this Mac
+    /// (downloaded, or in its folders), dimmed while none is.
+    private var showInFinder: some View {
+        let files = items.compactMap(library.fileHere)
+        return Button("Show in Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting(files) }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .disabled(files.isEmpty)
+            .help("Show in Finder")
     }
 
     /// A choice of episodes, as the menu says it: short, read after its
@@ -472,10 +485,14 @@ private struct DownloadGauge: View {
 /// movie's tile's).
 struct DownloadMenuItems: View {
     let key: String
+    let item: TitleDetail.Item
     let quality: String?
     @Environment(Library.self) private var library
 
     var body: some View {
+        if let file = library.fileHere(item) {
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+        }
         if library.isDownloaded(key) {
             if library.done(key) != nil {
                 Button("Keep Download") { library.keep(key, true) }

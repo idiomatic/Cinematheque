@@ -290,7 +290,7 @@ struct CoverGrid: View {
                         // A movie's download (the version Play plays), as an
                         // episode's is in its row's.
                         if tile.season == nil, let detail = library.detail(tile.key), let item = detail.items.first {
-                            DownloadMenuItems(key: "\(tile.key)/\(item.key)", quality: nil)
+                            DownloadMenuItems(key: "\(tile.key)/\(item.key)", item: item, quality: nil)
                             Divider()
                         }
                         // Forgets its progress (positions and watched marks).

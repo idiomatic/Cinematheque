@@ -673,6 +673,26 @@ final class Library {
         UserDefaults.standard.set(try? JSONEncoder().encode(folders), forKey: foldersKey)
     }
 
+    /// An item's file in one of this device's folders (of any quality), as
+    /// the last crawl found it. Whether it's worth downloading all the same
+    /// (a share mounted from a NAS, or from this Mac) is a person's call.
+    func folderFile(_ item: TitleDetail.Item) -> URL? {
+        for copy in item.qualities.flatMap(\.copies) where !copy.unavailable {
+            // A folder not there now (a share unmounted), though no crawl has
+            // noticed yet, holds nothing to show.
+            guard let folder = folders.first(where: { !$0.url.isEmpty && copy.url.hasPrefix($0.url) && !unavailableFolders.contains($0.prefix) }),
+                  let path = String(copy.url.dropFirst(folder.url.count)).removingPercentEncoding else { continue }
+            return URL(fileURLWithPath: folder.path).appending(path: path)
+        }
+        return nil
+    }
+
+    /// An item's file on this device: downloaded (the one that plays, as a
+    /// download plays first), else in one of its folders.
+    func fileHere(_ item: TitleDetail.Item) -> URL? {
+        item.qualities.flatMap(\.copies).lazy.compactMap(Playback.downloaded).first.flatMap { URL(string: $0.url) } ?? folderFile(item)
+    }
+
     /// The folder a source serves from this device, if it's one.
     func folder(of source: Source) -> Folder? {
         folders.first { $0.url == source.url }

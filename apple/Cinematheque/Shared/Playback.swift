@@ -103,7 +103,7 @@ enum Playback {
     static var downloads: Downloads?
 
     /// A copy of this device's downloads, as its file, if it's there.
-    private static func downloaded(_ copy: TitleDetail.Copy) -> TitleDetail.Copy? {
+    static func downloaded(_ copy: TitleDetail.Copy) -> TitleDetail.Copy? {
         guard let d = downloads, copy.source == d.source, copy.url.hasPrefix(d.base),
               let path = String(copy.url.dropFirst(d.base.count)).removingPercentEncoding else { return nil }
         let file = URL(fileURLWithPath: d.dir).appending(path: path)
