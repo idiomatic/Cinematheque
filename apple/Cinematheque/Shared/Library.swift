@@ -194,9 +194,9 @@ final class Library {
         if !alone {
             let unreachable = "None of the library's other devices could be reached, so they wouldn't hear this one left. Try again while one is on."
             guard await Self.reachesAny(handle) else { return unreachable }
-            let removed: String? = await Task.detached {
-                cq_remove_self(handle.pointer, successor) == 0 ? nil : String(cString: cq_error())
-            }.value
+            // On the main thread, as it writes on the main connection
+            // (which the core gives one thread), and it's quick.
+            let removed: String? = cq_remove_self(handle.pointer, successor) == 0 ? nil : String(cString: cq_error())
             if let removed { return "Couldn't leave the library: \(Self.reason(removed))." }
             guard await Self.reachesAny(handle) else { return unreachable }
         }
@@ -287,6 +287,7 @@ final class Library {
         case "ConnectionTimedOut", "Timeout": "it didn't answer in time"
         case "UnknownHostName", "NameServerFailure", "TemporaryNameServerFailure": "no server by that name was found"
         case "NetworkUnreachable", "HostUnreachable": "it can't be reached from this network"
+        case "PathTaken": "another file is already where it would go"
         case "BadAddress": "that isn't a web address (http or https)"
         case "TooMany": "the server lists far more than any library holds"
         case "TooDeep": "the server's folders nest too deeply"

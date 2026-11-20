@@ -23,6 +23,7 @@
 const std = @import("std");
 const Io = std.Io;
 const library = @import("library.zig");
+const naming = @import("naming.zig");
 const race = @import("race.zig");
 const art = @import("art.zig");
 const views = @import("views.zig");
@@ -38,6 +39,11 @@ pub const File = struct {
     size: u64,
     /// Its copies' URLs, those not under an unavailable directory first.
     urls: []const []const u8,
+    /// Whether a file already at its path, of another size, may be
+    /// replaced: one this device's own downloads recorded. Else it's
+    /// someone's own file, or another download's that a member's device
+    /// gave the same path, and stays.
+    replaces: bool = false,
 };
 
 /// The files of `key`: a title (`t/m/alien/1979`), a season of a series
@@ -72,7 +78,7 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, qualit
         for ([_]bool{ false, true }) |unavailable| for (r.copies.items) |h| {
             if (h.unavailable != unavailable) continue;
             const base = bases.get(h.source) orelse continue;
-            if (!safe(h.path)) continue;
+            if (!safe(h.path) or h.size > max_size) continue;
             try urls.append(arena, try art.fileUrl(arena, base, h.path));
             if (path == null) {
                 path = h.path;
@@ -155,16 +161,31 @@ fn commonest(items: []const library.Item) []const u8 {
     return best;
 }
 
-/// Whether a source's path stays within the directory it's fetched to,
-/// since a path comes from whichever member's device crawled it.
+/// Whether a source's path is one to fetch to, or delete: a video's,
+/// within the directory, hidden nowhere along it, since a path comes from
+/// whichever member's device crawled it (and could otherwise name, say,
+/// `.ssh/authorized_keys`).
 fn safe(path: []const u8) bool {
     if (path.len == 0 or path[0] == '/' or std.mem.indexOfScalar(u8, path, '\\') != null) return false;
     var segments = std.mem.splitScalar(u8, path, '/');
     while (segments.next()) |s| {
-        if (s.len == 0 or std.mem.eql(u8, s, ".") or std.mem.eql(u8, s, "..")) return false;
+        if (s.len == 0 or s[0] == '.') return false;
     }
-    return true;
+    return naming.isVideo(path);
 }
+
+test "a path to fetch to is a video's, within the directory, hidden nowhere" {
+    try std.testing.expect(safe("Firefly/Season 1/Firefly S01E01.mp4"));
+    try std.testing.expect(!safe("../Firefly S01E01.mp4"));
+    try std.testing.expect(!safe("/Users/hal/Firefly S01E01.mp4"));
+    try std.testing.expect(!safe(".ssh/authorized_keys"));
+    try std.testing.expect(!safe("a/.hidden/Firefly S01E01.mp4"));
+    try std.testing.expect(!safe("Firefly/notes.txt"));
+}
+
+/// The largest file taken as a copy's size, past any real one (a
+/// petabyte), so a size another device wrote can't overflow what's added.
+const max_size = 1 << 50;
 
 /// How far a file has come, told as it does.
 pub const Progress = struct {
@@ -179,6 +200,7 @@ pub const Fetched = enum { fetched, kept };
 pub fn fetch(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, client: *std.http.Client, memory: *race.Memory, dir: Io.Dir, file: File, now_ms: u64, progress: ?Progress) !Fetched {
     if (dir.statFile(io, file.path, .{})) |st| {
         if (st.size == file.size) return .kept;
+        if (!file.replaces) return error.PathTaken;
     } else |_| {}
     if (std.fs.path.dirname(file.path)) |parent| try dir.createDirPath(io, parent);
     const part = try std.fmt.allocPrint(arena, "{s}.part", .{file.path});
@@ -443,8 +465,8 @@ pub fn sizeOf(replica: *Replica, arena: std.mem.Allocator, key: []const u8, choi
             else => |e| return e,
         };
         for (files) |f| {
-            out.size += f.size;
-            if (!here.contains(try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ f.item, f.quality }))) out.needed += f.size;
+            out.size +|= f.size;
+            if (!here.contains(try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ f.item, f.quality }))) out.needed +|= f.size;
         }
     }
     return out;
@@ -459,11 +481,15 @@ pub const Held = struct {
     size: u64,
 };
 
+/// Those this device itself recorded: another member's device may write a
+/// copy of this device's downloads too, which mustn't have it delete (or
+/// keep) a file of its choosing.
 pub fn held(replica: *Replica, arena: std.mem.Allocator, source: library.Source) ![]Held {
     var out: std.ArrayList(Held) = .empty;
-    const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND length(value) > 0 ORDER BY key");
+    const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND device = ?2 AND length(value) > 0 ORDER BY key");
     defer s.finalize();
     try s.bindText(1, try std.fmt.allocPrint(arena, "held:{s}", .{&source.id}));
+    try s.bindInt(2, replica.own);
     while (try s.step()) {
         const key = try arena.dupe(u8, s.blob(0));
         const r = std.mem.lastIndexOf(u8, key, "/r/") orelse continue;
@@ -473,6 +499,7 @@ pub fn held(replica: *Replica, arena: std.mem.Allocator, source: library.Source)
         if (!safe(first)) continue;
         const path = try arena.dupe(u8, first);
         const size = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
+        if (size > max_size) continue;
         try out.append(arena, .{ .key = key, .item = key[0..r], .path = path, .size = size });
     }
     return out.items;
@@ -751,12 +778,12 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
             const part = if (dir.statFile(io, try std.fmt.allocPrint(arena, "{s}.part", .{f.path}), .{})) |st| st.size else |_| 0;
             const need = f.size -| part;
             while (freeBytes(arena, s.dir)) |free| {
-                if (free >= need + floor()) break;
+                if (free >= need +| floor()) break;
                 if (next_spare == spare.items.len) break;
                 try delete(io, arena, dir, replica, writer, wall_ms, s.source, spare.items[next_spare], &out);
                 next_spare += 1;
             }
-            if (freeBytes(arena, s.dir)) |free| if (free < need + floor()) {
+            if (freeBytes(arena, s.dir)) |free| if (free < need +| floor()) {
                 out.no_room += 1;
                 continue;
             };
@@ -775,7 +802,12 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
             noted = .{ .f = u, .io = io };
         }
         defer if (under_way) |u| u.note(io, null, 0);
-        const fetched = fetch(io, gpa, arena, client, memory, dir, f, wall_ms, if (under_way != null) .{ .context = &noted, .report = @TypeOf(noted).report } else null) catch |err| {
+        var file = f;
+        var owned = recorded.valueIterator();
+        file.replaces = while (owned.next()) |h| {
+            if (std.mem.eql(u8, h.path, f.path)) break true;
+        } else false;
+        const fetched = fetch(io, gpa, arena, client, memory, dir, file, wall_ms, if (under_way != null) .{ .context = &noted, .report = @TypeOf(noted).report } else null) catch |err| {
             if (err == error.Canceled) return err;
             out.failed += 1;
             out.@"error" = @errorName(err);
