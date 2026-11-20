@@ -6,7 +6,6 @@ const core = @import("core");
 const lib = core.library;
 const main = @import("main.zig");
 const network = @import("network.zig");
-const agent_ = @import("agent.zig");
 const App = main.App;
 const Command = main.Command;
 const parseKey = core.store.parseKey;
@@ -377,24 +376,6 @@ pub fn progress(app: *App, c: Command) !void {
 fn printProgress(out: *Io.Writer, head: lib.Progress) !void {
     if (head.watched) try out.print("  watched", .{});
     if (head.position_ms > 0) try out.print("  at {d}:{d:0>2} of {d}:{d:0>2}", .{ head.position_ms / 60000, head.position_ms / 1000 % 60, head.duration_ms / 60000, head.duration_ms / 1000 % 60 });
-}
-
-pub fn agent(app: *App, c: Command) !void {
-    if (@import("builtin").os.tag != .macos) return error.MacOSOnly;
-    const home = app.environ.get("HOME") orelse return error.NoHome;
-    const dir = app.store.dir;
-    const absolute = if (std.fs.path.isAbsolute(dir)) dir else try std.fs.path.resolve(app.arena, &.{ app.environ.get("PWD") orelse ".", dir });
-    const list = try agent_.agents(app.arena, try std.process.executablePathAlloc(app.io, app.arena), absolute, home, try c.args.port());
-    if (c.is("show", 0, &.{"--port"})) {
-        for (list) |a| try app.out.print("{s}.plist:\n{s}\n", .{ a.label, a.plist });
-    } else if (c.is("add", 0, &.{"--port"})) {
-        _ = try app.store.founder(app.arena); // a library first
-        try agent_.install(app.io, app.arena, home, list);
-        try app.out.print("added {s}.serve and {s}.refresh; logs in ~/Library/Logs/Cinematheque\n", .{ agent_.label_prefix, agent_.label_prefix });
-    } else if (c.is("remove", 0, &.{})) {
-        try agent_.uninstall(app.io, app.arena, home);
-        try app.out.print("removed the agents\n", .{});
-    } else return error.Usage;
 }
 
 /// `crawl [SOURCE] [--workers WORKERS]`: crawls every source, or one.

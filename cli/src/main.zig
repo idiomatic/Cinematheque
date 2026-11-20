@@ -134,7 +134,6 @@ const nouns = [_]Noun{
     .{ .name = "alias", .run = commands.alias },
     .{ .name = "progress", .run = commands.progress },
     .{ .name = "device", .run = commands.device },
-    .{ .name = "agent", .run = commands.agent },
 };
 
 /// Actions on the whole app: single words, with arguments but no verb.

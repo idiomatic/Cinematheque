@@ -101,11 +101,6 @@ device list prints it.
                                mark an item watched, or not
   progress remove ITEM         forget this person's progress in an item
 
-  agent show [--port PORT]     on macOS, show the launch agents that serve
-                               always, and refresh hourly
-  agent add [--port PORT]      install and start them
-  agent remove                 stop and remove them
-
   crawl [SOURCE] [--workers WORKERS]
                                crawl every source, or one, and update
                                copies, with concurrent workers (16)

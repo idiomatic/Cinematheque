@@ -4,13 +4,13 @@ Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defi
 
 ## Next
 
-* **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (the command-line app's agents can't reach the LAN; see below), real artwork for its placeholder icon, lists beyond the watchlist, and signing for distribution.
+* **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (a launch agent can't reach the LAN; see below), real artwork for its placeholder icon, lists beyond the watchlist, and signing for distribution.
 * **Command-line app:** commands to name the person and the device, so command-line apps show by name rather than as someone's device; and `library leave` removing this device first (`cq_remove_self`, then syncing), as the Apple TV's Leave This Library does, rather than only forgetting, as a removed device must.
 * **Settings:** when each device was last seen.
 * **Linux:** running the other device itself there (its experiments ran in a VM).
 * **Known issues:**
   * Tests that reach this Mac by its own `.local` name through mDNS (copy racing's in the core, and [cli/test.sh](cli/test.sh)'s discovery) fail while mDNS doesn't answer for it, as after VMs come and go; they pass again once it does.
-  * macOS's Local Network privacy blocks the other device from the LAN (`HostUnreachable`) when run as a launch agent or started by another app, so `agent add`'s agents can't reach a NAS; Terminal and SSH sessions and system daemons are exempt (TN3179). The fix is to run it from a signed app bundle whose `Info.plist` says why it needs the local network, so macOS can ask once (the Mac app serves only while it runs). Until then, a test device runs in Terminal.
+  * macOS's Local Network privacy blocks the other device from the LAN (`HostUnreachable`) when run as a launch agent or started by another app, so the command-line app can't run in the background as one (its `agent` command was removed for that); Terminal and SSH sessions and system daemons are exempt (TN3179). The fix is to run it from a signed app bundle whose `Info.plist` says why it needs the local network, so macOS can ask once (the Mac app serves only while it runs). Until then, a test device runs in Terminal.
 
 ## Libraries
 

@@ -74,9 +74,6 @@ $cq $b nonsense > /dev/null 2>&1
 [[ $? -eq 2 ]] || { echo "FAIL: a bad command line didn't exit with status 2"; exit 1; }
 set -e
 $cq $b title facets | grep -q . || { echo "FAIL: title facets"; exit 1; }
-if [[ $(uname) == Darwin ]]; then
-    $cq $b agent show | grep -q "com.rbrian.cinematheque.serve" || { echo "FAIL: agent show"; exit 1; }
-fi
 $cq $b alias list | grep -q "movie-0001/1921 -> " || { echo "FAIL: alias list"; exit 1; }
 $cq $a alias remove t/m/movie-0001/1921
 $cq $b sync http://127.0.0.1:8191

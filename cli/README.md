@@ -43,7 +43,7 @@ The command-line app keeps its state in a directory of its own, its data directo
 
 ## The command line
 
-State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `alias`, `progress`, `device`, and `agent`. Actions on the whole app are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
+State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `alias`, `progress`, and `device`. Actions on the whole app are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
 
 * **Options** are named and may come anywhere: `--port PORT`, `--media DIR`, `--quality NAME`, `--skip PREFIX`, and `--workers WORKERS` take a value. `--leave`, `--watched`, and `--unwatched` are flags. `--data DIR` works with every command.
 * **Help:** [usage.txt](src/usage.txt) lists every command, and is the help, built into the binary. `-h` or `--help` prints it all. With a noun or action (`cinematheque source -h`), or for a noun alone, only that one's commands are printed.
@@ -117,11 +117,7 @@ On macOS, Local Network privacy decides whether the command-line app may reach o
 
 ### In the background
 
-On macOS, `agent add` installs and starts two launch agents in `~/Library/LaunchAgents`, run with this data directory:
-* `com.rbrian.cinematheque.serve`, kept running: `serve`, on `--port` if given.
-* `com.rbrian.cinematheque.refresh`: `refresh --jitter 600`, at load and hourly, each time after a random wait of up to 10 minutes: syncing every hour, crawling as often as the library says.
-
-Both log to `~/Library/Logs/Cinematheque` (`serve.log`, `refresh.log`). `agent add` needs a library first, and replaces agents already running; `agent show` prints their property lists without installing them, and `agent remove` stops and removes them. On Linux, run `serve` and `refresh` with systemd or cron instead.
+Run `serve` with systemd on Linux (or keep it running however you like), and `refresh --jitter 600` hourly with a timer or cron: each refresh waits a random time of up to 10 minutes first, so devices don't refresh together, syncs every time, and crawls as often as the library says. On macOS, a launch agent can't reach the local network (see [DEVELOPMENT.md](../DEVELOPMENT.md)), so run them in Terminal.
 
 ## Sharing a library
 
@@ -131,7 +127,7 @@ cinematheque library create
 cinematheque source add http://nas.local/Video/
 cinematheque crawl
 cinematheque title review
-cinematheque agent add            # serve, and refresh hourly
+cinematheque serve &              # share it while it runs
 
 # on perihelion, another of your devices
 cinematheque person pair            # prints a code, waits
@@ -173,9 +169,8 @@ What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 ## Sources
 
 * [main.zig](src/main.zig): the command line. `Args` parses words and options (an option not among the flags takes the next word as its value) and expands the `ls` and `show` shortcuts. `Command.is` matches a verb, its arity, and the options it allows. The nouns and actions are tables of functions, and `help` prints a noun's or action's part of [usage.txt](src/usage.txt), which it embeds. It opens the data directory and the `App` every command acts with (the store, the output, and the clock), and turns `error.Usage` into help and status 2.
-* [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `device`, `source`, `title`, `alias`, `progress`, `agent`), sending pairing codes (`pairWith`, which finds the one device offering nearby), and `crawl` and `refresh`, which crawl sources and then describe them.
+* [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `device`, `source`, `title`, `alias`, `progress`), sending pairing codes (`pairWith`, which finds the one device offering nearby), and `crawl` and `refresh`, which crawl sources and then describe them.
 * [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync`, which with `syncAll` finds devices by DNS-SD and in `local` (`address:URL`), and pulls from each; the listing and adding of addresses behind `device`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
-* [agent.zig](src/agent.zig): the launch agents' property lists, installed and removed by `launchctl bootstrap` and `bootout`.
 * [usage.txt](src/usage.txt): the commands and the help.
 * [test.sh](test.sh): the end-to-end test. Devices on one computer, each with a data directory of its own, found a library and serve a generated source as media. They crawl, pair (to join, and to be another of a person's devices) at the ports their offers print, and sync until their digests match, and the test checks that a removed member is refused and that progress travels only between the person's devices.
 * [test/gen.zig](test/gen.zig): the test source's generator (`gen DIR [DIVISOR]`): a media tree at the library's full scale, or a fraction of it, named as Plex and Jellyfin expect, of sparse files that take no disk space.
