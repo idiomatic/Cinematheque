@@ -11,6 +11,8 @@ struct SettingsView: View {
     @State private var choosingSuccessor = false
     @State private var leaving = false
     @State private var problem: String?
+    /// The name whose keyboard is up.
+    @State private var naming: Library.Named?
     @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
     /// The focused row, whose explanation shows under the picture.
     @FocusState private var focus: Row?
@@ -21,6 +23,9 @@ struct SettingsView: View {
     private var others: [Member] { library.members.filter { !$0.you } }
     /// The founder's only device: leaving takes the founder with it, so it
     /// hands the library over first, or, if no one else is in it, ends it.
+    /// The system's rows' text inset in its plate, wider than a form's.
+    private static let rowInsets = EdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
+
     private var foundersOnly: Bool { me?.founder == true && library.status?.others == 0 }
 
     var body: some View {
@@ -49,8 +54,9 @@ struct SettingsView: View {
                 nameRow("You", me?.name, .person)
                     .focused($focus, equals: .person)
             } header: {
-                Text("Names")
+                Text("Names").bold()
             }
+            .listRowInsets(Self.rowInsets)
             Section {
                 Button("Refresh Library") {
                     Task { await library.refresh() }
@@ -66,13 +72,15 @@ struct SettingsView: View {
                 Toggle("Show Sync Activity", isOn: $showsSyncActivity)
                     .focused($focus, equals: .activity)
             } header: {
-                Text("Library")
+                Text("Library").bold()
             }
+            .listRowInsets(Self.rowInsets)
             Section {
                 Button("Leave This Library…", role: .destructive, action: askToLeave)
                     .disabled(leaving)
                     .focused($focus, equals: .leave)
             }
+            .listRowInsets(Self.rowInsets)
         }
         // Narrowed, it would clip a focused row, which grows past its edges.
         .scrollClipDisabled()
@@ -114,12 +122,22 @@ struct SettingsView: View {
     }
 
 
-    /// A name, as tvOS's Name is: a link to its page.
+    /// A name: pressing it brings up the full-screen keyboard at once,
+    /// holding the name (an unseen UIKit field's, as SwiftUI's fields need
+    /// pressing themselves); saved as it's submitted (a blank one
+    /// ignored), and Back leaves it as it was.
     private func nameRow(_ title: String, _ name: String?, _ which: Library.Named) -> some View {
-        NavigationLink {
-            NamePage(title: title, name: name, which: which)
-        } label: {
+        Button { naming = which } label: {
             LabeledContent(title, value: name ?? "Unnamed")
+        }
+        .background {
+            KeyboardField(title: title, text: name ?? "", typing: Binding(get: { naming == which }, set: { if !$0 { naming = nil } })) {
+                let new = $0.trimmingCharacters(in: .whitespaces)
+                if !new.isEmpty { library.setName(which, new) }
+            }
+            .frame(width: 1, height: 1)
+            .opacity(0.01)
+            .accessibilityHidden(true)
         }
     }
 
@@ -186,56 +204,6 @@ private struct SettingsPage<List: View>: View {
             Spacer(minLength: 0)
         }
         .ignoresSafeArea(edges: .horizontal)
-    }
-}
-
-/// A name's page, as tvOS's Name is: names to choose (this Apple TV's, the
-/// rooms tvOS offers), the current one checked, then Custom…, which brings
-/// up the full-screen keyboard. Choosing one saves it and goes back.
-private struct NamePage: View {
-    let title: String
-    let name: String?
-    let which: Library.Named
-    @State private var typing = false
-    @Environment(Library.self) private var library
-    @Environment(\.dismiss) private var dismiss
-
-    private static let rooms = ["Bedroom", "Den", "Dining Room", "Family Room", "Game Room", "Guest Room", "Kitchen", "Living Room", "Media Room", "Office", "Playroom"]
-
-    private var choices: [String] {
-        let offered = which == .device ? Self.rooms : []
-        guard let name, !offered.contains(name) else { return offered }
-        return [name] + offered
-    }
-
-    var body: some View {
-        SettingsPage(explanation: "Everyone in the library sees it.") {
-            Form {
-                Section {
-                    ForEach(choices, id: \.self) { choice in
-                        Button { save(choice) } label: {
-                            LabeledContent(choice) {
-                                if choice == name { Image(systemName: "checkmark") }
-                            }
-                        }
-                    }
-                    Button("Custom…") { typing = true }
-                        .background {
-                            KeyboardField(title: title, text: name ?? "", typing: $typing) { save($0) }
-                                .frame(width: 1, height: 1)
-                                .opacity(0.01)
-                                .accessibilityHidden(true)
-                        }
-                }
-            }
-        }
-        .navigationTitle(title)
-    }
-
-    private func save(_ new: String) {
-        let trimmed = new.trimmingCharacters(in: .whitespaces)
-        if !trimmed.isEmpty { library.setName(which, trimmed) }
-        dismiss()
     }
 }
 

@@ -23,13 +23,13 @@ struct PeoplePane: View {
             Section {
                 ForEach(library.members) { member in MemberRow(member: member) }
                 ForEach(waiting) { device in
-                    HStack {
-                        Label((device.personName ?? "Someone") + "’s " + (device.deviceName ?? "device"), systemImage: "person.crop.circle.badge.questionmark")
-                        Text("wants to join").foregroundStyle(.secondary)
-                        Spacer()
+                    LabeledContent {
                         Button("Add") {
                             if let key = device.person_key { library.setMember(key, true) }
                         }
+                    } label: {
+                        Label((device.personName ?? "Someone") + "’s " + (device.deviceName ?? "device"), systemImage: "person.crop.circle.badge.questionmark")
+                        Text("Wants to join")
                     }
                 }
             } header: {
@@ -100,26 +100,28 @@ private struct MemberRow: View {
     @State private var confirmingRemoval = false
 
     var body: some View {
-        HStack {
-            Image(systemName: "person.crop.circle").foregroundStyle(.secondary)
-            if member.you {
-                TextField("Your name", text: $name, prompt: Text("Your name"))
-                    .labelsHidden()
-                    .textFieldStyle(.plain)
-                    .fixedSize()
-                    .onSubmit { library.setName(.person, name) }
-                    .help("Rename yourself")
-                Text("You").foregroundStyle(.secondary)
-            } else {
-                Text(member.name ?? "Someone")
-            }
-            Spacer()
+        LabeledContent {
             if member.founder {
-                Text("Founder").foregroundStyle(.secondary)
+                Text("Founder")
             } else if !member.you {
                 RemoveButton(help: "Remove from the library, with their devices") {
                     confirmingRemoval = true
                 }
+            }
+        } label: {
+            Label {
+                if member.you {
+                    TextField("Your name", text: $name, prompt: Text("Your name"))
+                        .labelsHidden()
+                        .textFieldStyle(.plain)
+                        .onSubmit { library.setName(.person, name) }
+                        .help("Rename yourself")
+                    Text("You")
+                } else {
+                    Text(member.name ?? "Someone")
+                }
+            } icon: {
+                Image(systemName: "person.crop.circle").foregroundStyle(.secondary)
             }
         }
         .confirmationDialog("Remove \(member.name ?? "Them")?", isPresented: $confirmingRemoval) {

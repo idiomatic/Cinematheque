@@ -167,15 +167,11 @@ private struct Episode: View {
     let item: TitleDetail.Item
 
     var body: some View {
-        HStack(spacing: 24) {
-            Image(systemName: item.progressSymbol)
-            Text(item.name)
-            Spacer()
-            if let runtime = item.runtime {
-                Text(runtime).foregroundStyle(.secondary)
-            }
+        LabeledContent {
+            if let runtime = item.runtime { Text(runtime) }
+        } label: {
+            Label(item.name, systemImage: item.progressSymbol)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

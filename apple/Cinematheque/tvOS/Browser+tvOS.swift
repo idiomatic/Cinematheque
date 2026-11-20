@@ -157,15 +157,32 @@ struct PosterGrid: View {
     }
 }
 
+/// A poster's name, moving out of the way of its cover as the cover lifts:
+/// the borderless style moves a title only for an `Image`, and a cover is a
+/// view of images, placeholders, and marks.
+private struct PosterName: View {
+    let name: String
+    @Environment(\.isFocused) private var focused
+
+    var body: some View {
+        Text(name)
+            .font(.caption)
+            .lineLimit(1)
+            .offset(y: focused ? 24 : 0)
+            .animation(.easeOut(duration: 0.2), value: focused)
+    }
+}
+
 /// A cover that opens its title, with this person's progress, and its name
-/// below.
+/// below: tvOS's lockup (a borderless button), the cover lifting as it's
+/// focused and its name moving out of its way.
 struct Poster: View {
     let tile: Tile
     @Environment(Library.self) private var library
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            NavigationLink(value: tile) {
+        NavigationLink(value: tile) {
+            VStack(alignment: .leading, spacing: 14) {
                 Color.clear
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)
                     .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name) }
@@ -178,25 +195,26 @@ struct Poster: View {
                             ProgressView(value: tile.progress).tint(.white).padding(12)
                         }
                     }
+                    .clipShape(.rect(cornerRadius: 12))
+                    // The cover, not its name, is what lifts.
+                    .hoverEffect(.highlight)
+                PosterName(name: tile.name)
             }
-            .buttonStyle(.card)
-            // Pressed and held: a series' tile stands for the whole series.
-            .contextMenu {
-                let listed = library.isListed(tile, anySeason: true)
-                Button(listed ? "Remove from Watchlist" : "Add to Watchlist", systemImage: listed ? "star.slash" : "star") {
-                    library.setListed(tile, !listed, anySeason: true)
-                }
-                // Unwatched forgets where you stopped, too.
-                if !tile.watched {
-                    Button("Mark as Watched", systemImage: "checkmark.circle") { library.markWatched(tile, true, wholeTitle: tile.isSeries) }
-                }
-                if tile.started {
-                    Button("Mark as Unwatched", systemImage: "circle") { library.markWatched(tile, false, wholeTitle: tile.isSeries) }
-                }
+        }
+        .buttonStyle(.borderless)
+        // Pressed and held: a series' tile stands for the whole series.
+        .contextMenu {
+            let listed = library.isListed(tile, anySeason: true)
+            Button(listed ? "Remove from Watchlist" : "Add to Watchlist", systemImage: listed ? "star.slash" : "star") {
+                library.setListed(tile, !listed, anySeason: true)
             }
-            Text(tile.name)
-                .font(.caption)
-                .lineLimit(1)
+            // Unwatched forgets where you stopped, too.
+            if !tile.watched {
+                Button("Mark as Watched", systemImage: "checkmark.circle") { library.markWatched(tile, true, wholeTitle: tile.isSeries) }
+            }
+            if tile.started {
+                Button("Mark as Unwatched", systemImage: "circle") { library.markWatched(tile, false, wholeTitle: tile.isSeries) }
+            }
         }
     }
 }

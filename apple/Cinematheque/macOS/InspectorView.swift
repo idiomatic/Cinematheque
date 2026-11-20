@@ -177,11 +177,9 @@ struct InspectorView: View {
     private func qualityPicker(_ items: [TitleDetail.Item]) -> some View {
         let labels = QualityChoice.labels(items)
         if labels.count == 1, let label = labels.first {
-            HStack {
-                Text("Quality")
-                Text(QualityChoice.shortNames(labels, in: items)[label] ?? label).foregroundStyle(.secondary)
-            }
-            .help(QualityChoice.name(label, in: items))
+            LabeledContent("Quality", value: QualityChoice.shortNames(labels, in: items)[label] ?? label)
+                .fixedSize()
+                .help(QualityChoice.name(label, in: items))
         } else if labels.count > 1 {
             let short = QualityChoice.shortNames(labels, in: items)
             let picker = Picker("Quality", selection: $quality) {
@@ -212,9 +210,11 @@ private struct ItemRow: View {
             Button(action: play) {
                 Image(systemName: item.watched ? "checkmark.circle.fill" : "play.circle")
                     .font(.title3)
-                    .foregroundStyle(item.watched ? Color.secondary : Color.accentColor)
             }
-            .buttonStyle(.plain)
+            // Tinted with the accent color, as a borderless button is; a
+            // watched one quieter.
+            .buttonStyle(.borderless)
+            .tint(item.watched ? .secondary : nil)
             .help(item.watched ? "Watched; play again" : "Play")
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
@@ -519,8 +519,8 @@ struct DownloadSection: View {
                 }
             }
             if let space {
-                Button("Free Space — \(Self.bytes(space))", systemImage: "internaldrive") {}
-                    .disabled(true)
+                // Said, not offered: a menu shows text as a dimmed item.
+                Text("Free Space — \(Self.bytes(space))")
             }
         }
         .labelStyle(.titleAndIcon)

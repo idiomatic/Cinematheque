@@ -17,7 +17,8 @@ CALLED = {
     "_", "body", "main", "test", "makeBody", "makeNSView", "updateNSView",
     "makeCoordinator", "animatableData", "effectValue", "callAsFunction",
     "acceptsFirstResponder", "playerViewControllerShouldDismiss", "std_options",
-    "format", "CinemathequeApp",
+    "format", "CinemathequeApp", "makeUIView", "updateUIView",
+    "textFieldShouldReturn", "textFieldDidEndEditing",
 }
 
 files = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "core/src", "cli/src", "apple/Cinematheque"],

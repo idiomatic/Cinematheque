@@ -29,7 +29,9 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .home: "house"
         case .movies: "film"
-        case .series: "tv"
+        // Filled when chosen (a tab's), a screen with a play mark, not a
+        // blank one.
+        case .series: "play.tv"
         case .watchlist: "star"
         case .inProgress: "play.circle"
         case .watched: "checkmark.circle"

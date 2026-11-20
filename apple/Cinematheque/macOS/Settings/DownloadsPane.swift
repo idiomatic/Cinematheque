@@ -1,10 +1,12 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Where this Mac keeps downloads, and how much they hold.
 struct DownloadsPane: View {
     @Environment(Library.self) private var library
+    @State private var choosing = false
 
     var body: some View {
         Form {
@@ -22,7 +24,7 @@ struct DownloadsPane: View {
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
                         .help("Show in Finder")
-                        Button("Choose…", action: choose)
+                        Button("Choose…") { choosing = true }
                     }
                 }
                 LabeledContent("Downloaded", value: downloaded)
@@ -39,6 +41,11 @@ struct DownloadsPane: View {
             }
         }
         .formStyle(.grouped)
+        .fileImporter(isPresented: $choosing, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result { library.setDownloads(dir: url.path) }
+        }
+        .fileDialogMessage("Choose where to keep downloads.")
+        .fileDialogConfirmationLabel("Choose")
     }
 
     private var downloaded: String {
@@ -51,16 +58,5 @@ struct DownloadsPane: View {
     private var floor: String { (library.downloads?.floor ?? 0).formatted(.byteCount(style: .file)) }
 
     private func megabytes(_ mb: Int) -> String { (mb * 1_000_000).formatted(.byteCount(style: .file)) }
-
-    private func choose() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.prompt = "Choose"
-        panel.message = "Choose where to keep downloads."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        library.setDownloads(dir: url.path)
-    }
 }
 #endif

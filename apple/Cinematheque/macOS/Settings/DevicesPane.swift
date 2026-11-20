@@ -39,13 +39,13 @@ struct DevicesPane: View {
             }
             Section("Advanced", isExpanded: $advanced) {
                 ForEach(nearby.filter(\.added)) { device in
-                    HStack {
-                        Text(device.url).lineLimit(1).truncationMode(.middle)
-                        Spacer()
+                    LabeledContent {
                         RemoveButton(help: "Forget this address") {
                             library.setDeviceAddress(device.url, false)
                             Task { nearby = await library.nearby() }
                         }
+                    } label: {
+                        Text(device.url).lineLimit(1).truncationMode(.middle)
                     }
                 }
                 // As Add Server… takes a server's: the field's name its
@@ -91,19 +91,23 @@ private struct DeviceRow: View {
     @State private var name = ""
 
     var body: some View {
-        HStack {
-            Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
-            TextField("Name", text: $name)
-                .labelsHidden()
-                .textFieldStyle(.plain)
-                .onSubmit(rename)
-                .help("Rename")
+        LabeledContent {
             if device.you {
-                Text("This Mac").foregroundStyle(.secondary)
+                Text("This Mac")
             } else {
                 RemoveButton(help: "Remove from your devices") {
                     withAnimation { library.removeDevice(device.key) }
                 }
+            }
+        } label: {
+            Label {
+                TextField("Name", text: $name)
+                    .labelsHidden()
+                    .textFieldStyle(.plain)
+                    .onSubmit(rename)
+                    .help("Rename")
+            } icon: {
+                Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
             }
         }
         .onAppear { name = device.name }

@@ -1,12 +1,14 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SourcesPane: View {
     @Environment(Library.self) private var library
     @State private var selection: Source.ID?
     @State private var editing: Source?
     @State private var adding = false
+    @State private var choosingFolder = false
     /// A source to remove, once confirmed: removing one takes its copies
     /// from the library on every device.
     @State private var removing: Source?
@@ -73,7 +75,7 @@ struct SourcesPane: View {
                 editing = library.sources.first { $0.id == ids.first }
             }
             HStack {
-                Button("Add Folder…") { chooseFolder() }
+                Button("Add Folder…") { choosingFolder = true }
                     .help("Add a folder on this Mac")
                 Button("Add Server…") { adding = true }
                     .help("Add a server, such as a NAS, by its address")
@@ -116,6 +118,14 @@ struct SourcesPane: View {
             Text(removalMessage(source))
         }
         .sheet(isPresented: $adding) { SourceSheet(source: nil) }
+        // A folder to serve from this Mac: a local one, or a mounted
+        // share's (e.g., /Volumes/Shared).
+        .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
+            guard case .success(let url) = result else { return }
+            Task { await library.addFolder(url.path, host: Library.localHost) }
+        }
+        .fileDialogMessage("Choose a folder of videos to share with your devices.")
+        .fileDialogConfirmationLabel("Add")
         .sheet(item: $editing) { SourceSheet(source: $0) }
     }
 
@@ -152,17 +162,6 @@ struct SourcesPane: View {
         if let folder = library.folder(of: source) { library.removeFolder(folder) } else { library.removeSource(source.id) }
     }
 
-    /// A folder to serve from this Mac: a local one, or a mounted share's
-    /// (e.g., /Volumes/Shared).
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.prompt = "Add"
-        panel.message = "Choose a folder of videos to share with your devices."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task { await library.addFolder(url.path, host: Library.localHost) }
-    }
 }
 
 /// Adding a source by its address, or editing one; where its files'
@@ -259,15 +258,15 @@ private struct SourceSheet: View {
             if let current = library.sources.first(where: { $0.id == source?.id }), !current.unavailable.isEmpty {
                 Section {
                     ForEach(current.unavailable, id: \.dir) { gone in
-                        HStack {
-                            Label(gone.name, systemImage: "externaldrive.badge.questionmark")
-                            Text("since \(gone.date.formatted(date: .abbreviated, time: .omitted))").foregroundStyle(.secondary)
-                            Spacer()
+                        LabeledContent {
                             Button("Remove Videos", systemImage: "minus.circle") { library.removeUnavailable(current.id, gone.dir) }
                                 .labelStyle(.iconOnly)
                                 .buttonStyle(.borderless)
                                 .foregroundStyle(.secondary)
                                 .help("Remove its videos; they return if the folder does")
+                        } label: {
+                            Label(gone.name, systemImage: "externaldrive.badge.questionmark")
+                            Text("Since \(gone.date.formatted(date: .abbreviated, time: .omitted))")
                         }
                     }
                 } header: {

@@ -19,6 +19,8 @@ struct CinemathequeApp: App {
         // from its minimum up.
         .windowResizability(.contentSize)
         .commands {
+            // Show Inspector and Hide Inspector in the View menu.
+            InspectorCommands()
             CommandGroup(after: .toolbar) {
                 Button("Refresh Library") { Task { await library.refresh() } }
                     .keyboardShortcut("r")

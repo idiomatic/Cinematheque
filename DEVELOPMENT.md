@@ -9,6 +9,7 @@ How work keeps the code from growing faster than it earns, to be softened where 
 * **One in, one out:** a feature's commit simplifies something near it too, and each commit's net change in lines is reported with it. A split is exempt, as each part repeats its imports; its count is still reported.
 * **Checks:** [tools/debt.py](tools/debt.py) reports declarations nothing uses (and fails on them), files over 1,600 lines, and the spec's length; it runs before each push.
 * **Splits:** a file past 1,600 lines is split by what its parts do, with nothing else changed, never cutting a type in two.
+* **The system's own:** controls and containers are the platform's (forms, rows, pickers, lockups, players), built by hand only where none exists or it can't do what's needed, saying why in a comment.
 * **One copy:** what every player decides alike (names, what plays next, how qualities rank) is the core's, not each player's.
 * **Pruning:** before a push, what the work since the last left unreached goes.
 
