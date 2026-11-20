@@ -2,6 +2,16 @@
 
 Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defines. Each item moves into [AGENTS.md](AGENTS.md) when it ships. The measurements cited here are in [ARCHITECTURE.md](ARCHITECTURE.md#measurements).
 
+## Practice
+
+How work keeps the code from growing faster than it earns, to be softened where it chafes.
+
+* **One in, one out:** a feature's commit simplifies something near it too, and each commit's net change in lines is reported with it. A split is exempt, as each part repeats its imports; its count is still reported.
+* **Checks:** [tools/debt.py](tools/debt.py) reports declarations nothing uses (and fails on them), files over 1,600 lines, and the spec's length; it runs before each push.
+* **Splits:** a file past 1,600 lines is split by what its parts do, with nothing else changed, never cutting a type in two.
+* **One copy:** what every player decides alike (names, what plays next, how qualities rank) is the core's, not each player's.
+* **Pruning:** before a push, what the work since the last left unreached goes.
+
 ## Next
 
 * **macOS:** serving (folders on this Mac included) and refreshing in the background, when the app isn't running (a launch agent can't reach the LAN; see below), real artwork for its placeholder icon, lists beyond the watchlist, and signing for distribution.
