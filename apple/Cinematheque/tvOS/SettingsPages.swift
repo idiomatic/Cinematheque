@@ -233,7 +233,8 @@ struct SourcesPage: View {
 /// Adding a device: one nearby offering to be added (as it shows Join a
 /// Library), chosen, then the code it shows, typed. As this person's own
 /// (sharing their secret, so it can act as them), or someone new's (`join`).
-/// Added, it goes back to the list, where the device now is.
+/// Added, it goes back to the list, where the device now is; Cancel, or
+/// Back, goes back without adding one.
 struct AddDevicePage: View {
     let join: Bool
     @Environment(Library.self) private var library
@@ -272,6 +273,13 @@ struct AddDevicePage: View {
                             Text("Looking for new devices nearby…").foregroundStyle(.secondary)
                         }
                     }
+                }
+                .listRowInsets(SettingsView.rowInsets)
+                // A way out that takes focus, as nothing else may (with no
+                // device found yet), and Back goes from what's focused.
+                Section {
+                    Button("Cancel") { dismiss() }
+                        .accessibilityHint("Goes back without adding anyone.")
                 }
                 .listRowInsets(SettingsView.rowInsets)
             }
