@@ -120,7 +120,10 @@ struct SettingsView: View {
     /// it's submitted (a blank one ignored), and Back leaves it as it was.
     private func nameRow(_ title: String, _ name: String?, _ which: Library.Named) -> some View {
         Button { naming = which } label: {
-            LabeledContent(title, value: name ?? "Unnamed")
+            LabeledContent(title) {
+                // On one line, as the system's values, so rows keep one height.
+                Text(name ?? "Unnamed").lineLimit(1)
+            }
         }
         .background {
             KeyboardField(title: title, text: name ?? "", typing: Binding(get: { naming == which }, set: { if !$0 { naming = nil } })) {
