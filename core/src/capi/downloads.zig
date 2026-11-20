@@ -11,34 +11,21 @@ const json = capi.json;
 const status = capi.status;
 const span = capi.span;
 
-/// Sets where this device keeps downloads (`dir`), the URL it serves them
-/// at (made a source of its own, which no one crawls), and whether
-/// downloads watched since fetched are deleted at once (nonzero) or only as
-/// space is needed; either way, only once another source holds them,
-/// and never pinned ones.
-export fn cq_downloads_configure(lib: *Library, dir: [*:0]const u8, served_at: [*:0]const u8, drop_watched: c_int) c_int {
-    return status(lib, downloadsConfigure, .{ std.mem.span(dir), std.mem.span(served_at), drop_watched != 0 });
+/// Sets where this device keeps downloads (`dir`), and the URL it serves
+/// them at (made a source of its own, which no one crawls).
+export fn cq_downloads_configure(lib: *Library, dir: [*:0]const u8, served_at: [*:0]const u8) c_int {
+    return status(lib, downloadsConfigure, .{ std.mem.span(dir), std.mem.span(served_at) });
 }
 
-fn downloadsConfigure(lib: *Library, arena: std.mem.Allocator, dir: []const u8, served_at: []const u8, drop_watched: bool) !void {
+fn downloadsConfigure(lib: *Library, arena: std.mem.Allocator, dir: []const u8, served_at: []const u8) !void {
     try lib.writer.lock(lib.io());
     defer lib.writer.unlock(lib.io());
-    try download.configure(try lib.main(), arena, lib.now(), dir, served_at, drop_watched);
-}
-
-/// Whether watched downloads go at once (else as their space is needed),
-/// as `cq_downloads_configure` sets it; quick, as it takes no writer.
-export fn cq_downloads_drop_watched(lib: *Library, on: c_int) c_int {
-    return status(lib, dropWatched, .{on != 0});
-}
-
-fn dropWatched(lib: *Library, _: std.mem.Allocator, on: bool) !void {
-    try download.setDropWatched(try lib.main(), on);
+    try download.configure(try lib.main(), arena, lib.now(), dir, served_at);
 }
 
 /// Wants a title's, a season's (`<title>/e/s01`), or an item's files kept
 /// on this device (each item as of now), in `quality` (null or empty:
-/// the one most items have); `cq_reconcile` fetches them.
+/// the one most items have), until deleted; `cq_reconcile` fetches them.
 export fn cq_download(lib: *Library, key: [*:0]const u8, quality: ?[*:0]const u8) c_int {
     return status(lib, downloadWant, .{ std.mem.span(key), span(quality) orelse "" });
 }
@@ -58,10 +45,9 @@ fn downloadRemove(lib: *Library, arena: std.mem.Allocator, key: []const u8) !voi
 }
 
 /// Chooses which of a series' episodes download, as it's watched: the
-/// `current` one (in progress, else the next unwatched), the next N after
-/// where this person is (`3`), its `unwatched` ones, a season's
-/// unwatched ones (`s02`), or `all` of them, kept however they're watched;
-/// empty or `0`, none.
+/// next N after where this person is (`3`), the watched ones going as their
+/// space is needed, or `all` of them, kept however they're watched; empty
+/// or `0`, none.
 export fn cq_download_next(lib: *Library, title_key: [*:0]const u8, choice: [*:0]const u8) c_int {
     return status(lib, downloadNext, .{ std.mem.span(title_key), std.mem.span(choice) });
 }
@@ -100,27 +86,14 @@ fn downloadSizes(lib: *Library, arena: std.mem.Allocator, key: []const u8, choic
 const NextJson = struct { title: []const u8, choice: []const u8 };
 
 const HeldJson = struct { item: []const u8, size: u64, only: bool };
-const DoneJson = struct { item: []const u8, deletable: bool };
 
-/// Keeps a download (nonzero), so it's never deleted as watched, or lets
-/// it go.
-export fn cq_keep(lib: *Library, item_key: [*:0]const u8, on: c_int) c_int {
-    return status(lib, keep, .{ std.mem.span(item_key), on != 0 });
-}
-
-fn keep(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, on: bool) !void {
-    try download.setKept(try lib.main(), arena, item_key, on);
-}
 const DownloadsJson = struct {
     dir: ?[]const u8,
     source: ?[]const u8,
-    drop_watched: bool,
     held: []const HeldJson,
     wanted: []const download.Want,
     next: []const NextJson,
     ahead: []const []const u8,
-    watched: []const DoneJson,
-    kept: []const []const u8,
     free: ?u64,
     floor: u64,
     running: bool,
@@ -130,16 +103,13 @@ const DownloadsJson = struct {
 };
 const FetchingJson = struct { item: []const u8, done: u64, size: u64 };
 
-/// This device's downloads, as a JSON object: `dir`, `source` (its ID),
-/// and `drop_watched`, as configured (null if not); `held`, the files held
+/// This device's downloads, as a JSON object: `dir` and `source` (its ID),
+/// as configured (null if not); `held`, the files held
 /// (`item`, `size`, and whether it's the `only` copy, no other source
 /// holding it alike); `wanted` (`key`, `quality`); `next`, series whose
 /// episodes download as they're watched (`title`, and `choice`, as
 /// `cq_download_next` takes it), and `ahead`, the episodes (full item keys)
-/// they come to now; `watched`, downloads
-/// watched since fetched and not kept, oldest first (`item`, and
-/// `deletable`, once held elsewhere, else the only copy); `kept` items; `free` bytes on its volume, if
-/// known, and the
+/// they come to now; `free` bytes on its volume, if known, and the
 /// `floor` kept free; and whether `cq_reconcile` is `running`, with
 /// `done_mb` of `total_mb`, and the file it's `fetching` (`item`, its
 /// `size`, and the bytes `done`, a resumed file's earlier ones too), or
@@ -158,8 +128,6 @@ fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
         for (try download.held(r, arena, set.source)) |h|
             try list.append(arena, .{ .item = h.item, .size = h.size, .only = !try download.confirmed(r, all, &unavailable, h) });
     }
-    var finished: std.ArrayList(DoneJson) = .empty;
-    if (s) |set| for (try download.finishedWith(r, arena, set.source)) |d| try finished.append(arena, .{ .item = d.held.item, .deletable = d.deletable });
     // The episodes each series' next ones come to, as of now, by full key.
     var ahead: std.ArrayList([]const u8) = .empty;
     const nexts = try download.nexts(r, arena);
@@ -172,13 +140,10 @@ fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
     return .{
         .dir = if (s) |set| set.dir else null,
         .source = if (s) |set| try arena.dupe(u8, &set.source.id) else null,
-        .drop_watched = if (s) |set| set.drop_watched else false,
         .held = list.items,
         .wanted = try download.wants(r, arena),
         .next = next,
         .ahead = ahead.items,
-        .watched = finished.items,
-        .kept = try download.kept(r, arena),
         .free = if (s) |set| download.freeBytes(arena, set.dir) else null,
         .floor = download.floor(),
         .running = lib.reconciling.load(.acquire),

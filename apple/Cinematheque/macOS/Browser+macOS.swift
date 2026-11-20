@@ -345,10 +345,7 @@ struct TileView: View {
                 }
                 .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile), watched: tile.watched) }
                 .overlay(alignment: .bottomTrailing) {
-                    if let waiting = library.watchedTiles[tile.id] {
-                        DownloadBadge(symbol: waiting ? "hourglass.circle.fill" : "exclamationmark.circle.fill", color: waiting ? .gray : .orange, raised: !tile.watched && tile.progress > 0)
-                            .help(waiting ? "Watched: deleted when space is needed" : "Watched, and the only copy")
-                    } else if library.downloadedTiles.contains(tile.id) {
+                    if library.downloadedTiles.contains(tile.id) {
                         DownloadBadge(symbol: "arrow.down.circle.fill", color: .blue, raised: !tile.watched && tile.progress > 0)
                             .help("Downloaded")
                     }

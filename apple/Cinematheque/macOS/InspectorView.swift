@@ -289,7 +289,7 @@ private struct DownloadControls: View {
     /// What the season's episodes asked for come to, for its gauge.
     @State private var requested: Library.DownloadSize?
 
-    private static let counts = [1, 3, 5, 10]
+    private static let counts = [1, 3, 10]
 
     var body: some View {
         Group {
@@ -300,8 +300,8 @@ private struct DownloadControls: View {
             }
         }
         .task(id: "\(library.revision) \(library.downloadedBytes) \(detail.key) \(season ?? -1) \(quality ?? "")") {
-            if let season {
-                sizes = library.downloadSizes(detail.key, choices: ["current"] + Self.counts.map(String.init) + [String(format: "s%02d", season), "unwatched", "all"])
+            if season != nil {
+                sizes = library.downloadSizes(detail.key, choices: Self.counts.map(String.init) + ["all"])
                 let asked = items.map { "\(detail.key)/\($0.key)" }.filter(library.isRequested)
                 let each = asked.compactMap { library.downloadSizes($0, choices: [""])[""] }
                 requested = .init(choice: "", size: each.reduce(0) { $0 + $1.size }, needed: each.reduce(0) { $0 + $1.needed })
@@ -360,15 +360,11 @@ private struct DownloadControls: View {
         .controlSize(.small)
     }
 
-    /// The movie's trash button's help, saying what it does and, once
-    /// watched, what's become of the download.
+    /// The movie's trash button's help: what it does, warning of an only
+    /// copy.
     private static func deleteHelp(_ library: Library, _ key: String, coming: Bool) -> String {
         if coming { return "Stop downloading it" }
-        if let done = library.done(key) {
-            return done.deletable ? "Watched: deleted when space is needed anyway" : "Watched, and the only copy"
-        }
-        if library.onlyCopies(key) > 0 { return "The only copy" }
-        return library.isKept(key) ? "Kept, however it's watched" : "Delete download"
+        return library.onlyCopies(key) > 0 ? "The only copy" : "Delete download"
     }
 
     @ViewBuilder
@@ -377,7 +373,6 @@ private struct DownloadControls: View {
         let keys = items.map { "\(detail.key)/\($0.key)" }
         let held = keys.filter(library.isDownloaded).count
         let chosen = library.downloadChoice(detail.key)
-        let here = String(format: "s%02d", season)
         // Whether any of this season's episodes the choice (or a person, one
         // by one) asks for hasn't come yet.
         let pending = keys.contains { library.isRequested($0) && !library.isDownloaded($0) }
@@ -386,17 +381,15 @@ private struct DownloadControls: View {
         HStack {
             // The open menu gives each choice's size, and the space free; the
             // closed one, only the choice, which nothing but picking changes.
-            // A count chosen elsewhere (the core takes any); another season's,
-            // as chosen there.
+            // A count chosen elsewhere (the core takes any).
             let other = Int(chosen).map { !Self.counts.contains($0) } ?? false ? [item(chosen)] : []
-            let otherSeason = chosen.hasPrefix("s") && chosen != here ? [item(chosen)] : []
             HStack(spacing: 6) {
                 // As a SwiftUI pop-up's own label is, whatever the controls' size.
                 Text("Download").font(.system(size: NSFont.systemFontSize))
                 DetailedPopUp(
                     sections: [
-                        .init(choices: [.init(tag: "", title: "Nothing"), item("current")] + Self.counts.map { item(String($0)) } + other),
-                        .init(choices: [item(here)] + otherSeason + [item("unwatched"), item("all")]),
+                        .init(choices: [.init(tag: "", title: "Nothing")] + Self.counts.map { item(String($0)) } + other),
+                        .init(choices: [item("all")]),
                     ],
                     footer: library.spaceForDownloads.map { ("Free Space", Self.bytes($0)) },
                     selection: chosen,
@@ -433,35 +426,25 @@ private struct DownloadControls: View {
     /// A choice of episodes, as the menu says it: short, read after its
     /// label ("Download Next 3").
     private static func title(_ choice: String) -> String {
-        if choice.hasPrefix("s"), let season = Int(choice.dropFirst()) {
-            return season == 0 ? "Unwatched Specials" : "Unwatched in Season \(season)"
-        }
         switch choice {
         case "": return "Nothing"
-        case "current": return "Current"
         case "1": return "Next"
-        case "unwatched": return "Unwatched"
         case "all": return "All"
         default: return "Next \(choice)"
         }
     }
 }
 
-/// Beside an episode: downloaded (and watched, waiting or the only copy),
-/// or downloading.
+/// Beside an episode: downloaded, or downloading.
 private struct DownloadMark: View {
     let key: String
     @Environment(Library.self) private var library
 
     var body: some View {
-        if let done = library.done(key) {
-            Image(systemName: done.deletable ? "hourglass.circle.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(done.deletable ? Color.secondary : Color.orange)
-                .help(done.deletable ? "Watched: deleted when space is needed" : "Watched, and the only copy")
-        } else if library.isDownloaded(key) {
+        if library.isDownloaded(key) {
             Image(systemName: "arrow.down.circle.fill")
                 .foregroundStyle(.secondary)
-                .help(library.isKept(key) ? "Downloaded and kept" : "Downloaded")
+                .help("Downloaded")
         } else if library.isWanted(key) {
             DownloadGauge(value: library.downloadProgress(key))
         }
@@ -494,11 +477,6 @@ struct DownloadMenuItems: View {
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
         }
         if library.isDownloaded(key) {
-            if library.done(key) != nil {
-                Button("Keep Download") { library.keep(key, true) }
-            } else if library.isKept(key) {
-                Button("Stop Keeping Download") { library.keep(key, false) }
-            }
             Button(library.onlyCopies(key) > 0 ? "Delete Only Copy…" : "Delete Download") { library.deleteDownload(key) }
         } else if library.isWanted(key) {
             Button("Cancel Download") { library.removeDownload(key) }

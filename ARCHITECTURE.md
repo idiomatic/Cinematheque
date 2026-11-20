@@ -58,7 +58,7 @@ A replica keeps each field's winning operation, in SQLite, and nothing else of t
 * **`devices`:** device keys, interned as small integers.
 * **`version_vector`:** per stream, the highest sequence number covered.
 * **`repair`:** fields a removal dropped, to refetch.
-* **`local`:** the device's own state, which never replicates (crawl snapshots, devices added by address, and downloads: `downloads/dir`, `downloads/source`, `downloads/drop-watched`, `downloads/want/<item>` (a quality), `downloads/next/<title>` (a count), `downloads/keep/<item>`, and `downloads/at/<item>` (when fetched, in ms, against which the watched mark's clock tells "watched since")).
+* **`local`:** the device's own state, which never replicates (crawl snapshots, devices added by address, and downloads: `downloads/dir`, `downloads/source`, `downloads/want/<item>` (a quality), `downloads/next/<title>` (a count, or `all`), and `downloads/at/<item>` (when fetched, in ms, against which the watched mark's clock tells "watched since")).
 
 A losing operation is dropped and never sent again, since it can't change anything.
 

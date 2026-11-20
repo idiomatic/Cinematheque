@@ -11,14 +11,14 @@
 //! source of its own, `managed`, which it serves and no one crawls;
 //! each file fetched is recorded as its copy on the very quality it
 //! came from, so devices see it and copy racing can use it. What it keeps is
-//! this device's (in `local`): items wanted (a title or season wanted is
-//! its items, as of then), and per series, a choice of episodes (`Choice`):
-//! the current one, the next N after where this person is ("download next"), its unwatched
-//! ones, a season's unwatched ones, or all of them. A download watched since
-//! it was fetched, and not kept (or all of its series chosen), is done with: deleted once another source is confirmed to
-//! hold it (same quality and size, not unavailable), at once with
-//! `drop_watched`, else as space is needed; the only copy, never. It keeps
-//! `floor_bytes` free.
+//! this device's (in `local`): items wanted by hand (a title or season
+//! wanted is its items, as of then), which stay until deleted, and per
+//! series, a choice of episodes (`Choice`): the next N after where this
+//! person is ("download next"), or all of them. A series' download watched
+//! since it was fetched (but for all of them) is done with: deleted as its
+//! space is needed, oldest fetched first, once another source is confirmed
+//! to hold it (same quality and size, not unavailable); the only copy,
+//! never. It keeps `floor_bytes` free.
 
 const std = @import("std");
 const Io = std.Io;
@@ -246,10 +246,8 @@ test "a Content-Range's start" {
 
 const dir_key = "downloads/dir";
 const source_key = "downloads/source";
-const drop_key = "downloads/drop-watched";
 const want_prefix = "downloads/want/";
 const next_prefix = "downloads/next/";
-const keep_prefix = "downloads/keep/";
 const at_prefix = "downloads/at/";
 
 /// Free space a download never goes below.
@@ -265,13 +263,11 @@ pub fn floor() u64 {
 pub const Settings = struct {
     dir: []const u8,
     source: library.Source,
-    drop_watched: bool,
 };
 
 /// Sets where this device keeps downloads (`dir`), the URL it serves them
-/// at (made a source, `managed`, if it isn't one), and whether a kept
-/// series' watched episodes go at once.
-pub fn configure(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, dir: []const u8, served_at: []const u8, drop_watched: bool) !void {
+/// at (made a source, `managed`, if it isn't one).
+pub fn configure(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, dir: []const u8, served_at: []const u8) !void {
     var typed: std.ArrayList(u8) = .empty;
     try @import("url.zig").escape(arena, &typed, served_at);
     if (!std.mem.endsWith(u8, typed.items, "/")) try typed.append(arena, '/');
@@ -285,13 +281,6 @@ pub fn configure(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, dir:
     if (!source.managed) try replica.write(wall_ms, try std.fmt.allocPrint(arena, "r/{s}", .{&source.id}), "managed", "1");
     try replica.setLocal(dir_key, dir);
     try replica.setLocal(source_key, typed.items);
-    try replica.setLocal(drop_key, if (drop_watched) "1" else "");
-}
-
-/// Whether watched downloads go at once, rather than as their space is
-/// needed: this device's own, so no write of the device's (no writer).
-pub fn setDropWatched(replica: *Replica, on: bool) !void {
-    try replica.setLocal(drop_key, if (on) "1" else "");
 }
 
 /// This device's downloads' settings, if configured.
@@ -299,37 +288,23 @@ pub fn settings(replica: *Replica, arena: std.mem.Allocator) !?Settings {
     const dir = try replica.local(arena, dir_key) orelse return null;
     const served_at = try replica.local(arena, source_key) orelse return null;
     const source = library.findSource(replica, arena, served_at) catch return null;
-    const drop = try replica.local(arena, drop_key) orelse "";
-    return .{ .dir = dir, .source = source, .drop_watched = drop.len > 0 };
+    return .{ .dir = dir, .source = source };
 }
 
 pub const Want = struct { key: []const u8, quality: []const u8 };
 
 /// Wants a title's, season's, or item's files kept (see `plan`), in a
 /// quality (empty for the one most of its items have): each item as of
-/// now, so one deleted (watched, or by hand) isn't fetched again.
+/// now, so one deleted by hand isn't fetched again. They stay, watched or
+/// not, until deleted.
 pub fn want(replica: *Replica, arena: std.mem.Allocator, key: []const u8, quality: []const u8) !void {
     for (try plan(replica, arena, key, if (quality.len > 0) quality else null)) |f|
         try replica.setLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ want_prefix, f.item }), f.quality);
 }
 
-/// Keeps a download (an item's full key), so it's never deleted as done
-/// with, or lets it go.
-pub fn setKept(replica: *Replica, arena: std.mem.Allocator, item: []const u8, on: bool) !void {
-    const k = try std.fmt.allocPrint(arena, "{s}{s}", .{ keep_prefix, item });
-    if (on) try replica.setLocal(k, "1") else try replica.removeLocal(k);
-}
-
-/// The downloads kept, however they're watched.
-pub fn kept(replica: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
-    var out: std.ArrayList([]const u8) = .empty;
-    for (try replica.localKeys(arena, keep_prefix)) |k| try out.append(arena, k[keep_prefix.len..]);
-    return out.items;
-}
-
-/// A download watched since it was fetched, and not kept: `deletable`
-/// once another source holds it alike; else it's the only copy, for a
-/// person to delete or keep. Oldest fetched first.
+/// A series' download watched since it was fetched, not wanted by hand
+/// (nor all of its series chosen): `deletable` once another source holds
+/// it alike; else it's the only copy, which stays. Oldest fetched first.
 pub const Done = struct { held: Held, deletable: bool, fetched_ms: u64 };
 
 pub fn finishedWith(replica: *Replica, arena: std.mem.Allocator, source: library.Source) ![]Done {
@@ -340,7 +315,7 @@ pub fn finishedWith(replica: *Replica, arena: std.mem.Allocator, source: library
     for (try nexts(replica, arena)) |n| if (n.choice == .all) try all.put(arena, n.title, {});
     var out: std.ArrayList(Done) = .empty;
     for (try held(replica, arena, source)) |h| {
-        if (try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ keep_prefix, h.item })) != null) continue;
+        if (try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ want_prefix, h.item })) != null) continue;
         if (titleEnd(h.item)) |end| if (all.contains(h.item[0..end])) continue;
         const at = std.fmt.parseInt(u64, try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ at_prefix, h.item })) orelse "0", 10) catch 0;
         const watched_ms = try watchedAt(replica, arena, h.item) orelse continue;
@@ -372,36 +347,25 @@ pub fn wants(replica: *Replica, arena: std.mem.Allocator) ![]Want {
     return out.items;
 }
 
-/// Which of a series' episodes download, as it's watched: the `current`
-/// one (the one Play would play: in progress, else the next unwatched), the
-/// `next` N after where this person is (and the current one), its
-/// `unwatched` ones (specials aside, as with those), a `season`'s
-/// unwatched ones, or `all` of them, kept however they're watched. Written
-/// as `current`, the number, `unwatched`, `all`, or `s` and the season's
-/// (`s02`).
+/// Which of a series' episodes download, as it's watched: the `next` N
+/// after where this person is (and the one in progress), specials aside,
+/// or `all` of them, specials too, kept however they're watched. Written as
+/// the number, or `all`; `current`, an earlier choice, reads as the next 1.
 pub const Choice = union(enum) {
-    current,
     next: u32,
-    unwatched,
-    season: u32,
     all,
 
     /// Null for none (empty, `0`, or one that doesn't read).
     pub fn parse(text: []const u8) ?Choice {
-        if (std.mem.eql(u8, text, "current")) return .current;
-        if (std.mem.eql(u8, text, "unwatched")) return .unwatched;
         if (std.mem.eql(u8, text, "all")) return .all;
-        if (text.len > 1 and text[0] == 's') return .{ .season = std.fmt.parseInt(u32, text[1..], 10) catch return null };
+        if (std.mem.eql(u8, text, "current")) return .{ .next = 1 };
         const n = std.fmt.parseInt(u32, text, 10) catch return null;
         return if (n == 0) null else .{ .next = @min(n, 1000) };
     }
 
     pub fn write(c: Choice, arena: std.mem.Allocator) ![]const u8 {
         return switch (c) {
-            .current => "current",
             .next => |n| std.fmt.allocPrint(arena, "{d}", .{n}),
-            .unwatched => "unwatched",
-            .season => |s| std.fmt.allocPrint(arena, "s{d:0>2}", .{s}),
             .all => "all",
         };
     }
@@ -507,20 +471,14 @@ pub fn confirmed(replica: *Replica, sources: []const library.Source, unavailable
 /// The item keys (below the title's) of a series' episodes `choice` comes
 /// to for this person. For the next `n`, specials aside: the latest in
 /// progress and the `n` unwatched after it, so the next is there before
-/// this one ends; else, none in progress, the first `n` unwatched. The
-/// current one is the first of those: the latest in progress, else the
-/// first unwatched.
+/// this one ends; else, none in progress, the first `n` unwatched.
 pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, choice: Choice) ![]const []const u8 {
     const d = try library.detail(replica, arena, title) orelse return &.{};
     const Episode = struct { item: library.Item, season: u32, number: u32 };
     var episodes: std.ArrayList(Episode) = .empty;
     for (d.items.items) |item| {
         const code = episodeCode(item.key) orelse continue;
-        switch (choice) {
-            .current, .next, .unwatched => if (code[0] == 0) continue,
-            .season => |s| if (code[0] != s) continue,
-            .all => {},
-        }
+        if (choice == .next and code[0] == 0) continue;
         try episodes.append(arena, .{ .item = item, .season = code[0], .number = code[1] });
     }
     std.mem.sort(Episode, episodes.items, {}, struct {
@@ -530,14 +488,9 @@ pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, cho
     }.lt);
     var out: std.ArrayList([]const u8) = .empty;
     const n = switch (choice) {
-        .current => 0,
         .next => |n| n,
         .all => {
             for (episodes.items) |e| try out.append(arena, e.item.key);
-            return out.items;
-        },
-        .unwatched, .season => {
-            for (episodes.items) |e| if (!e.item.progress.watched) try out.append(arena, e.item.key);
             return out.items;
         },
     };
@@ -551,7 +504,7 @@ pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, cho
         start = i;
         break;
     };
-    const want_count = if (choice == .current) 1 else if (in_progress) n + 1 else n;
+    const want_count = if (in_progress) n + 1 else n;
     for (episodes.items[start orelse return &.{}..]) |e| {
         if (out.items.len == want_count) break;
         if (!e.item.progress.watched) try out.append(arena, e.item.key);
@@ -692,8 +645,7 @@ pub const Fetching = struct {
 
 /// Brings this device's downloads in line with what it keeps: forgets
 /// copies whose files are gone (deleted by hand, or a directory changed),
-/// deletes watched episodes of kept series as `Settings.drop_watched` and
-/// space call for, and fetches what's wanted and the next episodes kept,
+/// deletes series' watched episodes as space calls for, and fetches what's wanted and the next episodes kept,
 /// recording each file as fetched. `writer`, if given, is held around each
 /// write, as other connections' writers are. While `hold` is set (a stream
 /// playing, which a download would slow), no file is begun: a file under
@@ -741,15 +693,11 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
         }
     };
 
-    // Done with and held elsewhere, oldest first: deleted now, or as space
-    // is needed.
+    // Done with and held elsewhere, oldest first: deleted as space is
+    // needed.
     var spare: std.ArrayList(Held) = .empty;
     for (finished) |d| if (d.deletable) try spare.append(arena, d.held);
     var next_spare: usize = 0;
-    if (s.drop_watched) {
-        for (spare.items) |h| try delete(io, arena, dir, replica, writer, wall_ms, s.source, h, &out);
-        next_spare = spare.items.len;
-    }
 
     // Fetched, keeping the floor free.
     var total_mb: u64 = 0;
@@ -822,7 +770,7 @@ fn locked(writer: ?*Io.Mutex, io: Io, replica: *Replica, wall_ms: u64, key: []co
     try replica.write(wall_ms, key, try std.fmt.bufPrint(&field, "held:{s}", .{&source.id}), value);
 }
 
-/// Deletes a download, and forgets wanting, fetching, and keeping it.
+/// Deletes a download, and forgets wanting and fetching it.
 fn delete(io: Io, arena: std.mem.Allocator, dir: Io.Dir, replica: *Replica, writer: ?*Io.Mutex, wall_ms: u64, source: library.Source, h: Held, out: *Reconciled) !void {
     if (!safe(h.path)) return error.UnsafePath;
     dir.deleteFile(io, h.path) catch |err| switch (err) {
@@ -830,7 +778,7 @@ fn delete(io: Io, arena: std.mem.Allocator, dir: Io.Dir, replica: *Replica, writ
         else => |e| return e,
     };
     try locked(writer, io, replica, wall_ms, h.key, source, "");
-    for ([_][]const u8{ want_prefix, at_prefix, keep_prefix }) |prefix|
+    for ([_][]const u8{ want_prefix, at_prefix }) |prefix|
         try replica.removeLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, h.item }));
     out.deleted += 1;
 }
@@ -952,7 +900,7 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
         try r.write(2, try std.fmt.allocPrint(arena, "{s}/r/-", .{k}), nas_field, try std.fmt.allocPrint(arena, "{s}\t{d}\t1", .{ p, 1000 + i }));
 
     const downloads = try std.fmt.allocPrint(arena, "{s}/downloads", .{base});
-    try configure(&r, arena, 3, downloads, "http://hal.local:8008/downloads/", false);
+    try configure(&r, arena, 3, downloads, "http://hal.local:8008/downloads/");
     const s = (try settings(&r, arena)).?;
     try std.testing.expect(s.source.managed);
     try want(&r, arena, "t/m/alien/1979", "");
@@ -966,7 +914,7 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     defer memory.deinit(gpa);
     var done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 5, null, null);
     try std.testing.expectEqual(3, done.fetched);
-    var copy = try held(&r, arena, s.source);
+    const copy = try held(&r, arena, s.source);
     try std.testing.expectEqual(3, copy.len);
     try std.testing.expectEqualStrings("t/m/alien/1979/v/-", copy[0].item);
     try std.testing.expectEqualStrings("t/s/firefly/-/e/s01e02", copy[1].item);
@@ -986,49 +934,40 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     try std.testing.expectEqual(0, done.fetched);
     try std.testing.expectEqual(1, done.held);
 
-    // Episode 2 watched: 4 comes; 2 stays (it's kept until space is needed),
-    // then goes once watched episodes are dropped at once.
+    // Episode 2 watched: 4 comes; 2 stays until its space is needed.
     try library.setWatched(&r, arena, 6, keys[2], true);
     done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 7, null, null);
     try std.testing.expectEqual(1, done.fetched);
     try std.testing.expectEqual(0, done.deleted);
-    try configure(&r, arena, 8, downloads, "http://hal.local:8008/downloads/", true);
-    done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 9, null, null);
-    try std.testing.expectEqual(1, done.deleted);
-    copy = try held(&r, arena, s.source);
-    try std.testing.expectEqual(3, copy.len);
-    try std.testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "downloads/Firefly/S01E02.mp4", .{}));
-
-    // Watched, but the only copy (the NAS lost it): listed for a person,
-    // never deleted; kept, not listed.
-    try r.write(12, "t/m/alien/1979/v/-/r/-", nas_field, "");
-    try library.setWatched(&r, arena, 13, keys[0], true);
+    try std.testing.expectEqual(4, (try held(&r, arena, s.source)).len);
     var finished = try finishedWith(&r, arena, s.source);
     try std.testing.expectEqual(1, finished.len);
-    try std.testing.expect(!finished[0].deletable);
-    _ = try reconcile(io, gpa, arena, &client, &memory, &r, null, 14, null, null);
-    try std.testing.expect(tmp.dir.statFile(io, "downloads/Alien (1979).mp4", .{}) != error.FileNotFound);
-    try setKept(&r, arena, keys[0], true);
-    finished = try finishedWith(&r, arena, s.source);
-    try std.testing.expectEqual(0, finished.len);
-    // A series whose every episode is chosen keeps them, watched or not.
-    try library.setWatched(&r, arena, 15, keys[3], true);
+    try std.testing.expect(finished[0].deletable);
+
+    // A download by hand stays, watched or not.
+    try library.setWatched(&r, arena, 8, keys[0], true);
     try std.testing.expectEqual(1, (try finishedWith(&r, arena, s.source)).len);
+    // Watched, but the only copy (the NAS lost it): never deleted.
+    try r.write(9, try std.fmt.allocPrint(arena, "{s}/r/-", .{keys[3]}), nas_field, "");
+    try library.setWatched(&r, arena, 9, keys[3], true);
+    finished = try finishedWith(&r, arena, s.source);
+    try std.testing.expectEqual(2, finished.len);
+    try std.testing.expect(!finished[1].deletable);
+    // A series whose every episode is chosen keeps them, watched or not.
     try setNext(&r, arena, "t/s/firefly/-", .all);
     try std.testing.expectEqual(0, (try finishedWith(&r, arena, s.source)).len);
-    try library.setWatched(&r, arena, 16, keys[3], false);
 
     // Deleted by hand: forgotten. Removed: deleted, and no longer wanted.
     try tmp.dir.deleteFile(io, "downloads/Firefly/S01E04.mp4");
     try setNext(&r, arena, "t/s/firefly/-", null);
     _ = try reconcile(io, gpa, arena, &client, &memory, &r, null, 10, null, null);
-    try std.testing.expectEqual(2, (try held(&r, arena, s.source)).len);
+    try std.testing.expectEqual(3, (try held(&r, arena, s.source)).len);
     try std.testing.expectEqual(1, try remove(io, arena, &r, null, 11, "t/m/alien/1979"));
     try std.testing.expectEqual(0, (try wants(&r, arena)).len);
-    try std.testing.expectEqual(1, (try held(&r, arena, s.source)).len);
+    try std.testing.expectEqual(2, (try held(&r, arena, s.source)).len);
 }
 
-test "a series' choice of episodes: next, unwatched, a season's, or all" {
+test "a series' choice of episodes: the next few, or all" {
     const gpa = std.testing.allocator;
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -1044,11 +983,8 @@ test "a series' choice of episodes: next, unwatched, a season's, or all" {
     try library.setWatched(&r, arena, 3, "t/s/firefly/-/e/s01e01", true);
 
     const cases = [_]struct { choice: []const u8, want: []const []const u8 }{
-        .{ .choice = "current", .want = &.{"e/s01e02"} },
+        .{ .choice = "1", .want = &.{"e/s01e02"} },
         .{ .choice = "2", .want = &.{ "e/s01e02", "e/s01e03" } },
-        .{ .choice = "unwatched", .want = &.{ "e/s01e02", "e/s01e03", "e/s02e01", "e/s02e02" } },
-        .{ .choice = "s02", .want = &.{ "e/s02e01", "e/s02e02" } },
-        .{ .choice = "s00", .want = &.{"e/s00e01"} },
         .{ .choice = "all", .want = &items },
     };
     for (cases) |c| {
@@ -1059,7 +995,9 @@ test "a series' choice of episodes: next, unwatched, a season's, or all" {
         try std.testing.expectEqual(c.want.len, got.len);
         for (c.want, got) |w, g| try std.testing.expectEqualStrings(w, g);
     }
-    for ([_][]const u8{ "", "0", "s", "sx", "none" }) |none| try std.testing.expectEqual(@as(?Choice, null), Choice.parse(none));
+    for ([_][]const u8{ "", "0", "s02", "unwatched", "none" }) |none| try std.testing.expectEqual(@as(?Choice, null), Choice.parse(none));
+    // An earlier choice of the current episode reads as the next one.
+    try std.testing.expectEqual(Choice{ .next = 1 }, Choice.parse("current").?);
 
     // Sizes: each file is 1,000 bytes, and none is here.
     try std.testing.expectEqual(Size{ .size = 2000, .needed = 2000 }, try sizeOf(&r, arena, "t/s/firefly/-", .{ .next = 2 }, null));
@@ -1067,8 +1005,8 @@ test "a series' choice of episodes: next, unwatched, a season's, or all" {
     try std.testing.expectEqual(Size{ .size = 3000, .needed = 3000 }, try sizeOf(&r, arena, "t/s/firefly/-/e/s01", null, null));
 
     // Chosen, then none.
-    try setNext(&r, arena, "t/s/firefly/-", .unwatched);
-    try std.testing.expectEqual(Choice.unwatched, (try nexts(&r, arena))[0].choice);
+    try setNext(&r, arena, "t/s/firefly/-", .all);
+    try std.testing.expectEqual(Choice.all, (try nexts(&r, arena))[0].choice);
     try setNext(&r, arena, "t/s/firefly/-", null);
     try std.testing.expectEqual(0, (try nexts(&r, arena)).len);
 }

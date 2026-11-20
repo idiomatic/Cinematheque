@@ -52,7 +52,7 @@ macOS:
   * [DevicesPane.swift](Cinematheque/macOS/Settings/DevicesPane.swift): your devices, each renamable in place (this Mac's name re-advertised) and, but for this Mac, removable (`DeviceRow`); sharing; New Devices; and, under Advanced, devices by address.
   * [PairRow.swift](Cinematheque/macOS/Settings/PairRow.swift): a new device offering to pair, to be yours or to join, paired by the code it shows (typed into `CodeField`: `CodeBoxes`, showing the code's length before it's typed, over an invisible field that takes focus, typing, and pasting, digits alone; the sixth digit pairs, and a wrong code shakes it clear (`Shake`), focused again) and moved, animated, into Your Devices or People.
   * [SourcesPane.swift](Cinematheque/macOS/Settings/SourcesPane.swift): folders on this Mac, chosen with an open panel and served while the app runs, those not there shown as unavailable and served once back, and servers, each added by a button of its own (Add Folder… and Add Server…, whose `SourceSheet` takes a server's address as Finder's Connect to Server does); Look for videos and Refresh Library; a server's unavailable folders, listed in its sheet, each with Remove Videos.
-  * [DownloadsPane.swift](Cinematheque/macOS/Settings/DownloadsPane.swift): the folder, what it holds, and whether watched downloads go at once.
+  * [DownloadsPane.swift](Cinematheque/macOS/Settings/DownloadsPane.swift): the folder, what it holds, and the rule for what goes.
 
 Apple TV:
 

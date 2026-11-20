@@ -2,8 +2,7 @@
 import AppKit
 import SwiftUI
 
-/// Where this Mac keeps downloads, how much they hold, and whether a kept
-/// series' watched episodes go at once.
+/// Where this Mac keeps downloads, and how much they hold.
 struct DownloadsPane: View {
     @Environment(Library.self) private var library
 
@@ -35,18 +34,7 @@ struct DownloadsPane: View {
                     }
                 }
             } footer: {
-                Text("Your other devices can play what this Mac downloads while Cinematheque is open. It always leaves \(floor) free. In another folder, your downloads download again; the old folder's files stay until you delete them.")
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                Toggle("Delete watched downloads right away", isOn: Binding(
-                    get: { library.downloads?.drop_watched ?? false },
-                    set: { library.setDropWatched($0) }
-                ))
-            } header: {
-                Text("Watched downloads")
-            } footer: {
-                Text("Otherwise a download you've watched stays until its space is needed, as for a series' next episodes. Either way, only downloads that another source still has are deleted, and never those you keep.")
+                Text("Your other devices can play what this Mac downloads while Cinematheque is open. It always leaves \(floor) free. What you download stays until you delete it; a series' episodes you've watched go when their space is needed, unless you chose All, or it's the only copy. In another folder, your downloads download again; the old folder's files stay until you delete them.")
                     .foregroundStyle(.secondary)
             }
         }

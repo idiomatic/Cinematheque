@@ -92,9 +92,9 @@ On first run, an app creates a library, or pairs with one of your devices or som
 
 ## Downloading
 
-On a Mac, you can download what you'll watch away from home, or keep on hand when the network is slow. A movie's Download button says its size. A season's Download menu chooses which of the series' episodes the Mac keeps as you watch: the Current one, the Next few, the Unwatched ones of a season or of the whole series, or All of them. The menu gives each choice's size, and the space free, in orange when a choice wouldn't fit.
+On a Mac, you can download what you'll watch away from home, or keep on hand when the network is slow. A movie's Download button says its size. A season's Download menu chooses which of the series' episodes the Mac keeps as you watch: the Next one or few, or All of them. The menu gives each choice's size, and the space free, in orange when a choice wouldn't fit.
 
-Downloads go to `~/Movies/Cinematheque` (Settings > Downloads changes it), wait while something streams so as not to slow it, and are shared with your other devices like any source. Once you've watched a download, it's deleted when its space is needed, but only if a source still holds the same file, and never if it's the only copy; Keep Download, in its context menu, spares it. The trash button beside the Download controls deletes them yourself, and asks first if any is the only copy. Cinematheque always leaves 20 GB free.
+Downloads go to `~/Movies/Cinematheque` (Settings > Downloads changes it), wait while something streams so as not to slow it, and are shared with your other devices like any source. What you download yourself stays until you delete it. A series' episodes you've watched are deleted when their space is needed (unless you chose All), but only if a source still holds the same file, and never if it's the only copy. The trash button beside the Download controls deletes them yourself, and asks first if any is the only copy. Cinematheque always leaves 20 GB free.
 
 ## Sharing a library
 

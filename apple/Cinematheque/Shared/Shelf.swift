@@ -43,16 +43,12 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
     /// Home's are those in progress (movies partway, seasons begun);
     /// Played's, a smart folder, everything with progress, in progress or
     /// watched; the Mac's In Progress, Home's, and its Watched, what's
-    /// watched through, and any with a download watched since (its mark
-    /// saying whether it waits for its space to be needed or is the only
-    /// copy).
+    /// watched through.
     @MainActor func tiles(in library: Library, search: String = "") -> [Tile] {
         #if os(macOS)
         let downloaded = self == .downloaded ? library.downloadedTiles : []
-        let watchedDownloads = self == .watched ? library.watchedTiles : [:]
         #else
         let downloaded: Set<String> = []
-        let watchedDownloads: [String: Bool] = [:]
         #endif
         return library.tiles.filter { tile in
             let on = switch self {
@@ -61,7 +57,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
             case .series: tile.isSeries
             case .watchlist: library.watchlist.contains(tile.id)
             case .played: tile.played
-            case .watched: tile.watched || watchedDownloads[tile.id] != nil
+            case .watched: tile.watched
             case .downloaded: downloaded.contains(tile.id)
             }
             return on && (search.isEmpty || tile.name.localizedCaseInsensitiveContains(search))
@@ -93,7 +89,7 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
     var empty: String {
         switch self {
         case .home, .inProgress: "What you're watching shows here."
-        case .watched: "What you've watched shows here, and downloads you've watched: those another source has, until their space is needed; those that are the only copy, until you delete or keep them."
+        case .watched: "What you've watched shows here."
         case .watchlist: "Titles you add to your watchlist show here."
         case .played: "What you've started or watched shows here."
         case .downloaded: "What you download, to watch without a network, shows here."

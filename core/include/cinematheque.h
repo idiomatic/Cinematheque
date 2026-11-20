@@ -63,22 +63,16 @@ char *cq_race(cq_library *library, const char *urls_json);
 void cq_race_lost(cq_library *library, const char *url);
 
 // Downloads, this device's: kept in dir, served at served_at (a source
-// of its own, never crawled). drop_watched deletes downloads watched since
-// fetched at once, else only as space is needed; either way only once
-// another source holds them, and never kept ones (cq_keep).
-// cq_download wants a title, season
-// (TITLE/e/s01), or item kept, in a quality (null: the commonest);
-// cq_download_next chooses which of a series' episodes download as it's
-// watched: the "current" one, the next N ("3"), "unwatched", a season's
-// unwatched ("s02"),
-// or "all", kept however watched ("" or "0" stops); cq_download_remove
-// deletes and stops wanting; cq_downloads is all of it as JSON;
-// cq_reconcile (long, its own connection) fetches and deletes to
-// match, returning at once with "busy" if one runs, which then runs again.
-int cq_downloads_configure(cq_library *library, const char *dir, const char *served_at, int drop_watched);
-// Whether watched downloads go at once, alone: quick, waiting on no long
-// operation, as configuring does.
-int cq_downloads_drop_watched(cq_library *library, int on);
+// of its own, never crawled). cq_download wants a title, season
+// (TITLE/e/s01), or item kept, in a quality (null: the commonest), until
+// deleted; cq_download_next chooses which of a series' episodes download
+// as it's watched: the next N ("3"), whose watched ones go as their space
+// is needed (if another source holds them), or "all", kept however watched
+// ("" or "0" stops); cq_download_remove deletes and stops wanting;
+// cq_downloads is all of it as JSON; cq_reconcile (long, its own
+// connection) fetches and deletes to match, returning at once with "busy"
+// if one runs, which then runs again.
+int cq_downloads_configure(cq_library *library, const char *dir, const char *served_at);
 int cq_download(cq_library *library, const char *key, const char *quality);
 int cq_download_remove(cq_library *library, const char *key);
 int cq_download_next(cq_library *library, const char *title_key, const char *choice);
@@ -87,9 +81,6 @@ int cq_download_next(cq_library *library, const char *title_key, const char *cho
 // its title, or "" for key's own files in quality, NULL for the commonest),
 // its total size and what of it isn't here yet (needed), in bytes.
 char *cq_download_sizes(cq_library *library, const char *key, const char *choices_json, const char *quality);
-// Keeps a download (an item), so it's never deleted as watched; 0 lets it
-// go.
-int cq_keep(cq_library *library, const char *item_key, int on);
 char *cq_downloads(cq_library *library);
 char *cq_reconcile(cq_library *library);
 // Holds downloads back (nonzero) while a stream plays: none begins; 0

@@ -433,7 +433,6 @@ final class Library {
         streams = []
         downloads = nil
         downloadedTiles = []
-        watchedTiles = [:]
         Playback.downloads = nil
         #endif
         dirty = true
@@ -898,31 +897,19 @@ final class Library {
         }
 
         /// A series' choice of episodes to download as it's watched, as
-        /// `cq_download_next` takes it: a count, `unwatched`, a season's
-        /// (`s02`), or `all`.
+        /// `cq_download_next` takes it: a count, or `all`.
         struct Next: Decodable, Equatable {
             let title: String
             let choice: String
         }
 
-        /// Watched since downloaded, and not pinned: `deletable` (waiting
-        /// for its space to be needed) once another source holds it, else
-        /// the only copy, for a person to delete or keep.
-        struct Done: Decodable, Equatable {
-            let item: String
-            let deletable: Bool
-        }
-
         let dir: String?
         let source: String?
-        let drop_watched: Bool
         let held: [Held]
         let wanted: [Wanted]
         let next: [Next]
         /// The episodes (full item keys) the series' choices come to now.
         let ahead: [String]
-        let watched: [Done]
-        let kept: [String]
         let free: Int?
         let floor: Int
         let running: Bool
@@ -956,13 +943,6 @@ final class Library {
         guard loaded != downloads else { return }
         downloads = loaded
         downloadedTiles = Self.tiles(of: (loaded?.held ?? []).map(\.item))
-        // A tile is waiting if all its watched downloads are; else it needs
-        // a person.
-        var watched: [String: Bool] = [:]
-        for done in loaded?.watched ?? [] {
-            for tile in Self.tiles(of: [done.item]) { watched[tile] = (watched[tile] ?? true) && done.deletable }
-        }
-        watchedTiles = watched
         if let d = downloads, let id = d.source, let dir = d.dir, let source = sources.first(where: { $0.id == id }) {
             Playback.downloads = .init(source: id, base: source.url, dir: dir)
         } else {
@@ -1017,18 +997,6 @@ final class Library {
     /// The tiles (movies, and seasons) with something downloaded, as of the
     /// last reload.
     private(set) var downloadedTiles: Set<String> = []
-
-    /// The tiles with downloads watched since, and whether each is only
-    /// waiting (every one held elsewhere) or needs a person (the only copy).
-    private(set) var watchedTiles: [String: Bool] = [:]
-
-    /// A download watched since, if this item is.
-    func done(_ item: String) -> Downloads.Done? { downloads?.watched.first { $0.item == item } }
-
-    func isKept(_ item: String) -> Bool { downloads?.kept.contains(item) ?? false }
-
-    /// Keeps a download however it's watched, or lets it go once watched.
-    func keep(_ item: String, _ on: Bool) { check { cq_keep($0, item, on ? 1 : 0) } }
 
     private static func tiles(of items: [String]) -> Set<String> {
         Set(items.compactMap { item in
@@ -1108,29 +1076,14 @@ final class Library {
         reconcileSoon()
     }
 
-    /// Whether watched downloads go at once: set alone, so it doesn't wait
-    /// for a refresh holding the writer, and shown at once. Nothing in the
-    /// library changes, so only downloads are reread, not every shelf.
-    func setDropWatched(_ on: Bool) {
-        guard let handle else { return }
-        if cq_downloads_drop_watched(handle.pointer, on ? 1 : 0) != 0 {
-            report(.change, "Couldn't change the library: \(Self.reason(String(cString: cq_error()))).")
-        } else {
-            report(.change, nil)
-        }
-        reloadDownloads()
-        reconcileSoon()
-    }
-
-    /// Changes where downloads go, or whether a kept series' watched
-    /// episodes go at once.
-    func setDownloads(dir: String? = nil, dropWatched: Bool? = nil) {
+    /// Changes where downloads go.
+    func setDownloads(dir: String? = nil) {
         if let dir, dir != downloadsDir {
-            configureDownloads(dir: dir, dropWatched: dropWatched)
+            configureDownloads(dir: dir)
             // Served from the new folder; what's wanted is fetched there.
             if servingPort != nil { serve() }
         } else {
-            configureDownloads(dir: dir, dropWatched: dropWatched)
+            configureDownloads(dir: dir)
         }
         reconcileSoon()
     }
@@ -1139,7 +1092,7 @@ final class Library {
     /// Mac serves on, or last did); a source served at another address
     /// before (another port) is removed, its copies recorded afresh as
     /// reconciling finds the files.
-    private func configureDownloads(dir: String? = nil, dropWatched: Bool? = nil) {
+    private func configureDownloads(dir: String? = nil) {
         guard hasLibrary else { return }
         let port = servingPort ?? UserDefaults.standard.integer(forKey: "servingPort")
         guard port > 0 else { return }
@@ -1149,8 +1102,7 @@ final class Library {
         if let id = downloads?.source, let old = sources.first(where: { $0.id == id }), old.url != url {
             removeSource(old.id)
         }
-        let drop = dropWatched ?? downloads?.drop_watched ?? false
-        check { cq_downloads_configure($0, path, url, drop ? 1 : 0) }
+        check { cq_downloads_configure($0, path, url) }
     }
 
     /// Playback sessions streaming (not playing a file), during which no
