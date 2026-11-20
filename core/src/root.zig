@@ -22,6 +22,7 @@ pub const views = @import("views.zig");
 
 test {
     _ = replica;
+    _ = @import("replica_tests.zig");
     _ = sync;
     _ = crawl;
     _ = naming;

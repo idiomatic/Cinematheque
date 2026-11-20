@@ -12,7 +12,9 @@ It links the system's SQLite, and on Linux Avahi's `libdns_sd`. `zig build` also
 
 | Module | What it does |
 |---|---|
-| [replica](src/replica.zig) | Operations in SQLite, signed in Merkle batches; membership, handover, and removal with repair; private streams; the sync frame protocol; repair's fetches with shared proofs; the device's own state (`local`) |
+| [replica](src/replica.zig) | Operations in SQLite, signed in Merkle batches; membership, handover, and removal; private streams; the device's own state (`local`); its tests in [replica_tests.zig](src/replica_tests.zig) |
+| [frames](src/frames.zig) | The sync frame protocol: version vectors, and a sync's operations by batch, written and checked (re-exported by replica) |
+| [repair](src/repair.zig) | Repair's fetches of the fields a removal dropped, with shared proofs (re-exported by replica) |
 | [sync](src/sync.zig) | Sync over HTTP, gzipped: requests signed by the device and certified by its person, served only to members, without other people's private streams |
 | [crawl](src/crawl.zig) | Listings, detected per source (`INDEX`, Caddy's or nginx's JSON, HTML), and re-crawls that reuse unchanged directories |
 | [naming](src/naming.zig) | The filename parser |
