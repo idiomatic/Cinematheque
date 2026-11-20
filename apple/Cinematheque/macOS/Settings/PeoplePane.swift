@@ -5,6 +5,18 @@ import SwiftUI
 struct PeoplePane: View {
     @Environment(Library.self) private var library
     @State private var nearby: [NearbyDevice] = []
+    @State private var confirmingLeave = false
+    @State private var choosingSuccessor = false
+    @State private var leaving = false
+    @State private var problem: String?
+    /// Closes Settings once this Mac has left: there's nothing to set.
+    @Environment(\.dismiss) private var dismiss
+
+    private var me: Member? { library.members.first(where: \.you) }
+    private var others: [Member] { library.members.filter { !$0.you } }
+    /// The founder's only device: leaving takes the founder with it, so it
+    /// hands the library over first, or, if no one else is in it, ends it.
+    private var foundersOnly: Bool { me?.founder == true && library.status?.others == 0 }
 
     var body: some View {
         Form {
@@ -25,9 +37,49 @@ struct PeoplePane: View {
             } footer: {
                 Text("Everyone who shares the library sees your name. To add someone, they choose Join a Library on their device, which shows a code: enter it in Devices, under New Devices, as someone new's. Removing someone refuses what they change from then on; their devices leave the library the next time each catches up.")
             }
+            Section {
+                Button("Leave This Library…", action: askToLeave)
+                    .disabled(leaving)
+            } footer: {
+                Text(leaving ? "Leaving…" : problem ?? "This Mac leaves the library and returns to its welcome window, to join a library again or create another.")
+            }
         }
         .formStyle(.grouped)
         .modifier(Nearby(devices: $nearby))
+        // Hard to undo, so asked first.
+        .alert(foundersOnly ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
+            Button(foundersOnly ? "Leave and End It" : "Leave", role: .destructive) { leave(successor: nil, alone: foundersOnly) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(foundersOnly
+                ? "No one else is in this library, so once this Mac leaves, it's gone for good. Its videos stay where they are."
+                : "This Mac leaves the library, and your other devices no longer list it. To come back, join again.")
+        }
+        // The founder's only device leaving: someone takes over first.
+        .confirmationDialog("Who takes over the library?", isPresented: $choosingSuccessor, titleVisibility: .visible) {
+            ForEach(others) { member in
+                Button(member.name ?? "Someone Unnamed") { leave(successor: member.key, alone: false) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You founded this library, and this Mac is your only device in it, so someone takes over as its founder before it leaves.")
+        }
+    }
+
+    /// Asks first: who takes over, if the founder's only device leaves with
+    /// others in the library; else whether to leave.
+    private func askToLeave() {
+        if foundersOnly, !others.isEmpty { choosingSuccessor = true } else { confirmingLeave = true }
+    }
+
+    private func leave(successor: String?, alone: Bool) {
+        leaving = true
+        problem = nil
+        Task {
+            problem = await library.leaveLibrary(successor: successor, alone: alone)
+            leaving = false
+            if problem == nil, !library.hasLibrary { dismiss() }
+        }
     }
 
     /// Devices of this library nearby whose people aren't members yet.
@@ -43,6 +95,9 @@ private struct MemberRow: View {
     let member: Member
     @Environment(Library.self) private var library
     @State private var name = ""
+    /// Removing someone is confirmed first: they can come back only by
+    /// joining again, as someone new.
+    @State private var confirmingRemoval = false
 
     var body: some View {
         HStack {
@@ -63,9 +118,15 @@ private struct MemberRow: View {
                 Text("Founder").foregroundStyle(.secondary)
             } else if !member.you {
                 RemoveButton(help: "Remove from the library, with their devices") {
-                    library.setMember(member.key, false)
+                    confirmingRemoval = true
                 }
             }
+        }
+        .confirmationDialog("Remove \(member.name ?? "Them")?", isPresented: $confirmingRemoval) {
+            Button("Remove", role: .destructive) { library.setMember(member.key, false) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("They and their devices leave the library, and what they change from then on is refused. To come back, they join again as someone new; their watchlist and progress don't come back with them.")
         }
         .onAppear { name = member.name ?? "" }
         .onChange(of: member.name) { name = member.name ?? "" }
