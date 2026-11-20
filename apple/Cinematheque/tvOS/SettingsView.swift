@@ -123,7 +123,8 @@ struct SettingsView: View {
     /// it's submitted (a blank one ignored), and Back leaves it as it was.
     private func nameRow(_ title: String, _ name: String?, _ which: Library.Named) -> some View {
         Button { naming = which } label: {
-            ValueLabel(title: title, value: name ?? "Unnamed")
+            // A chevron, as the system's Name row has, though a keyboard opens.
+            ValueLabel(title: title, opens: true, value: name ?? "Unnamed")
         }
         .background {
             KeyboardField(title: title, text: name ?? "", typing: Binding(get: { naming == which }, set: { if !$0 { naming = nil } })) {
@@ -183,7 +184,7 @@ private extension View {
 
 /// A row's title and value, as tvOS's Settings draws them: side by side,
 /// the value giving way first, or at accessibility text sizes, the value
-/// under the title; and for a row opening a page, a chevron (measured
+/// under the title; and for a row opening something, a chevron (measured
 /// against the system's: 18 by 32 points, 32 after the value and 36 short
 /// of the plate's edge, scaling with the text).
 private struct ValueLabel: View {
