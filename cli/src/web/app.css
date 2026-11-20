@@ -21,14 +21,19 @@ header {
   backdrop-filter: blur(20px);
   border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
 }
-nav { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
+/* On one line, scrolling sideways where the window's too narrow for it,
+   once search has narrowed. */
+nav {
+  display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none;
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
 nav a {
   padding: 6px 12px; border-radius: 8px;
-  color: var(--text); text-decoration: none; font-weight: 500;
+  color: var(--text); text-decoration: none; font-weight: 500; white-space: nowrap;
 }
 nav a[aria-current="page"] { background: var(--raised); }
 #search {
-  width: 220px; padding: 6px 10px; border-radius: 8px;
+  flex: 0 10 220px; min-width: 120px; padding: 6px 10px; border-radius: 8px;
   border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
   background: Canvas; color: inherit; font: inherit;
 }
@@ -81,9 +86,10 @@ main > h2:first-child { margin-top: 0; }
 /* First on a shelf, it starts where the first row would, as a heading does. */
 main > div:first-child > .series-name:first-child { margin-top: 0; }
 
-.page { display: grid; grid-template-columns: 280px 1fr; gap: 32px; margin-top: 24px; }
+/* The cover gives way first, so Play and the marks keep one row. */
+.page { display: grid; grid-template-columns: clamp(160px, 28vw, 280px) 1fr; gap: 32px; margin-top: 24px; }
 .page .art {
-  width: 280px; border-radius: 10px; overflow: hidden; align-self: start;
+  width: 100%; border-radius: 10px; overflow: hidden; align-self: start;
   background: var(--raised) center / cover no-repeat; aspect-ratio: 2 / 3;
 }
 .page .art.square { aspect-ratio: 1; }
@@ -91,7 +97,6 @@ main > div:first-child > .series-name:first-child { margin-top: 0; }
 .page h1 { margin: 0; font-size: 28px; }
 .facts { color: var(--dim); margin: 4px 0 16px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; max-width: 80ch; }
-.spacer { flex: 1; }
 .progress { display: flex; gap: 10px; align-items: center; max-width: 80ch; margin: -4px 0 12px; }
 .progress progress { flex: 1; height: 4px; accent-color: var(--accent); }
 .progress .left { color: var(--dim); font-size: 12px; white-space: nowrap; }
@@ -102,8 +107,9 @@ button.mark:hover { color: var(--text); }
 button.mark[aria-pressed="true"] { color: var(--text); }
 .heading { display: flex; gap: 12px; align-items: center; margin: 24px 0 4px; max-width: 80ch; }
 .heading h2 { margin: 0; font-size: 17px; }
-.picker { color: var(--dim); font-size: 13px; }
-.picker select, .heading select { margin-left: 4px; padding: 4px 8px; font-size: 13px; }
+.quality { display: flex; gap: 10px; align-items: center; margin: 16px 0 0; }
+.quality .label { color: var(--dim); }
+.heading select { margin-left: 4px; padding: 4px 8px; font-size: 13px; }
 button, select {
   font: inherit; padding: 7px 14px; border-radius: 8px; cursor: pointer;
   border: 1px solid color-mix(in srgb, CanvasText 15%, transparent);

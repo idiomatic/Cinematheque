@@ -343,12 +343,11 @@ async function titlePage(key, season) {
 
   const play = (index, fromStart) => playQueue(detail, items, index, quality, fromStart);
   // Playing, on a row of its own, filled, Start Over before Resume, as a
-  // player's timeline starts at its leading edge: the marks, quieter, at
-  // its end.
+  // player's timeline starts at its leading edge: the marks, quieter,
+  // beside it, as the Mac's inspector has them.
   const actions = el("div", { class: "actions" },
     resuming ? el("button", { type: "button", disabled: !quality, onclick: () => play(next, true) }, "⏮ Start Over") : null,
     el("button", { class: "primary", type: "button", disabled: !quality, onclick: () => play(next) }, "▶ " + nextLabel),
-    el("span", { class: "spacer" }),
     el("button", { class: "mark", type: "button", "aria-pressed": listed, onclick: async () => { await api("watchlist", { key: isSeries ? `${key}#${season}` : key, on: !listed }); await reload(); route(); } },
       listed ? "★ On Watchlist" : "☆ Watchlist"),
     el("button", { class: "mark", type: "button", "aria-pressed": allWatched, onclick: async () => {
@@ -358,13 +357,19 @@ async function titlePage(key, season) {
   );
   if (!quality) problem("None of its copies plays in a browser (MKV and ISO files don't).");
 
-  // The quality, by its short label, with its full name as its sources give it.
+  // The quality, by its short label, with its full name as its sources
+  // give it, in a row of its own above Play, as the Mac's inspector has
+  // it, so choosing it changes only what's below; a title of one quality
+  // says it as text, so every title says what it plays in.
   const short = shortNames(qualities);
-  const qualityPicker = qualities.length > 1 ? el("label", { class: "picker" }, "Quality ",
-    el("select", {
-      title: qualities.find((q) => q.label === quality)?.name,
+  const chosen = qualities.find((q) => q.label === quality);
+  const qualityRow = !chosen ? null : el("div", { class: "quality" }, el("span", { class: "label" }, "Quality"),
+    qualities.length > 1 ? el("select", {
+      "aria-label": "Quality",
+      title: chosen.name,
       onchange: (e) => { chosenQuality.set(key, e.target.value); route(); },
-    }, qualities.map((q) => el("option", { value: q.label, selected: q.label === quality, title: q.name }, short.get(q.label))))) : null;
+    }, qualities.map((q) => el("option", { value: q.label, selected: q.label === quality, title: q.name }, short.get(q.label))))
+      : el("span", { title: chosen.name }, short.get(chosen.label)));
 
   // The season, unless its pop-up says which.
   const facts = [isSeries && seasons.length < 2 ? seasonName(season) : null, detail.year, detail.fields.genre, detail.fields.network,
@@ -372,17 +377,18 @@ async function titlePage(key, season) {
   const body = [
     el("h1", {}, detail.name),
     facts ? el("div", { class: "facts" }, facts) : null,
+    qualityRow,
     actions,
     !isSeries && items.length === 1 ? progressRow(detail, items[0]) : null,
     detail.fields.description && !isSeries ? el("p", { class: "description" }, detail.fields.description) : null,
   ];
   if (isSeries) {
-    // Which season, and its quality, in the heading of the episodes they choose.
+    // Which season, in the heading of the episodes it chooses.
     const seasonPicker = seasons.length > 1 ? el("select", {
       "aria-label": "Season",
       onchange: (e) => { location.hash = `#title/${encodeURIComponent(key)}/${e.target.value}`; },
     }, seasons.map((s) => el("option", { value: s, selected: s === season }, seasonName(s)))) : null;
-    body.push(el("div", { class: "heading" }, el("h2", {}, "Episodes"), seasonPicker, el("span", { class: "spacer" }), qualityPicker));
+    body.push(el("div", { class: "heading" }, el("h2", {}, "Episodes"), seasonPicker));
     body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", { class: item.watched ? "watched" : null },
       el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
@@ -391,14 +397,12 @@ async function titlePage(key, season) {
       item.fields.description ? el("span", { class: "desc" }, item.fields.description) : null,
     ))));
   } else if (items.length > 1) {
-    body.push(el("div", { class: "heading" }, el("h2", {}, "Versions"), el("span", { class: "spacer" }), qualityPicker));
+    body.push(el("div", { class: "heading" }, el("h2", {}, "Versions")));
     body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", {},
       el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
       el("span", { class: "time" }, ""),
     ))));
-  } else if (qualityPicker) {
-    body.push(el("div", { class: "heading" }, el("span", { class: "spacer" }), qualityPicker));
   }
   describe(detail, items);
   return [el("div", { class: "page" }, art, el("div", {}, body))];
