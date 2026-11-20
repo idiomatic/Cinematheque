@@ -49,16 +49,15 @@ struct WindowPlayer: View {
             .overlay(alignment: .top) {
                 // The title bar's row, as QuickTime Player's: the window's
                 // buttons (faded with it, by HidesToolbar), Back, and what's
-                // playing, centered, over a gradient to read over any
-                // picture; still there, unseen, for Escape.
+                // playing after it, where macOS puts a window's title, over a
+                // gradient to read over any picture; still there, unseen, for
+                // Escape.
                 ZStack(alignment: .top) {
                     LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
                         .frame(height: 72)
                         .allowsHitTesting(false)
                     ZStack {
-                        NowPlaying(title: title.isEmpty ? request.title : title)
-                            .padding(.horizontal, 180)
-                        HStack {
+                        HStack(spacing: 6) {
                             Button(action: leave) {
                                 Label("Back", systemImage: "chevron.backward")
                                     // The size of a window's title.
@@ -72,7 +71,8 @@ struct WindowPlayer: View {
                             .keyboardShortcut(.cancelAction)
                             .help("Back to the library (Escape)")
                             .onHover { onBack = $0 }
-                            Spacer()
+                            NowPlaying(title: title.isEmpty ? request.title : title)
+                            Spacer(minLength: 16)
                         }
                         // Past the window's buttons.
                         .padding(.leading, 76)
@@ -96,24 +96,21 @@ struct WindowPlayer: View {
     }
 }
 
-/// What's playing, centered in the title bar's row: a movie's name, or a
-/// series' with the episode (its code and name) after it.
+/// What's playing, as a window's title says it, in its place after Back:
+/// a movie's name, or a series' with the episode (its code and name) after
+/// it, as `Playback.name` joins them, in one weight.
 private struct NowPlaying: View {
     let title: String
 
     var body: some View {
-        // Playback.name joins them with " · ": the title, then the rest.
-        let parts = title.split(separator: " · ", maxSplits: 1).map(String.init)
-        if let name = parts.first {
-            (Text(name).fontWeight(.semibold) + Text(parts.count > 1 ? "  " + parts[1] : "").foregroundStyle(.white.opacity(0.75)))
-                // The size of a window's title.
-                .font(.body)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .shadow(color: .black.opacity(0.4), radius: 2)
-                .allowsHitTesting(false)
-        }
+        Text(title)
+            // A window's title's size and weight.
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .shadow(color: .black.opacity(0.4), radius: 2)
+            .allowsHitTesting(false)
     }
 }
 
