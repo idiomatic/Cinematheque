@@ -174,3 +174,4 @@ Their details, as built, are in [apple/README.md](apple/README.md#in-detail).
 ## References
 
 * [Local-first software](https://en.wikipedia.org/wiki/Local-first_software)
+* [Platform design skills](https://github.com/ehmo/platform-design-skills/tree/main/skills)
