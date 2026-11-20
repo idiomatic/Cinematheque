@@ -59,12 +59,27 @@ struct TitleDetail: Codable {
 
     struct Quality: Codable, Hashable {
         let label: String
+        /// As its sources give it.
         let name: String
+        /// For a picker, as the core names it ("1080p", "4K HDR", "720p
+        /// Very Fast").
+        let short: String
         let copies: [Copy]
     }
 
+    /// An item, as the core names it (no key is read here).
     struct Item: Codable, Hashable, Identifiable {
         let key: String
+        /// An episode's season and number (a special's number null; a dated
+        /// one's season its year).
+        let season: Int?
+        let number: Int?
+        /// "Episode 3", "Special", "March 12", or a version's name.
+        let label: String
+        /// In a list: "3. Title", or a special's or dated episode's title.
+        let name: String
+        /// A dated episode's air date, `2024-03-12`.
+        let aired: String?
         /// An episode's `title`, `description`, and `duration`.
         let fields: [String: String]
         let qualities: [Quality]
@@ -74,24 +89,8 @@ struct TitleDetail: Codable {
         let watched: Bool
         var id: String { key }
 
-        /// The season and episode of `e/s03e17`; a special (`e/s00-name`)
-        /// is season 0, episode 0.
-        var episode: (season: Int, number: Int)? {
-            if key.hasPrefix("e/s00-") { return (0, 0) }
-            let numbers = key.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
-            return key.hasPrefix("e/s") && numbers.count >= 2 ? (numbers[0], numbers[1]) : nil
-        }
-
-        /// A dated episode's air date (`e/s2024e0312`, a season a year).
-        var airDate: Date? {
-            guard let e = episode, e.season >= 1000 else { return nil }
-            return DateComponents(calendar: .current, year: e.season, month: e.number / 100, day: e.number % 100).date
-        }
-
-        /// A version's name: its edition as written, or "Standard".
-        var versionName: String {
-            fields["edition"] ?? (key.hasPrefix("v/-") ? "Standard" : key.dropFirst(2).replacingOccurrences(of: "-", with: " ").capitalized)
-        }
+        /// An episode's season and number (a special's, 0).
+        var episode: (season: Int, number: Int)? { season.map { ($0, number ?? 0) } }
     }
 
     let key: String

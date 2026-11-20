@@ -43,7 +43,7 @@ struct MovieView: View {
                                 QualityPicker(detail: detail, items: detail.items, chosen: $quality)
                             }
                             ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
-                                Button(item.versionName, systemImage: item.watched ? "checkmark.circle.fill" : "play.circle") {
+                                Button(item.label, systemImage: item.watched ? "checkmark.circle.fill" : "play.circle") {
                                     playing = Playback.request(detail, items: [item], from: 0, quality: detail.quality(for: [item], chosen: quality))
                                 }
                             }
@@ -178,7 +178,7 @@ private struct Episode: View {
     var body: some View {
         HStack(spacing: 24) {
             Image(systemName: item.progressSymbol)
-            Text(item.episodeName)
+            Text(item.name)
             Spacer()
             if let runtime = item.runtime {
                 Text(runtime).foregroundStyle(.secondary)

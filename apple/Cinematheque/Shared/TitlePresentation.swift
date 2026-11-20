@@ -34,13 +34,6 @@ extension TitleDetail.Item {
     /// Begun but not finished.
     var inProgress: Bool { !watched && position > 0 }
 
-    /// "3. Title", or a special's or dated episode's title alone.
-    var episodeName: String {
-        if let airDate { return fields["title"] ?? airDate.formatted(.dateTime.month(.wide).day()) }
-        let number = episode?.number ?? 0
-        let title = fields["title"] ?? (number == 0 ? "Special" : "Episode \(number)")
-        return number == 0 ? title : "\(number). \(title)"
-    }
 
     /// A symbol of how far this person has watched it.
     var progressSymbol: String {
@@ -70,12 +63,12 @@ extension Playback {
     /// rewinding).
     static let startOverSymbol = "backward.end.fill"
 
-    /// "Play", "Resume", "Play Episode 3", "Resume Special", "Play March 12".
+    /// "Play", "Resume", "Play Episode 3", "Resume Special", "Play March 12"
+    /// (the episode's label, as the core gives it).
     static func playLabel(_ next: TitleDetail.Item?) -> String {
         guard let next else { return "Play" }
         let verb = next.inProgress ? "Resume" : "Play"
-        if let date = next.airDate { return "\(verb) \(date.formatted(.dateTime.month(.wide).day()))" }
-        if let e = next.episode { return e.number == 0 ? "\(verb) Special" : "\(verb) Episode \(e.number)" }
+        if next.episode != nil { return "\(verb) \(next.label)" }
         return verb
     }
 }
@@ -96,40 +89,11 @@ enum QualityChoice {
         items.lazy.flatMap(\.qualities).first { $0.label == label }?.name ?? label
     }
 
-    /// Each quality's short name for a picker: its resolution (2160p as 4K),
-    /// with HDR if it says so ("1080p", "4K HDR"); "Other" for one of
-    /// unknown quality; where two would read alike, each with what else its
-    /// full name says, its resolution and options' syntax aside ("720p Very
-    /// Fast"), failing that its full name; and its full name where it gives
-    /// no resolution. The full name is the picker's help.
+    /// Each quality's short name for a picker, as the core names it (see
+    /// views.zig); the full name is the picker's help.
     static func shortNames(_ labels: [String], in items: [TitleDetail.Item]) -> [String: String] {
-        func short(_ label: String) -> String {
-            let full = name(label, in: items)
-            if label == "-" { return full == "-" ? "Other" : full }
-            let text = "\(label) \(full)".lowercased()
-            let resolution: String
-            if let match = text.firstMatch(of: /(\d{3,4})p/) {
-                resolution = match.1 == "2160" ? "4K" : "\(match.1)p"
-            } else if text.contains("4k") {
-                resolution = "4K"
-            } else {
-                return full
-            }
-            return text.contains("hdr") || text.contains("dolby vision") || text.contains("dovi") ? "\(resolution) HDR" : resolution
-        }
-        func rest(_ full: String) -> String {
-            full.replacing(/\b\d{3,4}p\d*\b/.ignoresCase(), with: "")
-                .replacing(/--?[\w-]+=/, with: "")
-                .split(separator: " ").joined(separator: " ")
-        }
-        let shorts = labels.map(short)
-        let told = zip(labels, shorts).map { label, s in
-            shorts.filter { $0 == s }.count > 1 ? "\(s) \(rest(name(label, in: items)))".trimmingCharacters(in: .whitespaces) : s
-        }
         var out: [String: String] = [:]
-        for (label, t) in zip(labels, told) {
-            out[label] = told.filter { $0 == t }.count > 1 ? name(label, in: items) : t
-        }
+        for q in items.lazy.flatMap(\.qualities) where labels.contains(q.label) && out[q.label] == nil { out[q.label] = q.short }
         return out
     }
 

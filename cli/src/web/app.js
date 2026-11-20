@@ -251,25 +251,14 @@ function counts(shelf) {
 
 // Title pages.
 
-/// An item key's season and episode (`e/s03e17`), if an episode's.
-function episodeCode(key) {
-  const m = /^e\/s(\d+)(?:e(\d+))?/.exec(key);
-  return m ? { season: Number(m[1]), number: m[2] == null ? null : Number(m[2]) } : null;
-}
-
-/// A dated episode's air date (`e/s2024e0312`, a season a year), as
-/// "March 12".
-function airDate(code) {
-  if (!code || code.season < 1000 || code.number == null) return null;
-  const date = new Date(code.season, Math.floor(code.number / 100) - 1, code.number % 100);
-  return date.toLocaleDateString(undefined, { month: "long", day: "numeric" });
-}
+// Items come named by the core (`season`, `number`, `label`, `name`), so
+// no key is read here.
 
 function itemsOf(detail, season) {
   if (season == null) return detail.items;
   return detail.items
-    .filter((i) => episodeCode(i.key)?.season === season)
-    .sort((a, b) => (episodeCode(a.key).number ?? 1e9) - (episodeCode(b.key).number ?? 1e9) || a.key.localeCompare(b.key));
+    .filter((i) => i.season === season)
+    .sort((a, b) => (a.number ?? 1e9) - (b.number ?? 1e9) || a.key.localeCompare(b.key));
 }
 
 /// Whether a browser plays a copy's file: MP4, M4V, or MOV (not MKV or ISO).
@@ -293,29 +282,15 @@ function qualitiesOf(items) {
   for (const item of items) for (const q of item.qualities) {
     if (!q.copies.some((c) => c.url && playable(c.url))) continue;
     if (rank(q.label) < 0) continue;
-    if (!found.has(q.label)) found.set(q.label, q.name || q.label);
+    if (!found.has(q.label)) found.set(q.label, q);
   }
-  return [...found].sort((a, b) => rank(b[0]) - rank(a[0])).map(([label, name]) => ({ label, name }));
+  return [...found.values()].sort((a, b) => rank(b.label) - rank(a.label));
 }
 
-/// Each quality's short label: its resolution (2160p as 4K), with HDR if it
-/// says so ("1080p", "4K HDR"), or "Other" for one of unknown quality.
-/// Where two would read alike, each adds what else its full name says, its
-/// resolution and options' syntax aside ("720p Very Fast"); failing that,
-/// its full name.
+/// Each quality's short label, as the core names it ("1080p", "4K HDR",
+/// "720p Very Fast").
 function shortNames(qualities) {
-  const short = (q) => {
-    if (q.label === "-") return q.name === "-" ? "Other" : q.name;
-    const text = `${q.label} ${q.name}`;
-    const m = /(\d{3,4})p/i.exec(text);
-    const resolution = m ? (m[1] === "2160" ? "4K" : `${m[1]}p`) : /\b4k\b/i.test(text) ? "4K" : null;
-    if (!resolution) return q.name;
-    return /\b(hdr|dolby ?vision|dovi)\b/i.test(text) ? `${resolution} HDR` : resolution;
-  };
-  const rest = (name) => name.replace(/\b\d{3,4}p\d*\b/gi, "").replace(/--?[\w-]+=/g, "").replace(/\s+/g, " ").trim();
-  const shorts = qualities.map(short);
-  const told = qualities.map((q, i) => shorts.filter((s) => s === shorts[i]).length > 1 ? `${shorts[i]} ${rest(q.name)}`.trim() : shorts[i]);
-  return new Map(qualities.map((q, i) => [q.label, told.filter((t) => t === told[i]).length > 1 ? q.name : told[i]]));
+  return new Map(qualities.map((q) => [q.label, q.short]));
 }
 
 /// The quality chosen on this page, kept per title while the page is open.
@@ -327,13 +302,10 @@ function formatTime(ms) {
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
 }
 
+/// An episode's name in a list; a version's, with the title's.
 function itemTitle(detail, item) {
-  const code = episodeCode(item.key);
-  const name = item.fields.title;
-  if (!code) return item.key.startsWith("v/-") ? detail.name : `${detail.name} (${item.fields.edition || item.key.slice(2)})`;
-  if (code.season === 0) return name || "Special";
-  if (airDate(code)) return name || airDate(code);
-  return `${code.number}. ${name || "Episode " + code.number}`;
+  if (item.season != null) return item.name;
+  return item.label === "Standard" ? detail.name : `${detail.name} (${item.label})`;
 }
 
 /// What Play plays: the item in progress (the latest, if several), else the
@@ -350,7 +322,7 @@ function nextIndex(items) {
 
 async function titlePage(key, season) {
   const detail = await api("title?" + new URLSearchParams({ key }));
-  const seasons = [...new Set(detail.items.map((i) => episodeCode(i.key)?.season).filter((s) => s != null))].sort((a, b) => (a || 1e9) - (b || 1e9));
+  const seasons = [...new Set(detail.items.map((i) => i.season).filter((s) => s != null))].sort((a, b) => (a || 1e9) - (b || 1e9));
   const isSeries = seasons.length > 0;
   if (isSeries && season == null) season = seasons.find((s) => itemsOf(detail, s).some((i) => !i.watched)) ?? seasons[0];
   const items = itemsOf(detail, isSeries ? season : null);
@@ -375,7 +347,7 @@ async function titlePage(key, season) {
   const listed = library.watchlist.has(isSeries ? `${key}#${season}` : key);
   const allWatched = items.length > 0 && items.every((i) => i.watched);
   const nextLabel = !items[next] ? "Play" : isSeries
-    ? `${resuming ? "Resume" : "Play"} ${episodeCode(items[next].key).season === 0 ? "Special" : airDate(episodeCode(items[next].key)) ?? "Episode " + episodeCode(items[next].key).number}`
+    ? `${resuming ? "Resume" : "Play"} ${items[next].label}`
     : resuming ? "Resume" : "Play";
 
   const play = (index, fromStart) => playQueue(detail, items, index, quality, fromStart);
@@ -459,7 +431,7 @@ async function describe(detail, items) {
   let any = false;
   for (const item of items) {
     const key = `${detail.key}/${item.key}`;
-    if (!episodeCode(item.key) || item.fields.title || described.has(key)) continue;
+    if (item.season == null || item.fields.title || described.has(key)) continue;
     described.add(key);
     if (location.hash !== page || session) return;
     await api("describe", { item: key }).then(() => { any = true; }).catch(() => {});
@@ -523,7 +495,7 @@ async function start(me, fromStart) {
   const item = me.items[me.index];
   me.item = item;
   me.started = false;
-  document.title = episodeCode(item.key) ? `${me.detail.name} · ${itemTitle(me.detail, item)}` : itemTitle(me.detail, item);
+  document.title = item.season != null ? `${me.detail.name} · ${itemTitle(me.detail, item)}` : itemTitle(me.detail, item);
   const urls = await copiesOf(item, me.quality);
   for (const url of urls) {
     if (session !== me) return;

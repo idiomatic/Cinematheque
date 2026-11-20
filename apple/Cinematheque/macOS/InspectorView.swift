@@ -181,7 +181,7 @@ struct InspectorView: View {
                             .foregroundStyle(item.watched ? Color.secondary : Color.accentColor)
                     }
                     .buttonStyle(.plain)
-                    Text(item.versionName)
+                    Text(item.label)
                     Spacer()
                     if let runtime = item.runtime {
                         Text(runtime).font(.caption).foregroundStyle(.secondary).monospacedDigit()
@@ -237,7 +237,7 @@ private struct EpisodeRow: View {
             .help(item.watched ? "Watched; play again" : "Play")
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(item.episodeName)
+                    Text(item.name)
                         .lineLimit(1)
                     Spacer()
                     DownloadMark(key: "\(detail.key)/\(item.key)")
