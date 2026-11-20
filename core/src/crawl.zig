@@ -252,7 +252,13 @@ fn unescapeHtml(arena: std.mem.Allocator, text: []const u8) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < text.len) {
-        const entities = [_]struct { []const u8, u8 }{ .{ "&amp;", '&' }, .{ "&lt;", '<' }, .{ "&gt;", '>' }, .{ "&quot;", '"' }, .{ "&#39;", '\'' } };
+        const entities = [_]struct { []const u8, u8 }{
+            .{ "&amp;", '&' },
+            .{ "&lt;", '<' },
+            .{ "&gt;", '>' },
+            .{ "&quot;", '"' },
+            .{ "&#39;", '\'' },
+        };
         for (entities) |e| {
             if (std.mem.startsWith(u8, text[i..], e[0])) {
                 try out.append(arena, e[1]);
