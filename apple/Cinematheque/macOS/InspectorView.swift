@@ -92,6 +92,18 @@ struct InspectorView: View {
 
     private func playRow(_ detail: TitleDetail, next: TitleDetail.Item?, items: [TitleDetail.Item], labeled: Bool) -> some View {
         HStack(spacing: 12) {
+            // Before Resume, as a player's timeline starts at its leading edge.
+            if next?.inProgress == true {
+                Button {
+                    if let request = Playback.next(in: detail, season: tile.season, quality: quality, overFromStart: true) { play(request) }
+                } label: {
+                    Label("Start Over", systemImage: Playback.startOverSymbol)
+                        .labelStyle(.titleAndIconOrIconOnly(labeled))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .help("Start Over")
+            }
             Button {
                 if let request = Playback.next(in: detail, season: tile.season, quality: quality) { play(request) }
             } label: {
@@ -118,7 +130,6 @@ struct InspectorView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
-            ClearPosition(key: key)
         }
     }
 
@@ -235,10 +246,7 @@ private struct EpisodeRow: View {
                     }
                 }
                 if item.inProgress, item.duration > 0 {
-                    HStack {
-                        ProgressView(value: Double(item.position), total: Double(item.duration)).controlSize(.mini)
-                        ClearPosition(key: "\(detail.key)/\(item.key)").controlSize(.mini)
-                    }
+                    ProgressView(value: Double(item.position), total: Double(item.duration)).controlSize(.mini)
                 }
                 if let description = item.fields["description"] {
                     Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(3)
@@ -254,21 +262,6 @@ private struct EpisodeRow: View {
                 library.setWatched("\(detail.key)/\(item.key)", !item.watched)
             }
         }
-    }
-}
-
-/// Beside a progress meter: forgets where this person stopped, so the item
-/// plays from the beginning.
-private struct ClearPosition: View {
-    let key: String
-    @Environment(Library.self) private var library
-
-    var body: some View {
-        Button("Start from Beginning", systemImage: "arrow.counterclockwise.circle.fill") { library.clearPosition(key) }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help("Start from Beginning")
     }
 }
 

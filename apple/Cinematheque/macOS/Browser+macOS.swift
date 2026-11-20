@@ -293,9 +293,12 @@ struct CoverGrid: View {
                             DownloadMenuItems(key: "\(tile.key)/\(item.key)", item: item, quality: nil)
                             Divider()
                         }
-                        // Forgets its progress (positions and watched marks).
+                        // Unwatched forgets where you stopped, too.
+                        if !tile.watched {
+                            Button("Mark as Watched") { library.markWatched(tile, true) }
+                        }
                         if tile.played {
-                            Button(shelf == .watched ? "Remove from Watched" : shelf == .inProgress ? "Remove from In Progress" : "Mark as Unwatched") { library.removeFromPlayed(tile) }
+                            Button("Mark as Unwatched") { library.markWatched(tile, false) }
                         }
                     }
             }

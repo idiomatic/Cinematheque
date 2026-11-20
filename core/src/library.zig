@@ -816,8 +816,12 @@ pub fn setProgress(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, it
 }
 
 /// Marks an item watched or not, by hand.
+/// Marks an item watched, or not; unwatched forgets where this person
+/// stopped too, so it plays from the beginning.
 pub fn setWatched(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8, watched: bool) !void {
-    try replica.writePrivate(wall_ms, try progressKey(replica, arena, item_key), &.{.{ "watched", if (watched) "1" else "0" }});
+    const key = try progressKey(replica, arena, item_key);
+    if (watched) return replica.writePrivate(wall_ms, key, &.{.{ "watched", "1" }});
+    try replica.writePrivate(wall_ms, key, &.{ .{ "position", "" }, .{ "duration", "" }, .{ "watched", "0" } });
 }
 
 /// Removes this person's progress in an item: its position and watched mark.
@@ -1394,6 +1398,10 @@ test "state: sources, aliases, progress, and members can be listed, set, and rem
     try std.testing.expectEqual(@as(usize, 0), (try progressOf(&r, arena, "t/m/network-effect/2020")).len);
     try removeProgress(&r, arena, 7000, "t/m/network-effect/2020/v/-");
     try std.testing.expectEqual(@as(usize, 1), (try progressOf(&r, arena, null)).len);
+    // Marked unwatched: where it stopped is forgotten too.
+    try setProgress(&r, arena, 7100, "t/m/network-effect/2020/v/-", 600_000, 6_000_000);
+    try setWatched(&r, arena, 7200, "t/m/network-effect/2020/v/-", false);
+    try std.testing.expectEqual(@as(usize, 0), (try progressOf(&r, arena, "t/m/network-effect/2020")).len);
 
     const other = (try replica_.personKeyPair(@splat(2))).public_key.toBytes();
     try r.addMember(8000, other);

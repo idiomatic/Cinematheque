@@ -159,8 +159,12 @@ struct Poster: View {
             .buttonStyle(.card)
             // Pressed and held: a series' tile stands for the whole series.
             .contextMenu {
+                // Unwatched forgets where you stopped, too.
+                if !tile.watched {
+                    Button("Mark as Watched", systemImage: "checkmark.circle") { library.markWatched(tile, true, wholeTitle: tile.isSeries) }
+                }
                 if tile.played {
-                    Button("Remove from Played", systemImage: "minus.circle") { library.removeFromPlayed(tile, wholeTitle: tile.isSeries) }
+                    Button("Mark as Unwatched", systemImage: "circle") { library.markWatched(tile, false, wholeTitle: tile.isSeries) }
                 }
             }
             Text(tile.name)

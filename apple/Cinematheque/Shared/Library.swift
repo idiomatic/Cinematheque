@@ -1362,15 +1362,6 @@ final class Library {
 
     /// Records this person's progress in an item (a title's key and an
     /// item's, e.g., "t/m/alien/1979/v/-").
-    /// Forgets where this person stopped in an item (its watched mark stays),
-    /// so it plays from the beginning: Resume becomes Play.
-    func clearPosition(_ item: String) {
-        // A position in the first 10 seconds isn't kept (the core's rule).
-        setProgress(item, position: 0, duration: 1)
-        reload()
-        changed()
-    }
-
     func setProgress(_ item: String, position: Double, duration: Double) {
         guard position.isFinite, duration.isFinite, duration > 0 else { return }
         // Clamped (a position to a day, a duration to ten): a huge finite
@@ -1380,18 +1371,16 @@ final class Library {
         revision += 1
     }
 
-    /// Removes a tile from Played: this person's progress in its items (a
-    /// movie's, a season's, or with `wholeTitle`, every season's), positions
-    /// and watched marks alike.
-    func removeFromPlayed(_ tile: Tile, wholeTitle: Bool = false) {
+    /// Marks a tile's items watched, or unwatched (forgetting where this
+    /// person stopped, too): a movie's, a season's, or with `wholeTitle`,
+    /// every season's.
+    func markWatched(_ tile: Tile, _ watched: Bool, wholeTitle: Bool = false) {
         guard let detail = detail(tile.key) else { return }
-        let items = wholeTitle ? detail.items : Playback.items(detail, season: tile.season)
-        for item in items { check(reload: false) { cq_remove_progress($0, "\(detail.key)/\(item.key)") } }
-        revision += 1
-        reload()
-        changed()
+        setWatched(wholeTitle ? detail.items : Playback.items(detail, season: tile.season), of: detail, watched)
     }
 
+    /// Marks an item watched, or unwatched, forgetting where this person
+    /// stopped (the core's rule).
     func setWatched(_ item: String, _ watched: Bool) {
         check(reload: false) { cq_set_watched($0, item, watched ? 1 : 0) }
         revision += 1
