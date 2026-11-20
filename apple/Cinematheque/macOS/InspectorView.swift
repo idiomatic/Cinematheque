@@ -405,17 +405,22 @@ private struct DownloadControls: View {
         .controlSize(.small)
     }
 
-    /// Show in Finder, beside the trash button: what of it is on this Mac
-    /// (downloaded, or in its folders), dimmed while none is; its context
-    /// menu, every place that holds it.
+    /// Beside the trash button: Show in Finder, what of it is on this Mac
+    /// (downloaded, or in its folders), else Open in Browser, a server's
+    /// listing of it; dimmed while nothing holds it. Its context menu,
+    /// every place that does.
     private var showInFinder: some View {
         let files = items.compactMap(library.fileHere)
-        return Button("Show in Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting(files) }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .disabled(files.isEmpty)
-            .help("Show in Finder")
-            .contextMenu { PlaceItems(items: items) }
+        let server = library.places(items).first { !$0.inFinder }
+        let title = files.isEmpty && server != nil ? "Open in Browser" : "Show in Finder"
+        return Button(title, systemImage: files.isEmpty && server != nil ? "safari" : "folder") {
+            if files.isEmpty { server?.open() } else { NSWorkspace.shared.activateFileViewerSelecting(files) }
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .disabled(files.isEmpty && server == nil)
+        .help(title)
+        .contextMenu { PlaceItems(items: items) }
     }
 
     /// A choice of episodes, as the menu says it: short, read after its
@@ -506,6 +511,8 @@ struct Place: Identifiable {
     let id: String
     let title: String
     let symbol: String
+    /// Shown in Finder, else opened in the browser.
+    let inFinder: Bool
     let open: () -> Void
 }
 
@@ -515,7 +522,7 @@ extension Library {
         let copies = items.flatMap { $0.qualities.flatMap(\.copies) }
         let downloaded = copies.compactMap(Playback.downloaded).compactMap { URL(string: $0.url) }
         if !downloaded.isEmpty {
-            out.append(.init(id: "download", title: "Download", symbol: "arrow.down.circle") { NSWorkspace.shared.activateFileViewerSelecting(downloaded) })
+            out.append(.init(id: "download", title: "Download", symbol: "arrow.down.circle", inFinder: true) { NSWorkspace.shared.activateFileViewerSelecting(downloaded) })
         }
         // By quality, then source, as the items list them.
         var order: [String] = []
@@ -541,23 +548,38 @@ extension Library {
                     guard let path = String(copy.url.dropFirst(folder.url.count)).removingPercentEncoding else { return nil }
                     return URL(fileURLWithPath: folder.path).appending(path: path)
                 }
-                out.append(.init(id: key, title: "\(g.short) — \(folder.name)", symbol: "folder") { NSWorkspace.shared.activateFileViewerSelecting(files) })
+                out.append(.init(id: key, title: "\(g.short) — \(folder.name)", symbol: "folder", inFinder: true) { NSWorkspace.shared.activateFileViewerSelecting(files) })
             } else if let listing = URL(string: g.copies[0].url)?.deletingLastPathComponent() {
-                out.append(.init(id: key, title: "\(g.short) — \(g.source.displayName)", symbol: "safari") { NSWorkspace.shared.open(listing) })
+                out.append(.init(id: key, title: "\(g.short) — \(g.source.displayName)", symbol: "safari", inFinder: false) { NSWorkspace.shared.open(listing) })
             }
         }
         return out
     }
 }
 
-/// A menu's items for a title's places (see `Library.places`).
+/// A menu's items for a title's places (see `Library.places`), under what
+/// opening them does, so a server's isn't taken for a folder's.
 struct PlaceItems: View {
     let items: [TitleDetail.Item]
     @Environment(Library.self) private var library
 
     var body: some View {
-        ForEach(library.places(items)) { place in
+        let places = library.places(items)
+        let here = places.filter(\.inFinder)
+        let servers = places.filter { !$0.inFinder }
+        if !here.isEmpty {
+            Section("Show in Finder") { buttons(here) }
+        }
+        if !servers.isEmpty {
+            Section("Open in Browser") { buttons(servers) }
+        }
+    }
+
+    /// With their symbols, which macOS's menus leave out unless asked.
+    private func buttons(_ places: [Place]) -> some View {
+        ForEach(places) { place in
             Button(place.title, systemImage: place.symbol, action: place.open)
+                .labelStyle(.titleAndIcon)
         }
     }
 }
