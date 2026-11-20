@@ -4,7 +4,6 @@ import SwiftUI
 
 struct PeoplePane: View {
     @Environment(Library.self) private var library
-    @State private var nearby: [NearbyDevice] = []
     @State private var confirmingLeave = false
     @State private var choosingSuccessor = false
     @State private var leaving = false
@@ -22,16 +21,6 @@ struct PeoplePane: View {
         Form {
             Section {
                 ForEach(library.members) { member in MemberRow(member: member) }
-                ForEach(waiting) { device in
-                    LabeledContent {
-                        Button("Add") {
-                            if let key = device.person_key { library.setMember(key, true) }
-                        }
-                    } label: {
-                        Label((device.personName ?? "Someone") + "’s " + (device.deviceName ?? "device"), systemImage: "person.crop.circle.badge.questionmark")
-                        Text("Wants to join")
-                    }
-                }
             } header: {
                 Text("People")
             } footer: {
@@ -45,7 +34,6 @@ struct PeoplePane: View {
             }
         }
         .formStyle(.grouped)
-        .modifier(Nearby(devices: $nearby))
         // Hard to undo, so asked first.
         .alert(foundersOnly ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
             Button(foundersOnly ? "Leave and End It" : "Leave", role: .destructive) { leave(successor: nil, alone: foundersOnly) }
@@ -80,13 +68,6 @@ struct PeoplePane: View {
             leaving = false
             if problem == nil, !library.hasLibrary { dismiss() }
         }
-    }
-
-    /// Devices of this library nearby whose people aren't members yet.
-    /// (New devices offering to pair have no library yet.)
-    private var waiting: [NearbyDevice] {
-        var seen: Set<String> = []
-        return nearby.filter { $0.ours && !$0.member && !$0.added && $0.person_key != nil && seen.insert($0.person_key!).inserted }
     }
 }
 
