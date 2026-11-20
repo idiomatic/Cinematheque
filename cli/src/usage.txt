@@ -109,12 +109,16 @@ device list prints it.
                                copies, with concurrent workers (16)
   sync [URL]                   pull from a device, or from every device
                                found or added
-  serve [--port PORT] [--media DIR] [--web]
+  serve [--port PORT] [--media DIR] [--web] [--downloads DIR]
                                answer other devices' syncs, and serve
                                media (at /media/), on the port given, else
                                on 8008 or, if that's taken, any free port;
                                with --web, a web client at the root, which
-                               browses and plays as this person
+                               browses and plays as this person, and saves
+                               files to the browser's computer; with
+                               --downloads, this device keeps downloads in
+                               DIR (served at /downloads/), which the web
+                               client chooses, as the Mac app's are
   refresh [--jitter SECONDS]   sync, then crawl the sources no device
                                crawled within the library's interval
                                (library set --crawl), first waiting a

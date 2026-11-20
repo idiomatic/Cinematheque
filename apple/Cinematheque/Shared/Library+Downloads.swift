@@ -140,11 +140,8 @@ extension Library {
     /// Deletes a title's, season's, or item's downloads, and stops wanting
     /// them.
     func removeDownload(_ key: String) {
-        // The series' choice, if it asks for any of them, stopped first.
-        let title = key.split(separator: "/", maxSplits: 4, omittingEmptySubsequences: false).prefix(4).joined(separator: "/")
-        if !downloadChoice(title).isEmpty, downloads?.ahead.contains(where: { Self.holds(wanted: key, $0) }) ?? false {
-            check { cq_download_next($0, title, "") }
-        }
+        // The series' choice, if it asks for any of them, is stopped first
+        // (by the core).
         check { cq_download_remove($0, key) }
     }
 

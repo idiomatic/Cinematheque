@@ -50,8 +50,9 @@ addEventListener("pointermove", (e) => {
 });
 
 async function reload() {
-  const got = await api("tiles");
+  const [got, kept] = await Promise.all([api("tiles"), api("downloads").catch(() => ({ enabled: false }))]);
   library = { tiles: got.tiles, watchlist: new Set(got.watchlist) };
+  noteDownloads(kept);
 }
 
 // Tiles.
@@ -259,6 +260,11 @@ const shelves = {
     const t = matching(library.tiles.filter(onShelf.watched)).sort(byName);
     return t.length ? shelfGrid(t) : [empty("What you've watched shows here.")];
   },
+  // What this device keeps, as the Mac's Downloaded shelf has it.
+  downloaded: () => {
+    const t = matching(library.tiles.filter(onShelf.downloaded)).sort(byName);
+    return t.length ? shelfGrid(t) : [empty(`What you download to ${downloads.device}, to watch from it, shows here.`)];
+  },
 };
 
 function empty(text) {
@@ -273,6 +279,7 @@ const onShelf = {
   watchlist: (t) => library.watchlist.has(listKey(t)),
   "in-progress": (t) => t.started && !t.watched,
   watched: (t) => t.watched,
+  downloaded: (t) => heldTile(t),
 };
 
 /// How many a shelf holds, for the status line, as the Mac's says it:
@@ -424,6 +431,7 @@ async function titlePage(key, season) {
     facts ? el("div", { class: "facts" }, facts) : null,
     qualityRow,
     actions,
+    downloadRow(detail, items, isSeries ? season : null, quality),
     !isSeries && items.length === 1 ? progressRow(detail, items[0]) : null,
     detail.fields.description && !isSeries ? el("p", { class: "description" }, detail.fields.description) : null,
   ];
@@ -438,6 +446,7 @@ async function titlePage(key, season) {
       el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
       el("span", { class: "time" }, item.fields.duration ? formatTime(Number(item.fields.duration)) : ""),
+      itemControls(detail, [item], quality),
       progressRow(detail, item),
       item.fields.description ? el("span", { class: "desc" }, item.fields.description) : null,
     ))));
@@ -447,6 +456,7 @@ async function titlePage(key, season) {
       el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
       el("span", { class: "title" }, itemTitle(detail, item)),
       el("span", { class: "time" }, ""),
+      itemControls(detail, [item], quality),
     ))));
   }
   describe(detail, items);
@@ -477,6 +487,223 @@ async function describe(detail, items) {
     await api("describe", { item: key }).then(() => { any = true; }).catch(() => {});
   }
   if (any && location.hash === page && !session) route();
+}
+
+// Downloads: this device's (the server's, kept with `serve --downloads`,
+// as the Mac keeps its own), and saving a file to this computer, through
+// the server, which reaches sources this browser may not.
+
+/// What the server last said of its downloads.
+let downloads = { enabled: false };
+/// The shelf's counts, for the status line once nothing downloads.
+let shelfStatus = "";
+/// Controls showing downloads' state, updated in place as it changes.
+const watching = new Set();
+
+function noteDownloads(kept) {
+  downloads = kept.enabled ? { enabled: true, device: kept.device, ...kept.report } : { enabled: false };
+  document.querySelector('nav a[data-shelf="downloaded"]').hidden = !downloads.enabled;
+  for (const update of watching) update();
+  if (!problemShown) show(downloadingLine() || shelfStatus);
+  pollDownloads();
+}
+
+/// Asks again every 2 seconds while anything downloads or waits to.
+let polling = null;
+function pollDownloads() {
+  clearTimeout(polling);
+  if (!downloads.enabled || !(downloads.running || pending())) return;
+  polling = setTimeout(async () => {
+    try { noteDownloads(await api("downloads")); } catch { pollDownloads(); }
+  }, 2000);
+}
+
+/// Whether anything wanted (by hand, or a series' next) isn't held yet.
+function pending() {
+  const held = new Set(downloads.held.map((h) => h.item));
+  return downloads.ahead.some((k) => !held.has(k)) || downloads.wanted.some((w) => !held.has(w.key));
+}
+
+/// "Downloading to art… 120 of 900 MB", while it does.
+function downloadingLine() {
+  if (!downloads.enabled || !downloads.running || !downloads.total_mb) return "";
+  return `Downloading to ${downloads.device}… ${downloads.done_mb.toLocaleString()} of ${downloads.total_mb.toLocaleString()} MB`;
+}
+
+/// Where it stands for these items (full keys): held, coming (with how
+/// far, if under way), or neither.
+function stateOf(keys) {
+  if (!downloads.enabled || !keys.length) return {};
+  const held = keys.map((k) => downloads.held.find((h) => h.item === k));
+  if (held.every(Boolean)) return { held: true, only: held.some((h) => h.only), size: held.reduce((s, h) => s + h.size, 0) };
+  const fetching = downloads.fetching && keys.includes(downloads.fetching.item) ? downloads.fetching : null;
+  const wanted = keys.some((k) => downloads.wanted.some((w) => w.key === k) || downloads.ahead.includes(k));
+  return { coming: wanted || !!fetching, fetching };
+}
+
+/// Whether a tile has anything held: a movie's, or a season's episodes.
+function heldTile(tile) {
+  if (!downloads.enabled) return false;
+  const season = tile.season == null ? null : String(tile.season).padStart(2, "0");
+  return downloads.held.some((h) => {
+    if (!h.item.startsWith(tile.key + "/")) return false;
+    if (season == null) return true;
+    const rest = h.item.slice(tile.key.length);
+    return rest.startsWith(`/e/s${season}e`) || rest.startsWith(`/e/s${season}-`);
+  });
+}
+
+function bytes(n) {
+  return n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`;
+}
+
+/// What a download may take: free space, less what downloads keep free.
+function available() {
+  return downloads.free == null ? null : Math.max(0, downloads.free - downloads.floor);
+}
+
+function sizeNote(size) {
+  const room = available();
+  const fits = room == null || size.needed <= room;
+  return { text: bytes(size.size), fits, title: room == null ? "" : `${fits ? "" : "Won't fit: "}${bytes(room)} available on ${downloads.device}` };
+}
+
+/// What a movie's Download downloads, as the Mac's does: the version Play
+/// plays (of parts, all of them).
+function downloadTarget(detail, items) {
+  const item = items.find((i) => i.next) || items[0];
+  if (!item) return null;
+  const part = item.key.indexOf("/p/");
+  if (part >= 0) {
+    const version = item.key.slice(0, part);
+    if (!items.some((i) => i.key === version)) {
+      return { key: `${detail.key}/${version}`, items: items.filter((i) => i.key.startsWith(version + "/p/")) };
+    }
+  }
+  return { key: `${detail.key}/${item.key}`, items: [item] };
+}
+
+/// A title page's downloads: to this device (a movie's Download, or a
+/// season's choice of episodes, as the Mac's has them) and, for a movie
+/// of one file, saving it to this computer.
+function downloadRow(detail, items, season, quality) {
+  const row = el("div", { class: "downloads" });
+  const parts = [];
+  if (downloads.enabled) parts.push(season == null ? movieDownload(detail, items, quality) : seasonChoice(detail));
+  const target = season == null ? downloadTarget(detail, items) : null;
+  if (target && target.items.length === 1) parts.push(saveButton(target.items[0], quality, "⤓ Save to This Computer"));
+  if (!parts.length) return null;
+  row.append(...parts);
+  return row;
+}
+
+/// A movie's Download: its size, then a gauge while it comes, then where it
+/// is, with a button that cancels or deletes it.
+function movieDownload(detail, items, quality) {
+  const target = downloadTarget(detail, items);
+  if (!target) return null;
+  const keys = target.items.map((i) => `${detail.key}/${i.key}`);
+  const box = el("span", { class: "download" });
+  let size = null;
+  api("download-sizes?" + new URLSearchParams({ key: target.key, quality: quality ?? "" })).then(([s]) => { size = s; update(); }).catch(() => {});
+  const update = () => {
+    const state = stateOf(keys);
+    if (state.held) {
+      box.replaceChildren(el("span", { class: "on" }, `✓ On ${downloads.device}`), trash(target.key, state.only));
+    } else if (state.coming) {
+      box.replaceChildren(gauge(state.fetching), trash(target.key, false, "Cancel download"));
+    } else {
+      const note = size && sizeNote(size);
+      box.replaceChildren(el("button", { type: "button", class: note && !note.fits ? "warn" : null, title: note?.title,
+        onclick: () => change("download", { key: target.key, quality: quality ?? "" }) },
+      `⬇ Download to ${downloads.device}${note ? " · " + note.text : ""}`));
+    }
+  };
+  watch(box, update);
+  return box;
+}
+
+/// A season's choice of episodes to keep on this device, with what each
+/// would come to.
+function seasonChoice(detail) {
+  const choices = [["0", "Nothing"], ["1", "Next"], ["3", "Next 3"], ["10", "Next 10"], ["all", "All"]];
+  const current = () => downloads.next.find((n) => n.title === detail.key)?.choice ?? "0";
+  const select = el("select", { "aria-label": `Download to ${downloads.device}`,
+    onchange: (e) => change("download-next", { title: detail.key, choice: e.target.value === "0" ? "" : e.target.value }) },
+  choices.map(([value, name]) => el("option", { value }, name)));
+  const box = el("label", { class: "download" }, `Download to ${downloads.device} `, select);
+  api("download-sizes?" + new URLSearchParams({ key: detail.key, choices: JSON.stringify(choices.slice(1).map((c) => c[0])) })).then((sizes) => {
+    for (const s of sizes) {
+      const option = [...select.options].find((o) => o.value === s.choice);
+      const note = sizeNote(s);
+      option.textContent = `${choices.find((c) => c[0] === s.choice)[1]} · ${note.text}${note.fits ? "" : " (won't fit)"}`;
+    }
+  }).catch(() => {});
+  watch(box, () => { select.value = current(); });
+  return box;
+}
+
+/// An episode's or version's own: its download to this device (a button
+/// that downloads, shows how far, or deletes), and saving it here.
+function itemControls(detail, items, quality) {
+  const keys = items.map((i) => `${detail.key}/${i.key}`);
+  const box = el("span", { class: "item-downloads" });
+  const save = saveButton(items[0], quality, "Save", "Save to this computer");
+  const update = () => {
+    if (!downloads.enabled) return box.replaceChildren(save);
+    const state = stateOf(keys);
+    const kept = state.held ? el("span", { class: "on", title: `On ${downloads.device}` }, "✓", trash(keys[0], state.only))
+      : state.coming ? gauge(state.fetching, true)
+      : el("button", { type: "button", class: "icon", title: `Download to ${downloads.device}`, "aria-label": `Download to ${downloads.device}`,
+        onclick: () => change("download", { key: keys[0], quality: quality ?? "" }) }, "⬇");
+    box.replaceChildren(kept, save);
+  };
+  watch(box, update);
+  return box;
+}
+
+/// How far a file has come, or that it waits its turn.
+function gauge(fetching, small = false) {
+  if (!fetching || !fetching.size) return el("span", { class: "waiting" }, small ? "…" : "Waiting to download…");
+  return el("progress", { max: fetching.size, value: fetching.done, title: `${bytes(fetching.done)} of ${bytes(fetching.size)}` });
+}
+
+/// Deleting a download, or canceling one: the only copy asked first.
+function trash(key, only, label = "Delete download") {
+  return el("button", { type: "button", class: "icon", title: only ? `${label} (the only copy)` : label, "aria-label": label, onclick: () => {
+    if (only && !confirm(`${downloads.device} holds the only copy. Delete it anyway? It can't be downloaded again.`)) return;
+    change("download-remove", { key });
+  } }, "🗑\uFE0E");
+}
+
+/// Saving an item's file to this computer: from the chosen quality's copy
+/// whose server answers first, else any other, through this device.
+function saveButton(item, quality, text, title) {
+  return el("button", { type: "button", class: title ? "icon" : null, title, "aria-label": title, onclick: async () => {
+    const q = item.qualities.find((x) => x.label === quality) || item.qualities.find((x) => x.copies.length);
+    const urls = q ? q.copies.filter((c) => c.url).sort((a, b) => a.unavailable - b.unavailable).map((c) => c.url) : [];
+    if (!urls.length) return problem("No source holds it now.");
+    const [url] = urls.length > 1 ? await api("race", urls).catch(() => urls) : urls;
+    location.href = "api/file?" + new URLSearchParams({ url });
+  } }, text);
+}
+
+/// Keeps `update` called as downloads change, while `box` is shown.
+function watch(box, update) {
+  const run = () => { if (!box.isConnected && box.dataset.shown) watching.delete(run); else update(); };
+  update();
+  requestAnimationFrame(() => { box.dataset.shown = "1"; });
+  watching.add(run);
+}
+
+/// A change to this device's downloads, then what it comes to.
+async function change(name, body) {
+  try {
+    await api(name, body);
+    noteDownloads(await api("downloads"));
+  } catch (e) {
+    problem(e.message);
+  }
 }
 
 // Playing.
@@ -665,11 +892,13 @@ async function route() {
       const key = segments.slice(0, 4).join("/");
       const season = segments.length > 4 ? Number(segments[4]) : null;
       // Cleared first, so a problem the page finds stays.
-      show("");
+      shelfStatus = "";
+      show(downloadingLine());
       parts = await titlePage(key, season);
     } else {
       parts = (shelves[hash] || shelves.home)();
-      show(counts(shelves[hash] ? hash : "home"));
+      shelfStatus = counts(shelves[hash] ? hash : "home");
+      show(downloadingLine() || shelfStatus);
     }
   } catch (e) {
     parts = [empty("Couldn't load it.")];

@@ -36,6 +36,18 @@ pub const Web = struct {
     /// Whether a source's server has been unreachable for a cover yet, said
     /// once, so a page of placeholders without covers says why.
     unreachable_said: std.atomic.Value(bool) = .init(false),
+    /// The name this device goes by on the network, for pages to say where
+    /// its downloads go.
+    host_name: []const u8 = "",
+    /// Whether this device keeps downloads (`serve --downloads`), which
+    /// pages may then ask for; and reconciling them: asked to run again
+    /// (something wanted, deleted, or watched), running, and how far.
+    downloads: bool = false,
+    reconcile_again: std.atomic.Value(bool) = .init(true),
+    reconciling: std.atomic.Value(bool) = .init(false),
+    done_mb: std.atomic.Value(u32) = .init(0),
+    total_mb: std.atomic.Value(u32) = .init(0),
+    fetching: core.download.Fetching = .{},
 
     pub fn handler(w: *Web) core.serve.Handler {
         return .{ .context = w, .function = respond };
@@ -74,6 +86,43 @@ pub const Web = struct {
         for (found.urls) |u| _ = core.sync.exchange(arena, &client, &r, u, now(io)) catch |err| {
             std.log.warn("syncing with {s} after a change: {t}", .{ u, err });
         };
+        // What's watched elsewhere moves a series' next episodes along.
+        w.reconcile_again.store(true, .release);
+    }
+
+    /// While serving with downloads: brings them in line with what's kept
+    /// whenever asked (a page's change), and every 10 minutes, as what's
+    /// watched on other devices moves a series' next episodes along.
+    pub fn keepDownloads(w: *Web, io: Io, gpa: std.mem.Allocator) Io.Cancelable!void {
+        var last: u64 = 0;
+        while (true) {
+            try io.sleep(.fromMilliseconds(500), .awake);
+            const t = now(io);
+            if (!w.reconcile_again.swap(false, .acq_rel) and t -| last < reconcile_every_ms) continue;
+            last = t;
+            w.reconciling.store(true, .release);
+            defer w.reconciling.store(false, .release);
+            w.reconcile(io, gpa) catch |err| switch (err) {
+                error.Canceled => return error.Canceled,
+                else => std.log.warn("downloading: {t}", .{err}),
+            };
+        }
+    }
+
+    const reconcile_every_ms = 10 * 60 * 1000;
+
+    fn reconcile(w: *Web, io: Io, gpa: std.mem.Allocator) !void {
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        var r = try open(w, io, gpa);
+        defer r.close();
+        var client: http.Client = .{ .allocator = gpa, .io = io };
+        defer client.deinit();
+        const done = try core.download.reconcile(io, gpa, arena, &client, &w.racing, &r, &w.writer, now(io), .{ .done = &w.done_mb, .total = &w.total_mb, .fetching = &w.fetching }, null);
+        // Its copies, for other devices to play from.
+        if (done.fetched + done.deleted > 0) w.changed.store(@intCast(now(io)), .release);
+        if (done.failed > 0) std.log.warn("downloading: {d} failed: {s}", .{ done.failed, done.@"error" orelse "?" });
     }
 };
 
@@ -213,6 +262,29 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
         return sendJson(arena, request, try core.views.title(&r, arena, try param(arena, q, "key") orelse return error.BadRequest));
     }
     if (get and std.mem.eql(u8, name, "cover")) return cover(w, io, gpa, arena, request, q);
+    if (get and std.mem.eql(u8, name, "file")) return file(w, io, gpa, arena, request, q);
+    if (get and std.mem.eql(u8, name, "downloads")) {
+        if (!w.downloads) return sendJson(arena, request, .{ .enabled = false });
+        var r = try open(w, io, gpa);
+        defer r.close();
+        return sendJson(arena, request, .{
+            .enabled = true,
+            .device = w.host_name,
+            .report = try core.download.report(io, &r, arena, .{
+                .running = w.reconciling.load(.acquire),
+                .done_mb = w.done_mb.load(.monotonic),
+                .total_mb = w.total_mb.load(.monotonic),
+                .fetching = &w.fetching,
+            }),
+        });
+    }
+    if (get and std.mem.eql(u8, name, "download-sizes")) {
+        if (!w.downloads) return error.NotFound;
+        var r = try open(w, io, gpa);
+        defer r.close();
+        const choices = try std.json.parseFromSliceLeaky([]const []const u8, arena, try param(arena, q, "choices") orelse "[\"\"]", .{});
+        return sendJson(arena, request, try core.download.sizes(&r, arena, try param(arena, q, "key") orelse return error.BadRequest, choices, try param(arena, q, "quality")));
+    }
     if (get and std.mem.eql(u8, name, "thumb")) return thumb(arena, request, try param(arena, q, "hash") orelse return error.BadRequest);
     if (request.head.method != .POST) return error.NotFound;
 
@@ -250,6 +322,22 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     } else if (std.mem.eql(u8, name, "watchlist")) {
         const p = try std.json.parseFromSliceLeaky(struct { key: []const u8, on: bool }, arena, body, .{});
         try core.art.setWatchlisted(&r, arena, now(io), p.key, p.on);
+    } else if (std.mem.eql(u8, name, "download") or std.mem.eql(u8, name, "download-remove") or std.mem.eql(u8, name, "download-next")) {
+        // This device's downloads, which it fetches as it reconciles.
+        if (!w.downloads) return error.NotFound;
+        if (std.mem.eql(u8, name, "download")) {
+            const p = try std.json.parseFromSliceLeaky(struct { key: []const u8, quality: []const u8 = "" }, arena, body, .{});
+            try core.download.want(&r, arena, p.key, p.quality);
+        } else if (std.mem.eql(u8, name, "download-remove")) {
+            const p = try std.json.parseFromSliceLeaky(struct { key: []const u8 }, arena, body, .{});
+            // The writer's held already.
+            _ = try core.download.remove(io, arena, &r, null, now(io), p.key);
+        } else {
+            const p = try std.json.parseFromSliceLeaky(struct { title: []const u8, choice: []const u8 }, arena, body, .{});
+            const choice = core.download.Choice.parse(p.choice);
+            if (choice == null and p.choice.len > 0 and !std.mem.eql(u8, p.choice, "0")) return error.BadRequest;
+            try core.download.setNext(&r, arena, p.title, choice);
+        }
     } else if (std.mem.eql(u8, name, "describe")) {
         // An episode's title, description, and duration, read from its
         // file, as the apps describe a season's as it's shown.
@@ -261,6 +349,8 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     // Shared metadata (an episode described) needs no hurry; the rest is
     // this person's, for their other devices.
     if (!std.mem.eql(u8, name, "describe")) w.changed.store(@intCast(now(io)), .release);
+    // Downloads wanted, and a series' next episodes, move with any of it.
+    if (w.downloads and !std.mem.eql(u8, name, "describe")) w.reconcile_again.store(true, .release);
     return sendJson(arena, request, true);
 }
 
@@ -332,6 +422,69 @@ fn cover(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
         .{ .name = "content-type", .value = imageType(image) },
         .{ .name = "cache-control", .value = "max-age=31536000, immutable" },
     } ++ guarded) });
+}
+
+/// A copy's file, saved by the browser on its own computer (through this
+/// device, as the browser may be unable to reach the source): as it comes,
+/// with its name, from a range if asked (resuming), within the library's
+/// sources only.
+fn file(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, request: *http.Server.Request, q: []const u8) !void {
+    const u = try param(arena, q, "url") orelse return error.BadRequest;
+    {
+        var r = try open(w, io, gpa);
+        defer r.close();
+        if (!try withinSources(&r, arena, &.{u})) return error.Forbidden;
+    }
+    var client: http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    var relay: core.download.Relay = .{};
+    try relay.open(io, arena, &client, u, header(request, "range"));
+    defer relay.deinit();
+    var headers: std.ArrayList(http.Header) = .empty;
+    try headers.appendSlice(arena, &.{
+        .{ .name = "content-type", .value = "application/octet-stream" },
+        .{ .name = "content-disposition", .value = try disposition(arena, u) },
+        .{ .name = "accept-ranges", .value = "bytes" },
+        .{ .name = "cache-control", .value = "no-store" },
+    });
+    if (relay.content_range) |range| try headers.append(arena, .{ .name = "content-range", .value = range });
+    try headers.appendSlice(arena, &guarded);
+    var buffer: [64 * 1024]u8 = undefined;
+    var body = try request.respondStreaming(&buffer, .{
+        .content_length = relay.length,
+        .respond_options = .{ .status = relay.status, .extra_headers = headers.items },
+    });
+    try relay.pump(io, &body.writer);
+    try body.end();
+}
+
+/// Saving a file as its name in the source (`Alien (1979).m4v`): plainly,
+/// for browsers that take only that, its unsafe characters `_`; and in
+/// full, percent-encoded (RFC 6266).
+fn disposition(arena: std.mem.Allocator, u: []const u8) ![]const u8 {
+    const uri = try std.Uri.parse(u);
+    const path = try uri.path.toRawMaybeAlloc(arena);
+    const last = path[(std.mem.lastIndexOfScalar(u8, path, '/') orelse return error.BadRequest) + 1 ..];
+    if (last.len == 0) return error.BadRequest;
+    const decoded = core.url.decode(try arena.dupe(u8, last)) catch return error.BadRequest;
+    const plain = try arena.dupe(u8, decoded);
+    for (plain) |*c| if (c.* < 0x20 or c.* >= 0x7f or c.* == '"' or c.* == '\\' or c.* == '/') {
+        c.* = '_';
+    };
+    var encoded: std.ArrayList(u8) = .empty;
+    for (decoded) |c| {
+        if (std.ascii.isAlphanumeric(c) or std.mem.indexOfScalar(u8, "!#$&+-.^_`|~", c) != null) try encoded.append(arena, c) else try encoded.print(arena, "%{X:0>2}", .{c});
+    }
+    return std.fmt.allocPrint(arena, "attachment; filename=\"{s}\"; filename*=UTF-8''{s}", .{ plain, encoded.items });
+}
+
+test "a saved file's name" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    try std.testing.expectEqualStrings(
+        "attachment; filename=\"Am__lie \"; filename*=UTF-8''Am%C3%A9lie%20",
+        try disposition(arena_state.allocator(), "http://nas/Movies/Am%C3%A9lie%20"),
+    );
 }
 
 fn imageType(bytes: []const u8) []const u8 {

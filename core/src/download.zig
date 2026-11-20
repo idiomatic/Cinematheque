@@ -286,6 +286,69 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
     if (try out.length(io) != size) return error.Truncated;
 }
 
+/// A copy's file passed on as it comes (to a browser saving it, through
+/// this device, which can reach sources the browser may not): from its
+/// beginning, or from a `range` asked for (a `Range` header's value, passed
+/// on as is, so a browser resumes). The same deadlines as fetching: a
+/// minute to answer, and a minute for each mebibyte after.
+pub const Relay = struct {
+    request: std.http.Client.Request = undefined,
+    response: std.http.Client.Response = undefined,
+    transfer: [64 * 1024]u8 = undefined,
+    status: std.http.Status = .ok,
+    /// Its bytes, if the source says; its `Content-Range`, for a range.
+    length: ?u64 = null,
+    content_range: ?[]const u8 = null,
+
+    /// Asks the source for it; once it answers, `status`, `length`, and
+    /// `content_range` say what comes.
+    pub fn open(relay: *Relay, io: Io, arena: std.mem.Allocator, client: *std.http.Client, url: []const u8, range: ?[]const u8) !void {
+        relay.request = try client.request(.GET, try std.Uri.parse(url), .{
+            // No redirect: it could lead anywhere the server likes.
+            .redirect_behavior = .not_allowed,
+            .headers = .{ .accept_encoding = .{ .override = "identity" } },
+            .extra_headers = if (range) |r| &.{.{ .name = "range", .value = r }} else &.{},
+        });
+        errdefer relay.request.deinit();
+        try relay.request.sendBodiless();
+        relay.response = try deadline.within(io, step_ms, receiveHead, .{&relay.request});
+        relay.status = relay.response.head.status;
+        switch (relay.status) {
+            .ok, .partial_content => {},
+            .not_found => return error.NotFound,
+            .range_not_satisfiable => return error.BadRange,
+            else => return error.BadStatus,
+        }
+        relay.length = relay.response.head.content_length;
+        var headers = relay.response.head.iterateHeaders();
+        while (headers.next()) |h| if (std.ascii.eqlIgnoreCase(h.name, "content-range")) {
+            relay.content_range = try arena.dupe(u8, h.value);
+        };
+    }
+
+    /// Passes its bytes on to `out`, flushing as they come.
+    pub fn pump(relay: *Relay, io: Io, out: *Io.Writer) !void {
+        const body = relay.response.reader(&relay.transfer);
+        var sent: u64 = 0;
+        while (relay.length == null or sent < relay.length.?) {
+            const left = if (relay.length) |l| l - sent else 1 << 20;
+            const n = deadline.within(io, step_ms, streamSome, .{ body, out, @min(left, 1 << 20) }) catch |err| switch (err) {
+                error.Timeout, error.Canceled, error.WriteFailed => |e| return e,
+                error.EndOfStream => break,
+                error.ReadFailed => return relay.response.bodyErr() orelse error.ReadFailed,
+            };
+            if (n == 0) break;
+            sent += n;
+            try out.flush();
+        }
+        if (relay.length) |l| if (sent != l) return error.Truncated;
+    }
+
+    pub fn deinit(relay: *Relay) void {
+        relay.request.deinit();
+    }
+};
+
 /// Where a `206` response says its bytes start (`Content-Range: bytes
 /// 100-199/300`).
 fn contentRangeStart(head: std.http.Client.Response.Head) ?u64 {
@@ -748,6 +811,92 @@ pub const Fetching = struct {
     }
 };
 
+/// What downloading would come to, one per choice: a series' (`key` its
+/// title's), as `Choice.parse` takes it, or empty for `key`'s own files (a
+/// title's, season's, or item's) in `quality` (null: the one most have):
+/// the `size` of all its files, and what of it is `needed` (not here yet).
+pub const SizeReport = struct { choice: []const u8, size: u64, needed: u64 };
+
+pub fn sizes(replica: *Replica, arena: std.mem.Allocator, key: []const u8, choices: []const []const u8, quality: ?[]const u8) ![]const SizeReport {
+    const out = try arena.alloc(SizeReport, choices.len);
+    for (choices, out) |c, *o| {
+        const choice = if (c.len == 0) null else Choice.parse(c) orelse return error.InvalidArgument;
+        const s = try sizeOf(replica, arena, key, choice, quality);
+        o.* = .{ .choice = c, .size = s.size, .needed = s.needed };
+    }
+    return out;
+}
+
+/// This device's downloads, as players show them: `dir` and `source` (its
+/// ID), as configured (null if not); `held`, the files held (`item`,
+/// `size`, and whether it's the `only` copy, no other source holding it
+/// alike); `wanted`; `next`, series whose episodes download as they're
+/// watched (`title`, and `choice`, as `Choice.parse` takes it), and
+/// `ahead`, the episodes (full item keys) they come to now; `free` bytes
+/// on its volume, if known, and the `floor` kept free; and, from `live`,
+/// whether reconciling is `running`, with `done_mb` of `total_mb`, and the
+/// file it's `fetching` (`item`, its `size`, and the bytes `done`).
+pub const Report = struct {
+    dir: ?[]const u8,
+    source: ?[]const u8,
+    held: []const HeldReport,
+    wanted: []const Want,
+    next: []const NextReport,
+    ahead: []const []const u8,
+    free: ?u64,
+    floor: u64,
+    running: bool,
+    done_mb: u32,
+    total_mb: u32,
+    fetching: ?FetchingReport,
+};
+pub const HeldReport = struct { item: []const u8, size: u64, only: bool };
+pub const NextReport = struct { title: []const u8, choice: []const u8 };
+pub const FetchingReport = struct { item: []const u8, done: u64, size: u64 };
+
+/// What reconciling, under way or not, has come to, for `report`.
+pub const Live = struct {
+    running: bool = false,
+    done_mb: u32 = 0,
+    total_mb: u32 = 0,
+    fetching: ?*Fetching = null,
+};
+
+pub fn report(io: Io, replica: *Replica, arena: std.mem.Allocator, live: Live) !Report {
+    const s = try settings(replica, arena);
+    var list: std.ArrayList(HeldReport) = .empty;
+    if (s) |set| {
+        const all = try library.sources(replica, arena);
+        const unavailable = try library.UnavailableDirs.load(replica, arena);
+        for (try held(replica, arena, set.source)) |h|
+            try list.append(arena, .{ .item = h.item, .size = h.size, .only = !try confirmed(replica, all, &unavailable, h) });
+    }
+    // The episodes each series' next ones come to, as of now, by full key.
+    var coming: std.ArrayList([]const u8) = .empty;
+    const chosen = try nexts(replica, arena);
+    const next = try arena.alloc(NextReport, chosen.len);
+    for (chosen, next) |n, *j| {
+        j.* = .{ .title = n.title, .choice = try n.choice.write(arena) };
+        for (try ahead(replica, arena, n.title, n.choice)) |item|
+            try coming.append(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ n.title, item }));
+    }
+    const fetching = if (live.fetching) |f| try f.get(io, arena) else null;
+    return .{
+        .dir = if (s) |set| set.dir else null,
+        .source = if (s) |set| try arena.dupe(u8, &set.source.id) else null,
+        .held = list.items,
+        .wanted = try wants(replica, arena),
+        .next = next,
+        .ahead = coming.items,
+        .free = if (s) |set| freeBytes(arena, set.dir) else null,
+        .floor = floor(),
+        .running = live.running,
+        .done_mb = live.done_mb,
+        .total_mb = live.total_mb,
+        .fetching = if (fetching) |f| .{ .item = f.item, .done = f.done, .size = f.size } else null,
+    };
+}
+
 /// Brings this device's downloads in line with what it keeps: forgets
 /// copies whose files are gone (deleted by hand, or a directory changed),
 /// deletes series' watched episodes as space calls for, and fetches what's wanted and the next episodes kept,
@@ -898,7 +1047,9 @@ fn delete(io: Io, arena: std.mem.Allocator, dir: Io.Dir, replica: *Replica, writ
 }
 
 /// Stops downloading a title's, season's, or item's files: deletes those this
-/// device's downloads hold, and forgets wanting them.
+/// device's downloads hold, and forgets wanting them; and if its series'
+/// choice of episodes asks for any of them, sets it to none first, else
+/// reconciling would fetch them again.
 pub fn remove(io: Io, arena: std.mem.Allocator, replica: *Replica, writer: ?*Io.Mutex, wall_ms: u64, key: []const u8) !usize {
     const s = try settings(replica, arena) orelse return error.NoDownloads;
     var dir = try Io.Dir.cwd().openDir(io, s.dir, .{});
@@ -906,6 +1057,14 @@ pub fn remove(io: Io, arena: std.mem.Allocator, replica: *Replica, writer: ?*Io.
     const title_end = titleEnd(key) orelse return error.NotFound;
     const below = if (title_end < key.len) key[title_end + 1 ..] else "";
     const exact = if (try library.detail(replica, arena, key[0..title_end])) |d| hasItem(d, below) else false;
+    for (try nexts(replica, arena)) |n| {
+        if (!std.mem.eql(u8, n.title, key[0..title_end])) continue;
+        for (try ahead(replica, arena, n.title, n.choice)) |item| {
+            if (!covers(item, below, exact)) continue;
+            try setNext(replica, arena, n.title, null);
+            break;
+        }
+    }
     var out: Reconciled = .{};
     for (try held(replica, arena, s.source)) |h| {
         if (!std.mem.startsWith(u8, h.item, key[0..title_end]) or h.item.len <= title_end or h.item[title_end] != '/') continue;
@@ -1093,6 +1252,11 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     try std.testing.expectEqual(1, try remove(io, arena, &r, null, 11, "t/m/alien/1979"));
     try std.testing.expectEqual(0, (try wants(&r, arena)).len);
     try std.testing.expectEqual(2, (try held(&r, arena, s.source)).len);
+    // A season removed whose series' choice asks for it: the choice is
+    // stopped, else reconciling would fetch it again.
+    try setNext(&r, arena, "t/s/firefly/-", .all);
+    _ = try remove(io, arena, &r, null, 12, "t/s/firefly/-/e/s01");
+    try std.testing.expectEqual(0, (try nexts(&r, arena)).len);
 }
 
 test "a series' choice of episodes: the next few, or all" {

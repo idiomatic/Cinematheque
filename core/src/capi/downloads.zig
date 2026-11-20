@@ -69,89 +69,23 @@ export fn cq_download_sizes(lib: *Library, key: [*:0]const u8, choices_json: [*:
     return json(lib, downloadSizes, .{ std.mem.span(key), std.mem.span(choices_json), span(quality) });
 }
 
-const SizeJson = struct { choice: []const u8, size: u64, needed: u64 };
-
-fn downloadSizes(lib: *Library, arena: std.mem.Allocator, key: []const u8, choices_json: []const u8, quality: ?[]const u8) ![]const SizeJson {
-    const r = try lib.main();
+fn downloadSizes(lib: *Library, arena: std.mem.Allocator, key: []const u8, choices_json: []const u8, quality: ?[]const u8) ![]const download.SizeReport {
     const choices = try std.json.parseFromSliceLeaky([]const []const u8, arena, choices_json, .{});
-    const out = try arena.alloc(SizeJson, choices.len);
-    for (choices, out) |c, *o| {
-        const choice = if (c.len == 0) null else download.Choice.parse(c) orelse return error.InvalidArgument;
-        const s = try download.sizeOf(r, arena, key, choice, quality);
-        o.* = .{ .choice = c, .size = s.size, .needed = s.needed };
-    }
-    return out;
+    return download.sizes(try lib.main(), arena, key, choices, quality);
 }
 
-/// A series' choice of episodes, as `cq_downloads` tells it.
-const NextJson = struct { title: []const u8, choice: []const u8 };
-
-const HeldJson = struct { item: []const u8, size: u64, only: bool };
-
-const DownloadsJson = struct {
-    dir: ?[]const u8,
-    source: ?[]const u8,
-    held: []const HeldJson,
-    wanted: []const download.Want,
-    next: []const NextJson,
-    ahead: []const []const u8,
-    free: ?u64,
-    floor: u64,
-    running: bool,
-    done_mb: u32,
-    total_mb: u32,
-    fetching: ?FetchingJson,
-};
-const FetchingJson = struct { item: []const u8, done: u64, size: u64 };
-
-/// This device's downloads, as a JSON object: `dir` and `source` (its ID),
-/// as configured (null if not); `held`, the files held
-/// (`item`, `size`, and whether it's the `only` copy, no other source
-/// holding it alike); `wanted` (`key`, `quality`); `next`, series whose
-/// episodes download as they're watched (`title`, and `choice`, as
-/// `cq_download_next` takes it), and `ahead`, the episodes (full item keys)
-/// they come to now; `free` bytes on its volume, if known, and the
-/// `floor` kept free; and whether `cq_reconcile` is `running`, with
-/// `done_mb` of `total_mb`, and the file it's `fetching` (`item`, its
-/// `size`, and the bytes `done`, a resumed file's earlier ones too), or
-/// null.
+/// This device's downloads, as a JSON object (see `download.Report`).
 export fn cq_downloads(lib: *Library) ?[*:0]u8 {
     return json(lib, downloads, .{});
 }
 
-fn downloads(lib: *Library, arena: std.mem.Allocator) !DownloadsJson {
-    const r = try lib.main();
-    const s = try download.settings(r, arena);
-    var list: std.ArrayList(HeldJson) = .empty;
-    if (s) |set| {
-        const all = try library.sources(r, arena);
-        const unavailable = try library.UnavailableDirs.load(r, arena);
-        for (try download.held(r, arena, set.source)) |h|
-            try list.append(arena, .{ .item = h.item, .size = h.size, .only = !try download.confirmed(r, all, &unavailable, h) });
-    }
-    // The episodes each series' next ones come to, as of now, by full key.
-    var ahead: std.ArrayList([]const u8) = .empty;
-    const nexts = try download.nexts(r, arena);
-    const next = try arena.alloc(NextJson, nexts.len);
-    for (nexts, next) |n, *j| {
-        j.* = .{ .title = n.title, .choice = try n.choice.write(arena) };
-        for (try download.ahead(r, arena, n.title, n.choice)) |item|
-            try ahead.append(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ n.title, item }));
-    }
-    return .{
-        .dir = if (s) |set| set.dir else null,
-        .source = if (s) |set| try arena.dupe(u8, &set.source.id) else null,
-        .held = list.items,
-        .wanted = try download.wants(r, arena),
-        .next = next,
-        .ahead = ahead.items,
-        .free = if (s) |set| download.freeBytes(arena, set.dir) else null,
-        .floor = download.floor(),
+fn downloads(lib: *Library, arena: std.mem.Allocator) !download.Report {
+    return download.report(lib.io(), try lib.main(), arena, .{
         .running = lib.reconciling.load(.acquire),
         .done_mb = lib.downloaded_mb.load(.monotonic),
         .total_mb = lib.download_mb.load(.monotonic),
-        .fetching = if (try lib.fetching.get(lib.io(), arena)) |f| .{ .item = f.item, .done = f.done, .size = f.size } else null,
-    };
+        .fetching = &lib.fetching,
+    });
 }
 
 /// Long, on a connection of its own: brings this device's downloads in line

@@ -46,42 +46,79 @@ pub fn sync(p: *App, c: Command) !void {
 /// and advertises the port it got; with `--web`, the web client too.
 pub fn serve(p: *App, c: Command) !void {
     if (c.rest.len > 0) return error.Usage;
-    try c.args.only(&.{ "--port", "--media", "--web" });
+    try c.args.only(&.{ "--port", "--media", "--web", "--downloads" });
     const port = try c.args.port();
     const media = c.args.get("--media");
+    // This device's downloads, kept there (made first, so its path is whole).
+    const downloads: ?[]const u8 = if (c.args.get("--downloads")) |d| blk: {
+        try Io.Dir.cwd().createDirPath(p.io, d);
+        break :blk try Io.Dir.cwd().realPathFileAlloc(p.io, d, p.arena);
+    } else null;
     var sharing: core.sync.Sharing = .{
         .path = try p.store.replicaPath(p.arena),
         .founder = try p.store.founder(p.arena),
         .identity = p.store.identity,
     };
     // The web client answers after syncs, before the media.
-    var browsers: web.Web = .{ .path = sharing.path, .founder = sharing.founder, .identity = sharing.identity, .next = sharing.handler(), .own = try serviceName(p) };
+    var browsers: web.Web = .{ .path = sharing.path, .founder = sharing.founder, .identity = sharing.identity, .next = sharing.handler(), .own = try serviceName(p), .host_name = try advertisedName(p) };
     const handler = if (c.args.has("--web")) browsers.handler() else sharing.handler();
     var r = try p.open();
     const library_hex = std.fmt.bytesToHex(r.library, .lower);
     const txt = try core.sync.advertisement(p.arena, &r, try p.store.person(), try p.store.device());
     r.close();
     // The media directory, if any, at `/media/`, leaving the root to the
-    // web client.
-    const one = [_]core.serve.Mount{.{ .prefix = media_prefix, .path = media orelse "" }};
+    // web client; and downloads at `/downloads/`, listed live, as they
+    // change.
+    var mounts: std.ArrayList(core.serve.Mount) = .empty;
+    if (media) |m| try mounts.append(p.arena, .{ .prefix = media_prefix, .path = m });
+    if (downloads) |d| try mounts.append(p.arena, .{ .prefix = downloads_prefix, .path = d, .index = false });
     var host: core.host.Host = .{
         .io = p.io,
         .gpa = p.gpa,
-        .options = .{ .host = "0.0.0.0", .port = port orelse default_port, .fallback = port == null, .mounts = if (media != null) &one else &.{}, .handler = handler },
+        .options = .{ .host = "0.0.0.0", .port = port orelse default_port, .fallback = port == null, .mounts = mounts.items, .handler = handler },
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
         .txt = txt,
     };
     try host.start();
+    if (downloads) |d| try keepDownloadsIn(p, d, host.port);
+    browsers.downloads = downloads != null;
     var syncing: ?Io.Future(Io.Cancelable!void) = if (c.args.has("--web")) try p.io.concurrent(web.Web.keepInSync, .{ &browsers, p.io, p.gpa }) else null;
     defer if (syncing) |*f| f.cancel(p.io) catch {};
+    var fetching: ?Io.Future(Io.Cancelable!void) = if (downloads != null) try p.io.concurrent(web.Web.keepDownloads, .{ &browsers, p.io, p.gpa }) else null;
+    defer if (fetching) |*f| f.cancel(p.io) catch {};
     try p.out.print("serving library {s} on port {d}{s}{s}, as {s}\n", .{ &library_hex, host.port, if (media != null) " with media from " else "", media orelse "", host.name });
+    if (downloads) |d| try p.out.print("keeping downloads in {s}\n", .{d});
     if (c.args.has("--web")) {
         // As other computers on the network reach it: `firefly.local`.
         const name = try advertisedName(p);
-        try p.out.print("web client at http://{s}{s}:{d}/\n", .{ name, if (std.mem.indexOfScalar(u8, name, '.') == null) ".local" else "", host.port });
+        try p.out.print("web client at http://{s}.local:{d}/\n", .{ name, host.port });
     }
     try p.out.flush();
     try host.wait();
+}
+
+pub const downloads_prefix = "downloads";
+
+/// Makes `dir` where this device keeps downloads, served at
+/// `/downloads/` on `port`, as the Mac app keeps its own. A device keeping
+/// them elsewhere already (as the Mac app does, sharing its data directory)
+/// is left as it is, as two places would each forget the other's files;
+/// the same directory served at another address (another port) is that
+/// source removed, and its files recorded afresh as reconciling finds them.
+fn keepDownloadsIn(p: *App, dir: []const u8, port: u16) !void {
+    const name = try advertisedName(p);
+    const url = try std.fmt.allocPrint(p.arena, "http://{s}.local:{d}/{s}/", .{ name, port, downloads_prefix });
+    var r = try p.open();
+    defer r.close();
+    if (try core.download.settings(&r, p.arena)) |s| {
+        if (!std.mem.eql(u8, s.dir, dir)) {
+            try p.out.print("this device keeps its downloads in {s}\n", .{s.dir});
+            try p.out.flush();
+            return error.DownloadsElsewhere;
+        }
+        if (!std.mem.eql(u8, s.source.url, url)) _ = try core.library.removeSource(&r, p.arena, p.now(), &s.source.id);
+    }
+    try core.download.configure(&r, p.arena, p.now(), dir, url);
 }
 
 pub fn offerPairing(p: *App) !void {
@@ -119,13 +156,16 @@ pub fn offerPairing(p: *App) !void {
 
 /// The name a device offering to pair advertises: the computer's, as the
 /// system gives it (not `$HOST`, which shells don't export and launchd
-/// doesn't set), else its service name.
+/// doesn't set), its first label alone, as mDNS answers to it with
+/// `.local` (a DHCP server can make it `firefly.localdomain`, a name other
+/// computers can't look up, and that changes as networks do); else its
+/// service name.
 fn advertisedName(p: *App) ![]const u8 {
     var buffer: [std.posix.HOST_NAME_MAX + 1]u8 = undefined;
     if (std.c.gethostname(&buffer, buffer.len) == 0) {
         const name = std.mem.sliceTo(&buffer, 0);
-        const trimmed = if (std.mem.endsWith(u8, name, ".local")) name[0 .. name.len - ".local".len] else name;
-        if (trimmed.len > 0) return p.arena.dupe(u8, trimmed);
+        const label = name[0 .. std.mem.indexOfScalar(u8, name, '.') orelse name.len];
+        if (label.len > 0) return p.arena.dupe(u8, label);
     }
     return serviceName(p);
 }
