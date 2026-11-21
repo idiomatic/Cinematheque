@@ -236,22 +236,34 @@ struct ListPrompt: Identifiable {
 }
 
 /// Answers the library's requests about lists, from wherever they came:
-/// a list's name, in an alert with a field, and deleting one, confirmed
-/// first, as it's for good.
+/// a list's name, in an alert with a field (on tvOS, the full-screen
+/// keyboard at once, as Settings' names, an alert's field bringing up the
+/// keyboard over it), and deleting one, confirmed first, as it's for good.
 struct ListRequests: ViewModifier {
     @Environment(Library.self) private var library
     @State private var name = ""
 
     func body(content: Content) -> some View {
         let renaming: UserList? = if case .rename(let list) = library.listPrompt?.kind { list } else { nil }
+        let prompting = Binding(get: { library.listPrompt != nil }, set: { if !$0 { library.listPrompt = nil } })
         content
-            .alert(renaming == nil ? "New List" : "Rename List", isPresented: Binding(get: { library.listPrompt != nil }, set: { if !$0 { library.listPrompt = nil } })) {
+            #if os(tvOS)
+            .background {
+                KeyboardField(title: renaming == nil ? "New List" : "Rename List", text: renaming?.name ?? "", typing: prompting) { answer($0) }
+                    .frame(width: 1, height: 1)
+                    .clipped()
+                    .opacity(0.01)
+                    .accessibilityHidden(true)
+            }
+            #else
+            .alert(renaming == nil ? "New List" : "Rename List", isPresented: prompting) {
                 TextField("Name", text: $name)
                 Button("Cancel", role: .cancel) {}
-                Button(renaming == nil ? "Create" : "Rename") { answer() }
+                Button(renaming == nil ? "Create" : "Rename") { answer(name) }
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .onChange(of: library.listPrompt?.id) { name = renaming?.name ?? "" }
+            #endif
             .confirmationDialog("Delete “\(library.deletingList?.name ?? "")”?", isPresented: Binding(get: { library.deletingList != nil }, set: { if !$0 { library.deletingList = nil } }), titleVisibility: .visible) {
                 Button("Delete List", role: .destructive) {
                     if let list = library.deletingList { library.removeList(list.id) }
@@ -262,9 +274,10 @@ struct ListRequests: ViewModifier {
             }
     }
 
-    private func answer() {
-        guard let prompt = library.listPrompt else { return }
-        let named = name.trimmingCharacters(in: .whitespaces)
+    /// A blank name is ignored, as the keyboard can't refuse one.
+    private func answer(_ typed: String) {
+        let named = typed.trimmingCharacters(in: .whitespaces)
+        guard let prompt = library.listPrompt, !named.isEmpty else { return }
         switch prompt.kind {
         case .create(let key):
             if let id = library.createList(named: named), let key { library.setListed(key, on: id, true) }

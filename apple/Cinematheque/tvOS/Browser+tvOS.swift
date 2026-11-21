@@ -178,6 +178,7 @@ private struct SeeAll: View {
 private struct ListPage: View {
     let id: String
     @Environment(Library.self) private var library
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         let shelf = Shelf.list(id)
@@ -192,6 +193,10 @@ private struct ListPage: View {
                     Button("Delete List…", role: .destructive) { library.deletingList = list }
                 }
             }
+        }
+        // Deleted (here, or by another device), back to Lists.
+        .onChange(of: list == nil) { _, gone in
+            if gone { dismiss() }
         }
     }
 }
