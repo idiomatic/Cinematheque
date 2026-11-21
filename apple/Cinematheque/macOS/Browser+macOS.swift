@@ -1065,15 +1065,34 @@ struct TileView: View {
                     }
                 }
                 .shadow(color: .black.opacity(0.15), radius: 3, y: 2)
-            // Its whole name as help only where it's cut short, as help
-            // says only what can't be seen.
             let name = isSeries ? tile.name : tile.seasonName ?? tile.name
-            ViewThatFits(in: .horizontal) {
-                Text(name).fixedSize()
-                Text(name).lineLimit(1).help(name)
+            if series == "", let year = tile.year {
+                // A series whose second line says nothing: its year beside
+                // its name, if an em's space is left between them, its
+                // second line still kept, so rows line up; else below.
+                ViewThatFits(in: .horizontal) {
+                    VStack(alignment: .leading, spacing: Self.spacing) {
+                        HStack(alignment: .firstTextBaseline, spacing: 0) {
+                            Text(name).font(.callout).fixedSize()
+                            Spacer(minLength: Self.em)
+                            Text(String(year)).font(.caption).foregroundStyle(.secondary).fixedSize()
+                        }
+                        Text(" ").font(.caption)
+                    }
+                    VStack(alignment: .leading, spacing: Self.spacing) {
+                        nameLine(name)
+                        HStack {
+                            Spacer(minLength: 4)
+                            Text(String(year))
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                nameLine(name)
             }
-            .font(.callout)
-            if let series {
+            if let series, series != "" || tile.year == nil {
                 // Its year, if its name has one, at the line's end, so the
                 // seasons said before it read alike with it or without.
                 HStack {
@@ -1092,8 +1111,21 @@ struct TileView: View {
         }
         .contentShape(Rectangle())
     }
-}
 
+    /// A name's line, its whole name as help only where it's cut short,
+    /// as help says only what can't be seen.
+    private func nameLine(_ name: String) -> some View {
+        ViewThatFits(in: .horizontal) {
+            Text(name).fixedSize()
+            Text(name).lineLimit(1).help(name)
+        }
+        .font(.callout)
+    }
+
+    /// An em of the name's font, the least space left between a name and
+    /// a year beside it.
+    private static let em = NSFont.preferredFont(forTextStyle: .callout).pointSize
+}
 
 /// A band's shape: a rounded rectangle with a point at its top, at
 /// `notch` across, `depth` high, pointing up at what it opened from.
