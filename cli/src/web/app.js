@@ -614,40 +614,56 @@ function keepRow(detail, items, season, quality, sizes) {
   return row;
 }
 
-/// Keeping on the server, its controls in place through every state, as the
-/// Mac's download rows are (nothing appears or disappears; what doesn't
-/// apply is dimmed): Keep, with its size, and in a slot at its start, a
-/// round gauge while it comes (turning while it waits its turn), then a
-/// check once kept; and delete, which stops it coming or deletes it.
-/// Smaller in an episode's row.
+/// Keeping on the server, one button taking each turn in place, as the
+/// Mac's download rows hold theirs (nothing appears or disappears), with
+/// its size throughout: Keep; then, while the file comes, Keeping (a round
+/// gauge in its slot, turning while it waits its turn), which under the
+/// pointer is Cancel; then Kept, tinted, with a check, which under the
+/// pointer is Delete. Every label is stacked in its place, so it's as wide as the
+/// widest. Deleting the only copy is asked first; so is any, on a screen
+/// without a pointer to show Delete first. Smaller in an episode's row.
 function keepControls(keys, key, quality, size, small = false) {
   const note = size && sizeNote(size);
   const slot = el("span", { class: "slot", "aria-hidden": "true" });
-  const keep = el("button", { type: "button", class: `keep${note && !note.fits ? " warn" : ""}`,
-    onclick: () => change("download", { key, quality: quality ?? "" }) },
-  slot, note ? `Keep · ${note.text}` : "Keep");
+  // Its size in every turn, as it's always the same file.
+  const sized = (word) => note ? `${word} · ${note.text}` : word;
+  const labels = el("span", { class: "labels" },
+    el("span", { class: "idle" }, sized("Keep")),
+    el("span", { class: "coming" }, sized("Keeping")),
+    el("span", { class: "cancel" }, sized("Cancel")),
+    el("span", { class: "kept" }, sized("Kept")),
+    el("span", { class: "delete" }, sized("Delete")));
   let state = {};
-  const remove = el("button", { type: "button", "aria-label": "Delete from the server", onclick: () => {
-    if (state.held && state.only && !confirm("The server holds the only copy. Delete it anyway? It can't be had again.")) return;
-    change("download-remove", { key });
-  } }, "🗑\uFE0E");
-  const box = el("span", { class: small ? "keep-controls small" : "keep-controls" }, keep, remove);
-  watch(box, () => {
+  const button = el("button", { type: "button", class: small ? "keep small" : "keep", onclick: () => {
+    if (state.held) {
+      const ask = state.only ? "The server holds the only copy. Delete it anyway? It can't be had again."
+        : !hovers ? `Delete it from ${downloads.device}?` : null;
+      if (ask && !confirm(ask)) return;
+      change("download-remove", { key });
+    } else if (state.coming) {
+      change("download-remove", { key });
+    } else {
+      change("download", { key, quality: quality ?? "" });
+    }
+  } }, slot, labels);
+  watch(button, () => {
     state = stateOf(keys);
     const f = state.fetching;
-    slot.replaceChildren(state.held ? "✓" : state.coming ? ring(f?.size ? f.done / f.size : null) : "");
-    keep.disabled = !!(state.held || state.coming);
-    keep.classList.toggle("kept", !!state.held);
-    keep.classList.toggle("coming", !!state.coming && !state.held);
-    keep.title = state.held ? `Kept on ${downloads.device}`
-      : f?.size ? `Coming to ${downloads.device}: ${bytes(f.done)} of ${bytes(f.size)}`
-      : state.coming ? `Waiting its turn to come to ${downloads.device}`
+    button.dataset.state = state.held ? "kept" : state.coming ? "coming" : "idle";
+    button.classList.toggle("warn", !state.held && !state.coming && !!note && !note.fits);
+    slot.replaceChildren(...(state.held ? [el("span", { class: "check" }, "✓"), el("span", { class: "bin" }, "🗑\uFE0E")]
+      : state.coming ? [ring(f?.size ? f.done / f.size : null)] : []));
+    button.title = state.held ? `Kept on ${downloads.device}${state.only ? " (the only copy)" : ""}; delete it`
+      : f?.size ? `Coming to ${downloads.device}: ${bytes(f.done)} of ${bytes(f.size)}; cancel it`
+      : state.coming ? `Waiting its turn to come to ${downloads.device}; cancel it`
       : note?.title || `Keep on ${downloads.device}`;
-    remove.disabled = !(state.held || state.coming);
-    remove.title = state.held ? (state.only ? "Delete from the server (the only copy)" : "Delete from the server") : "Stop keeping";
   });
-  return box;
+  return button;
 }
+
+/// Whether the pointer can hover, to show Cancel and Delete before they're
+/// pressed.
+const hovers = matchMedia("(hover: hover)").matches;
 
 /// A round gauge, filled to `fraction` (0 to 1), or turning, if null.
 function ring(fraction) {
