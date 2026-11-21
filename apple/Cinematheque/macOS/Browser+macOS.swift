@@ -170,13 +170,21 @@ struct Browser: View {
                 .searchFocused($searching)
                 .focusedSceneValue(\.find, FindAction(window: window) { searching = true })
                 .focusedSceneValue(\.shelfOrder, $orders[shelf ?? .inProgress])
+                // Beside search while the inspector's hidden; shown, the
+                // inspector's own takes its place, at the window's corner.
+                .toolbar {
+                    if !inspecting {
+                        ToolbarItem(placement: .primaryAction) { inspectorToggle }
+                    }
+                }
         }
         // Outside the split view, as Apple's own example has it: full
-        // height, its toggle the system's, at the start of its section of
-        // the toolbar, following its divider (an inspector inside the
-        // detail column left the toggle astride the divider, whose drag
-        // area reaches up into the toolbar and took its clicks, wherever
-        // the divider was dragged).
+        // height, its toggle at the start of its section of the toolbar,
+        // following its divider (an inspector inside the detail column left
+        // the toggle astride the divider, whose drag area reaches up into
+        // the toolbar and took its clicks). The toggle is the app's, one in
+        // each section, only one shown: the system's own came and went
+        // between launches.
         .inspector(isPresented: $inspecting) {
             Group {
                 if let tile = library.tiles.first(where: { $0.id == selection }) {
@@ -187,6 +195,11 @@ struct Browser: View {
                 }
             }
             .inspectorColumnWidth(min: 300, ideal: 360, max: 520)
+            .toolbar {
+                if inspecting {
+                    ToolbarItem(placement: .primaryAction) { inspectorToggle }
+                }
+            }
         }
         #if DEBUG
         .onAppear {
@@ -214,6 +227,12 @@ struct Browser: View {
     private func shown(_ shelf: Shelf) -> Bool {
         if case .list(let id) = shelf { return library.lists.contains { $0.id == id } }
         return Self.shelves.contains(shelf)
+    }
+
+    /// The inspector's toggle, one of two, as only one shows at a time.
+    private var inspectorToggle: some View {
+        Button(inspecting ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.trailing") { inspecting.toggle() }
+            .help(inspecting ? "Hide the inspector" : "Show the inspector")
     }
 
     private var shown: [Tile] { (shelf ?? .inProgress).tiles(in: library, search: search, order: orders[shelf ?? .inProgress]) }
