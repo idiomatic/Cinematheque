@@ -196,6 +196,95 @@ struct InspectorView: View {
     }
 }
 
+/// A series' details, selected as a whole on the Series shelf: its
+/// cover, Play for the season to watch, the whole series' watched mark,
+/// its description, and its seasons, each selected by clicking it.
+struct SeriesInspectorView: View {
+    let series: Tile
+    /// Selects one of its seasons, by its tile's ID.
+    let select: (String) -> Void
+    @Environment(Library.self) private var library
+    @Environment(\.play) private var play
+    @State private var detail: TitleDetail?
+
+    var body: some View {
+        let seasons = Library.seasons(of: series.key, in: library.tiles)
+        let up = Library.nextSeason(seasons)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Color.clear
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay { CoverImage(cover: series.cover, thumb: series.thumb, title: series.name, size: .large, fit: true) }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
+                    .frame(maxHeight: 340)
+                    .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(series.name).font(.title2.weight(.semibold))
+                    Text(["\(seasons.count) seasons", series.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
+                        .foregroundStyle(.secondary)
+                }
+                if let detail {
+                    let next = Playback.nextItem(detail, season: up?.season)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 12) {
+                            Button {
+                                if let request = Playback.next(in: detail, season: up?.season) { play(request) }
+                            } label: {
+                                Label(Playback.playLabel(next), systemImage: "play.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                            .disabled(next == nil)
+                            // The whole series': a status that pressing
+                            // toggles, as a season's is.
+                            Button(series.watched ? "Watched" : "Unwatched", systemImage: series.watched ? "checkmark.circle.fill" : "circle") {
+                                library.markWatched(series, !series.watched, wholeTitle: true)
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .help(series.watched ? "Mark the series as unwatched" : "Mark the series as watched")
+                            .fixedSize()
+                        }
+                        if let name = up?.seasonName {
+                            Text("Up next: \(name)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    let facts = detail.facts(season: nil)
+                    if !facts.isEmpty { Text(facts).foregroundStyle(.secondary) }
+                    if let description = detail.fields["description"] {
+                        Text(description).textSelection(.enabled)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Seasons").font(.headline)
+                        .padding(.bottom, 6)
+                    ForEach(seasons) { season in
+                        Button { select(season.id) } label: {
+                            HStack {
+                                Image(systemName: season.watched ? "checkmark.circle.fill" : season.started ? "circle.lefthalf.filled" : "circle")
+                                    .foregroundStyle(.secondary)
+                                Text(season.seasonName ?? "")
+                                Spacer()
+                                Text("\(season.items) \(season.items == 1 ? "episode" : "episodes")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Divider()
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .task(id: library.revision) { detail = library.detail(series.key) }
+    }
+}
+
 /// A version, part, or episode: played by its button, with its download's
 /// mark, and its downloading and watched mark in its context menu.
 private struct ItemRow: View {
