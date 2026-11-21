@@ -943,8 +943,10 @@ struct CoverGrid: View {
         // Selected itself, or, of one season, that season.
         let selected = selection == series.key || (count == 1 && seasons[0].id == selection)
         // Named for its series, as every series' is, and under it, how many
-        // seasons, or, of one, which.
-        return TileView(tile: series, aspect: 1, selected: selected, series: count == 1 ? seasons[0].seasonName ?? "" : "\(count) seasons")
+        // seasons, or, of one, which; but nothing for a first season alone
+        // (a miniseries, or one cut short), which needs no saying.
+        let caption = count == 1 ? (seasons[0].season == 1 ? "" : seasons[0].seasonName ?? "") : "\(count) seasons"
+        return TileView(tile: series, aspect: 1, selected: selected, series: caption)
             .frame(width: Self.cell)
             .onTapGesture {
                 focused = true
@@ -1024,7 +1026,8 @@ struct TileView: View {
     let aspect: Double
     let selected: Bool
     /// A series' tile, standing for the whole series: under its name, how
-    /// many seasons it has, or, of one, which.
+    /// many seasons it has, or, of one but the first, which (its line kept
+    /// either way).
     var series: String? = nil
     @Environment(Library.self) private var library
 
