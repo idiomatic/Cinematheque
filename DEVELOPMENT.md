@@ -29,6 +29,7 @@ How work keeps the code from growing faster than it earns, to be softened where 
 * **Linux:** running the other device itself there (its experiments ran in a VM).
 * **Known issues:**
   * Tests that reach this Mac by its own `.local` name through mDNS (copy racing's in the core, and [cli/test.sh](cli/test.sh)'s discovery) fail while mDNS doesn't answer for it, as after VMs come and go; they pass again once it does.
+  * On the Mac, search collapses to a button for a moment as the inspector opens: SwiftUI puts search in the inspector's section of the toolbar while it's shown, which starts narrow as it animates, and `DefaultToolbarItem(kind: .search)` doesn't keep it in the grid's.
   * macOS's Local Network privacy blocks the other device from the LAN (`HostUnreachable`) when run as a launch agent or started by another app, so the command-line app can't run in the background as one (its `agent` command was removed for that); Terminal and SSH sessions and system daemons are exempt (TN3179). The fix is to run it from a signed app bundle whose `Info.plist` says why it needs the local network, so macOS can ask once (the Mac app serves only while it runs). Until then, a test device runs in Terminal.
 
 ## Libraries
