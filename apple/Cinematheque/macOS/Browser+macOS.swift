@@ -1065,9 +1065,14 @@ struct TileView: View {
                     }
                 }
                 .shadow(color: .black.opacity(0.15), radius: 3, y: 2)
-            Text(isSeries ? tile.name : tile.seasonName ?? tile.name)
-                .font(.callout)
-                .lineLimit(1)
+            // Its whole name as help only where it's cut short, as help
+            // says only what can't be seen.
+            let name = isSeries ? tile.name : tile.seasonName ?? tile.name
+            ViewThatFits(in: .horizontal) {
+                Text(name).fixedSize()
+                Text(name).lineLimit(1).help(name)
+            }
+            .font(.callout)
             if let series {
                 // Its year, if its name has one, at the line's end, so the
                 // seasons said before it read alike with it or without.
