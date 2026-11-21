@@ -205,7 +205,9 @@ private struct Row: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .firstTextBaseline, spacing: 24) {
+            // Centered: See All's pill, not its smaller text, is what the
+            // eye lines up, and on the heading's baseline it drooped.
+            HStack(alignment: .center, spacing: 24) {
                 Text(title).font(.title3)
                 if let list { SeeAll(list: list, count: tiles.count) }
             }
