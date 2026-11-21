@@ -104,7 +104,7 @@ Open:
 What's built is in [AGENTS.md](AGENTS.md); still to come:
 
 * **Movies:** an alphabetical jump, and filters by decade and genre (facets), since 4,000 covers are a long way by remote; Home's recently added titles.
-* **People:** tvOS's profiles as library people (Who's watching, under Players).
+* **People:** tvOS's profiles as library people, for someone with no device of their own: the user-management entitlement (`runs-as-current-user`) gives the app each profile's own data and Keychain, so each profile is a device of its own person, joining as Someone New, as a shared Mac's accounts already do (each its own data directory). The other profile's app is terminated as profiles switch, so pairing (live on both sides) can't go between two profiles of one Apple TV: another member's device enters the new profile's code (the Mac, `member pair CODE`, or, for a household of Apple TVs alone, the web client once it can add someone), and two profiles never sync with each other directly, catching up through the library's other devices. To check: whether the app group container (the Top Shelf's) is the profile's too, and whether the simulator switches profiles. Add Someone's explanation says a person can join from their own profile or account on a shared device. Without profiles, a device holding several people is Who's watching (under Players).
 * **Icon:** real artwork for the placeholder icons (the Mac's, and tvOS's layered brand assets with the Top Shelf), from [draw-icons.swift](apple/draw-icons.swift).
 
 ## Transcoder
