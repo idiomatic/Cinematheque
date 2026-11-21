@@ -58,16 +58,19 @@ struct WindowPlayer: View {
                         .allowsHitTesting(false)
                     ZStack {
                         HStack(spacing: 6) {
+                            // A round button of a chevron alone, as the
+                            // system's apps' Back is beside a window's
+                            // buttons, the height of their row.
                             Button(action: leave) {
-                                Label("Back", systemImage: "chevron.backward")
-                                    // The size of a window's title.
-                                    .font(.body.weight(.medium))
+                                Image(systemName: "chevron.backward")
+                                    .font(.body.weight(.semibold))
                                     .foregroundStyle(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .contentShape(Rectangle())
+                                    .frame(width: buttonsMid * 2, height: buttonsMid * 2)
+                                    .modifier(RoundBack())
+                                    .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Back")
                             .keyboardShortcut(.cancelAction)
                             .help("Back to the library (Escape)")
                             .onHover { onBack = $0 }
@@ -99,6 +102,17 @@ struct WindowPlayer: View {
 /// What's playing, as a window's title says it, in its place after Back:
 /// a movie's name, or a series' with the episode (its code and name) after
 /// it, as `Playback.name` joins them, in one weight.
+/// Back's circle: glass, where macOS has it, else a material.
+private struct RoundBack: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content.glassEffect(.regular.interactive(), in: .circle)
+        } else {
+            content.background(.regularMaterial, in: .circle)
+        }
+    }
+}
+
 private struct NowPlaying: View {
     let title: String
 
