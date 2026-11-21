@@ -31,6 +31,8 @@ struct WindowPlayer: View {
     /// How far below the window's top its buttons' centers are, which the
     /// row's text centers on.
     @State private var buttonsMid: CGFloat = 14
+    /// Whether the window is full screen, where its buttons are elsewhere.
+    @State private var fullScreen = false
     @State private var lastMove = Date.distantPast
     @State private var curtain = Curtain()
 
@@ -77,8 +79,9 @@ struct WindowPlayer: View {
                             NowPlaying(title: title.isEmpty ? request.title : title)
                             Spacer(minLength: 16)
                         }
-                        // Past the window's buttons.
-                        .padding(.leading, 76)
+                        // Past the window's buttons, but in full screen,
+                        // where they're in the menu bar's place.
+                        .padding(.leading, fullScreen ? 12 : 76)
                     }
                     .frame(height: buttonsMid * 2)
                 }
@@ -88,7 +91,7 @@ struct WindowPlayer: View {
                 .allowsHitTesting(showsBack)
                 .animation(.easeInOut(duration: 0.25), value: showsBack)
             }
-            .background(HidesToolbar(showsButtons: showsBack, buttonsMid: $buttonsMid))
+            .background(HidesToolbar(showsButtons: showsBack, buttonsMid: $buttonsMid, fullScreen: $fullScreen))
             .navigationTitle(title.isEmpty ? request.title : title)
     }
 
@@ -99,9 +102,6 @@ struct WindowPlayer: View {
     }
 }
 
-/// What's playing, as a window's title says it, in its place after Back:
-/// a movie's name, or a series' with the episode (its code and name) after
-/// it, as `Playback.name` joins them, in one weight.
 /// Back's circle: glass, where macOS has it, else a material.
 private struct RoundBack: ViewModifier {
     func body(content: Content) -> some View {
@@ -113,6 +113,9 @@ private struct RoundBack: ViewModifier {
     }
 }
 
+/// What's playing, as a window's title says it, in its place after Back:
+/// a movie's name, or a series' with the episode (its code and name) after
+/// it, as `Playback.name` joins them, in one weight.
 private struct NowPlaying: View {
     let title: String
 
@@ -139,6 +142,7 @@ private struct HidesToolbar: NSViewRepresentable {
     /// How far below the window's top its buttons' centers are, as the
     /// window lays them out (not a guess at the title bar's height).
     @Binding var buttonsMid: CGFloat
+    @Binding var fullScreen: Bool
 
     private static let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
 
@@ -181,11 +185,17 @@ private struct HidesToolbar: NSViewRepresentable {
                 }
             }
             coordinator.hide()
-            if let close = window.standardWindowButton(.closeButton), close.window != nil {
+            let full = window.styleMask.contains(.fullScreen)
+            if full != fullScreen { fullScreen = full }
+            // In full screen the buttons are in a window of their own, over
+            // the menu bar's place, whose coordinates aren't this one's: the
+            // row keeps a title bar's height.
+            var mid: CGFloat = 14
+            if let close = window.standardWindowButton(.closeButton), close.window === window {
                 let center = close.convert(NSPoint(x: close.bounds.midX, y: close.bounds.midY), to: nil)
-                let mid = (window.frame.height - center.y).rounded()
-                if abs(mid - buttonsMid) >= 0.5 { buttonsMid = mid }
+                mid = (window.frame.height - center.y).rounded()
             }
+            if abs(mid - buttonsMid) >= 0.5 { buttonsMid = mid }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.25
                 for type in Self.buttons { window.standardWindowButton(type)?.animator().alphaValue = showsButtons ? 1 : 0 }
