@@ -175,8 +175,8 @@ private struct SeeAll: View {
                     }
                     .background(.fill.tertiary, in: .rect(cornerRadius: 12))
                     .hoverEffect(.highlight)
-                Text(count == 1 ? "1 title" : "\(count) titles")
-                    .font(.caption)
+                // Moving out of the lifted box's way, as a poster's name.
+                PosterName(name: count == 1 ? "1 title" : "\(count) titles")
                     .foregroundStyle(.secondary)
             }
         }
