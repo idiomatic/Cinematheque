@@ -142,7 +142,7 @@ struct Browser: View {
                     }
                     // A row of its own, last: at the sidebar's foot, under
                     // its glass, the list took its clicks. Named in place,
-                    // as Music's New Playlist is.
+                    // as Notes' New Folder is.
                     Button(action: newList) {
                         Label("New List", systemImage: "plus")
                     }
