@@ -238,11 +238,17 @@ struct Poster: View {
     let tile: Tile
     @Environment(Library.self) private var library
 
-    /// The cover itself, in its own shape, with its marks, which lifts.
+    /// The cover itself, with its marks, which lifts: a movie's filling the
+    /// box; a series' (a season's) in its own shape, square or 4:3.
     private var cover: some View {
-        Color.clear
-            .aspectRatio(tile.isSeries ? 1 : 2.0 / 3.0, contentMode: .fit)
-            .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, fit: tile.isSeries) }
+        Group {
+            if tile.isSeries {
+                CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, shaped: true)
+            } else {
+                CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name)
+                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
+            }
+        }
             // Its copies are all on drives that aren't there.
             .opacity(tile.unavailable ? 0.4 : 1)
             // A series' tile stands for the whole series.
@@ -261,7 +267,7 @@ struct Poster: View {
         NavigationLink(value: tile) {
             VStack(alignment: .leading, spacing: 14) {
                 // A movie's 2:3 box, so names line up along a row; a
-                // series' cover (a season's, square) at its foot, whole,
+                // series' cover at its foot, whole, in its own shape,
                 // rather than cropped to fill it.
                 Color.clear
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)

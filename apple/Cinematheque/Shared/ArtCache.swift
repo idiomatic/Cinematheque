@@ -168,27 +168,51 @@ enum Placeholder {
 /// its ThumbHash, or without one, a color of its own with its title; in a
 /// fixed frame, so the grid never waits on an image. A cover fills its
 /// frame, cropped, unless `fit`, then it's whole and centered in it (e.g.,
-/// a season's cover of another shape in a square).
+/// a season's cover of another shape in a square); or, `shaped`, it takes
+/// its own shape within the frame, as large as fits: the cover's, else its
+/// placeholder's (a ThumbHash keeps it), else a square.
 struct CoverImage: View {
     let cover: Cover?
     let thumb: String?
     let title: String
     let size: ArtCache.Size
     let fit: Bool
+    let shaped: Bool
     /// The cover, once loaded: from memory at once when the view is made,
     /// so scrolling back shows no placeholder, else when it arrives.
     @State private var image: CGImage?
 
-    init(cover: Cover?, thumb: String? = nil, title: String, size: ArtCache.Size = .tile, fit: Bool = false) {
+    init(cover: Cover?, thumb: String? = nil, title: String, size: ArtCache.Size = .tile, fit: Bool = false, shaped: Bool = false) {
         self.cover = cover
         self.thumb = thumb
         self.title = title
         self.size = size
         self.fit = fit
+        self.shaped = shaped
         _image = State(initialValue: cover.flatMap { ArtCache.shared.cached($0, size) })
     }
 
     var body: some View {
+        Group {
+            if shaped {
+                Color.clear
+                    .aspectRatio(shape, contentMode: .fit)
+                    .overlay { framed }
+            } else {
+                framed
+            }
+        }
+        .task(id: cover) {
+            guard let cover else { return }
+            if let cached = ArtCache.shared.cached(cover, size) {
+                image = cached
+                return
+            }
+            if let loaded = await ArtCache.shared.image(cover, size) { image = loaded }
+        }
+    }
+
+    private var framed: some View {
         ZStack {
             if let image, fit {
                 Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
@@ -199,14 +223,13 @@ struct CoverImage: View {
             }
         }
         .clipped()
-        .task(id: cover) {
-            guard let cover else { return }
-            if let cached = ArtCache.shared.cached(cover, size) {
-                image = cached
-                return
-            }
-            if let loaded = await ArtCache.shared.image(cover, size) { image = loaded }
-        }
+    }
+
+    /// Width over height: the cover's, else its placeholder's, else 1.
+    private var shape: CGFloat {
+        if let image, image.height > 0 { return CGFloat(image.width) / CGFloat(image.height) }
+        if let thumb, let p = Placeholder.image(thumb), p.height > 0 { return CGFloat(p.width) / CGFloat(p.height) }
+        return 1
     }
 
     /// An image filling the frame offered, cropped to it: an image scaled
