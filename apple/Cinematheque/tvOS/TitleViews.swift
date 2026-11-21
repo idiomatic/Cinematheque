@@ -66,98 +66,132 @@ struct MovieView: View {
     }
 }
 
-/// A series' page: its seasons, then the chosen season's episodes, each
-/// playable; Play takes the season's next unwatched episode, and the rest
-/// after it.
-struct SeriesView: View {
-    let key: String
+/// A season's page: its cover, Play or Resume (the season's next
+/// unwatched episode, and the rest after it), its lists and marks, and its
+/// episodes, each playable; the seasons before and after it a press away.
+struct SeasonView: View {
+    let tile: Tile
     @Environment(Library.self) private var library
     @State private var detail: TitleDetail?
+    /// The season shown, moved to its neighbors in place.
     @State private var season: Int?
     @State private var playing: PlayRequest?
     /// The quality chosen in its picker, if one was.
     @State private var quality: String?
+    @FocusState private var focus: Focus?
+
+    private enum Focus: Hashable {
+        case play, back, forward
+    }
 
     var body: some View {
-        let seasons = library.tiles.filter { $0.key == key && $0.season != nil }
-        let tile = seasons.first { $0.season == season } ?? seasons.first
-        ScrollView {
-            VStack(alignment: .leading, spacing: 40) {
-                Text(tile?.name ?? "").font(.title)
-                ScrollView(.horizontal) {
-                    LazyHStack(spacing: 40) {
-                        ForEach(seasons) { s in
-                            Button {
-                                season = s.season
-                            } label: {
-                                Color.clear
-                                    .aspectRatio(1, contentMode: .fit)
-                                    .frame(width: 220)
-                                    .overlay { CoverImage(cover: s.cover, thumb: s.thumb, title: s.seasonName ?? "", fit: true) }
-                                    .overlay(alignment: .bottom) {
-                                        Text(s.seasonName ?? "")
-                                            .font(.caption)
-                                            .padding(8)
-                                            .frame(maxWidth: .infinity)
-                                            .background(.regularMaterial)
-                                    }
-                                    // The season shown below.
-                                    .overlay {
-                                        if s.season == tile?.season {
-                                            RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor, lineWidth: 6)
-                                        }
-                                    }
-                            }
-                            .buttonStyle(.card)
-                        }
-                    }
-                    .padding(.vertical, 30)
+        let seasons = Library.seasons(of: tile.key, in: library.tiles)
+        let index = seasons.firstIndex { $0.season == (season ?? tile.season) }
+        let shown = index.map { seasons[$0] } ?? tile
+        HStack(alignment: .top, spacing: 80) {
+            // A season's cover in its own shape, square or 4:3, at the top.
+            Color.clear
+                .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                .frame(width: 460)
+                .overlay(alignment: .top) {
+                    CoverImage(cover: shown.cover, thumb: shown.thumb, title: shown.name, size: .large, shaped: true)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
-                .scrollClipDisabled()
-                if let detail, let tile {
-                    let items = Playback.items(detail, season: tile.season)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 30) {
+                    Text(shown.name).font(.title)
                     HStack(spacing: 30) {
-                        if Playback.nextItem(detail, season: tile.season)?.inProgress == true {
-                            Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items, chosen: quality), overFromStart: true)
+                        Text(shown.seasonName ?? "").font(.title3)
+                        Spacer()
+                        let back = index.flatMap { $0 > 0 ? seasons[$0 - 1] : nil }
+                        let forward = index.flatMap { $0 + 1 < seasons.count ? seasons[$0 + 1] : nil }
+                        Neighbor(season: back, forward: false) { season = $0 }
+                            .focused($focus, equals: .back)
+                        Neighbor(season: forward, forward: true) { season = $0 }
+                            .focused($focus, equals: .forward)
+                            // Reaching an end, focus goes to the other, as a
+                            // dimmed button kept it.
+                            .onChange(of: shown.season) {
+                                if focus == .forward, forward == nil { focus = .back }
+                                if focus == .back, back == nil { focus = .forward }
                             }
-                        }
-                        Button(Playback.playLabel(Playback.nextItem(detail, season: tile.season)), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: tile.season, quality: detail.quality(for: items, chosen: quality))
-                        }
-                        QualityPicker(detail: detail, items: items, chosen: $quality)
-                        Marks(detail: detail, items: items, season: tile.season).labelStyle(.iconOnly)
                     }
-                    if let description = detail.fields["description"] {
-                        Text(description).lineLimit(4).foregroundStyle(.secondary)
-                    }
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Episodes").font(.headline)
-                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                            Button {
-                                playing = Playback.request(detail, items: items, from: index, quality: detail.quality(for: items, chosen: quality))
-                            } label: {
-                                Episode(item: item)
+                    // Its whole width, so moving up from Play, at the
+                    // other end, reaches them, not the tab bar.
+                    .focusSection()
+                    if let detail {
+                        let items = Playback.items(detail, season: shown.season)
+                        Text(detail.facts(season: shown.season)).foregroundStyle(.secondary)
+                        HStack(spacing: 30) {
+                            if Playback.nextItem(detail, season: shown.season)?.inProgress == true {
+                                Button("Start Over", systemImage: Playback.startOverSymbol) {
+                                    playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: items, chosen: quality), overFromStart: true)
+                                }
+                            }
+                            Button(Playback.playLabel(Playback.nextItem(detail, season: shown.season)), systemImage: "play.fill") {
+                                playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: items, chosen: quality))
+                            }
+                            .focused($focus, equals: .play)
+                            QualityPicker(detail: detail, items: items, chosen: $quality)
+                            // The lists and marks, quieter than what plays:
+                            // icons, named for VoiceOver.
+                            Marks(detail: detail, items: items, season: shown.season).labelStyle(.iconOnly)
+                        }
+                        if let description = detail.fields["description"] {
+                            Text(description).lineLimit(4).foregroundStyle(.secondary)
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Episodes").font(.headline)
+                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                Button {
+                                    playing = Playback.request(detail, items: items, from: index, quality: detail.quality(for: items, chosen: quality))
+                                } label: {
+                                    Episode(item: item)
+                                }
                             }
                         }
                     }
                 }
+                .padding(.vertical, 20)
             }
-            .padding(80)
+            .scrollClipDisabled()
         }
-        .background { if let tile { Backdrop(tile: tile) } }
-        .task(id: library.revision) { detail = library.detail(key) }
-        // The chosen season's other episodes, or a movie's other versions,
-        // described as they're shown.
-        .task(id: season) {
-            if season != nil || key.hasPrefix("t/m/") { await library.describeItems(of: key, season: season) }
+        .padding(80)
+        .background { Backdrop(tile: shown) }
+        .defaultFocus($focus, .play)
+        .task(id: library.revision) {
+            detail = library.detail(tile.key)
+            #if DEBUG
+            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: Playback.items(detail, season: shown.season), chosen: quality)) }
+            #endif
         }
-        .onAppear {
-            // The first season not yet watched through, specials last.
-            let ordered = seasons.filter { $0.season != 0 } + seasons.filter { $0.season == 0 }
-            if season == nil { season = (ordered.first { !$0.watched } ?? ordered.first)?.season }
-        }
+        // Its other episodes, described as they're shown.
+        .task(id: shown.season) { await library.describeItems(of: tile.key, season: shown.season) }
         .modifier(PlaysFullScreen(request: $playing))
+    }
+}
+
+/// The season before or after, by name, with a chevron; at the end of the
+/// series, the chevron alone, dimmed.
+private struct Neighbor: View {
+    let season: Tile?
+    let forward: Bool
+    let go: (Int?) -> Void
+
+    var body: some View {
+        let symbol = forward ? "chevron.forward" : "chevron.backward"
+        Button { go(season?.season) } label: {
+            if let name = season?.seasonName {
+                if forward {
+                    HStack(spacing: 12) { Text(name); Image(systemName: symbol) }
+                } else {
+                    HStack(spacing: 12) { Image(systemName: symbol); Text(name) }
+                }
+            } else {
+                Image(systemName: symbol).accessibilityLabel(forward ? "Next Season" : "Previous Season")
+            }
+        }
+        .disabled(season == nil)
     }
 }
 

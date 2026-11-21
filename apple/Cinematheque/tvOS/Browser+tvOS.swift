@@ -2,7 +2,8 @@
 import SwiftUI
 
 /// The tab bar: Home, Movies, Series, Lists, Watched, Settings, and
-/// Search, each shelf a navigation stack opening titles' detail pages.
+/// Search, each shelf a navigation stack opening titles' pages: a movie's,
+/// or a season's; a series' tile, a grid of its seasons first.
 struct Browser: View {
     /// A tab: a shelf, search, or settings.
     enum Tab: Hashable {
@@ -25,10 +26,11 @@ struct Browser: View {
                             HomeView()
                         } else if shelf == .lists {
                             ListsView()
+                        } else if shelf == .series {
+                            // A cover per series, opening its seasons.
+                            PosterGrid(tiles: library.perTitle(shelf.tiles(in: library)), empty: shelf.empty, series: true)
                         } else {
-                            // A page per series (its seasons are there), so a
-                            // cover per title.
-                            PosterGrid(tiles: library.perTitle(shelf.tiles(in: library)), empty: shelf.empty)
+                            PosterGrid(tiles: shelf.tiles(in: library), empty: shelf.empty)
                         }
                     }
                 }
@@ -68,38 +70,46 @@ struct Browser: View {
     }
 }
 
-/// A tab's navigation stack, opening a movie's page or a series'.
+/// A series' seasons, as a page: what a series' tile opens.
+struct SeriesSeasons: Hashable {
+    let key: String
+}
+
+/// A tab's navigation stack, opening a movie's page, a season's, or a
+/// series' seasons.
 private struct Stack<Content: View>: View {
     /// A title to open, as a link asks (Home's).
     var opening: Binding<Tile?>? = nil
     @ViewBuilder let content: Content
     @Environment(Library.self) private var library
-    @State private var path: [Tile] = []
+    @State private var path = NavigationPath()
 
     var body: some View {
         NavigationStack(path: $path) {
             content
                 .navigationDestination(for: Tile.self) { tile in
-                    if tile.isSeries { SeriesView(key: tile.key) } else { MovieView(tile: tile) }
+                    if tile.isSeries { SeasonView(tile: tile) } else { MovieView(tile: tile) }
                 }
+                .navigationDestination(for: SeriesSeasons.self) { SeasonsView(key: $0.key) }
         }
         .onChange(of: opening?.wrappedValue) { _, tile in
             guard let tile else { return }
-            path = [tile]
+            path = NavigationPath([tile])
             opening?.wrappedValue = nil
         }
         #if DEBUG
-        // Once the title has arrived (a first launch's sync brings it).
+        // Once the title has arrived (a first launch's sync brings it): a
+        // season's page, or a series' seasons.
         .task(id: library.tiles.isEmpty) {
-            if path.isEmpty, let key = Launch.selectedTitle, let tile = library.tiles.first(where: { $0.key == key }) { path = [tile] }
+            guard path.isEmpty, let id = Launch.selection else { return }
+            if let tile = library.tiles.first(where: { $0.id == id }) {
+                path = NavigationPath([tile])
+            } else if let key = Launch.selectedTitle, library.tiles.contains(where: { $0.key == key }) {
+                path = NavigationPath([SeriesSeasons(key: key)])
+            }
         }
         #endif
     }
-}
-
-extension EnvironmentValues {
-    /// The list a tile is shown on (its row's, or its page's), if any.
-    @Entry var shownOn: String?
 }
 
 /// Rows of what to watch: in progress (movies partway, seasons begun), then
@@ -109,7 +119,7 @@ private struct HomeView: View {
 
     var body: some View {
         let going = Shelf.home.tiles(in: library)
-        let lists = library.lists.map { ($0, library.perTitle(Shelf.list($0.id).tiles(in: library))) }.filter { !$0.1.isEmpty }
+        let lists = library.lists.map { ($0, Shelf.list($0.id).tiles(in: library)) }.filter { !$0.1.isEmpty }
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 50) {
                 if going.isEmpty && lists.isEmpty {
@@ -117,9 +127,7 @@ private struct HomeView: View {
                         .frame(maxWidth: .infinity)
                 }
                 if !going.isEmpty { Row(title: "Continue Watching", tiles: going) }
-                ForEach(lists, id: \.0.id) { list, tiles in
-                    Row(title: list.name, tiles: tiles).environment(\.shownOn, list.id)
-                }
+                ForEach(lists, id: \.0.id) { list, tiles in Row(title: list.name, tiles: tiles) }
             }
             .padding(.vertical, 40)
         }
@@ -143,11 +151,10 @@ private struct ListsView: View {
                         .frame(maxWidth: .infinity)
                 }
                 ForEach(library.lists) { list in
-                    let tiles = library.perTitle(Shelf.list(list.id).tiles(in: library))
+                    let tiles = Shelf.list(list.id).tiles(in: library)
                     // A plain heading, as Home's rows have; the list's page,
                     // from its row's first tile, renames or deletes it.
                     Row(title: list.name, tiles: tiles, list: list.id)
-                        .environment(\.shownOn, list.id)
                 }
                 // Rare, so last.
                 Button("New List", systemImage: "plus") { library.listPrompt = .init(kind: .create(adding: [])) }
@@ -194,7 +201,7 @@ private struct ListPage: View {
         // Its name as the grid's first line, aligned with the covers and
         // scrolling away with them: a navigation title stayed at the top,
         // inset from them.
-        PosterGrid(tiles: library.perTitle(shelf.tiles(in: library)), empty: shelf.empty, heading: shelf.name(in: library)) {
+        PosterGrid(tiles: shelf.tiles(in: library), empty: shelf.empty, heading: shelf.name(in: library)) {
             if let list {
                 HStack(spacing: 30) {
                     Button("Rename…") { library.listPrompt = .init(kind: .rename(list)) }
@@ -202,7 +209,6 @@ private struct ListPage: View {
                 }
             }
         }
-        .environment(\.shownOn, id)
         // Deleted (here, or by another device), back to Lists, as the page
         // has nothing left to focus; on coming back to it too, from a
         // title opened here, as it may not go back while covered.
@@ -257,6 +263,9 @@ struct PosterGrid<Footer: View>: View {
     /// A heading above the covers, and what follows them, scrolling with
     /// them.
     var heading: String? = nil
+    /// Whether a series' tiles stand for the whole series (opening its
+    /// seasons), not a season.
+    var series = false
     @ViewBuilder var footer: Footer
 
     var body: some View {
@@ -268,7 +277,7 @@ struct PosterGrid<Footer: View>: View {
                     .padding(.top, 40)
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 48, alignment: .top), count: 6), spacing: 60) {
-                ForEach(tiles) { Poster(tile: $0) }
+                ForEach(tiles) { Poster(tile: $0, series: series) }
             }
             .padding(.vertical, 40)
             footer
@@ -282,36 +291,47 @@ struct PosterGrid<Footer: View>: View {
 }
 
 extension PosterGrid where Footer == EmptyView {
-    init(tiles: [Tile], empty: String = Shelf.movies.empty, heading: String? = nil) {
-        self.init(tiles: tiles, empty: empty, heading: heading) { EmptyView() }
+    init(tiles: [Tile], empty: String = Shelf.movies.empty, heading: String? = nil, series: Bool = false) {
+        self.init(tiles: tiles, empty: empty, heading: heading, series: series) { EmptyView() }
     }
 }
 
-/// A poster's name, moving out of the way of its cover as the cover lifts:
-/// the borderless style moves a title only for an `Image`, and a cover is a
-/// view of images, placeholders, and marks.
+/// A poster's name, and a season's under it, moving out of the way of its
+/// cover as the cover lifts: the borderless style moves a title only for
+/// an `Image`, and a cover is a view of images, placeholders, and marks.
 private struct PosterName: View {
     let name: String
+    var season: String? = nil
     @Environment(\.isFocused) private var focused
 
     var body: some View {
-        Text(name)
-            .font(.caption)
-            .lineLimit(1)
-            .offset(y: focused ? 24 : 0)
-            .animation(.easeOut(duration: 0.2), value: focused)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(name)
+            if let season { Text(season).foregroundStyle(.secondary) }
+        }
+        .font(.caption)
+        .lineLimit(1)
+        .offset(y: focused ? 24 : 0)
+        .animation(.easeOut(duration: 0.2), value: focused)
     }
 }
 
-/// A cover that opens its title, with this person's progress, and its name
-/// below: tvOS's lockup (a borderless button), the cover lifting as it's
-/// focused and its name moving out of its way.
+/// A cover that opens its title (a movie's page, a season's, or a series'
+/// seasons), with this person's progress, and its name below: tvOS's
+/// lockup (a borderless button), the cover lifting as it's focused and its
+/// name moving out of its way.
 struct Poster: View {
     let tile: Tile
+    /// Whether a series' tile stands for the whole series, not a season.
+    var series = false
+    /// Whether it's among its series' seasons, named only as the season.
+    var amongSeasons = false
     @Environment(Library.self) private var library
-    /// The list whose row or page it's shown on, whose seasons of a series
-    /// its tile stands for.
-    @Environment(\.shownOn) private var shownOn
+
+    /// A series' seasons, unless it has only one, which it opens itself.
+    private var opensSeasons: Bool {
+        series && tile.isSeries && library.tiles.contains { $0.key == tile.key && $0.season != tile.season }
+    }
 
     /// The cover itself, with its marks, which lifts: a movie's filling the
     /// box; a series' (a season's) in its own shape, square or 4:3.
@@ -326,8 +346,8 @@ struct Poster: View {
         }
             // Its copies are all on drives that aren't there.
             .opacity(tile.unavailable ? 0.4 : 1)
-            // A series' tile stands for the whole series.
-            .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: true), watched: tile.watched, padding: 10) }
+            // A series' tile, on a list if any season is.
+            .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: series), watched: tile.watched, padding: 10) }
             .overlay(alignment: .bottom) {
                 if !tile.watched, tile.progress > 0 {
                     ProgressView(value: tile.progress).tint(.white).padding(12)
@@ -338,35 +358,44 @@ struct Poster: View {
             .hoverEffect(.highlight)
     }
 
+    /// The lockup: a movie's 2:3 box, so names line up along a row; a
+    /// series' cover at its foot, whole, in its own shape, rather than
+    /// cropped to fill it.
+    private var lockup: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Color.clear
+                .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                .overlay(alignment: .bottom) { cover }
+            if amongSeasons {
+                PosterName(name: tile.seasonName ?? tile.name)
+            } else {
+                PosterName(name: tile.name, season: series ? nil : tile.seasonName)
+            }
+        }
+    }
+
     var body: some View {
-        NavigationLink(value: tile) {
-            VStack(alignment: .leading, spacing: 14) {
-                // A movie's 2:3 box, so names line up along a row; a
-                // series' cover at its foot, whole, in its own shape,
-                // rather than cropped to fill it.
-                Color.clear
-                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                    .overlay(alignment: .bottom) { cover }
-                PosterName(name: tile.name)
+        // Typed, as destinations are found by the value's type.
+        Group {
+            if opensSeasons {
+                NavigationLink(value: SeriesSeasons(key: tile.key)) { lockup }
+            } else {
+                NavigationLink(value: tile) { lockup }
             }
         }
         .buttonStyle(.borderless)
-        // Pressed and held: a series' tile stands for the whole series.
+        // Pressed and held: a movie's or a season's lists (as only they
+        // go on lists) and marks; a series' tile's, the whole series'.
         .contextMenu {
-            // A series' tile stands for the whole series.
-            Menu("Lists", systemImage: "star") {
-                ForEach(library.lists) { list in
-                    Toggle(list.name, isOn: Binding(get: { library.isListed(tile, on: list, anySeason: true) }, set: { library.setListed(tile, on: list, $0, anySeason: true, from: shownOn) }))
-                }
-                Divider()
-                Button("New List…") { library.listPrompt = .init(kind: .create(adding: library.listKeys(for: tile, anySeason: true, from: shownOn))) }
+            if !series || !tile.isSeries {
+                Menu("Lists", systemImage: "star") { ListToggles(key: tile.id) }
             }
             // Unwatched forgets where you stopped, too.
             if !tile.watched {
-                Button("Mark as Watched", systemImage: "checkmark.circle") { library.markWatched(tile, true, wholeTitle: tile.isSeries) }
+                Button("Mark as Watched", systemImage: "checkmark.circle") { library.markWatched(tile, true, wholeTitle: series) }
             }
             if tile.started {
-                Button("Mark as Unwatched", systemImage: "circle") { library.markWatched(tile, false, wholeTitle: tile.isSeries) }
+                Button("Mark as Unwatched", systemImage: "circle") { library.markWatched(tile, false, wholeTitle: series) }
             }
         }
     }
@@ -379,8 +408,32 @@ private struct SearchView: View {
     var body: some View {
         // Every shelf's titles but Home's, which are among them.
         let found = text.isEmpty ? [] : library.perTitle(Shelf.movies.tiles(in: library, search: text) + Shelf.series.tiles(in: library, search: text))
-        PosterGrid(tiles: found, empty: text.isEmpty ? "Search for a movie or series." : "No titles match “\(text)”.")
+        PosterGrid(tiles: found, empty: text.isEmpty ? "Search for a movie or series." : "No titles match “\(text)”.", series: true)
             .searchable(text: $text)
+    }
+}
+
+/// A series' seasons, as a grid under its name (specials last), focus
+/// starting on the first not watched through: what its tile opens, each
+/// season opening its page.
+struct SeasonsView: View {
+    let key: String
+    @Environment(Library.self) private var library
+    @FocusState private var focused: String?
+
+    var body: some View {
+        let seasons = Library.seasons(of: key, in: library.tiles)
+        ScrollView {
+            Text(seasons.first?.name ?? "")
+                .font(.title3.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 40)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 48, alignment: .top), count: 6), spacing: 60) {
+                ForEach(seasons) { Poster(tile: $0, amongSeasons: true).focused($focused, equals: $0.id) }
+            }
+            .padding(.vertical, 40)
+        }
+        .defaultFocus($focused, Library.nextSeason(seasons)?.id)
     }
 }
 
