@@ -426,12 +426,13 @@ async function titlePage(key, season) {
   // The season, unless its pop-up says which.
   const facts = [isSeries && seasons.length < 2 ? seasonName(season) : null, detail.year, detail.fields.genre, detail.fields.network,
     !isSeries && items[0]?.fields.duration ? formatTime(Number(items[0].fields.duration)) : null].filter(Boolean).join(" · ");
+  const sizes = await keepSizes(detail, items, isSeries ? season : null, quality);
   const body = [
     el("h1", {}, detail.name),
     facts ? el("div", { class: "facts" }, facts) : null,
     qualityRow,
     actions,
-    keepRow(detail, items, isSeries ? season : null, quality),
+    keepRow(detail, items, isSeries ? season : null, quality, sizes),
     !isSeries && items.length === 1 ? progressRow(detail, items[0]) : null,
     detail.fields.description && !isSeries ? el("p", { class: "description" }, detail.fields.description) : null,
   ];
@@ -584,98 +585,111 @@ function keepTarget(detail, items) {
   return { key: `${detail.key}/${item.key}`, items: [item] };
 }
 
+/// What keeping would come to, fetched before the page is drawn, so no
+/// size arrives to move what's beside it: a movie's (what its Keep keeps,
+/// in `quality`), or a season's choices of episodes.
+async function keepSizes(detail, items, season, quality) {
+  if (!downloads.enabled) return null;
+  if (season == null) {
+    const target = keepTarget(detail, items);
+    return target ? api("download-sizes?" + new URLSearchParams({ key: target.key, quality: quality ?? "" })).catch(() => null) : null;
+  }
+  return api("download-sizes?" + new URLSearchParams({ key: detail.key, choices: JSON.stringify(seasonChoices.slice(1).map((c) => c[0])) })).catch(() => null);
+}
+
 /// A title page's: for a movie of one file, Download, to this computer;
 /// and keeping it on the server (a movie's Keep, or a season's choice of
 /// episodes, as the Mac's Download has them).
-function keepRow(detail, items, season, quality) {
+function keepRow(detail, items, season, quality, sizes) {
   const row = el("div", { class: "downloads" });
   const parts = [];
   const target = season == null ? keepTarget(detail, items) : null;
   if (target && target.items.length === 1) parts.push(downloadButton(target.items[0], quality));
-  if (downloads.enabled) parts.push(season == null ? movieKeep(detail, items, quality) : seasonChoice(detail));
+  if (downloads.enabled) {
+    if (season != null) parts.push(seasonChoice(detail, sizes));
+    else if (target) parts.push(keepControls(target.items.map((i) => `${detail.key}/${i.key}`), target.key, quality, sizes?.[0]));
+  }
   if (!parts.length) return null;
   row.append(...parts);
   return row;
 }
 
-/// A movie's Keep: its size, then a gauge while it comes, then that it's
-/// kept, with a button that stops it or deletes it.
-function movieKeep(detail, items, quality) {
-  const target = keepTarget(detail, items);
-  if (!target) return null;
-  const keys = target.items.map((i) => `${detail.key}/${i.key}`);
-  const box = el("span", { class: "download" });
-  let size = null;
-  api("download-sizes?" + new URLSearchParams({ key: target.key, quality: quality ?? "" })).then(([s]) => { size = s; update(); }).catch(() => {});
-  const update = () => {
-    const state = stateOf(keys);
-    if (state.held) {
-      box.replaceChildren(el("span", { class: "on", title: `On ${downloads.device}` }, "✓ Kept"), trash(target.key, state.only));
-    } else if (state.coming) {
-      box.replaceChildren(gauge(state.fetching), trash(target.key, false, "Stop keeping"));
-    } else {
-      const note = size && sizeNote(size);
-      box.replaceChildren(el("button", { type: "button", class: note && !note.fits ? "warn" : null, title: note?.title || `Keep on ${downloads.device}`,
-        onclick: () => change("download", { key: target.key, quality: quality ?? "" }) },
-      `Keep${note ? " · " + note.text : ""}`));
-    }
-  };
-  watch(box, update);
+/// Keeping on the server, its controls in place through every state, as the
+/// Mac's download rows are (nothing appears or disappears; what doesn't
+/// apply is dimmed): Keep, with its size, and in a slot at its start, a
+/// round gauge while it comes (turning while it waits its turn), then a
+/// check once kept; and delete, which stops it coming or deletes it.
+/// Smaller in an episode's row.
+function keepControls(keys, key, quality, size, small = false) {
+  const note = size && sizeNote(size);
+  const slot = el("span", { class: "slot", "aria-hidden": "true" });
+  const keep = el("button", { type: "button", class: `keep${note && !note.fits ? " warn" : ""}`,
+    onclick: () => change("download", { key, quality: quality ?? "" }) },
+  slot, note ? `Keep · ${note.text}` : "Keep");
+  let state = {};
+  const remove = el("button", { type: "button", "aria-label": "Delete from the server", onclick: () => {
+    if (state.held && state.only && !confirm("The server holds the only copy. Delete it anyway? It can't be had again.")) return;
+    change("download-remove", { key });
+  } }, "🗑\uFE0E");
+  const box = el("span", { class: small ? "keep-controls small" : "keep-controls" }, keep, remove);
+  watch(box, () => {
+    state = stateOf(keys);
+    const f = state.fetching;
+    slot.replaceChildren(state.held ? "✓" : state.coming ? ring(f?.size ? f.done / f.size : null) : "");
+    keep.disabled = !!(state.held || state.coming);
+    keep.classList.toggle("kept", !!state.held);
+    keep.classList.toggle("coming", !!state.coming && !state.held);
+    keep.title = state.held ? `Kept on ${downloads.device}`
+      : f?.size ? `Coming to ${downloads.device}: ${bytes(f.done)} of ${bytes(f.size)}`
+      : state.coming ? `Waiting its turn to come to ${downloads.device}`
+      : note?.title || `Keep on ${downloads.device}`;
+    remove.disabled = !(state.held || state.coming);
+    remove.title = state.held ? (state.only ? "Delete from the server (the only copy)" : "Delete from the server") : "Stop keeping";
+  });
   return box;
 }
 
-/// A season's choice of episodes to keep on this device, with what each
+/// A round gauge, filled to `fraction` (0 to 1), or turning, if null.
+function ring(fraction) {
+  const svg = (tag, attrs) => {
+    const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    return e;
+  };
+  const r = 6, round = 2 * Math.PI * r;
+  const g = svg("svg", { viewBox: "0 0 16 16", class: fraction == null ? "ring turning" : "ring" });
+  g.append(svg("circle", { cx: 8, cy: 8, r, class: "track" }),
+    svg("circle", { cx: 8, cy: 8, r, class: "fill", "stroke-dasharray": round, "stroke-dashoffset": round * (1 - (fraction ?? 0.25)) }));
+  return g;
+}
+
+/// A season's choices of episodes to keep.
+const seasonChoices = [["0", "Nothing"], ["1", "Next"], ["3", "Next 3"], ["10", "Next 10"], ["all", "All"]];
+
+/// A season's choice of episodes to keep on the server, with what each
 /// would come to.
-function seasonChoice(detail) {
-  const choices = [["0", "Nothing"], ["1", "Next"], ["3", "Next 3"], ["10", "Next 10"], ["all", "All"]];
+function seasonChoice(detail, sizes) {
   const current = () => downloads.next.find((n) => n.title === detail.key)?.choice ?? "0";
+  const label = ([value, name]) => {
+    const s = sizes?.find((x) => x.choice === value);
+    if (!s) return name;
+    const note = sizeNote(s);
+    return `${name} · ${note.text}${note.fits ? "" : " (won't fit)"}`;
+  };
   const select = el("select", { "aria-label": "Keep", title: `Episodes to keep on ${downloads.device} as you watch`,
     onchange: (e) => change("download-next", { title: detail.key, choice: e.target.value === "0" ? "" : e.target.value }) },
-  choices.map(([value, name]) => el("option", { value }, name)));
+  seasonChoices.map((c) => el("option", { value: c[0] }, label(c))));
   const box = el("label", { class: "download" }, "Keep ", select);
-  api("download-sizes?" + new URLSearchParams({ key: detail.key, choices: JSON.stringify(choices.slice(1).map((c) => c[0])) })).then((sizes) => {
-    for (const s of sizes) {
-      const option = [...select.options].find((o) => o.value === s.choice);
-      const note = sizeNote(s);
-      option.textContent = `${choices.find((c) => c[0] === s.choice)[1]} · ${note.text}${note.fits ? "" : " (won't fit)"}`;
-    }
-  }).catch(() => {});
   watch(box, () => { select.value = current(); });
   return box;
 }
 
 /// An episode's or version's own: Download, to this computer, and keeping
-/// it on the server (a button that keeps it, shows how far, or deletes).
+/// it on the server.
 function itemControls(detail, items, quality) {
   const keys = items.map((i) => `${detail.key}/${i.key}`);
-  const box = el("span", { class: "item-downloads" });
   const download = downloadButton(items[0], quality);
-  const update = () => {
-    if (!downloads.enabled) return box.replaceChildren(download);
-    const state = stateOf(keys);
-    const kept = state.held ? el("span", { class: "on", title: `Kept on ${downloads.device}` }, "✓ Kept", trash(keys[0], state.only))
-      : state.coming ? gauge(state.fetching, true)
-      : el("button", { type: "button", title: `Keep on ${downloads.device}`,
-        onclick: () => change("download", { key: keys[0], quality: quality ?? "" }) }, "Keep");
-    box.replaceChildren(download, kept);
-  };
-  watch(box, update);
-  return box;
-}
-
-/// How far a file has come, or that it waits its turn.
-function gauge(fetching, small = false) {
-  if (!fetching || !fetching.size) return el("span", { class: "waiting" }, small ? "…" : "Waiting its turn…");
-  return el("progress", { max: fetching.size, value: fetching.done, title: `${bytes(fetching.done)} of ${bytes(fetching.size)}` });
-}
-
-/// Deleting what's kept, or no longer keeping what's coming: the only copy
-/// asked first.
-function trash(key, only, label = "Delete from the server") {
-  return el("button", { type: "button", title: only ? `${label} (the only copy)` : label, "aria-label": label, onclick: () => {
-    if (only && !confirm(`The server holds the only copy. Delete it anyway? It can't be had again.`)) return;
-    change("download-remove", { key });
-  } }, "🗑\uFE0E");
+  return el("span", { class: "item-downloads" }, download, downloads.enabled ? keepControls(keys, keys[0], quality, null, true) : null);
 }
 
 /// Downloading an item's file to this computer: from the chosen quality's

@@ -136,16 +136,27 @@ button:disabled { opacity: 0.4; cursor: default; }
 .downloads { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: -4px 0 16px; max-width: 80ch; }
 .download { display: inline-flex; gap: 8px; align-items: center; color: var(--dim); }
 .download select { padding: 4px 8px; font-size: 13px; }
-.download .on, .download button { color: var(--text); }
-.item-downloads .on { display: inline-flex; gap: 6px; align-items: center; color: var(--dim); font-size: 13px; }
-.download progress { width: 160px; accent-color: var(--accent); }
+/* Keep and delete, each in its place through every state; Keep's slot,
+   its width held, a round gauge while it comes, then a check. */
+.keep-controls { display: inline-flex; gap: 8px; align-items: center; }
+.keep-controls.small { gap: 6px; }
+.keep .slot { display: inline-grid; place-items: center; width: 1em; height: 1em; margin-right: 6px; vertical-align: -0.125em; }
+.ring { width: 1em; height: 1em; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 2.5; }
+.ring .track { stroke: color-mix(in srgb, CanvasText 15%, transparent); }
+.ring .fill { stroke: var(--accent); stroke-linecap: round; }
+.ring.turning { animation: turning 1s linear infinite; }
+@keyframes turning { to { transform: rotate(270deg); } }
+/* Kept: settled, not dimmed, though there's nothing more to press; and
+   coming, its gauge full strength, its words quieter. */
+button.keep.kept:disabled { opacity: 1; border-color: var(--accent); }
+button.keep.coming:disabled { opacity: 1; color: var(--dim); }
 /* An episode's or version's, buttons as a movie's are, smaller, as fits a
    row. */
 .item-downloads { display: inline-flex; gap: 6px; align-items: center; }
 .item-downloads button { padding: 3px 10px; font-size: 13px; }
-.item-downloads progress { width: 48px; accent-color: var(--accent); }
 button.warn { color: #ff9f0a; }
-.waiting { color: var(--dim); font-size: 13px; }
+
 
 #status {
   position: fixed; left: 0; right: 0; bottom: 0; padding: 6px 24px;
