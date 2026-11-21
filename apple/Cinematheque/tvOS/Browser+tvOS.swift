@@ -344,8 +344,9 @@ struct Poster: View {
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)
             }
         }
-            // Its copies are all on drives that aren't there.
-            .opacity(tile.unavailable ? 0.4 : 1)
+            // Its copies are all on drives that aren't there, or it's a
+            // placeholder, not in the library yet.
+            .opacity(tile.unavailable || tile.isWanted ? 0.4 : 1)
             // A series' tile, on a list if any season is.
             .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: series), watched: tile.watched, padding: 10) }
             .overlay(alignment: .bottom) {
@@ -366,7 +367,9 @@ struct Poster: View {
             Color.clear
                 .aspectRatio(2.0 / 3.0, contentMode: .fit)
                 .overlay(alignment: .bottom) { cover }
-            if amongSeasons {
+            if tile.isWanted {
+                PosterName(name: tile.name, season: "Not in library")
+            } else if amongSeasons {
                 PosterName(name: tile.seasonName ?? tile.name)
             } else {
                 PosterName(name: tile.name, season: series ? nil : tile.seasonName)
@@ -377,7 +380,10 @@ struct Poster: View {
     var body: some View {
         // Typed, as destinations are found by the value's type.
         Group {
-            if opensSeasons {
+            if tile.isWanted {
+                // A placeholder: nothing to open, but its menu takes it off.
+                Button {} label: { lockup }
+            } else if opensSeasons {
                 NavigationLink(value: SeriesSeasons(key: tile.key)) { lockup }
             } else {
                 NavigationLink(value: tile) { lockup }
@@ -387,6 +393,16 @@ struct Poster: View {
         // Pressed and held: a movie's or a season's lists (as only they
         // go on lists) and marks; a series' tile's, the whole series'.
         .contextMenu {
+            if tile.isWanted {
+                Button("Remove from List", systemImage: "minus.circle") { library.unwant(tile.id) }
+            } else {
+                titleMenu
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var titleMenu: some View {
             if !series || !tile.isSeries {
                 Menu("Lists", systemImage: "star") { ListToggles(key: tile.id) }
             }
@@ -397,7 +413,6 @@ struct Poster: View {
             if tile.started {
                 Button("Mark as Unwatched", systemImage: "circle") { library.markWatched(tile, false, wholeTitle: series) }
             }
-        }
     }
 }
 

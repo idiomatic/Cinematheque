@@ -36,6 +36,25 @@
   <input id="search" type="search" placeholder="Search" aria-label="Search" autocomplete="off">
 </header>
 <main id="main"></main>
+<!-- A title not in the library yet, put on a list by name (see askWanted). -->
+<dialog id="want">
+  <form method="dialog">
+    <h2>Add a missing title to <span class="list-name"></span></h2>
+    <p class="dim">It takes this place on the list as it comes, if its file is named as this is.</p>
+    <div class="kinds">
+      <label><input type="radio" name="kind" value="movie" checked> Movie</label>
+      <label><input type="radio" name="kind" value="series"> Series</label>
+    </div>
+    <label>Name <input name="name" required autocomplete="off"></label>
+    <label>Year <input name="year" type="number" min="1800" max="2999" placeholder="As its file will have it"></label>
+    <label class="season">Season <input name="season" type="number" min="0" max="999" value="1"></label>
+    <label>Note <input name="note" maxlength="1000" placeholder="Optional, as an article’s address" autocomplete="off"></label>
+    <div class="buttons">
+      <button type="button" onclick="this.closest('dialog').close()">Cancel</button>
+      <button class="primary" type="submit">Add</button>
+    </div>
+  </form>
+</dialog>
 <footer id="status" role="status"></footer>
 <div id="player" hidden>
   <video id="video" playsinline controls></video>

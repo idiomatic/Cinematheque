@@ -58,6 +58,34 @@ extension Library {
         changed()
     }
 
+    /// Puts a title not in the library yet on the list `id`, as a
+    /// placeholder, keyed as its file will be (`cq_list_want`), so it's on
+    /// the list as it comes.
+    func want(on id: String, series: Bool, name: String, year: Int?, season: Int?, note: String) {
+        struct Want: Encodable {
+            let kind: String
+            let name: String
+            let year: Int?
+            let season: Int?
+            let note: String
+        }
+        guard let data = try? JSONEncoder().encode(Want(kind: series ? "series" : "movie", name: name, year: year, season: season, note: note)) else { return }
+        _ = decode(String.self) { cq_list_want($0, id, String(decoding: data, as: UTF8.self)) }
+        readLists()
+        changed()
+    }
+
+    /// The placeholder keyed `key`, on whichever list, if any.
+    func wanted(_ key: String) -> UserList.Wanted? {
+        for list in lists { if let w = list.wanted?.first(where: { $0.key == key }) { return w } }
+        return nil
+    }
+
+    /// Takes a placeholder off every list it's on.
+    func unwant(_ key: String) {
+        for list in lists where list.wanted?.contains(where: { $0.key == key }) == true { setListed(key, on: list.id, false) }
+    }
+
     /// Makes a list, returning its ID.
     @discardableResult
     func createList(named name: String) -> String? {

@@ -127,8 +127,44 @@ function abandonCovers() {
   for (const img of covers.loading) if (!img.isConnected) img.stop();
 }
 
+/// A list's placeholders not in the library yet, as tiles of their own: a
+/// title put on it by name, keyed as its file will be, whose own tile takes
+/// its place as it comes.
+function placeholders(l) {
+  // As lists key them: a movie's title key, a season's `<key>#<season>`.
+  const present = new Set(library.tiles.map(listKey));
+  return (l.wanted || []).filter((w) => !present.has(w.key)).map((w) => {
+    const [key, season] = w.key.split("#");
+    const year = Number(key.split("/").at(-1));
+    return { key, name: w.name, year: year || null, kind: key.startsWith("t/s/") ? "series" : "movie", season: season == null ? null : Number(season),
+      wanted: w.note, wantedKey: w.key, order: {}, watched: false, progress: 0, started: false };
+  });
+}
+
+/// A placeholder's tile: dimmed, saying it's not in the library, its note
+/// an article's address to open, if it is one, and a button taking it off
+/// its lists.
+function wantedView(tile, underSeries) {
+  const link = /^https?:\/\//.test(tile.wanted) ? tile.wanted : null;
+  const a = el(link ? "a" : "div", { class: `tile wanted${tile.season == null ? "" : " season"}`, ...(link ? { href: link, target: "_blank", rel: "noopener" } : {}), title: tile.wanted || "Not in the library yet" },
+    coverView(tile, [], underSeries ? seasonName(tile.season) : tile.name),
+    el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
+    el("div", { class: "sub split" }, el("span", {}, "Not in library"),
+      el("button", { class: "mark", type: "button", title: "Remove from list", "aria-label": `Remove ${tile.name} from the list`, onclick: async (e) => {
+        e.preventDefault();
+        for (const l of library.lists) if ((l.wanted || []).some((w) => w.key === tile.wantedKey)) await api("listed", { list: l.id, key: tile.wantedKey, on: false });
+        await reload();
+        route();
+      } }, "✕")));
+  a.tileId = idOf(tile);
+  a.underSeries = underSeries;
+  a.looks = looks(tile);
+  return a;
+}
+
 /// A tile; under its series' name (`underSeries`), a season says only which.
 function tileView(tile, underSeries = false) {
+  if (tile.wanted != null) return wantedView(tile, underSeries);
   const href = "#title/" + encodeURIComponent(tile.key) + (tile.season == null ? "" : "/" + tile.season);
   const a = el("a", { class: `tile${tile.season == null ? "" : " season"}${tile.unavailable ? " unavailable" : ""}`, href },
     coverView(tile, listsOf(listKey(tile)), underSeries ? seasonName(tile.season) : tile.name),
@@ -462,7 +498,7 @@ const shelves = {
     const parts = [];
     if (going.length) parts.push(el("h2", {}, "Continue Watching"), ...shelfGrid(ordered(going, { by: "watched" })));
     for (const l of library.lists) {
-      const on = all.filter((t) => l.titles.has(listKey(t)));
+      const on = [...all.filter((t) => l.titles.has(listKey(t))), ...matching(placeholders(l))];
       if (on.length) parts.push(el("h2", {}, l.name), ...shelfGrid(ordered(on, { by: "title" })));
     }
     return parts.length ? parts : [empty("Nothing in progress or on your lists yet.")];
@@ -482,9 +518,10 @@ const shelves = {
     const order = orderOf("lists");
     const parts = [];
     for (const l of shownList ? [shownList] : library.lists) {
-      const t = ordered(matching(library.tiles.filter((t) => l.titles.has(listKey(t)))), order);
+      const t = ordered(matching([...library.tiles.filter((t) => l.titles.has(listKey(t))), ...placeholders(l)]), order);
       parts.push(el("div", { class: "list-heading" },
         el("h2", {}, l.name),
+        el("button", { class: "mark", type: "button", title: "Add a missing title", "aria-label": `Add a title not in the library to ${l.name}`, onclick: () => askWanted(l) }, "＋"),
         el("button", { class: "mark", type: "button", title: "Rename list", "aria-label": `Rename ${l.name}`, onclick: () => renameList(l) }, "✎"),
         el("button", { class: "mark", type: "button", title: "Delete list", "aria-label": `Delete ${l.name}`, onclick: () => deleteList(l) }, "✕")));
       parts.push(...(t.length ? shelfGrid(t) : [el("p", { class: "dim" }, search.value.trim() ? "Nothing on it matches." : "Nothing on it yet: add titles from their pages.")]));
@@ -513,6 +550,36 @@ function empty(text) {
 }
 
 // Lists.
+
+/// Asks for a title not in the library yet, to put on a list by name: a
+/// movie, or a series' season, with its year as its file will be named (so
+/// it's matched as it comes), and a note, as an article's address.
+function askWanted(l) {
+  const dialog = document.getElementById("want");
+  const form = dialog.querySelector("form");
+  form.reset();
+  dialog.querySelector(".list-name").textContent = l.name;
+  const seasonRow = form.querySelector(".season");
+  const kind = () => form.elements.kind.value;
+  seasonRow.hidden = true;
+  form.onchange = () => { seasonRow.hidden = kind() !== "series"; };
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const f = form.elements;
+    const want = { kind: kind(), name: f.name.value.trim(), note: f.note.value.trim() };
+    if (f.year.value) want.year = Number(f.year.value);
+    if (want.kind === "series") want.season = Number(f.season.value || 1);
+    try {
+      await api("list-want", { list: l.id, want });
+      dialog.close();
+      await reload();
+      route();
+    } catch (err) {
+      problem(err.message);
+    }
+  };
+  dialog.showModal();
+}
 
 /// The list the Lists tab shows (`#lists/<id>`), or none, for all of them.
 let shownList = null;

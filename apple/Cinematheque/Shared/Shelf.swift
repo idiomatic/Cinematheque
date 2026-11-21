@@ -87,7 +87,17 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
         #else
         let downloaded: Set<String> = []
         #endif
-        return library.tiles.filter { tile in
+        // A list's placeholders not in the library yet, as tiles of their
+        // own (one that's come is its file's tile, keyed alike).
+        let wanted: [UserList.Wanted] = switch self {
+        case .lists: library.lists.flatMap { $0.wanted ?? [] }
+        case .list(let id): library.lists.first { $0.id == id }?.wanted ?? []
+        default: []
+        }
+        let present = wanted.isEmpty ? [] : Set(library.tiles.map(\.id))
+        let placeholders = wanted.filter { !present.contains($0.key) }.map(Tile.init(wanted:))
+            .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+        return (library.tiles.filter { tile in
             let on = switch self {
             case .home, .inProgress: !tile.watched && tile.started
             case .movies: !tile.isSeries
@@ -98,7 +108,7 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
             case .downloaded: downloaded.contains(tile.id)
             }
             return on && (search.isEmpty || tile.name.localizedCaseInsensitiveContains(search))
-        }
+        } + placeholders)
         .ordered(order ?? defaultOrder)
     }
 

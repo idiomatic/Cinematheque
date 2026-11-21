@@ -118,6 +118,8 @@ struct Browser: View {
     @State private var shelf: Shelf?
     /// The list whose name is being edited in the sidebar, if any.
     @State private var renaming: String?
+    /// The list a title not in the library yet is being put on, by name.
+    @State private var wanting: UserList?
     @AppStorage("orders") private var orders = ShelfOrders()
     @AppStorage("groupsSeries") private var groupsSeries = true
     @State private var search = ""
@@ -152,6 +154,7 @@ struct Browser: View {
             // deleted) gives way.
             if shelf == nil { shelf = shown(lastShelf) ? lastShelf : .inProgress }
         }
+        .sheet(item: $wanting) { WantSheet(list: $0) }
         .onChange(of: shelf) { if let shelf { lastShelf = shelf } }
         .onChange(of: library.lists) { if let shelf, !shown(shelf) { self.shelf = .inProgress } }
     }
@@ -168,6 +171,8 @@ struct Browser: View {
                             .tag(Shelf.list(list.id))
                             .contextMenu {
                                 Button("Rename") { renaming = list.id }
+                                Button("Add Missing Title…") { wanting = list }
+                                Divider()
                                 Button("Delete List…") { library.deletingList = list }
                             }
                     }
@@ -228,6 +233,10 @@ struct Browser: View {
                 if let tile = library.tiles.first(where: { $0.id == selection }) {
                     InspectorView(tile: tile)
                         .id(tile.id)
+                } else if let key = selection, let wanted = library.wanted(key) {
+                    // A placeholder, not in the library yet.
+                    WantedInspectorView(wanted: wanted)
+                        .id(key)
                 } else if let key = selection, let series = library.perTitle(library.tiles.filter { $0.key == key }).first {
                     // A series, selected by its key on the Series shelf.
                     SeriesInspectorView(series: series) { selection = $0 }
@@ -919,6 +928,16 @@ struct CoverGrid: View {
     /// A movie's or a season's context menu.
     @ViewBuilder
     private func tileMenu(_ tile: Tile) -> some View {
+        // A placeholder's: taken off its lists, as there's nothing else to it.
+        if tile.isWanted {
+            Button("Remove from List") { library.unwant(tile.id) }
+        } else {
+            titleMenu(tile)
+        }
+    }
+
+    @ViewBuilder
+    private func titleMenu(_ tile: Tile) -> some View {
         // A movie's download (the version Play plays), as an episode's is
         // in its row's.
         if tile.season == nil, let detail = library.detail(tile.key), let target = detail.downloadTarget {
@@ -1041,9 +1060,10 @@ struct TileView: View {
                 .aspectRatio(aspect, contentMode: .fit)
                 .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: isSeries ? tile.name : tile.seasonName ?? tile.name, fit: tile.isSeries) }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
-                // Its copies are all on drives that aren't there.
-                .opacity(tile.unavailable ? 0.4 : 1)
-                .help(tile.unavailable ? "Unavailable until its drive or share is back" : "")
+                // Its copies are all on drives that aren't there, or it's a
+                // placeholder, not in the library yet.
+                .opacity(tile.unavailable || tile.isWanted ? 0.4 : 1)
+                .help(tile.isWanted ? "Not in the library yet" : tile.unavailable ? "Unavailable until its drive or share is back" : "")
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 3 : 1)
@@ -1102,6 +1122,11 @@ struct TileView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+            } else if tile.season == nil, tile.isWanted {
+                // A placeholder's, in the year's place.
+                Text("Not in library")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } else if tile.season == nil, let year = tile.year {
                 Text(String(year))
                     .font(.caption)

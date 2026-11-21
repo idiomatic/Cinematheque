@@ -46,8 +46,9 @@ fn removeProgress(lib: *Library, arena: std.mem.Allocator, item_key: []const u8)
 }
 
 /// This person's lists, by name, as a JSON array of objects: `id`, `name`,
-/// and `titles`, each a movie's title key or a season's tile
-/// (`<title key>#<season>`).
+/// `titles`, each a movie's title key or a season's tile
+/// (`<title key>#<season>`), and `wanted`, the placeholders among them
+/// (`key`, `name` as typed, and `note`).
 export fn cq_lists(lib: *Library) ?[*:0]u8 {
     return json(lib, getLists, .{});
 }
@@ -98,6 +99,22 @@ fn setListed(lib: *Library, arena: std.mem.Allocator, id: []const u8, title_key:
     const r = try privateWriter(lib);
     defer if (r.locked) lib.writer.unlock(lib.io());
     try lists.setListed(r.replica, arena, lib.now(), id, title_key, on);
+}
+
+/// Puts a title not in the library yet on the list `id`, as a placeholder,
+/// keyed as its file will be (see `lists.want`): `json` is an object with
+/// `kind` ("movie" or "series"), `name`, and optionally `year`, `season`
+/// (a series', else the first), and `note`. Returns its key as a JSON
+/// string, as `cq_lists` will list it.
+export fn cq_list_want(lib: *Library, id: [*:0]const u8, want_json: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, listWant, .{ std.mem.span(id), std.mem.span(want_json) });
+}
+
+fn listWant(lib: *Library, arena: std.mem.Allocator, id: []const u8, want_json: []const u8) ![]const u8 {
+    const w = try std.json.parseFromSliceLeaky(lists.WantJson, arena, want_json, .{});
+    const r = try privateWriter(lib);
+    defer if (r.locked) lib.writer.unlock(lib.io());
+    return lists.wantJson(r.replica, arena, lib.now(), id, w);
 }
 
 /// The main connection, for private writes, which need the writer lock only

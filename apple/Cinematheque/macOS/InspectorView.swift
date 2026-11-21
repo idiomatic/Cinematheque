@@ -196,6 +196,89 @@ struct InspectorView: View {
     }
 }
 
+/// A placeholder's details: a title not in the library yet, put on a list
+/// by name, which its file's tile takes the place of when it comes.
+struct WantedInspectorView: View {
+    let wanted: UserList.Wanted
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        let tile = Tile(wanted: wanted)
+        VStack(alignment: .leading, spacing: 12) {
+            // Set as a title's heading is.
+            VStack(alignment: .leading, spacing: 2) {
+                Text(wanted.name).font(.title2.weight(.semibold))
+                Text([tile.seasonName, tile.year.map(String.init), tile.isSeries ? "Series" : "Movie"].compactMap { $0 }.joined(separator: " · "))
+                    .foregroundStyle(.secondary)
+            }
+            Text("Not in the library yet. It takes this place on its list as it comes, if its file is named as this is.")
+                .foregroundStyle(.secondary)
+            if !wanted.note.isEmpty {
+                // An article's address, opened in the browser; else the note.
+                if let url = URL(string: wanted.note), ["http", "https"].contains(url.scheme ?? "") {
+                    Link(wanted.note, destination: url).lineLimit(2)
+                } else {
+                    Text(wanted.note).textSelection(.enabled)
+                }
+            }
+            Button("Remove from List") { library.unwant(wanted.key) }
+            Spacer()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Puts a title not in the library yet on a list, by name: a movie, or a
+/// series' season, with its year (as its file will be named, so it's
+/// matched as it comes), and a note, as an article's address.
+struct WantSheet: View {
+    let list: UserList
+    @Environment(Library.self) private var library
+    @Environment(\.dismiss) private var dismiss
+    @State private var series = false
+    @State private var name = ""
+    @State private var year = ""
+    @State private var season = 1
+    @State private var note = ""
+
+    var body: some View {
+        Form {
+            // Its title, in the form, as a sheet shows no navigation title.
+            Section {
+                Picker("Kind", selection: $series) {
+                    Text("Movie").tag(false)
+                    Text("Series").tag(true)
+                }
+                .pickerStyle(.segmented)
+                TextField("Name", text: $name)
+                TextField("Year", text: $year, prompt: Text("As its file will have it"))
+                if series {
+                    Stepper("Season \(season)", value: $season, in: 0...999)
+                }
+                TextField("Note", text: $note, prompt: Text("Optional, as an article's address"))
+            } header: {
+                Text("Add Missing Title to \(list.name)").font(.headline)
+            } footer: {
+                Text("It takes this place on the list as it comes, if its file is named as this is.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 420)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Add") {
+                    library.want(on: list.id, series: series, name: name, year: Int(year), season: series ? season : nil, note: note)
+                    dismiss()
+                }
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || (!year.isEmpty && Int(year) == nil))
+            }
+        }
+    }
+}
+
 /// A series' details, selected as a whole on the Series shelf: its
 /// cover, Play for the season to watch, the whole series' watched mark,
 /// its description, and its seasons, each selected by clicking it.

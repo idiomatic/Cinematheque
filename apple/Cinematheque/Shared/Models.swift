@@ -36,6 +36,44 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
     var unavailable = false
     /// Its title's place in each order, as the core decides them.
     let order: Order
+    /// A placeholder's note (empty if none): a title not in the library
+    /// yet, put on a list by name, which its file's tile takes the place of
+    /// when it comes, as it's keyed alike.
+    var wanted: String? = nil
+
+    var isWanted: Bool { wanted != nil }
+
+    /// A placeholder's tile, from its key (`t/m/<name>/<year>`, or a
+    /// season's, `t/s/<name>/<year>#<season>`) and its name as typed.
+    init(wanted w: UserList.Wanted) {
+        let parts = w.key.split(separator: "#", maxSplits: 1)
+        let key = String(parts[0])
+        let segments = key.split(separator: "/")
+        self.init(key: key, name: w.name, year: segments.last.flatMap { Int($0) }, kind: key.hasPrefix("t/s/") ? "series" : "movie",
+                  season: parts.count > 1 ? Int(parts[1]) : nil, cover: nil, thumb: nil, watched: false, progress: 0, elapsed: 0,
+                  runtime: 0, started: false, items: 0, order: .init(title: .max, released: nil, added: nil, modified: nil, watched: nil),
+                  wanted: w.note)
+    }
+
+    init(key: String, name: String, year: Int?, kind: String, season: Int?, cover: Cover?, thumb: String?, watched: Bool, progress: Double,
+         elapsed: Int, runtime: Int, started: Bool, items: Int, unavailable: Bool = false, order: Order, wanted: String? = nil) {
+        self.key = key
+        self.name = name
+        self.year = year
+        self.kind = kind
+        self.season = season
+        self.cover = cover
+        self.thumb = thumb
+        self.watched = watched
+        self.progress = progress
+        self.elapsed = elapsed
+        self.runtime = runtime
+        self.started = started
+        self.items = items
+        self.unavailable = unavailable
+        self.order = order
+        self.wanted = wanted
+    }
 
     /// Places counting from what comes first in each order's usual
     /// direction (A to Z, the newest released, the latest added, the
@@ -283,4 +321,13 @@ nonisolated struct UserList: Codable, Identifiable, Hashable {
     let id: String
     let name: String
     let titles: [String]
+    /// The placeholders among its titles: not in the library when put on
+    /// it, by name, keyed as their files will be.
+    var wanted: [Wanted]?
+
+    struct Wanted: Codable, Hashable {
+        let key: String
+        let name: String
+        let note: String
+    }
 }
