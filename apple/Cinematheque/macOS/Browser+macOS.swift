@@ -313,7 +313,9 @@ private struct ListRow: View {
 }
 
 /// Tiles of fixed size: movies' covers 2:3, and each series' seasons
-/// together, square. As a cell's size is fixed, every row's place and
+/// together, square; on the Series shelf, a tile per series, the one
+/// selected open below its row, its seasons in a band pointing up at it
+/// (an inline expansion). As a cell's size is fixed, every row's place and
 /// height is worked out before any is drawn (`Rows`), and only those near
 /// the screen are: so the scroll bar knows the whole height at once and
 /// holds still, as a lazy grid's guesses at rows not yet drawn (a series'
@@ -339,6 +341,12 @@ struct CoverGrid: View {
     /// only as the rows on screen change.
     @State private var viewport = Viewport()
     @State private var cache = RowCache()
+    /// The Series shelf's series selected, open (unless `collapsed`) to
+    /// show its seasons, the selection one of them.
+    @State private var pointed: String?
+    @State private var collapsed = false
+    /// Whether the keys move over the open series' seasons, not the series.
+    @State private var inBand = false
 
     struct Seen: Equatable {
         let rect: CGRect
@@ -376,7 +384,8 @@ struct CoverGrid: View {
     }
 
     /// Every row of the grid, where it is, and how tall: the movies' rows,
-    /// then each series' name and its seasons' rows.
+    /// then each series' name and its seasons' rows; or the Series shelf's
+    /// rows of series, the open one's band of seasons after its row.
     @MainActor struct Rows {
         struct Row: Identifiable {
             let id: String
@@ -388,16 +397,57 @@ struct CoverGrid: View {
             let key: String
             let y: CGFloat
             let height: CGFloat
+            /// A band of an open series' seasons: the column its series is
+            /// in, which it points at.
+            var band: Int? = nil
             var maxY: CGFloat { y + height }
         }
 
         var rows: [Row] = []
         var movies: [Tile] = []
         var groups: [Group] = []
+        /// The Series shelf's tiles, a series' each, and the open one's
+        /// seasons.
+        var series: [Tile] = []
+        var seasons: [Tile] = []
         /// The whole grid's, its margins too.
         var height: CGFloat = 0
 
         init() {}
+
+        /// The Series shelf's: a row of series at a time, and after the
+        /// open one's row, its band.
+        init(series: [Tile], open: String?, seasons: [Tile], columns: Int) {
+            self.series = series
+            var y = CoverGrid.margin
+            for start in stride(from: 0, to: series.count, by: columns) {
+                let row = Array(series[start..<min(start + columns, series.count)])
+                rows.append(Row(id: "series/\(start)", header: nil, tiles: row, aspect: 1, key: row[0].key, y: y, height: Self.seriesHeight))
+                y += Self.seriesHeight
+                if let open, let column = row.firstIndex(where: { $0.key == open }), !seasons.isEmpty {
+                    self.seasons = seasons
+                    y += Self.bandGap
+                    let height = Self.bandHeight(seasons.count, columns: columns)
+                    rows.append(Row(id: "band/\(open)", header: nil, tiles: seasons, aspect: 1, key: open, y: y, height: height, band: column))
+                    y += height
+                }
+                y += Self.rowSpacing
+            }
+            height = rows.isEmpty ? 0 : y - Self.rowSpacing + CoverGrid.margin
+        }
+
+        /// A band's: its point, its padding, and its seasons' rows.
+        static func bandHeight(_ count: Int, columns: Int) -> CGFloat {
+            let lines = CGFloat((count + columns - 1) / columns)
+            return bandNotch + 2 * bandPadding + lines * seasonHeight + (lines - 1) * rowSpacing
+        }
+
+        /// Where a season in a band is, top and bottom.
+        func span(inBand tile: Tile.ID, columns: Int) -> (y: CGFloat, maxY: CGFloat)? {
+            guard let band = rows.first(where: { $0.band != nil }), let i = band.tiles.firstIndex(where: { $0.id == tile }) else { return nil }
+            let y = band.y + Self.bandNotch + Self.bandPadding + CGFloat(i / columns) * (Self.seasonHeight + Self.rowSpacing)
+            return (y, y + Self.seasonHeight)
+        }
 
         init(_ tiles: [Tile], columns: Int) {
             movies = tiles.filter { !$0.isSeries }
@@ -440,7 +490,7 @@ struct CoverGrid: View {
         }
 
         func row(of tile: Tile.ID) -> Row? {
-            rows.first { $0.tiles.contains { $0.id == tile } }
+            rows.first { $0.band == nil && $0.tiles.contains { $0.id == tile } }
         }
 
         /// The first row of a title: a series' name, or the row a movie's
@@ -472,6 +522,11 @@ struct CoverGrid: View {
         // none); a season's cover and name; a series' name.
         static let movieHeight = ceil(CoverGrid.cell * 3 / 2) + TileView.spacing + line(.callout) + TileView.spacing + line(.caption1)
         static let seasonHeight = CoverGrid.cell + TileView.spacing + line(.callout)
+        // A series' cover, name, and how many seasons it has.
+        static let seriesHeight = CoverGrid.cell + TileView.spacing + line(.callout) + TileView.spacing + line(.caption1)
+        static let bandGap: CGFloat = 6
+        static let bandNotch: CGFloat = 10
+        static let bandPadding: CGFloat = 14
         static let headerHeight = line(.title3)
         static let rowSpacing: CGFloat = 22
         static let headerSpacing: CGFloat = 10
@@ -483,19 +538,34 @@ struct CoverGrid: View {
     final class RowCache {
         private var tiles: [Tile] = []
         private var columns = 0
+        private var open: String?
         private var rows = Rows()
 
-        func rows(_ tiles: [Tile], columns: Int) -> Rows {
-            if columns != self.columns || tiles != self.tiles {
+        /// With `series`, the Series shelf's, a tile per series (`group`
+        /// making them), `open` open.
+        @MainActor func rows(_ tiles: [Tile], columns: Int, series: Bool, open: String?, library: Library) -> Rows {
+            if columns != self.columns || tiles != self.tiles || open != self.open {
                 self.tiles = tiles
                 self.columns = columns
-                rows = Rows(tiles, columns: columns)
+                self.open = open
+                if series {
+                    let seasons = open.map { Library.seasons(of: $0, in: library.tiles) } ?? []
+                    rows = Rows(series: library.perTitle(tiles), open: open, seasons: seasons.count > 1 ? seasons : [], columns: columns)
+                } else {
+                    rows = Rows(tiles, columns: columns)
+                }
             }
             return rows
         }
     }
 
-    private var layout: Rows { cache.rows(tiles, columns: columns) }
+    /// Whether it's the Series shelf, of a tile per series.
+    private var bySeries: Bool { shelf == .series }
+
+    /// The open series: the one selected, unless collapsed.
+    private var open: String? { bySeries && !collapsed ? pointed : nil }
+
+    private var layout: Rows { cache.rows(tiles, columns: columns, series: bySeries, open: open, library: library) }
 
     var body: some View {
         let layout = layout
@@ -528,7 +598,13 @@ struct CoverGrid: View {
         // AppKit makes the window's first responder (`defaultFocus` doesn't
         // outrank it).
         .onAppear { focused = true }
-        .onMoveCommand { direction in move(direction, in: [layout.movies] + layout.groups.map(\.seasons)) }
+        .onMoveCommand { direction in
+            if bySeries { moveBySeries(direction) } else { move(direction, in: [layout.movies] + layout.groups.map(\.seasons)) }
+        }
+        // Closes the open series, as clicking it again does.
+        .onExitCommand {
+            if bySeries, open != nil { close() }
+        }
         .onKeyPress(.return) {
             guard let tile = tiles.first(where: { $0.id == selection }) else { return .ignored }
             playNext(tile)
@@ -543,6 +619,11 @@ struct CoverGrid: View {
             if let top = anchor.top { scroll(to: top) }
         }
         .task {
+            // The series of a season selected on another shelf, open.
+            if bySeries, let tile = library.tiles.first(where: { $0.id == selection }), tile.isSeries {
+                pointed = tile.key
+                inBand = true
+            }
             // After the first layout, which ignores scrolling.
             await Task.yield()
             if search.isEmpty, let top = positions.tops[shelf] { scroll(to: top) }
@@ -608,11 +689,96 @@ struct CoverGrid: View {
     private func select(_ tile: Tile) {
         selection = tile.id
         guard let row = layout.row(of: tile.id) else { return }
+        reveal(row.y, row.maxY)
+    }
+
+    /// Scrolls just enough to show a span, clear of the toolbar and the
+    /// status bar, its top first if it doesn't fit (a series' row, over
+    /// its band), the grid having moved by `shift` (a band closing above)
+    /// since what's seen was last told.
+    private func reveal(_ y: CGFloat, _ maxY: CGFloat, shift: CGFloat = 0) {
         let clear = viewport.clear
-        if row.y < clear.minY {
-            viewport.scroll(&position, by: row.y - clear.minY - Rows.rowSpacing)
-        } else if row.maxY > clear.maxY {
-            viewport.scroll(&position, by: row.maxY - clear.maxY + Rows.rowSpacing)
+        if y < clear.minY + shift {
+            viewport.scroll(&position, by: y - clear.minY - Rows.rowSpacing)
+        } else if maxY > clear.maxY + shift {
+            viewport.scroll(&position, by: min(maxY - clear.maxY + Rows.rowSpacing, y - clear.minY - Rows.rowSpacing))
+        } else if shift != 0 {
+            viewport.scroll(&position, by: shift)
+        }
+    }
+
+    /// Selects a series on the Series shelf, opening it (but one of a
+    /// single season, which is its tile), its season to watch selected;
+    /// the series kept in place as another's band above it closes.
+    private func point(_ series: Tile) {
+        let before = layout.row(holding: series.key)?.y ?? 0
+        pointed = series.key
+        collapsed = false
+        inBand = false
+        let seasons = Library.seasons(of: series.key, in: library.tiles)
+        selection = (Library.nextSeason(seasons) ?? series).id
+        guard let row = layout.row(holding: series.key) else { return }
+        let band = layout.rows.first { $0.band != nil }
+        reveal(row.y, band?.maxY ?? row.maxY, shift: row.y - before)
+    }
+
+    /// Closes the open series, its tile still selected.
+    private func close() {
+        collapsed = true
+        inBand = false
+    }
+
+    /// The Series shelf's keys: over the series, the one selected open;
+    /// down from it into its band, and over its seasons there; up from the
+    /// band's first row back to it, and down from its last to the next row
+    /// of series.
+    private func moveBySeries(_ direction: MoveCommandDirection) {
+        let series = layout.series
+        guard let first = series.first else { return }
+        guard let i = series.firstIndex(where: { $0.key == pointed }) else { return point(first) }
+        let column = i % columns
+        if inBand, open != nil {
+            let seasons = layout.seasons
+            guard let j = seasons.firstIndex(where: { $0.id == selection }) else { return }
+            var target: Tile?
+            switch direction {
+            case .left: target = j > 0 ? seasons[j - 1] : nil
+            case .right: target = j + 1 < seasons.count ? seasons[j + 1] : nil
+            case .up:
+                if j >= columns { target = seasons[j - columns] } else { inBand = false; return }
+            case .down:
+                if j + columns < seasons.count { target = seasons[j + columns] }
+                else if j / columns < (seasons.count - 1) / columns { target = seasons.last }
+                else {
+                    let below = (i / columns + 1) * columns
+                    if below < series.count { return point(series[min(below + column, series.count - 1)]) }
+                }
+            @unknown default: break
+            }
+            if let target, let span = layout.span(inBand: target.id, columns: columns) {
+                selection = target.id
+                reveal(span.y, span.maxY)
+            }
+            return
+        }
+        switch direction {
+        case .left: if i > 0 { point(series[i - 1]) }
+        case .right: if i + 1 < series.count { point(series[i + 1]) }
+        case .up: if i >= columns { point(series[i - columns]) }
+        case .down:
+            if open != nil, !layout.seasons.isEmpty {
+                // Into the band, its first row, beneath.
+                let seasons = layout.seasons
+                let target = seasons[min(column, seasons.count - 1)]
+                inBand = true
+                selection = target.id
+                if let span = layout.span(inBand: target.id, columns: columns) { reveal(span.y, span.maxY) }
+            } else if i + columns < series.count {
+                point(series[i + columns])
+            } else if i / columns < (series.count - 1) / columns {
+                point(series[series.count - 1])
+            }
+        @unknown default: break
         }
     }
 
@@ -628,7 +794,7 @@ struct CoverGrid: View {
 
     /// A tile's width, the same at every grid width, so a change in width
     /// (the inspector opening, say) reflows whole tiles and resizes none.
-    nonisolated private static let cell: CGFloat = 148
+    nonisolated fileprivate static let cell: CGFloat = 148
     nonisolated private static let gutter: CGFloat = 18
     nonisolated private static let margin: CGFloat = 20
 
@@ -643,6 +809,14 @@ struct CoverGrid: View {
             Text(header)
                 .font(.title3.weight(.semibold))
                 .lineLimit(1)
+        } else if let column = row.band {
+            band(row.tiles, pointingAt: column)
+        } else if bySeries {
+            HStack(alignment: .top, spacing: Self.gutter) {
+                ForEach(row.tiles) { series in
+                    seriesTile(series)
+                }
+            }
         } else {
             HStack(alignment: .top, spacing: Self.gutter) {
                 ForEach(row.tiles) { tile in
@@ -654,25 +828,90 @@ struct CoverGrid: View {
                         focused = true
                     }
                     .simultaneousGesture(TapGesture(count: 2).onEnded { playNext(tile) })
-                    .contextMenu {
-                        // A movie's download (the version Play plays), as an
-                        // episode's is in its row's.
-                        if tile.season == nil, let detail = library.detail(tile.key), let target = detail.downloadTarget {
-                            DownloadMenuItems(key: target.key, items: target.items, title: tile.key)
-                            Divider()
-                        }
-                        Menu("Lists") { ListToggles(key: tile.id) }
-                        // Unwatched forgets where you stopped, too.
-                        if !tile.watched {
-                            Button("Mark as Watched") { library.markWatched(tile, true) }
-                        }
-                        if tile.started {
-                            Button("Mark as Unwatched") { library.markWatched(tile, false) }
-                        }
+                    .contextMenu { tileMenu(tile) }
+                }
+            }
+        }
+    }
+
+    /// A movie's or a season's context menu.
+    @ViewBuilder
+    private func tileMenu(_ tile: Tile) -> some View {
+        // A movie's download (the version Play plays), as an episode's is
+        // in its row's.
+        if tile.season == nil, let detail = library.detail(tile.key), let target = detail.downloadTarget {
+            DownloadMenuItems(key: target.key, items: target.items, title: tile.key)
+            Divider()
+        }
+        Menu("Lists") { ListToggles(key: tile.id) }
+        // Unwatched forgets where you stopped, too.
+        if !tile.watched {
+            Button("Mark as Watched") { library.markWatched(tile, true) }
+        }
+        if tile.started {
+            Button("Mark as Unwatched") { library.markWatched(tile, false) }
+        }
+    }
+
+    /// A series' tile on the Series shelf: its cover, its name, and how
+    /// many seasons it has; selected, it's open.
+    private func seriesTile(_ series: Tile) -> some View {
+        let count = library.tiles.lazy.filter { $0.key == series.key && $0.season != nil }.count
+        return TileView(tile: series, aspect: 1, selected: pointed == series.key && !inBand, series: count == 1 ? nil : "\(count) seasons")
+            .frame(width: Self.cell)
+            .onTapGesture {
+                focused = true
+                if pointed == series.key, open != nil, !inBand { close() } else { point(series) }
+            }
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                let seasons = Library.seasons(of: series.key, in: library.tiles)
+                if let next = Library.nextSeason(seasons) { playNext(next) }
+            })
+            .contextMenu {
+                // The whole series'; its seasons' lists are theirs.
+                if !series.watched {
+                    Button("Mark as Watched") { library.markWatched(series, true, wholeTitle: true) }
+                }
+                if series.started {
+                    Button("Mark as Unwatched") { library.markWatched(series, false, wholeTitle: true) }
+                }
+            }
+    }
+
+    /// An open series' seasons, in rows of the grid's columns, on a band
+    /// of their own that points up at the series.
+    private func band(_ seasons: [Tile], pointingAt column: Int) -> some View {
+        let inset: CGFloat = 10
+        let width = CGFloat(columns) * (Self.cell + Self.gutter) - Self.gutter
+        let lines = stride(from: 0, to: seasons.count, by: columns).map { Array(seasons[$0..<min($0 + columns, seasons.count)]) }
+        return VStack(alignment: .leading, spacing: Rows.rowSpacing) {
+            ForEach(lines, id: \.first!.id) { line in
+                HStack(alignment: .top, spacing: Self.gutter) {
+                    ForEach(line) { season in
+                        // Ringed as the inspector shows it, as the series is
+                        // while the keys move over the series.
+                        TileView(tile: season, aspect: 1, selected: selection == season.id)
+                            .frame(width: Self.cell)
+                            .onTapGesture {
+                                selection = season.id
+                                inBand = true
+                                focused = true
+                            }
+                            .simultaneousGesture(TapGesture(count: 2).onEnded { playNext(season) })
+                            .contextMenu { tileMenu(season) }
                     }
                 }
             }
         }
+        .padding(.top, Rows.bandNotch + Rows.bandPadding)
+        .padding(.bottom, Rows.bandPadding)
+        .padding(.horizontal, inset)
+        .frame(width: width + 2 * inset, alignment: .topLeading)
+        .background {
+            Band(notch: inset + CGFloat(column) * (Self.cell + Self.gutter) + Self.cell / 2, depth: Rows.bandNotch)
+                .fill(Color.primary.opacity(0.07))
+        }
+        .offset(x: -inset)
     }
 
     /// Plays what's next in a tile: a movie, or a season's next unwatched
@@ -688,7 +927,12 @@ struct TileView: View {
     let tile: Tile
     let aspect: Double
     let selected: Bool
+    /// A series' tile, standing for the whole series: how many seasons it
+    /// has (nil for one).
+    var series: String?? = nil
     @Environment(Library.self) private var library
+
+    private var isSeries: Bool { series != nil }
 
     /// Between its cover, name, and year, as `CoverGrid.Rows` counts them.
     static let spacing: CGFloat = 6
@@ -697,7 +941,7 @@ struct TileView: View {
         VStack(alignment: .leading, spacing: Self.spacing) {
             Color.clear
                 .aspectRatio(aspect, contentMode: .fit)
-                .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.seasonName ?? tile.name, fit: tile.isSeries) }
+                .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: isSeries ? tile.name : tile.seasonName ?? tile.name, fit: tile.isSeries) }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 // Its copies are all on drives that aren't there.
                 .opacity(tile.unavailable ? 0.4 : 1)
@@ -706,9 +950,9 @@ struct TileView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 3 : 1)
                 }
-                .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile), watched: tile.watched) }
+                .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: isSeries), watched: tile.watched) }
                 .overlay(alignment: .bottomTrailing) {
-                    if library.downloadedTiles.contains(tile.id) {
+                    if !isSeries, library.downloadedTiles.contains(tile.id) {
                         DownloadBadge(symbol: "arrow.down.circle.fill", color: .blue, raised: !tile.watched && tile.progress > 0)
                             .help("Downloaded")
                     }
@@ -722,10 +966,15 @@ struct TileView: View {
                     }
                 }
                 .shadow(color: .black.opacity(0.15), radius: 3, y: 2)
-            Text(tile.seasonName ?? tile.name)
+            Text(isSeries ? tile.name : tile.seasonName ?? tile.name)
                 .font(.callout)
                 .lineLimit(1)
-            if tile.season == nil, let year = tile.year {
+            if let series {
+                // A line kept for it, of one season.
+                Text(series ?? " ")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if tile.season == nil, let year = tile.year {
                 Text(String(year))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -735,6 +984,22 @@ struct TileView: View {
     }
 }
 
+
+/// A band's shape: a rounded rectangle with a point at its top, at
+/// `notch` across, `depth` high, pointing up at what it opened from.
+nonisolated private struct Band: Shape {
+    let notch: CGFloat
+    let depth: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path(roundedRect: CGRect(x: rect.minX, y: rect.minY + depth, width: rect.width, height: rect.height - depth), cornerRadius: 10)
+        path.move(to: CGPoint(x: notch - depth * 1.2, y: rect.minY + depth + 0.5))
+        path.addLine(to: CGPoint(x: notch, y: rect.minY))
+        path.addLine(to: CGPoint(x: notch + depth * 1.2, y: rect.minY + depth + 0.5))
+        path.closeSubpath()
+        return path
+    }
+}
 
 /// A cover's download mark, at its bottom trailing corner, above its
 /// progress bar if it has one.
