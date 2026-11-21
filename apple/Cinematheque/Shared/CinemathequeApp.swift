@@ -37,7 +37,9 @@ struct CinemathequeApp: App {
                 Button("About Cinematheque") { NSApplication.shared.orderFrontStandardAboutPanel(options: [.version: Self.build]) }
             }
             // Show Inspector and Hide Inspector in the View menu.
-            InspectorCommands()
+            // Show Inspector and Hide Inspector in the View menu (the
+            // system's goes with the inspector, which isn't there hidden).
+            CommandGroup(after: .sidebar) { InspectorCommand() }
             CommandGroup(after: .textEditing) { FindCommand() }
             CommandGroup(before: .toolbar) {
                 SortCommand()

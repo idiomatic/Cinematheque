@@ -6,6 +6,20 @@ extension FocusedValues {
     @Entry var find: FindAction?
     /// The library window's shelf's order, as View › Sort By sets it.
     @Entry var shelfOrder: Binding<ShelfOrder>?
+    /// Whether the library window's inspector is shown, as View › Show
+    /// Inspector sets it.
+    @Entry var inspecting: Binding<Bool>?
+}
+
+/// View › Show Inspector or Hide Inspector (⌃⌘I, as the system's).
+struct InspectorCommand: View {
+    @FocusedValue(\.inspecting) private var inspecting
+
+    var body: some View {
+        Button(inspecting?.wrappedValue == true ? "Hide Inspector" : "Show Inspector") { inspecting?.wrappedValue.toggle() }
+            .keyboardShortcut("i", modifiers: [.control, .command])
+            .disabled(inspecting == nil)
+    }
 }
 
 /// View › Sort By: the shown shelf's order (Title, Release Date, Date
@@ -170,6 +184,7 @@ struct Browser: View {
                 .searchFocused($searching)
                 .focusedSceneValue(\.find, FindAction(window: window) { searching = true })
                 .focusedSceneValue(\.shelfOrder, $orders[shelf ?? .inProgress])
+                .focusedSceneValue(\.inspecting, $inspecting)
                 // Beside search while the inspector's hidden; shown, the
                 // inspector's own takes its place, at the window's corner.
                 .toolbar {
@@ -185,7 +200,10 @@ struct Browser: View {
         // the toolbar and took its clicks). The toggle is the app's, one in
         // each section, only one shown: the system's own came and went
         // between launches.
-        .inspector(isPresented: $inspecting) {
+        // Attached only while shown: hidden, its collapsed divider still
+        // took the window's last points, over the grid's scroll bar, and
+        // dragging the bar opened it.
+        .modifier(Inspecting(shown: $inspecting) {
             Group {
                 if let tile = library.tiles.first(where: { $0.id == selection }) {
                     InspectorView(tile: tile)
@@ -200,7 +218,7 @@ struct Browser: View {
                     ToolbarItem(placement: .primaryAction) { inspectorToggle }
                 }
             }
-        }
+        })
         #if DEBUG
         .onAppear {
             if let id = Launch.selection {
@@ -518,10 +536,6 @@ struct CoverGrid: View {
         }
         // The last row clears the status bar floating over the grid.
         .contentMargins(.bottom, StatusBar.height, for: .scrollContent)
-        // The scroll bar clear of the window's last 16 points, which the
-        // hidden inspector's divider takes, so dragging it there opened the
-        // inspector rather than scrolling.
-        .contentMargins(.trailing, 18, for: .scrollIndicators)
         // Only when the rows reflow, not at every width an animation (the
         // inspector's) passes through.
         .onGeometryChange(for: Int.self, of: { Self.columns($0.size.width) }) { _, count in
@@ -851,6 +865,21 @@ struct StatusBar: View {
         // Catching up, as a refresh does first, says only what it's for.
         case "syncing": activity + "…"
         default: activity + "…"
+        }
+    }
+}
+
+/// The inspector, attached only while shown, so no collapsed divider is
+/// left to grab.
+private struct Inspecting<Inspector: View>: ViewModifier {
+    @Binding var shown: Bool
+    @ViewBuilder let inspector: () -> Inspector
+
+    func body(content: Content) -> some View {
+        if shown {
+            content.inspector(isPresented: $shown) { inspector() }
+        } else {
+            content
         }
     }
 }
