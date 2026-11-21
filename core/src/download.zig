@@ -569,7 +569,10 @@ pub const Held = struct {
 /// keep) a file of its choosing.
 pub fn held(replica: *Replica, arena: std.mem.Allocator, source: library.Source) ![]Held {
     var out: std.ArrayList(Held) = .empty;
-    const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND device = ?2 AND length(value) > 0 ORDER BY key");
+    // `+device`: not by the device index, which for a device that crawled
+    // the library (as a Mac does) is nearly every row, each then looked up
+    // (220 ms of 184,000), where scanning them in order takes 16 ms.
+    const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND +device = ?2 AND length(value) > 0 ORDER BY key");
     defer s.finalize();
     try s.bindText(1, try std.fmt.allocPrint(arena, "held:{s}", .{&source.id}));
     try s.bindInt(2, replica.own);

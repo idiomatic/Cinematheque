@@ -664,7 +664,9 @@ pub const Replica = struct {
         // Its private streams, whose certificates it wrote, where they are.
         var private: std.ArrayList(struct { stream: Device, seq: u64 }) = .empty;
         {
-            const s = try replica.db.prepare("SELECT key FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private' AND device = ?1");
+            // By the keys' range (`+device`), not the device index, which
+            // for a device that crawled the library is nearly every row.
+            const s = try replica.db.prepare("SELECT key FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private' AND +device = ?1");
             defer s.finalize();
             try s.bindInt(1, try replica.deviceId(replica.device()));
             while (try s.step()) {
@@ -696,7 +698,9 @@ pub const Replica = struct {
         try streams.append(arena, device_key);
         // Its private streams, whose certificates it wrote.
         {
-            const s = try replica.db.prepare("SELECT key FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private' AND device = ?1");
+            // By the keys' range (`+device`), not the device index, which
+            // for a device that crawled the library is nearly every row.
+            const s = try replica.db.prepare("SELECT key FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private' AND +device = ?1");
             defer s.finalize();
             try s.bindInt(1, try replica.deviceId(device_key));
             while (try s.step()) {
