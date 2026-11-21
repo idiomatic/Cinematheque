@@ -46,8 +46,15 @@ struct CinemathequeApp: App {
                 Divider()
             }
             CommandGroup(after: .toolbar) {
+                // With ⌥ held, Refresh Library Fully, listing every folder
+                // afresh, as a folder's time doesn't change as a file in
+                // it is retagged in place.
                 Button("Refresh Library") { Task { await library.refresh() } }
                     .keyboardShortcut("r")
+                    .modifierKeyAlternate(.option) {
+                        Button("Refresh Library Fully") { Task { await library.refresh(full: true) } }
+                            .keyboardShortcut("r", modifiers: [.command, .option])
+                    }
                     .disabled(!library.hasLibrary || library.activity != nil)
             }
         }

@@ -75,7 +75,7 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 * `source list` and `source show SOURCE` print sources' settings; `show` adds how many copies of files the source holds.
 * `source set SOURCE` changes `--quality`, `--quality-by` (`folder` or `name`), or `--skip`; the next crawl applies it. `source remove SOURCE` removes the source and every copy it had, for every device.
 * A directory that held files and lists none now, as an unplugged drive's mount point does, is unavailable: its copies stay, `crawl` counts it, and `source show` lists it (`unavailable     /archive0001, since 3 days ago`). It clears once the drive is back. `source remove SOURCE --unavailable DIR` removes its copies as if it were deleted, as they go on their own after a year.
-* `crawl [SOURCE]` crawls every source, or one, with 16 concurrent workers unless `--workers` says otherwise. It reuses the last crawl's listing of any directory whose files haven't changed. Each source gets a line of requests, files, titles added, copies changed, and duplicates. Then covers and metadata are described, with one line of totals.
+* `crawl [SOURCE]` crawls every source, or one, with 16 concurrent workers unless `--workers` says otherwise. It reuses the last crawl's listing of any directory whose files haven't changed, judged by the directory's modification time, which a file rewritten in place (retagged) doesn't change; `--full` lists every directory afresh to see those. Each source gets a line of requests, files, titles added, copies changed, and duplicates. Then covers and metadata are described, with one line of totals.
 
 ### Titles
 

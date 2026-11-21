@@ -390,14 +390,17 @@ pub const CrawlStats = struct {
 };
 
 /// Crawls a source, reusing this device's last crawl of it where its
-/// directories haven't changed, brings the library's copies in line with
-/// what it found, and keeps the crawl for next time. Describing what it
-/// found is separate (see `art.plan` and `art.run`), so its titles show
-/// before their covers.
-pub fn crawlSource(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, source: Source, workers: usize) !CrawlStats {
+/// directories haven't changed (unless `full`, as a directory's time
+/// doesn't change as a file in it is rewritten in place, retagged),
+/// brings the library's copies in line with what it found, and keeps the
+/// crawl for next time. Describing what it found is separate (see
+/// `art.plan` and `art.run`), so its titles show before their covers.
+pub fn crawlSource(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, source: Source, workers: usize, full: bool) !CrawlStats {
     const key = try snapshotKey(arena, source.id);
     var prev: ?crawl.Snapshot = null;
-    if (try replica.local(arena, key)) |saved| prev = try crawl.Snapshot.init(arena, try crawl.Snapshot.load(arena, saved));
+    if (!full) if (try replica.local(arena, key)) |saved| {
+        prev = try crawl.Snapshot.init(arena, try crawl.Snapshot.load(arena, saved));
+    };
     var entries: std.ArrayList(crawl.Entry) = .empty;
     const start = Io.Timestamp.now(io, .awake);
     const result = try crawl.crawl(io, arena, client, source.url, .{
@@ -1259,11 +1262,42 @@ test "a crawl records when it was, so refreshes not asked for skip it for a day"
     try std.testing.expect(window >= 23 * 3600 * 1000 and window <= 25 * 3600 * 1000);
     try std.testing.expect(!(try sources(&r, arena))[0].crawledLately(1000, window));
     const at: u64 = 1_000_000;
-    _ = try crawlSource(&r, io, arena, &client, at, (try sources(&r, arena))[0], 4);
+    _ = try crawlSource(&r, io, arena, &client, at, (try sources(&r, arena))[0], 4, false);
     const source = (try sources(&r, arena))[0];
     try std.testing.expectEqual(at, source.crawled_ms);
     try std.testing.expect(source.crawledLately(at + window - 1, window));
     try std.testing.expect(!source.crawledLately(at + window, window));
+}
+
+test "a full crawl sees a file rewritten in place, which reusing listings misses" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "Movies");
+    try tmp.dir.writeFile(io, .{ .sub_path = "Movies/Alien (1979).mp4", .data = "x" });
+    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path}), .index = false }} } };
+    try server.start();
+    defer server.stop();
+    var client: std.http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    const founder: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
+    defer r.close();
+    _ = try addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
+    const source = (try sources(&r, arena))[0];
+    _ = try crawlSource(&r, io, arena, &client, 1000, source, 1, false);
+    // Retagged: rewritten in place, its directory's time unchanged.
+    try tmp.dir.writeFile(io, .{ .sub_path = "Movies/Alien (1979).mp4", .data = "xyz" });
+    const reused = try crawlSource(&r, io, arena, &client, 2000, source, 1, false);
+    try std.testing.expectEqual(@as(usize, 1), reused.crawl.skipped);
+    try std.testing.expectEqual(@as(usize, 0), reused.ingest.copies_changed);
+    const full = try crawlSource(&r, io, arena, &client, 3000, source, 1, true);
+    try std.testing.expectEqual(@as(usize, 0), full.crawl.skipped);
+    try std.testing.expectEqual(@as(usize, 1), full.ingest.copies_changed);
 }
 
 test "normalize and fold" {
@@ -1377,8 +1411,7 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
     // one would look unchanged.
     const Fresh = struct {
         fn crawl(rr: *Replica, io_: Io, a: std.mem.Allocator, c: *std.http.Client, wall: u64, rp: Source) !CrawlStats {
-            try rr.removeLocal(try snapshotKey(a, rp.id));
-            return crawlSource(rr, io_, a, c, wall, rp, 1);
+            return crawlSource(rr, io_, a, c, wall, rp, 1, true);
         }
     };
 

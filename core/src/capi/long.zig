@@ -58,7 +58,15 @@ fn crawlEvery(lib: *Library, _: std.mem.Allocator, hours: u64) !void {
 /// and `error` (null, or why its crawl failed), one per source, with its
 /// times and counts (see `CrawlJson`).
 export fn cq_crawl(lib: *Library) ?[*:0]u8 {
-    return json(lib, crawlAll, .{false});
+    return json(lib, crawlAll, .{ false, false });
+}
+
+/// Long: as `cq_crawl`, but listing every directory afresh, reusing none
+/// of the last crawl's listings, so files rewritten in place (retagged),
+/// whose directories' times don't change, are seen (Refresh Library
+/// Fully).
+export fn cq_crawl_full(lib: *Library) ?[*:0]u8 {
+    return json(lib, crawlAll, .{ false, true });
 }
 
 /// Long: as `cq_crawl`, but for a refresh not asked for (at launch, or on
@@ -67,10 +75,10 @@ export fn cq_crawl(lib: *Library) ?[*:0]u8 {
 /// (`lately` in their results), whose copies syncing brought; or all of
 /// them, if it's Manually (`manual`).
 export fn cq_crawl_due(lib: *Library) ?[*:0]u8 {
-    return json(lib, crawlAll, .{true});
+    return json(lib, crawlAll, .{ true, false });
 }
 
-fn crawlAll(lib: *Library, arena: std.mem.Allocator, due: bool) ![]const CrawlJson {
+fn crawlAll(lib: *Library, arena: std.mem.Allocator, due: bool, full: bool) ![]const CrawlJson {
     var r = try connection(lib, arena);
     defer release(lib, &r);
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
@@ -99,7 +107,7 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator, due: bool) ![]const CrawlJs
         try lib.writer.lock(lib.io());
         defer lib.writer.unlock(lib.io());
         try r.refresh();
-        const s = library.crawlSource(&r, lib.io(), arena, &client, lib.now(), rp, 16) catch |err| {
+        const s = library.crawlSource(&r, lib.io(), arena, &client, lib.now(), rp, 16, full) catch |err| {
             o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = @errorName(err) };
             continue;
         };

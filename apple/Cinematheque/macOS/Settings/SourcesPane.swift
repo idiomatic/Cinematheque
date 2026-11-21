@@ -85,8 +85,12 @@ struct SourcesPane: View {
                 // steps show in the library window's status bar).
                 ProgressView().controlSize(.small).opacity(library.activity == nil ? 0 : 1)
                     .help(library.activity.map { $0 + "…" } ?? "")
-                Button("Refresh Library") { Task { await library.refresh() } }
-                    .help("Look for new videos")
+                // Option-clicked, as the menu's ⌥ alternate, fully.
+                Button("Refresh Library") {
+                    let full = NSEvent.modifierFlags.contains(.option)
+                    Task { await library.refresh(full: full) }
+                }
+                    .help("Look for new videos, or with Option, reread every folder")
                     .disabled(library.sources.isEmpty || library.activity != nil)
             }
             // For every device: a NAS's disks spin up for each look.

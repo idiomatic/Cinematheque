@@ -391,8 +391,8 @@ fn printProgress(out: *Io.Writer, head: lib.Progress) !void {
 /// `crawl [SOURCE] [--workers WORKERS]`: crawls every source, or one.
 pub fn crawl(app: *App, c: Command) !void {
     if (c.rest.len > 1) return error.Usage;
-    try c.args.only(&.{"--workers"});
-    try crawlSources(app, try c.args.number("--workers", 16), if (c.rest.len == 1) c.rest[0] else null, false);
+    try c.args.only(&.{ "--workers", "--full" });
+    try crawlSources(app, try c.args.number("--workers", 16), if (c.rest.len == 1) c.rest[0] else null, false, c.args.has("--full"));
 }
 
 /// `refresh [--jitter SECONDS]`: waits a random time up to the jitter (so
@@ -411,13 +411,13 @@ pub fn refresh(app: *App, c: Command) !void {
     // Devices' catalog first, already described, so crawling then finds
     // little to do, and sources others crawled lately are skipped.
     try network.syncAll(app, null);
-    try crawlSources(app, 16, null, true);
+    try crawlSources(app, 16, null, true, false);
 }
 
 /// Crawls every source, or the one given, then describes what's new: covers
 /// and metadata, with concurrent workers; if `due`, only those no device
-/// crawled lately.
-fn crawlSources(app: *App, workers: usize, only: ?[]const u8, due: bool) !void {
+/// crawled lately; if `full`, listing every directory afresh.
+fn crawlSources(app: *App, workers: usize, only: ?[]const u8, due: bool, full: bool) !void {
     var r = try app.open();
     defer r.close();
     var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
@@ -439,7 +439,7 @@ fn crawlSources(app: *App, workers: usize, only: ?[]const u8, due: bool) !void {
             try app.out.print("{s}: crawled within the last {d} hours, not again\n", .{ rp.url, every.? });
             continue;
         }
-        const s = try lib.crawlSource(&r, app.io, app.arena, &client, app.now(), rp, workers);
+        const s = try lib.crawlSource(&r, app.io, app.arena, &client, app.now(), rp, workers, full);
         const i = s.ingest;
         try app.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; copies {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories unavailable; {d} ms in all\n", .{
             rp.url,         s.crawl.requests, s.crawl.skipped,    s.crawl_ms,         i.files,      i.skipped, i.extras,   i.unparsed,

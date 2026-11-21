@@ -225,9 +225,11 @@ extension Library {
     /// devices have crawled and described arrives first, so crawling then
     /// finds little to do. Shown as looking for new videos throughout, as
     /// catching up goes on by itself anyway.
-    func refresh() async {
+    /// `full` lists every folder afresh, as a folder's time doesn't change
+    /// as a file in it is rewritten in place (retagged).
+    func refresh(full: Bool = false) async {
         let synced = await long("Looking for new videos", results: noteReceived) { cq_sync($0, nil) }
-        let crawled = await crawlSources()
+        let crawled = await crawlSources(full: full)
         report(.refresh, synced ?? crawled)
         #if os(macOS)
         reconcileSoon()
@@ -254,13 +256,13 @@ extension Library {
     ]
 
     /// Crawls every source (`cq_crawl`), or if `due`, those no device
-    /// crawled lately (`cq_crawl_due`), logging how long each took, and
-    /// describing after, to tell where a slow crawl goes; returns why it
-    /// failed, if it did.
-    private func crawlSources(due: Bool = false) async -> String? {
+    /// crawled lately (`cq_crawl_due`), or if `full`, every folder afresh
+    /// (`cq_crawl_full`), logging how long each took, and describing after,
+    /// to tell where a slow crawl goes; returns why it failed, if it did.
+    private func crawlSources(due: Bool = false, full: Bool = false) async -> String? {
         let clock = ContinuousClock()
         let start = clock.now
-        return await long("Looking for new videos", results: { Self.logCrawl($0, took: clock.now - start) }) { due ? cq_crawl_due($0) : cq_crawl($0) }
+        return await long("Looking for new videos", results: { Self.logCrawl($0, took: clock.now - start) }) { due ? cq_crawl_due($0) : full ? cq_crawl_full($0) : cq_crawl($0) }
     }
 
     /// Crawling's steps and their times, in the system's log (Xcode's

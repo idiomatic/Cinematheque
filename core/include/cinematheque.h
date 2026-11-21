@@ -96,6 +96,9 @@ void cq_downloads_hold(cq_library *library, int on);
 // if url is NULL, every device found or added), and reading an item's
 // metadata from its file.
 char *cq_crawl(cq_library *library);
+// As cq_crawl, listing every directory afresh, so files rewritten in place
+// (retagged), whose directories' times don't change, are seen.
+char *cq_crawl_full(cq_library *library);
 // As cq_crawl, for a refresh not asked for (at launch, on a timer), once
 // synced: skips sources a device crawled within the library's interval
 // (±1/24 of it), or all of them if it's 0 (only when asked).

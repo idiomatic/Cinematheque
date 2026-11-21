@@ -105,9 +105,11 @@ device list prints it.
                                mark an item watched, or not
   progress remove ITEM         forget this person's progress in an item
 
-  crawl [SOURCE] [--workers WORKERS]
+  crawl [SOURCE] [--workers WORKERS] [--full]
                                crawl every source, or one, and update
-                               copies, with concurrent workers (16)
+                               copies, with concurrent workers (16);
+                               --full lists every folder afresh, to see
+                               files rewritten in place (retagged)
   sync [URL]                   pull from a device, or from every device
                                found or added
   serve [--port PORT] [--media DIR] [--web] [--downloads DIR]
