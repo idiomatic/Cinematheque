@@ -123,6 +123,10 @@ private struct HomeView: View {
 /// and Delete in its heading's menu.
 private struct ListsView: View {
     @Environment(Library.self) private var library
+    #if DEBUG
+    /// A list's page opened at launch (`CINEMATHEQUE_PAGE`, `list:<id>`).
+    @State private var opened: String?
+    #endif
 
     var body: some View {
         ScrollView {
@@ -145,7 +149,12 @@ private struct ListsView: View {
                             // The whole list, a row being long to scroll
                             // through by remote once it holds many.
                             if !tiles.isEmpty {
-                                NavigationLink("See All") { ListPage(id: list.id) }
+                                NavigationLink { ListPage(id: list.id) } label: {
+                                    HStack(spacing: 8) {
+                                        Text("See All")
+                                        Image(systemName: "chevron.right")
+                                    }
+                                }
                             }
                         }
                         if tiles.isEmpty {
@@ -159,6 +168,12 @@ private struct ListsView: View {
             }
             .padding(.vertical, 40)
         }
+        #if DEBUG
+        .navigationDestination(item: $opened) { ListPage(id: $0) }
+        .onAppear {
+            if let page = Launch.page, page.hasPrefix("list:") { opened = String(page.dropFirst("list:".count)) }
+        }
+        #endif
     }
 }
 
@@ -169,8 +184,10 @@ private struct ListPage: View {
 
     var body: some View {
         let shelf = Shelf.list(id)
-        PosterGrid(tiles: library.perTitle(shelf.tiles(in: library)), empty: shelf.empty)
-            .navigationTitle(shelf.name(in: library))
+        // Its name as the grid's first line, aligned with the covers and
+        // scrolling away with them: a navigation title stayed at the top,
+        // inset from them.
+        PosterGrid(tiles: library.perTitle(shelf.tiles(in: library)), empty: shelf.empty, heading: shelf.name(in: library))
     }
 }
 
@@ -201,9 +218,17 @@ private struct Row: View {
 struct PosterGrid: View {
     let tiles: [Tile]
     var empty = Shelf.movies.empty
+    /// A heading above the covers, scrolling with them.
+    var heading: String? = nil
 
     var body: some View {
         ScrollView {
+            if let heading {
+                Text(heading)
+                    .font(.title3.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 40)
+            }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 48, alignment: .top), count: 6), spacing: 60) {
                 ForEach(tiles) { Poster(tile: $0) }
             }
