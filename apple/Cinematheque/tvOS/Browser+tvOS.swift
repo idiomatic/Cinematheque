@@ -135,11 +135,18 @@ private struct ListsView: View {
                 ForEach(library.lists) { list in
                     let tiles = library.perTitle(Shelf.list(list.id).tiles(in: library))
                     VStack(alignment: .leading, spacing: 20) {
-                        Menu {
-                            Button("Rename…", systemImage: "pencil") { library.listPrompt = .init(kind: .rename(list)) }
-                            Button("Delete List…", systemImage: "trash", role: .destructive) { library.deletingList = list }
-                        } label: {
-                            Text(list.name).font(.title3.weight(.semibold))
+                        HStack(spacing: 30) {
+                            Menu {
+                                Button("Rename…", systemImage: "pencil") { library.listPrompt = .init(kind: .rename(list)) }
+                                Button("Delete List…", systemImage: "trash", role: .destructive) { library.deletingList = list }
+                            } label: {
+                                Text(list.name).font(.title3.weight(.semibold))
+                            }
+                            // The whole list, a row being long to scroll
+                            // through by remote once it holds many.
+                            if !tiles.isEmpty {
+                                NavigationLink("See All") { ListPage(id: list.id) }
+                            }
                         }
                         if tiles.isEmpty {
                             Text("Titles you add to this list show here.")
@@ -152,6 +159,18 @@ private struct ListsView: View {
             }
             .padding(.vertical, 40)
         }
+    }
+}
+
+/// One list, whole, as a shelf's grid, under its name.
+private struct ListPage: View {
+    let id: String
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        let shelf = Shelf.list(id)
+        PosterGrid(tiles: library.perTitle(shelf.tiles(in: library)), empty: shelf.empty)
+            .navigationTitle(shelf.name(in: library))
     }
 }
 
