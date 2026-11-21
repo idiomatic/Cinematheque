@@ -177,6 +177,19 @@ extension Library {
         return seasons.filter { $0.season != 0 } + seasons.filter { $0.season == 0 }
     }
 
+    /// What a series' seasons come to, in order (as `seasons` gives them):
+    /// "3 seasons"; a dated series' years, "2024–2026", or "2026"; of one
+    /// season but the first, its name; nothing for a first alone (a
+    /// miniseries, or one cut short).
+    static func seasonsCaption(_ seasons: [Tile]) -> String {
+        let numbered = seasons.compactMap(\.season).filter { $0 != 0 }
+        if let first = numbered.first, let last = numbered.last, first >= 1000 {
+            return first == last ? String(first) : "\(first)–\(last)"
+        }
+        guard seasons.count == 1 else { return "\(seasons.count) seasons" }
+        return seasons[0].season == 1 ? "" : seasons[0].seasonName ?? ""
+    }
+
     /// The season to start on: the first not watched through, else the
     /// first.
     static func nextSeason(_ seasons: [Tile]) -> Tile? {

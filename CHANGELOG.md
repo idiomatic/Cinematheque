@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* A dated series' seasons (a YouTube channel's, by `tools/youtube.sh`) are named by their years, "2026", not "Season 2026"; on the Mac its tile says "2024–2026".
 * **Security:** the Mac's Settings › People no longer offers to Add devices nearby that say they want to join: anyone on the network could advertise as someone you know and be let in with one click. People join only by code, entered in Settings › Devices as Someone New.
 * **Security:** a device takes what another says it holds only from a member's device, and never for itself, so a stranger on the network answering a sync can no longer have a device skip others' changes, or stop it syncing for good. A member can no longer claim another person's private stream (and be sent their progress and watchlist), write a change dated in the far future that nothing could overwrite, make someone impossible to remove, take back a handover, or sign two batches over the same changes. A person removed from the library stays removed: they come back by joining again, as someone new.
 * **Security:** another member can no longer point a source at another address, take it over, or mark it as their downloads so no device crawls it.

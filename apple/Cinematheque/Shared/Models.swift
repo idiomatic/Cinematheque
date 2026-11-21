@@ -51,8 +51,10 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
 
     var id: String { season.map { "\(key)#\($0)" } ?? key }
     var isSeries: Bool { kind == "series" }
-    /// "Season 3", or "Specials" for season 0.
-    var seasonName: String? { season.map { $0 == 0 ? "Specials" : "Season \($0)" } }
+    /// "Season 3", "Specials" for season 0, or a dated series' season's
+    /// year alone, "2026" (a season of 1000 or more, as the core reads
+    /// it), as "Season 2026" read as a 2,026th.
+    var seasonName: String? { season.map { $0 == 0 ? "Specials" : $0 >= 1000 ? String($0) : "Season \($0)" } }
 }
 
 /// One title in full: its metadata, covers, items, and where each copy is.

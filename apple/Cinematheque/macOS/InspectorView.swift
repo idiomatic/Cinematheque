@@ -221,7 +221,7 @@ struct SeriesInspectorView: View {
                     .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(series.name).font(.title2.weight(.semibold))
-                    Text(["\(seasons.count) seasons", series.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
+                    Text([Library.seasonsCaption(seasons), series.year.map(String.init)].filter { $0?.isEmpty == false }.compactMap { $0 }.joined(separator: " · "))
                         .foregroundStyle(.secondary)
                 }
                 if let detail {

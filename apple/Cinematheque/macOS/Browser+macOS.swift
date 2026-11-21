@@ -942,10 +942,9 @@ struct CoverGrid: View {
         let count = seasons.count
         // Selected itself, or, of one season, that season.
         let selected = selection == series.key || (count == 1 && seasons[0].id == selection)
-        // Named for its series, as every series' is, and under it, how many
-        // seasons, or, of one, which; but nothing for a first season alone
-        // (a miniseries, or one cut short), which needs no saying.
-        let caption = count == 1 ? (seasons[0].season == 1 ? "" : seasons[0].seasonName ?? "") : "\(count) seasons"
+        // Named for its series, as every series' is, and under it what its
+        // seasons come to.
+        let caption = Library.seasonsCaption(seasons)
         return TileView(tile: series, aspect: 1, selected: selected, series: caption)
             .frame(width: Self.cell)
             .onTapGesture {
