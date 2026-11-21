@@ -345,8 +345,9 @@ struct CoverGrid: View {
     /// show its seasons, the selection one of them.
     @State private var pointed: String?
     @State private var collapsed = false
-    /// Whether the keys move over the open series' seasons, not the series.
-    @State private var inBand = false
+    /// The selection as the keys last left it, or as it last changed: a
+    /// key's handler read the binding as it was a while before.
+    @State private var current: Tile.ID?
 
     struct Seen: Equatable {
         let rect: CGRect
@@ -565,6 +566,9 @@ struct CoverGrid: View {
     /// The open series: the one selected, unless collapsed.
     private var open: String? { bySeries && !collapsed ? pointed : nil }
 
+    /// The series whose band is shown (not one of a single season).
+    private var shownOpen: String? { layout.seasons.isEmpty ? nil : open }
+
     private var layout: Rows { cache.rows(tiles, columns: columns, series: bySeries, open: open, library: library) }
 
     var body: some View {
@@ -598,13 +602,26 @@ struct CoverGrid: View {
         // AppKit makes the window's first responder (`defaultFocus` doesn't
         // outrank it).
         .onAppear { focused = true }
-        .onMoveCommand { direction in
+        // As key presses, as the scroll view took the arrows' move
+        // commands before `onMoveCommand` saw them.
+        .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+            let direction: MoveCommandDirection = switch press.key {
+            case .leftArrow: .left
+            case .rightArrow: .right
+            case .upArrow: .up
+            default: .down
+            }
             if bySeries { moveBySeries(direction) } else { move(direction, in: [layout.movies] + layout.groups.map(\.seasons)) }
+            return .handled
         }
+        .onChange(of: selection, initial: true) { current = selection }
         // Closes the open series, as clicking it again does.
-        .onExitCommand {
-            if bySeries, open != nil { close() }
+        .onKeyPress(.escape) {
+            guard bySeries, shownOpen != nil else { return .ignored }
+            close()
+            return .handled
         }
+
         .onKeyPress(.return) {
             guard let tile = tiles.first(where: { $0.id == selection }) else { return .ignored }
             playNext(tile)
@@ -620,10 +637,7 @@ struct CoverGrid: View {
         }
         .task {
             // The series of a season selected on another shelf, open.
-            if bySeries, let tile = library.tiles.first(where: { $0.id == selection }), tile.isSeries {
-                pointed = tile.key
-                inBand = true
-            }
+            if bySeries, let tile = library.tiles.first(where: { $0.id == selection }), tile.isSeries { pointed = tile.key }
             // After the first layout, which ignores scrolling.
             await Task.yield()
             if search.isEmpty, let top = positions.tops[shelf] { scroll(to: top) }
@@ -662,8 +676,8 @@ struct CoverGrid: View {
     private func move(_ direction: MoveCommandDirection, in sections: [[Tile]]) {
         let sections = sections.filter { !$0.isEmpty }
         guard let first = sections.first?.first else { return }
-        guard let s = sections.firstIndex(where: { $0.contains { $0.id == selection } }),
-              let i = sections[s].firstIndex(where: { $0.id == selection }) else { return select(first) }
+        guard let s = sections.firstIndex(where: { $0.contains { $0.id == current } }),
+              let i = sections[s].firstIndex(where: { $0.id == current }) else { return select(first) }
         let section = sections[s]
         let column = i % columns
         let target: Tile? = switch direction {
@@ -688,6 +702,7 @@ struct CoverGrid: View {
     /// toolbar and the status bar.
     private func select(_ tile: Tile) {
         selection = tile.id
+        current = tile.id
         guard let row = layout.row(of: tile.id) else { return }
         reveal(row.y, row.maxY)
     }
@@ -714,70 +729,65 @@ struct CoverGrid: View {
         let before = layout.row(holding: series.key)?.y ?? 0
         pointed = series.key
         collapsed = false
-        inBand = false
         let seasons = Library.seasons(of: series.key, in: library.tiles)
-        selection = (Library.nextSeason(seasons) ?? series).id
+        let id = (Library.nextSeason(seasons) ?? series).id
+        selection = id
+        current = id
         guard let row = layout.row(holding: series.key) else { return }
         let band = layout.rows.first { $0.band != nil }
         reveal(row.y, band?.maxY ?? row.maxY, shift: row.y - before)
     }
 
-    /// Closes the open series, its tile still selected.
+    /// Closes the open series, its tile then the one selected.
     private func close() {
         collapsed = true
-        inBand = false
     }
 
-    /// The Series shelf's keys: over the series, the one selected open;
-    /// down from it into its band, and over its seasons there; up from the
-    /// band's first row back to it, and down from its last to the next row
-    /// of series.
+    /// Selects a season in the open series' band, scrolled into view.
+    private func selectInBand(_ season: Tile) {
+        selection = season.id
+        current = season.id
+        if let span = layout.span(inBand: season.id, columns: columns) { reveal(span.y, span.maxY) }
+    }
+
+    /// The Series shelf's keys, over one selection: over the series, each
+    /// opening as it's reached, its season to watch selected; in a band,
+    /// over its seasons, out of its ends to the series beside its own,
+    /// and out of its top or bottom to the series above or below.
     private func moveBySeries(_ direction: MoveCommandDirection) {
         let series = layout.series
         guard let first = series.first else { return }
-        guard let i = series.firstIndex(where: { $0.key == pointed }) else { return point(first) }
-        let column = i % columns
-        if inBand, open != nil {
-            let seasons = layout.seasons
-            guard let j = seasons.firstIndex(where: { $0.id == selection }) else { return }
-            var target: Tile?
+        let key = library.tiles.first { $0.id == current }?.key
+        guard let i = series.firstIndex(where: { $0.key == key }) else { return point(first) }
+        let above = i >= columns ? series[i - columns] : nil
+        let below: Tile? = i / columns < (series.count - 1) / columns ? series[min(i + columns, series.count - 1)] : nil
+        let seasons = layout.seasons
+        if shownOpen == key, let j = seasons.firstIndex(where: { $0.id == current }) {
             switch direction {
-            case .left: target = j > 0 ? seasons[j - 1] : nil
-            case .right: target = j + 1 < seasons.count ? seasons[j + 1] : nil
+            case .left: if j > 0 { selectInBand(seasons[j - 1]) } else if i > 0 { point(series[i - 1]) }
+            case .right: if j + 1 < seasons.count { selectInBand(seasons[j + 1]) } else if i + 1 < series.count { point(series[i + 1]) }
             case .up:
-                if j >= columns { target = seasons[j - columns] } else { inBand = false; return }
-            case .down:
-                if j + columns < seasons.count { target = seasons[j + columns] }
-                else if j / columns < (seasons.count - 1) / columns { target = seasons.last }
-                else {
-                    let below = (i / columns + 1) * columns
-                    if below < series.count { return point(series[min(below + column, series.count - 1)]) }
+                if j >= columns {
+                    selectInBand(seasons[j - columns])
+                } else {
+                    // The series just above, in its own row; above its
+                    // own, the row before.
+                    let target = min(i / columns * columns + j % columns, series.count - 1)
+                    if target != i { point(series[target]) } else if let above { point(above) }
                 }
+            case .down:
+                if j + columns < seasons.count { selectInBand(seasons[j + columns]) }
+                else if j / columns < (seasons.count - 1) / columns { selectInBand(seasons[seasons.count - 1]) }
+                else if below != nil { point(series[min((i / columns + 1) * columns + j % columns, series.count - 1)]) }
             @unknown default: break
-            }
-            if let target, let span = layout.span(inBand: target.id, columns: columns) {
-                selection = target.id
-                reveal(span.y, span.maxY)
             }
             return
         }
         switch direction {
         case .left: if i > 0 { point(series[i - 1]) }
         case .right: if i + 1 < series.count { point(series[i + 1]) }
-        case .up: if i >= columns { point(series[i - columns]) }
-        case .down:
-            if open != nil, !layout.seasons.isEmpty {
-                // Into the band, its first row, beneath.
-                let seasons = layout.seasons
-                let target = seasons[min(column, seasons.count - 1)]
-                inBand = true
-                selection = target.id
-                if let span = layout.span(inBand: target.id, columns: columns) { reveal(span.y, span.maxY) }
-            } else if i + columns < series.count {
-                point(series[i + columns])
-            } else if i / columns < (series.count - 1) / columns {
-                point(series[series.count - 1])
-            }
+        case .up: if let above { point(above) }
+        case .down: if let below { point(below) }
         @unknown default: break
         }
     }
@@ -857,11 +867,14 @@ struct CoverGrid: View {
     /// many seasons it has; selected, it's open.
     private func seriesTile(_ series: Tile) -> some View {
         let count = library.tiles.lazy.filter { $0.key == series.key && $0.season != nil }.count
-        return TileView(tile: series, aspect: 1, selected: pointed == series.key && !inBand, series: count == 1 ? nil : "\(count) seasons")
+        // Selected while its band, if any, is closed, as the inspector
+        // shows its season; open, the season in it is.
+        let selected = library.tiles.first { $0.id == selection }?.key == series.key && shownOpen != series.key
+        return TileView(tile: series, aspect: 1, selected: selected, series: count == 1 ? nil : "\(count) seasons")
             .frame(width: Self.cell)
             .onTapGesture {
                 focused = true
-                if pointed == series.key, open != nil, !inBand { close() } else { point(series) }
+                if shownOpen == series.key { close() } else { point(series) }
             }
             .simultaneousGesture(TapGesture(count: 2).onEnded {
                 let seasons = Library.seasons(of: series.key, in: library.tiles)
@@ -888,13 +901,10 @@ struct CoverGrid: View {
             ForEach(lines, id: \.first!.id) { line in
                 HStack(alignment: .top, spacing: Self.gutter) {
                     ForEach(line) { season in
-                        // Ringed as the inspector shows it, as the series is
-                        // while the keys move over the series.
                         TileView(tile: season, aspect: 1, selected: selection == season.id)
                             .frame(width: Self.cell)
                             .onTapGesture {
                                 selection = season.id
-                                inBand = true
                                 focused = true
                             }
                             .simultaneousGesture(TapGesture(count: 2).onEnded { playNext(season) })
