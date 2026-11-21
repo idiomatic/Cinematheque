@@ -113,6 +113,16 @@ struct Browser: View {
                     ToolbarItem(placement: .primaryAction) {
                         inspectorToggle
                     }
+                    // Room after the toggle, so it's clear of the
+                    // inspector's divider, whose drag area reaches up into
+                    // the toolbar and took clicks on the toggle's middle.
+                    if #available(macOS 26, *) {
+                        ToolbarItem(placement: .primaryAction) {
+                            Color.clear.frame(width: 12, height: 1)
+                                .accessibilityHidden(true)
+                        }
+                        .sharedBackgroundVisibility(.hidden)
+                    }
                 }
         }
         #if DEBUG
