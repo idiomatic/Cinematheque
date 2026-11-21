@@ -138,8 +138,6 @@ struct Browser: View {
     private var counts: String { (shelf ?? .inProgress).counts(in: library, search: search) }
 }
 
-/// Tiles of fixed size, laid out lazily: movies' covers 2:3, and each
-/// series' seasons together, square.
 /// Each shelf's topmost title in view, to return to: a movie's tile or a
 /// series' seasons, by title key (not an offset, which a change in the
 /// grid's width would move). Not observed, so scrolling doesn't redraw the
@@ -148,6 +146,12 @@ final class ScrollMemory {
     var tops: [Shelf: String] = [:]
 }
 
+/// Tiles of fixed size: movies' covers 2:3, and each series' seasons
+/// together, square. As a cell's size is fixed, every row's place and
+/// height is worked out before any is drawn (`Rows`), and only those near
+/// the screen are: so the scroll bar knows the whole height at once and
+/// holds still, as a lazy grid's guesses at rows not yet drawn (a series'
+/// seasons above all) don't.
 struct CoverGrid: View {
     let tiles: [Tile]
     @Binding var selection: Tile.ID?
@@ -160,9 +164,33 @@ struct CoverGrid: View {
     @State private var restored = false
     @Environment(Library.self) private var library
     @Environment(\.play) private var play
-    /// Tiles at least half on screen, whose titles a crawl describes first,
-    /// and the first of which the grid keeps in place.
-    @State private var visible: Set<Tile.ID> = []
+    /// The rows on screen, whose titles a crawl describes first, and the
+    /// first of which the grid keeps in place.
+    @State private var visible: Range<Int> = 0..<0
+    /// What's on screen, in the content's coordinates, and how much of it
+    /// the toolbar and status bar cover; not observed, so scrolling redraws
+    /// only as the rows on screen change.
+    @State private var viewport = Viewport()
+    @State private var cache = RowCache()
+
+    struct Seen: Equatable {
+        let rect: CGRect
+        let insets: EdgeInsets
+    }
+
+    final class Viewport {
+        var rect: CGRect = .zero
+        var insets = EdgeInsets()
+        /// What's seen, clear of the toolbar and the status bar (a content
+        /// margin, which the insets leave out).
+        var clear: (minY: CGFloat, maxY: CGFloat) { (rect.minY + insets.top, rect.maxY - insets.bottom - StatusBar.height) }
+        /// Scrolls `position` by `delta`: its offsets count from the
+        /// content's top at rest, below the toolbar, where the visible
+        /// rectangle's count from under it.
+        func scroll(_ position: inout ScrollPosition, by delta: CGFloat) {
+            position.scrollTo(y: rect.minY + insets.top + delta)
+        }
+    }
     /// The title at the top, kept there when the grid's width changes (as
     /// when the inspector opens or closes) and its rows reflow.
     @State private var anchor = Anchor()
@@ -172,7 +200,7 @@ struct CoverGrid: View {
         var top: String?
     }
 
-    private struct Group: Identifiable {
+    struct Group: Identifiable {
         let key: String
         let name: String
         let year: Int?
@@ -180,25 +208,144 @@ struct CoverGrid: View {
         var id: String { key }
     }
 
-    var body: some View {
-        let movies = tiles.filter { !$0.isSeries }
-        let series = groups(tiles.filter(\.isSeries))
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 28) {
-                if !movies.isEmpty {
-                    grid(movies, aspect: 2.0 / 3.0)
+    /// Every row of the grid, where it is, and how tall: the movies' rows,
+    /// then each series' name and its seasons' rows.
+    @MainActor struct Rows {
+        struct Row: Identifiable {
+            let id: String
+            /// A series' name, or a row of tiles.
+            let header: String?
+            let tiles: [Tile]
+            let aspect: Double
+            /// Its title's key (the first tile's).
+            let key: String
+            let y: CGFloat
+            let height: CGFloat
+            var maxY: CGFloat { y + height }
+        }
+
+        var rows: [Row] = []
+        var movies: [Tile] = []
+        var groups: [Group] = []
+        /// The whole grid's, its margins too.
+        var height: CGFloat = 0
+
+        init() {}
+
+        init(_ tiles: [Tile], columns: Int) {
+            movies = tiles.filter { !$0.isSeries }
+            groups = Self.groups(tiles.filter(\.isSeries))
+            var y = CoverGrid.margin
+            func add(_ tiles: [Tile], aspect: Double, height: CGFloat, id: String) {
+                for start in stride(from: 0, to: tiles.count, by: columns) {
+                    let row = Array(tiles[start..<min(start + columns, tiles.count)])
+                    rows.append(Row(id: "\(id)/\(start)", header: nil, tiles: row, aspect: aspect, key: row[0].key, y: y, height: height))
+                    y += height + Self.rowSpacing
                 }
-                ForEach(series) { group in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(group.name + (group.year.map { " (\($0))" } ?? ""))
-                            .font(.title3.weight(.semibold))
-                        grid(group.seasons, aspect: 1)
-                    }
+                y += Self.sectionSpacing - Self.rowSpacing
+            }
+            if !movies.isEmpty { add(movies, aspect: 2.0 / 3.0, height: Self.movieHeight, id: "movies") }
+            for group in groups {
+                rows.append(Row(id: group.key, header: group.name + (group.year.map { " (\($0))" } ?? ""), tiles: [], aspect: 1, key: group.key, y: y, height: Self.headerHeight))
+                y += Self.headerHeight + Self.headerSpacing
+                add(group.seasons, aspect: 1, height: Self.seasonHeight, id: group.key)
+            }
+            height = rows.isEmpty ? 0 : y - Self.sectionSpacing + CoverGrid.margin
+        }
+
+        /// The rows meeting the span from `minY` to `maxY`, top to bottom.
+        func range(_ minY: CGFloat, _ maxY: CGFloat) -> Range<Int> {
+            // The first ending below the top, then the first starting below
+            // the bottom.
+            let top = first(from: 0) { $0.maxY > minY }
+            return top..<first(from: top) { $0.y >= maxY }
+        }
+
+        /// The first row from `start` on that's `past`, as rows are in
+        /// order: by halves.
+        private func first(from start: Int, past: (Row) -> Bool) -> Int {
+            var low = start, high = rows.count
+            while low < high {
+                let mid = (low + high) / 2
+                if past(rows[mid]) { high = mid } else { low = mid + 1 }
+            }
+            return low
+        }
+
+        func row(of tile: Tile.ID) -> Row? {
+            rows.first { $0.tiles.contains { $0.id == tile } }
+        }
+
+        private static func groups(_ seasons: [Tile]) -> [Group] {
+            var order: [String] = []
+            var byKey: [String: [Tile]] = [:]
+            for tile in seasons {
+                if byKey[tile.key] == nil { order.append(tile.key) }
+                byKey[tile.key, default: []].append(tile)
+            }
+            return order.map { key in
+                let list = byKey[key]!
+                return Group(key: key, name: list[0].name, year: list[0].year, seasons: list)
+            }
+        }
+
+        /// A text style's line, as AppKit sets it, so a tile's height is
+        /// known before it's drawn.
+        private static func line(_ style: NSFont.TextStyle) -> CGFloat {
+            ceil(NSLayoutManager().defaultLineHeight(for: .preferredFont(forTextStyle: style)))
+        }
+
+        // A movie's cover, name, and year (a line kept for it, if it has
+        // none); a season's cover and name; a series' name.
+        static let movieHeight = ceil(CoverGrid.cell * 3 / 2) + TileView.spacing + line(.callout) + TileView.spacing + line(.caption1)
+        static let seasonHeight = CoverGrid.cell + TileView.spacing + line(.callout)
+        static let headerHeight = line(.title3)
+        static let rowSpacing: CGFloat = 22
+        static let headerSpacing: CGFloat = 10
+        static let sectionSpacing: CGFloat = 28
+    }
+
+    /// The rows, worked out again only when the tiles or the columns change.
+    /// Not observed, as it's only a cache.
+    final class RowCache {
+        private var tiles: [Tile] = []
+        private var columns = 0
+        private var rows = Rows()
+
+        func rows(_ tiles: [Tile], columns: Int) -> Rows {
+            if columns != self.columns || tiles != self.tiles {
+                self.tiles = tiles
+                self.columns = columns
+                rows = Rows(tiles, columns: columns)
+            }
+            return rows
+        }
+    }
+
+    private var layout: Rows { cache.rows(tiles, columns: columns) }
+
+    var body: some View {
+        let layout = layout
+        // A screen's worth above and below what's on it, drawn ahead.
+        let drawn = layout.range(viewport.rect.minY - viewport.rect.height, viewport.rect.maxY + viewport.rect.height)
+        ScrollView {
+            ZStack(alignment: .topLeading) {
+                ForEach(layout.rows[drawn]) { row in
+                    rowView(row)
+                        .frame(height: row.height, alignment: .topLeading)
+                        .offset(x: Self.margin, y: row.y)
                 }
             }
-            .padding(Self.margin)
+            .frame(maxWidth: .infinity, minHeight: layout.height, maxHeight: layout.height, alignment: .topLeading)
         }
         .scrollPosition($position)
+        .onScrollGeometryChange(for: Seen.self, of: { Seen(rect: $0.visibleRect, insets: $0.contentInsets) }) { _, seen in
+            viewport.rect = seen.rect
+            viewport.insets = seen.insets
+            let clear = viewport.clear
+            let now = self.layout.range(clear.minY, clear.maxY)
+            if now != visible { visible = now }
+        }
         // The arrow keys move the selection over the covers, as in the
         // Finder's icon view; Return plays it.
         .focusable()
@@ -208,7 +355,7 @@ struct CoverGrid: View {
         // AppKit makes the window's first responder (`defaultFocus` doesn't
         // outrank it).
         .onAppear { focused = true }
-        .onMoveCommand { direction in move(direction, in: [movies] + series.map(\.seasons)) }
+        .onMoveCommand { direction in move(direction, in: [layout.movies] + layout.groups.map(\.seasons)) }
         .onKeyPress(.return) {
             guard let tile = tiles.first(where: { $0.id == selection }) else { return .ignored }
             playNext(tile)
@@ -233,11 +380,10 @@ struct CoverGrid: View {
         // Once scrolling settles.
         .task(id: visible) {
             try? await Task.sleep(for: .milliseconds(200))
-            // A tile's ID is its title's key, then `#` and a season for a
-            // series' season.
             guard !Task.isCancelled else { return }
-            library.prioritize(Set(visible.map { String($0.split(separator: "#")[0]) }))
-            let top = tiles.first { visible.contains($0.id) }?.key
+            let rows = layout.rows[visible.clamped(to: layout.rows.indices)]
+            library.prioritize(Set(rows.flatMap { row in row.tiles.map(\.key) }))
+            let top = rows.first?.key
             anchor.top = top
             // The shelf's whole grid, not a search's results.
             if restored, search.isEmpty { positions.tops[shelf] = top }
@@ -282,20 +428,27 @@ struct CoverGrid: View {
         if let target { select(target) }
     }
 
-    /// Selects a tile, scrolled just enough to be seen.
+    /// Selects a tile, scrolled just enough to be seen, clear of the
+    /// toolbar and the status bar.
     private func select(_ tile: Tile) {
         selection = tile.id
-        position.scrollTo(id: tile.id)
+        guard let row = layout.row(of: tile.id) else { return }
+        let clear = viewport.clear
+        if row.y < clear.minY {
+            viewport.scroll(&position, by: row.y - clear.minY - Rows.rowSpacing)
+        } else if row.maxY > clear.maxY {
+            viewport.scroll(&position, by: row.maxY - clear.maxY + Rows.rowSpacing)
+        }
     }
 
     /// Puts a title at the top; the first, with the grid's top margin above
     /// it, as when it was first shown.
     private func scroll(to top: String) {
-        if top == tiles.first?.key {
-            position.scrollTo(edge: .top)
-        } else {
-            position.scrollTo(id: top, anchor: .top)
+        guard let row = layout.rows.first(where: { $0.key == top }), row.y > Self.margin else {
+            return position.scrollTo(edge: .top)
         }
+        // Its top just below the toolbar, as offsets count.
+        position.scrollTo(y: row.y)
     }
 
     /// A tile's width, the same at every grid width, so a change in width
@@ -309,18 +462,19 @@ struct CoverGrid: View {
         max(1, Int((width - 2 * margin + gutter) / (cell + gutter)))
     }
 
-    private func grid(_ tiles: [Tile], aspect: Double) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.cell, maximum: Self.cell), spacing: Self.gutter, alignment: .top)], alignment: .leading, spacing: 22) {
-            ForEach(tiles) { tile in
-                // Selecting at once, not after the double-click interval.
-                TileView(tile: tile, aspect: aspect, selected: selection == tile.id)
-                    .onScrollVisibilityChange(threshold: 0.5) { shown in
-                        if shown { visible.insert(tile.id) } else { visible.remove(tile.id) }
-                    }
-                    // A lazy grid drops a tile it scrolls far past without
-                    // saying it's no longer visible.
-                    .onDisappear { visible.remove(tile.id) }
-                    .onTapGesture {
+    @ViewBuilder
+    private func rowView(_ row: Rows.Row) -> some View {
+        if let header = row.header {
+            Text(header)
+                .font(.title3.weight(.semibold))
+                .lineLimit(1)
+        } else {
+            HStack(alignment: .top, spacing: Self.gutter) {
+                ForEach(row.tiles) { tile in
+                    // Selecting at once, not after the double-click interval.
+                    TileView(tile: tile, aspect: row.aspect, selected: selection == tile.id)
+                        .frame(width: Self.cell)
+                        .onTapGesture {
                         selection = tile.id
                         focused = true
                     }
@@ -342,20 +496,8 @@ struct CoverGrid: View {
                             Button("Mark as Unwatched") { library.markWatched(tile, false) }
                         }
                     }
+                }
             }
-        }
-    }
-
-    private func groups(_ seasons: [Tile]) -> [Group] {
-        var order: [String] = []
-        var byKey: [String: [Tile]] = [:]
-        for tile in seasons {
-            if byKey[tile.key] == nil { order.append(tile.key) }
-            byKey[tile.key, default: []].append(tile)
-        }
-        return order.map { key in
-            let list = byKey[key]!
-            return Group(key: key, name: list[0].name, year: list[0].year, seasons: list)
         }
     }
 
@@ -374,8 +516,11 @@ struct TileView: View {
     let selected: Bool
     @Environment(Library.self) private var library
 
+    /// Between its cover, name, and year, as `CoverGrid.Rows` counts them.
+    static let spacing: CGFloat = 6
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Self.spacing) {
             Color.clear
                 .aspectRatio(aspect, contentMode: .fit)
                 .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.seasonName ?? tile.name, fit: tile.isSeries) }
