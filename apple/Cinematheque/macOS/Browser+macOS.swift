@@ -372,6 +372,7 @@ struct CoverGrid: View {
     /// show its seasons, the selection one of them.
     @State private var pointed: String?
     @State private var collapsed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The selection as the keys last left it, or as it last changed: a
     /// key's handler read the binding as it was a while before.
     @State private var current: Tile.ID?
@@ -445,7 +446,10 @@ struct CoverGrid: View {
 
         /// The Series shelf's: a row of series at a time, and after the
         /// open one's row, its band.
-        init(series: [Tile], open: String?, seasons: [Tile], columns: Int) {
+        /// The height is the same whichever band is open, or none: room is
+        /// kept at the end for the tallest (`most` seasons), so the scroll
+        /// bar holds still as bands open and close.
+        init(series: [Tile], open: String?, seasons: [Tile], most: Int, columns: Int) {
             self.series = series
             var y = CoverGrid.margin
             for start in stride(from: 0, to: series.count, by: columns) {
@@ -461,7 +465,9 @@ struct CoverGrid: View {
                 }
                 y += Self.rowSpacing
             }
-            height = rows.isEmpty ? 0 : y - Self.rowSpacing + CoverGrid.margin
+            let open = rows.first { $0.band != nil }.map { Self.bandGap + $0.height } ?? 0
+            let tallest = most > 1 ? Self.bandGap + Self.bandHeight(most, columns: columns) : 0
+            height = rows.isEmpty ? 0 : y - Self.rowSpacing + CoverGrid.margin - open + tallest
         }
 
         /// A band's: its point, its padding, and its seasons' rows.
@@ -568,17 +574,32 @@ struct CoverGrid: View {
         private var columns = 0
         private var open: String?
         private var rows = Rows()
+        /// The Series shelf's tile per series, and each series' seasons, in
+        /// order, made again only when the tiles change, not as bands open.
+        private(set) var series: [Tile] = []
+        private(set) var seasons: [String: [Tile]] = [:]
+        private var grouped: [Tile]?
 
-        /// With `series`, the Series shelf's, a tile per series (`group`
-        /// making them), `open` open.
+        /// With `series`, the Series shelf's, a tile per series, `open`
+        /// open.
         @MainActor func rows(_ tiles: [Tile], columns: Int, series: Bool, open: String?, library: Library) -> Rows {
             if columns != self.columns || tiles != self.tiles || open != self.open {
+                if series, grouped != tiles {
+                    grouped = tiles
+                    self.series = library.perTitle(tiles)
+                    let keys = Set(self.series.map(\.key))
+                    seasons = Dictionary(grouping: library.tiles.filter { $0.season != nil && keys.contains($0.key) }, by: \.key)
+                        .mapValues { list in
+                            let sorted = list.sorted { ($0.season ?? 0) < ($1.season ?? 0) }
+                            return sorted.filter { $0.season != 0 } + sorted.filter { $0.season == 0 }
+                        }
+                }
                 self.tiles = tiles
                 self.columns = columns
                 self.open = open
                 if series {
-                    let seasons = open.map { Library.seasons(of: $0, in: library.tiles) } ?? []
-                    rows = Rows(series: library.perTitle(tiles), open: open, seasons: seasons.count > 1 ? seasons : [], columns: columns)
+                    let band = open.flatMap { seasons[$0] } ?? []
+                    rows = Rows(series: self.series, open: open, seasons: band.count > 1 ? band : [], most: seasons.values.map(\.count).max() ?? 0, columns: columns)
                 } else {
                     rows = Rows(tiles, columns: columns)
                 }
@@ -759,12 +780,17 @@ struct CoverGrid: View {
     /// the series kept in place as another's band above it closes.
     private func point(_ series: Tile) {
         let before = layout.row(holding: series.key)?.y ?? 0
-        pointed = series.key
-        collapsed = false
-        let seasons = Library.seasons(of: series.key, in: library.tiles)
+        let seasons = cache.seasons[series.key] ?? Library.seasons(of: series.key, in: library.tiles)
         let id = seasons.count == 1 ? seasons[0].id : series.key
         selection = id
         current = id
+        // The band unrolling (another's rolling up), the series after it
+        // moving out of its way, and the scrolling that keeps the series
+        // in place, together.
+        withAnimation(bandMotion) {
+            pointed = series.key
+            collapsed = false
+        }
         guard let row = layout.row(holding: series.key) else { return }
         let band = layout.rows.first { $0.band != nil }
         reveal(row.y, band?.maxY ?? row.maxY, shift: row.y - before)
@@ -776,8 +802,11 @@ struct CoverGrid: View {
             selection = open
             current = open
         }
-        collapsed = true
+        withAnimation(bandMotion) { collapsed = true }
     }
+
+    /// How a band opens and closes: none under Reduce Motion.
+    private var bandMotion: Animation? { reduceMotion ? nil : .easeInOut(duration: 0.25) }
 
     /// Selects a season in the open series' band, scrolled into view.
     private func selectInBand(_ season: Tile) {
@@ -859,6 +888,10 @@ struct CoverGrid: View {
                 .lineLimit(1)
         } else if let column = row.band {
             band(row.tiles, pointingAt: column)
+                // Fading in as the series after it move out of its way, and
+                // out as they move back: a fade, which the window server
+                // runs, as a custom animation clipping it stalled midway.
+                .transition(.opacity)
         } else if bySeries {
             HStack(alignment: .top, spacing: Self.gutter) {
                 ForEach(row.tiles) { series in
@@ -904,9 +937,10 @@ struct CoverGrid: View {
     /// A series' tile on the Series shelf: its cover, its name, and how
     /// many seasons it has; selected, it's open.
     private func seriesTile(_ series: Tile) -> some View {
-        let count = library.tiles.lazy.filter { $0.key == series.key && $0.season != nil }.count
+        let seasons = cache.seasons[series.key] ?? []
+        let count = seasons.count
         // Selected itself, or, of one season, that season.
-        let selected = selection == series.key || (count == 1 && library.tiles.first { $0.id == selection }?.key == series.key)
+        let selected = selection == series.key || (count == 1 && seasons[0].id == selection)
         return TileView(tile: series, aspect: 1, selected: selected, series: count == 1 ? nil : "\(count) seasons")
             .frame(width: Self.cell)
             .onTapGesture {
@@ -962,7 +996,7 @@ struct CoverGrid: View {
     /// Plays a series' season to watch, from its next episode, the series
     /// still selected.
     private func playSeries(_ key: String) {
-        guard let season = Library.nextSeason(Library.seasons(of: key, in: library.tiles)),
+        guard let season = Library.nextSeason(cache.seasons[key] ?? Library.seasons(of: key, in: library.tiles)),
               let detail = library.detail(key), let request = Playback.next(in: detail, season: season.season) else { return }
         play(request)
     }
