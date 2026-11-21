@@ -137,12 +137,13 @@ button:disabled { opacity: 0.4; cursor: default; }
 .download { display: inline-flex; gap: 8px; align-items: center; color: var(--dim); }
 .download select { padding: 4px 8px; font-size: 13px; }
 .download .on, .download button { color: var(--text); }
-.item-downloads .on { color: var(--dim); font-size: 13px; }
+.item-downloads .on { display: inline-flex; gap: 6px; align-items: center; color: var(--dim); font-size: 13px; }
 .download progress { width: 160px; accent-color: var(--accent); }
-.item-downloads { display: inline-flex; gap: 2px; align-items: center; }
+/* An episode's or version's, buttons as a movie's are, smaller, as fits a
+   row. */
+.item-downloads { display: inline-flex; gap: 6px; align-items: center; }
+.item-downloads button { padding: 3px 10px; font-size: 13px; }
 .item-downloads progress { width: 48px; accent-color: var(--accent); }
-button.icon { background: none; border-color: transparent; color: var(--dim); padding: 2px 6px; }
-button.icon:hover { color: var(--text); }
 button.warn { color: #ff9f0a; }
 .waiting { color: var(--dim); font-size: 13px; }
 

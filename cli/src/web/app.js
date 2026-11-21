@@ -649,13 +649,13 @@ function seasonChoice(detail) {
 function itemControls(detail, items, quality) {
   const keys = items.map((i) => `${detail.key}/${i.key}`);
   const box = el("span", { class: "item-downloads" });
-  const download = downloadButton(items[0], quality, true);
+  const download = downloadButton(items[0], quality);
   const update = () => {
     if (!downloads.enabled) return box.replaceChildren(download);
     const state = stateOf(keys);
     const kept = state.held ? el("span", { class: "on", title: `Kept on ${downloads.device}` }, "✓ Kept", trash(keys[0], state.only))
       : state.coming ? gauge(state.fetching, true)
-      : el("button", { type: "button", class: "icon", title: `Keep on ${downloads.device}`,
+      : el("button", { type: "button", title: `Keep on ${downloads.device}`,
         onclick: () => change("download", { key: keys[0], quality: quality ?? "" }) }, "Keep");
     box.replaceChildren(download, kept);
   };
@@ -672,17 +672,16 @@ function gauge(fetching, small = false) {
 /// Deleting what's kept, or no longer keeping what's coming: the only copy
 /// asked first.
 function trash(key, only, label = "Delete from the server") {
-  return el("button", { type: "button", class: "icon", title: only ? `${label} (the only copy)` : label, "aria-label": label, onclick: () => {
+  return el("button", { type: "button", title: only ? `${label} (the only copy)` : label, "aria-label": label, onclick: () => {
     if (only && !confirm(`The server holds the only copy. Delete it anyway? It can't be had again.`)) return;
     change("download-remove", { key });
   } }, "🗑\uFE0E");
 }
 
 /// Downloading an item's file to this computer: from the chosen quality's
-/// copy whose server answers first, else any other, through the server;
-/// in a row, `quiet`, as its other actions are.
-function downloadButton(item, quality, quiet = false) {
-  return el("button", { type: "button", class: quiet ? "icon" : null, onclick: async () => {
+/// copy whose server answers first, else any other, through the server.
+function downloadButton(item, quality) {
+  return el("button", { type: "button", onclick: async () => {
     const q = item.qualities.find((x) => x.label === quality) || item.qualities.find((x) => x.copies.length);
     const urls = q ? q.copies.filter((c) => c.url).sort((a, b) => a.unavailable - b.unavailable).map((c) => c.url) : [];
     if (!urls.length) return problem("No source holds it now.");
