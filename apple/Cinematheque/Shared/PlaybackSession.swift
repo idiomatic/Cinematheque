@@ -43,15 +43,9 @@ final class PlaybackSession {
     private var awake: NSObjectProtocol?
     #endif
 
-    /// Playback's steps and their times, in the system's log (Xcode's
-    /// console), to tell where a slow start goes.
+    /// Each start's steps and their times, in the system's log (Xcode's
+    /// console), in a line, to tell where a slow start goes.
     static let log = Logger(subsystem: "com.rbrian.cinematheque", category: "playback")
-    /// Counts sessions, to tell them apart in the log.
-    private static var made = 0
-    private let number: Int = {
-        made += 1
-        return made
-    }()
 
     /// `prepare` may describe each player item, e.g., with metadata for a
     /// system player's info panel.
@@ -78,26 +72,30 @@ final class PlaybackSession {
     /// (prerolled), so it plays at once.
     func prepare() async {
         let clock = ContinuousClock()
-        var mark = clock.now
-        /// How long since the last step, for the log.
-        func lap() -> String {
+        let began = clock.now
+        var mark = began
+        var steps: [String] = []
+        /// Notes a step, and how long since the last.
+        func lap(_ step: String) {
             let now = clock.now
-            defer { mark = now }
-            return (now - mark).logged
+            steps.append("\(step) \((now - mark).logged)")
+            mark = now
         }
         guard let current = player.currentItem else { return }
         let preferred = await prefer(current)
-        Self.log.notice("Starting #\(self.number): raced copies in \(lap(), privacy: .public), chose \(self.entries[ObjectIdentifier(preferred)]?.url.host() ?? "?", privacy: .public)")
+        lap("raced")
+        let host = entries[ObjectIdentifier(preferred)]?.url.host() ?? "a file"
         guard let first = await loaded(preferred) else { return }
-        Self.log.notice("Starting #\(self.number): loaded in \(lap(), privacy: .public)")
+        lap("loaded")
         guard first.status == .readyToPlay, !closed else { return }
         if start > 0 {
             await player.seek(to: CMTime(seconds: max(0, start - Platform.replay), preferredTimescale: 600))
-            Self.log.notice("Starting #\(self.number): sought in \(lap(), privacy: .public)")
+            lap("sought")
         }
         guard !closed else { return }
         _ = await player.preroll(atRate: 1)
-        Self.log.notice("Starting #\(self.number): prerolled in \(lap(), privacy: .public)")
+        lap("prerolled")
+        Self.log.notice("Playing \(self.item, privacy: .public) from \(host, privacy: .public): ready in \((clock.now - began).logged, privacy: .public) (\(steps.joined(separator: ", "), privacy: .public))")
     }
 
     /// Puts the copy of `playerItem`'s item whose server answers first

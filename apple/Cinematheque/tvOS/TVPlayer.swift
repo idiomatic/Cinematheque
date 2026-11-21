@@ -35,7 +35,6 @@ struct PlaysFullScreen: ViewModifier {
             // player dismissed), which, its request not yet cleared, started
             // it over.
             .onChange(of: request) { _, asked in
-                PlaybackSession.log.notice("Asked to play \(asked?.item ?? "nothing", privacy: .public)\(warming ? ", while starting" : "", privacy: .public)")
                 // Pressing Play again over the black (focus stays on the
                 // page's Play beneath it) doesn't start it over.
                 guard asked == nil || !warming else { return }
@@ -50,7 +49,6 @@ struct PlaysFullScreen: ViewModifier {
     @State private var warming = false
 
     private func start(_ request: PlayRequest) async {
-        PlaybackSession.log.notice("Playing \(request.item, privacy: .public)")
         warming = true
         withAnimation(.easeInOut(duration: Platform.fade)) { black = true }
         // The fade first, with the main thread free to draw it: making the
@@ -58,11 +56,8 @@ struct PlaysFullScreen: ViewModifier {
         // during it, held the fade, which ended in black at once.
         try? await Task.sleep(for: .seconds(Platform.fade))
         guard !Task.isCancelled else { return abandon() }
-        let clock = ContinuousClock()
-        let making = clock.now
         let artwork = await TVPlayer.artwork(request, library)
         let session = TVPlayer.session(request, library, artwork: artwork)
-        PlaybackSession.log.notice("Playing: made the session in \((clock.now - making).logged, privacy: .public)")
         // Superseded, it stops loading at once.
         await withTaskCancellationHandler {
             await session.prepare()
@@ -150,7 +145,6 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         parked = true
         session.player.pause()
         session.player.volume = 0
-        PlaybackSession.log.notice("Paused for the background")
     }
 
     /// Back from the background, it stays paused: AVKit plays again a
@@ -166,7 +160,6 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
             MainActor.assumeIsolated {
                 guard let self, status == .playing else { return }
                 if clock.now - back < .seconds(1) {
-                    PlaybackSession.log.notice("Held paused on return")
                     return player.pause()
                 }
                 self.parked = false
@@ -255,7 +248,6 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
             // stopped, half a second) and going.
             let switching = self.restoreDisplay()
             self.session.close()
-            PlaybackSession.log.notice("Leaving: faded and stopped")
             self.controller.dismiss(animated: false) {
                 self.dismissed()
                 Task { @MainActor in
@@ -263,7 +255,6 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
                     // page fades in, rather than under it, which left the
                     // page simply there.
                     await switching?()
-                    PlaybackSession.log.notice("Left")
                     self.observers.forEach(NotificationCenter.default.removeObserver)
                     self.resuming = nil
                     Self.shown = nil
@@ -285,7 +276,6 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         manager.preferredDisplayCriteria = nil
         return {
             await Self.switched(manager, since: asked)
-            PlaybackSession.log.notice("Leaving: gave the display back its mode in \((clock.now - asked).logged, privacy: .public)")
         }
     }
 
@@ -307,15 +297,12 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
     /// Match Content does, if it's on), and waits for it to switch, if it
     /// does.
     private func matchDisplay(_ window: UIWindow) async {
-        let clock = ContinuousClock()
-        let start = clock.now
-        defer { PlaybackSession.log.notice("Starting: matched the display in \((clock.now - start).logged, privacy: .public)") }
         guard let asset = session.player.currentItem?.asset else { return }
         let manager = window.avDisplayManager
         guard manager.isDisplayCriteriaMatchingEnabled, let criteria = try? await asset.load(.preferredDisplayCriteria) else { return }
         self.window = window
         manager.preferredDisplayCriteria = criteria
-        await Self.switched(manager, since: clock.now)
+        await Self.switched(manager, since: ContinuousClock().now)
     }
 
     /// A session for `request`, its items described for the info panel.

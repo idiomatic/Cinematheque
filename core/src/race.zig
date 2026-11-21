@@ -92,14 +92,12 @@ pub fn order(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, memory: *
 
     // Asked at once, with a deadline, until the best-placed server that
     // might answer has, or the deadline passes.
-    const started = Io.Timestamp.now(io, .awake);
     const buffer = try arena.alloc(Event, servers.items.len + 2);
     var select: Io.Select(Event) = .init(io, buffer);
     // The tasks use this frame's state, so none outlives an early return.
     errdefer select.cancelDiscard();
     try select.concurrent(.deadline, deadline, .{io});
     for (servers.items, 0..) |server, i| try select.concurrent(.asked, ask, .{ io, server, i });
-    const asked_at = Io.Timestamp.now(io, .awake);
     var graced = false;
     var timed_out = false;
     while (!decided(servers.items, results, candidates.items)) {
@@ -121,20 +119,7 @@ pub fn order(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, memory: *
             .grace => break,
         }
     }
-    const decided_at = Io.Timestamp.now(io, .awake);
     select.cancelDiscard();
-    // A race that outlasts its deadline says why, and on whom it waited.
-    const ms = struct {
-        fn between(a: Io.Timestamp, b: Io.Timestamp) i64 {
-            return @intCast(a.durationTo(b).toMilliseconds());
-        }
-    }.between;
-    const took = ms(started, Io.Timestamp.now(io, .awake));
-    if (took > timeout_ms + 500) {
-        for (servers.items, results) |server, result| if (result == .unknown)
-            std.log.warn("copy racing: {s} hadn't answered when the race was decided", .{server.key});
-        std.log.warn("copy racing took {d} ms over {d} servers: asked in {d}, decided {d} later, then {d} winding down their tasks", .{ took, servers.items.len, ms(started, asked_at), ms(asked_at, decided_at), ms(decided_at, Io.Timestamp.now(io, .awake)) });
-    }
 
     var first: std.ArrayList([]const u8) = .empty;
     var rest: std.ArrayList([]const u8) = .empty;

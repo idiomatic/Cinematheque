@@ -281,15 +281,9 @@ extension Library {
             let manual: Bool?
         }
         guard let sources = try? JSONDecoder().decode([Crawled].self, from: data) else { return }
-        for s in sources {
-            if s.manual == true {
-                crawlLog.notice("Skipped \(Self.logged(s.url), privacy: .public): looked in only on Refresh Library")
-                continue
-            }
-            if s.lately == true {
-                crawlLog.notice("Skipped \(Self.logged(s.url), privacy: .public): a device crawled it in the last day")
-                continue
-            }
+        // Those skipped (crawled lately, or only on Refresh Library) aren't
+        // worth a line each.
+        for s in sources where s.manual != true && s.lately != true {
             if let error = s.error {
                 crawlLog.notice("Crawled \(Self.logged(s.url), privacy: .public): failed, \(error, privacy: .public)")
                 continue
