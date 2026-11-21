@@ -164,38 +164,29 @@ struct Browser: View {
                     if near != nearBottom { nearBottom = near }
                 }
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { _, height in gridHeight = height }
-                .inspector(isPresented: $inspecting) {
-                    Group {
-                        if let tile = library.tiles.first(where: { $0.id == selection }) {
-                            InspectorView(tile: tile)
-                                .id(tile.id)
-                        } else {
-                            ContentUnavailableView("Choose a Title", systemImage: "film")
-                        }
-                    }
-                    .inspectorColumnWidth(min: 300, ideal: 360, max: 520)
-                }
                 // Search, as SwiftUI places it, goes last; the inspector's
                 // toggle just before it, as in Photos.
                 .searchable(text: $search, placement: .toolbar)
                 .searchFocused($searching)
                 .focusedSceneValue(\.find, FindAction(window: window) { searching = true })
                 .focusedSceneValue(\.shelfOrder, $orders[shelf ?? .inProgress])
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        inspectorToggle
-                    }
-                    // Room after the toggle, so it's clear of the
-                    // inspector's divider, whose drag area reaches up into
-                    // the toolbar and took clicks on the toggle's middle.
-                    if #available(macOS 26, *) {
-                        ToolbarItem(placement: .primaryAction) {
-                            Color.clear.frame(width: 12, height: 1)
-                                .accessibilityHidden(true)
-                        }
-                        .sharedBackgroundVisibility(.hidden)
-                    }
+        }
+        // Outside the split view, as Apple's own example has it: full
+        // height, its toggle the system's, at the start of its section of
+        // the toolbar, following its divider (an inspector inside the
+        // detail column left the toggle astride the divider, whose drag
+        // area reaches up into the toolbar and took its clicks, wherever
+        // the divider was dragged).
+        .inspector(isPresented: $inspecting) {
+            Group {
+                if let tile = library.tiles.first(where: { $0.id == selection }) {
+                    InspectorView(tile: tile)
+                        .id(tile.id)
+                } else {
+                    ContentUnavailableView("Choose a Title", systemImage: "film")
                 }
+            }
+            .inspectorColumnWidth(min: 300, ideal: 360, max: 520)
         }
         #if DEBUG
         .onAppear {
@@ -223,12 +214,6 @@ struct Browser: View {
     private func shown(_ shelf: Shelf) -> Bool {
         if case .list(let id) = shelf { return library.lists.contains { $0.id == id } }
         return Self.shelves.contains(shelf)
-    }
-
-    private var inspectorToggle: some View {
-        Button(inspecting ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.trailing") { inspecting.toggle() }
-            .keyboardShortcut("i", modifiers: [.command, .option])
-            .help(inspecting ? "Hide the inspector" : "Show the inspector")
     }
 
     private var shown: [Tile] { (shelf ?? .inProgress).tiles(in: library, search: search, order: orders[shelf ?? .inProgress]) }
