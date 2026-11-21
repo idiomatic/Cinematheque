@@ -273,6 +273,16 @@ fn handle(ctx: *const Context, stream: Io.net.Stream, slot: usize) Io.Cancelable
     var writer = stream.writer(io, &out_buf);
     var server = http.Server.init(&reader.interface, &writer.interface);
     while (true) {
+        // A secure connection, as a browser trying HTTPS first opens
+        // (Safari, for an address typed): its first byte, a TLS handshake
+        // record's, is no request's, so it's closed at once and the browser
+        // falls back to plain HTTP, rather than waiting out `head_ms` for a
+        // request that never comes (twice, a minute, in Safari).
+        const first = deadline.within(io, head_ms, peekFirst, .{&reader.interface}) catch |err| switch (err) {
+            error.Canceled => return error.Canceled,
+            else => return,
+        };
+        if (first == tls_handshake) return;
         var request = deadline.within(io, head_ms, receiveHead, .{&server}) catch |err| switch (err) {
             error.Canceled => return error.Canceled,
             else => return,
@@ -283,6 +293,13 @@ fn handle(ctx: *const Context, stream: Io.net.Stream, slot: usize) Io.Cancelable
         };
         if (!request.head.keep_alive) return;
     }
+}
+
+/// A TLS record's type, for a handshake: how a secure connection begins.
+const tls_handshake = 0x16;
+
+fn peekFirst(in: *Io.Reader) Io.Reader.Error!u8 {
+    return in.peekByte();
 }
 
 fn receiveHead(server: *http.Server) http.Server.ReceiveHeadError!http.Server.Request {

@@ -83,3 +83,23 @@ test "a host starts, listens, and stops" {
     try std.testing.expect(h.port != 0);
     h.stop();
 }
+
+test "a secure connection, as a browser trying HTTPS first opens, is closed at once" {
+    const io = std.testing.io;
+    var h: Host = .{ .io = io, .gpa = std.testing.allocator, .options = .{ .port = 0 } };
+    try h.start();
+    defer h.stop();
+    const address: Io.net.IpAddress = .{ .ip4 = .loopback(h.port) };
+    const stream = try address.connect(io, .{ .mode = .stream });
+    defer stream.close(io);
+    const started = Io.Timestamp.now(io, .awake);
+    var out_buf: [16]u8 = undefined;
+    var writer = stream.writer(io, &out_buf);
+    // The start of a ClientHello: a handshake record, TLS 1.0's version.
+    try writer.interface.writeAll(&.{ 0x16, 0x03, 0x01, 0x00, 0x2a });
+    try writer.interface.flush();
+    var in_buf: [16]u8 = undefined;
+    var reader = stream.reader(io, &in_buf);
+    try std.testing.expectError(error.EndOfStream, reader.interface.takeByte());
+    try std.testing.expect(started.durationTo(Io.Timestamp.now(io, .awake)).toMilliseconds() < 5000);
+}
