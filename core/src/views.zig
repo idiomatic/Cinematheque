@@ -77,7 +77,20 @@ pub const ItemJson = struct {
     /// A movie's item's version, its parts' alike ("Standard",
     /// "Extended"); empty for an episode.
     version: []const u8 = "",
+    /// Whether it was described from one of its files as that file is now
+    /// (its `read` field), else players describe it as it's shown.
+    described: bool = false,
 };
+
+/// Whether an item's `read` field (see `art.itemRead`) is one of its
+/// copies as it is now: a file changed since (retagged) reads again.
+fn describedFrom(arena: std.mem.Allocator, read: ?[]const u8, qualities: []const library.Quality) !bool {
+    const r = read orelse return false;
+    for (qualities) |q| for (q.copies.items) |c| {
+        if (std.mem.eql(u8, r, try art.itemRead(arena, c.source, c.path, c.size, c.mtime))) return true;
+    };
+    return false;
+}
 
 pub const Title = struct {
     key: []const u8,
@@ -137,6 +150,7 @@ pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
             .watched = item.progress.watched,
             .next = false,
             .version = if (code == null) try wholeLabel(arena, item.key, item.fields, null) else "",
+            .described = try describedFrom(arena, item.fields.get("read"), item.qualities.items),
         };
     }
     try shortNames(arena, items);
@@ -435,6 +449,20 @@ test "items in order, each season's next, and qualities' heights" {
     try std.testing.expectEqual(@as(?u16, 1080), height("1080p", "HQ 1080p30 Surround"));
     try std.testing.expectEqual(@as(?u16, 2160), height("-", "4K HDR"));
     try std.testing.expectEqual(@as(?u16, null), height("-", "-"));
+}
+
+test "an item is described as of the file it was read from, so a retagged one reads again" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var q: library.Quality = .{ .label = "-" };
+    try q.copies.append(arena, .{ .source = "s1", .path = "Show/Show 101.m4v", .size = 10, .mtime = "2026-06-04T19:51:29Z" });
+    const qualities = [_]library.Quality{q};
+    try std.testing.expect(!try describedFrom(arena, null, &qualities));
+    const read = try art.itemRead(arena, "s1", "Show/Show 101.m4v", 10, "2026-06-04T19:51:29Z");
+    try std.testing.expect(try describedFrom(arena, read, &qualities));
+    qualities[0].copies.items[0].size = 11;
+    try std.testing.expect(!try describedFrom(arena, read, &qualities));
 }
 
 test "items' labels and names, and qualities' short names" {

@@ -261,6 +261,12 @@ fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, wri
         return;
     };
     stats.described += 1;
+    // Its item, as read, so it isn't read again on demand until it changes.
+    {
+        const size = std.fmt.parseInt(u64, t.stamp[0 .. std.mem.indexOfScalar(u8, t.stamp, '\t') orelse t.stamp.len], 10) catch 0;
+        const mtime = if (std.mem.indexOfScalar(u8, t.stamp, '\t')) |i| t.stamp[i + 1 ..] else "";
+        try writes.append(arena, .{ .key = t.item_key, .field = "read", .value = try itemRead(arena, &source.id, t.path, size, mtime) });
+    }
     if (job.sidecar == null) {
         const c = info.cover orelse mp4.Cover{ .offset = 0, .length = 0, .image = .jpeg };
         try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = c.offset, .length = c.length, .stamp = stamp }).format(arena) });
@@ -560,6 +566,13 @@ fn findSidecar(arena: std.mem.Allocator, images: anytype, titles_in: anytype, t:
     return null;
 }
 
+/// What describing an item read, its `read` field: the file's source,
+/// path, size, and time, so it's read again once that file changes (as
+/// retagging it does), as a title's cover is (see `readStamp`).
+pub fn itemRead(arena: std.mem.Allocator, source: []const u8, path: []const u8, size: u64, mtime: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(arena, "{s}\t{s}\t{d}\t{s}", .{ source, path, size, mtime });
+}
+
 /// Describes one item from its first held copy (e.g., an episode the
 /// season's describing didn't read), if it's an MP4.
 pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, item_key: []const u8) !void {
@@ -573,7 +586,10 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
         if (!try s.step()) return error.NotHeld;
         break :blk .{ try arena.dupe(u8, s.blob(0)["held:".len..]), try arena.dupe(u8, s.blob(1)) };
     };
-    const path = value[0 .. std.mem.indexOfScalar(u8, value, '\t') orelse value.len];
+    var parts = std.mem.splitScalar(u8, value, '\t');
+    const path = parts.first();
+    const size = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
+    const read = try itemRead(arena, source_id, path, size, parts.next() orelse "");
     const source = try library.findSource(replica, arena, source_id);
     // A file that isn't an MP4, or can't be read, is marked described too,
     // so it isn't read again; a network failure is tried again later.
@@ -599,8 +615,8 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
         };
         writes.shrinkRetainingCapacity(kept);
     }
-    // Mark it described even if the file says nothing.
-    if (writes.items.len == 0) try writes.append(arena, .{ .key = item_key, .field = "duration", .value = "0" });
+    // Described even if the file says nothing, as of what was read.
+    try writes.append(arena, .{ .key = item_key, .field = "read", .value = read });
     try replica.begin();
     errdefer replica.rollback();
     for (writes.items) |w| try replica.write(wall_ms, w.key, w.field, w.value);

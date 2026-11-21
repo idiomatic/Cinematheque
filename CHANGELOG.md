@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* An episode retagged in place gets its new title and description, read again as it's shown, as a season's cover already was once its file changed.
 * On the Mac, View › Refresh Library Fully (⌘⌥R, shown with ⌥ held, or Option-clicking Refresh Library in Settings) lists every folder afresh, so files retagged in place, which a plain refresh misses as their folders' times don't change, get their new covers and descriptions; the command-line app's `crawl --full` does the same.
 * A dated series' seasons (a YouTube channel's, by `tools/youtube.sh`) are named by their years, "2026", not "Season 2026"; on the Mac its tile says "2024–2026".
 * **Security:** the Mac's Settings › People no longer offers to Add devices nearby that say they want to join: anyone on the network could advertise as someone you know and be let in with one click. People join only by code, entered in Settings › Devices as Someone New.

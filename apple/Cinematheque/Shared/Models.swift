@@ -104,6 +104,9 @@ struct TitleDetail: Codable {
         let next: Bool
         /// A movie's item's version, its parts' alike ("Standard").
         var version: String?
+        /// Whether it was described from one of its files as that file is
+        /// now, as the core decides; else it's described as it's shown.
+        var described: Bool?
         var id: String { key }
 
         /// An episode's season and number (a special's, 0).
