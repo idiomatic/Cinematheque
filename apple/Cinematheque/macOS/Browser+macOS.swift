@@ -86,6 +86,8 @@ struct Browser: View {
     /// The shelf shown last, again at launch; at first, In Progress.
     @AppStorage("shelf") private var lastShelf: Shelf = .inProgress
     @State private var shelf: Shelf?
+    /// The list whose name is being edited in the sidebar, if any.
+    @State private var renaming: String?
     @AppStorage("orders") private var orders = ShelfOrders()
     @State private var search = ""
     /// Whether search has the keys (Find, ⌘F, gives it them).
@@ -131,17 +133,18 @@ struct Browser: View {
                 }
                 Section("Lists") {
                     ForEach(library.lists) { list in
-                        Label(list.name, systemImage: Shelf.list(list.id).symbol)
+                        ListRow(list: list, renaming: $renaming)
                             .tag(Shelf.list(list.id))
                             .contextMenu {
-                                Button("Rename…") { library.listPrompt = .init(kind: .rename(list)) }
+                                Button("Rename") { renaming = list.id }
                                 Button("Delete List…") { library.deletingList = list }
                             }
                     }
                     // A row of its own, last: at the sidebar's foot, under
-                    // its glass, the list took its clicks.
-                    Button { library.listPrompt = .init(kind: .create(adding: nil)) } label: {
-                        Label("New List…", systemImage: "plus")
+                    // its glass, the list took its clicks. Named in place,
+                    // as Music's New Playlist is.
+                    Button(action: newList) {
+                        Label("New List", systemImage: "plus")
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -206,6 +209,16 @@ struct Browser: View {
         #endif
     }
 
+    /// Makes a list, "New List" (numbered if that's taken), shows it, and
+    /// edits its name in place.
+    private func newList() {
+        let names = Set(library.lists.map(\.name))
+        let name = (1...).lazy.map { $0 == 1 ? "New List" : "New List \($0)" }.first { !names.contains($0) }!
+        guard let id = library.createList(named: name) else { return }
+        shelf = .list(id)
+        renaming = id
+    }
+
     /// Whether the sidebar has a shelf: its own, or a list there is.
     private func shown(_ shelf: Shelf) -> Bool {
         if case .list(let id) = shelf { return library.lists.contains { $0.id == id } }
@@ -229,6 +242,52 @@ struct Browser: View {
 /// view that holds it.
 final class ScrollMemory {
     var tops: [Shelf: String] = [:]
+}
+
+/// A list in the sidebar: its name, or, while it's being renamed, a field
+/// in its place, as Finder renames: Return keeps the name typed, Escape the
+/// one it had, and clicking elsewhere keeps what's typed.
+private struct ListRow: View {
+    let list: UserList
+    @Binding var renaming: String?
+    @Environment(Library.self) private var library
+    @State private var name = ""
+    @FocusState private var focused: Bool
+    /// Whether the field has had the keys, before which losing them (to
+    /// the sidebar, as a new list's selected) doesn't end it.
+    @State private var began = false
+
+    var body: some View {
+        if renaming == list.id {
+            Label {
+                TextField("Name", text: $name)
+                    .focused($focused)
+                    .onSubmit(keep)
+                    .onExitCommand { renaming = nil }
+                    .onAppear {
+                        name = list.name
+                        began = false
+                        // After the sidebar's taken its selection.
+                        Task { focused = true }
+                    }
+                    .onChange(of: focused) {
+                        if focused { began = true } else if began { keep() }
+                    }
+            } icon: {
+                Image(systemName: Shelf.list(list.id).symbol)
+            }
+        } else {
+            Label(list.name, systemImage: Shelf.list(list.id).symbol)
+        }
+    }
+
+    /// The name typed, unless it's blank or the same, once.
+    private func keep() {
+        guard renaming == list.id else { return }
+        renaming = nil
+        let typed = name.trimmingCharacters(in: .whitespaces)
+        if !typed.isEmpty, typed != list.name { library.renameList(list.id, to: typed) }
+    }
 }
 
 /// Tiles of fixed size: movies' covers 2:3, and each series' seasons
