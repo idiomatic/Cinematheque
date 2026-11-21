@@ -212,18 +212,31 @@ struct CoverImage: View {
         }
     }
 
+    /// The placeholder and the cover, both always there, the cover shown
+    /// once loaded: so its arriving adds no view, as one added while its
+    /// tile moves (as a band opening slides) is drawn where it ends, not
+    /// moved with it.
     private var framed: some View {
-        ZStack {
-            if let image, fit {
-                Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
-            } else if let image {
-                Self.filling(Image(decorative: image, scale: 1).resizable())
-            } else {
-                placeholder
+        let cover = Image(decorative: image ?? Self.blank, scale: 1).resizable()
+        return ZStack {
+            placeholder.opacity(image == nil ? 1 : 0)
+            Group {
+                if fit {
+                    cover.aspectRatio(contentMode: .fit)
+                } else {
+                    Self.filling(cover)
+                }
             }
+            .opacity(image == nil ? 0 : 1)
         }
         .clipped()
     }
+
+    /// A cover not loaded yet: a clear pixel.
+    private static let blank: CGImage = {
+        let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        return context.makeImage()!
+    }()
 
     /// Width over height: the cover's, else its placeholder's, else 1.
     private var shape: CGFloat {

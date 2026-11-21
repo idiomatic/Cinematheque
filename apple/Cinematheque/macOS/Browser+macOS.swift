@@ -381,6 +381,11 @@ struct CoverGrid: View {
     /// show its seasons, the selection one of them.
     @State private var pointed: String?
     @State private var collapsed = false
+    /// How far a band opening, and one closing, move as they come and go:
+    /// as far as their series' rows do, so each moves with its row, as a
+    /// view coming or going isn't moved by its row's offset.
+    @State private var bandEnter: CGFloat = 0
+    @State private var bandLeave: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The selection as the keys last left it, or as it last changed: a
     /// key's handler read the binding as it was a while before.
@@ -402,6 +407,43 @@ struct CoverGrid: View {
         /// rectangle's count from under it.
         func scroll(_ position: inout ScrollPosition, by delta: CGFloat) {
             position.scrollTo(y: rect.minY + insets.top + delta)
+        }
+        /// The scroll view showing the grid, for scrolling it smoothly, as
+        /// `ScrollPosition` scrolls at once, even in an animation.
+        weak var scrollView: NSScrollView?
+        /// Scrolls by `delta` over `duration`, eased; false if it can't.
+        @MainActor func glide(by delta: CGFloat, over duration: TimeInterval) -> Bool {
+            guard let scrollView, let document = scrollView.documentView else { return false }
+            let clip = scrollView.contentView
+            var bounds = clip.bounds
+            bounds.origin.y += document.isFlipped ? delta : -delta
+            let origin = clip.constrainBoundsRect(bounds).origin
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                clip.animator().setBoundsOrigin(origin)
+            }
+            return true
+        }
+    }
+
+    /// Finds the scroll view it's in, for `Viewport.glide`.
+    private struct ScrollViewFinder: NSViewRepresentable {
+        let viewport: Viewport
+
+        func makeNSView(context: Context) -> Finder { Finder(viewport) }
+        func updateNSView(_ view: Finder, context: Context) {}
+
+        final class Finder: NSView {
+            private weak var viewport: Viewport?
+            init(_ viewport: Viewport) {
+                self.viewport = viewport
+                super.init(frame: .zero)
+            }
+            required init?(coder: NSCoder) { nil }
+            override func viewDidMoveToWindow() {
+                viewport?.scrollView = enclosingScrollView
+            }
         }
     }
     /// The title at the top, kept there when the grid's width changes (as
@@ -638,11 +680,14 @@ struct CoverGrid: View {
                 ForEach(layout.rows[drawn]) { row in
                     rowView(row)
                         .frame(height: row.height, alignment: .topLeading)
+                        .background(alignment: .topLeading) { backing(row) }
                         .offset(x: Self.margin, y: row.y)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: layout.height, maxHeight: layout.height, alignment: .topLeading)
+            .background(ScrollViewFinder(viewport: viewport))
         }
+        .background(Self.background)
         .scrollPosition($position)
         .onScrollGeometryChange(for: Seen.self, of: { Seen(rect: $0.visibleRect, insets: $0.contentInsets) }) { _, seen in
             viewport.rect = seen.rect
@@ -772,38 +817,61 @@ struct CoverGrid: View {
 
     /// Scrolls just enough to show a span, clear of the toolbar and the
     /// status bar, its top first if it doesn't fit (a series' row, over
-    /// its band), the grid having moved by `shift` (a band closing above)
-    /// since what's seen was last told.
-    private func reveal(_ y: CGFloat, _ maxY: CGFloat, shift: CGFloat = 0) {
+    /// its band), smoothly if `gliding` (but under Reduce Motion).
+    private func reveal(_ y: CGFloat, _ maxY: CGFloat, gliding: Bool = false) {
         let clear = viewport.clear
-        if y < clear.minY + shift {
-            viewport.scroll(&position, by: y - clear.minY - Rows.rowSpacing)
-        } else if maxY > clear.maxY + shift {
-            viewport.scroll(&position, by: min(maxY - clear.maxY + Rows.rowSpacing, y - clear.minY - Rows.rowSpacing))
-        } else if shift != 0 {
-            viewport.scroll(&position, by: shift)
+        let delta: CGFloat
+        if y < clear.minY {
+            delta = y - clear.minY - Rows.rowSpacing
+        } else if maxY > clear.maxY {
+            delta = min(maxY - clear.maxY + Rows.rowSpacing, y - clear.minY - Rows.rowSpacing)
+        } else {
+            return
         }
+        if gliding, !reduceMotion, viewport.glide(by: delta, over: Self.bandDuration) { return }
+        viewport.scroll(&position, by: delta)
     }
 
     /// Selects a series on the Series shelf, by its key, opening it (but
-    /// one of a single season, which is its tile, that season selected);
-    /// the series kept in place as another's band above it closes.
+    /// one of a single season, which is its tile, that season selected),
+    /// then scrolled to show it. As another's band above it closes, it moves
+    /// up with it, as in the web client's flow.
     private func point(_ series: Tile) {
-        let before = layout.row(holding: series.key)?.y ?? 0
+        let old = layout
         let seasons = cache.seasons[series.key] ?? Library.seasons(of: series.key, in: library.tiles)
         let id = seasons.count == 1 ? seasons[0].id : series.key
         selection = id
         current = id
-        // The band unrolling (another's rolling up), the series after it
-        // moving out of its way, and the scrolling that keeps the series
-        // in place, together.
-        withAnimation(bandMotion) {
-            pointed = series.key
-            collapsed = false
+        // Where the rows go with it open: its band comes in from as far off
+        // as its row moves, and the band closing goes as far as its own.
+        let next = cache.rows(tiles, columns: columns, series: bySeries, open: series.key, library: library)
+        func moved(_ key: String) -> CGFloat {
+            guard let from = old.row(holding: key), let to = next.row(holding: key) else { return 0 }
+            return to.y - from.y
         }
-        guard let row = layout.row(holding: series.key) else { return }
-        let band = layout.rows.first { $0.band != nil }
-        reveal(row.y, band?.maxY ?? row.maxY, shift: row.y - before)
+        let enter = -moved(series.key)
+        leaving(shownOpen.map(moved) ?? 0) {
+            bandEnter = enter
+            // The band fading in (another's out), the series after it moving
+            // off it; then scrolling, as a scroll with them came before them.
+            withAnimation(bandMotion) {
+                pointed = series.key
+                collapsed = false
+            } completion: {
+                guard let row = layout.row(holding: series.key) else { return }
+                let band = layout.rows.first { $0.band != nil }
+                reveal(row.y, band?.maxY ?? row.maxY, gliding: true)
+            }
+        }
+    }
+
+    /// Sets how far the band closing moves, then makes `change`: a view
+    /// leaving takes its transition from how it was last drawn, so it's
+    /// drawn with it first.
+    private func leaving(_ distance: CGFloat, then change: @escaping () -> Void) {
+        guard distance != bandLeave else { return change() }
+        bandLeave = distance
+        Task { change() }
     }
 
     /// Closes the open series, selecting its tile.
@@ -812,11 +880,13 @@ struct CoverGrid: View {
             selection = open
             current = open
         }
-        withAnimation(bandMotion) { collapsed = true }
+        // Fading where it is, its row not moving.
+        leaving(0) { withAnimation(bandMotion) { collapsed = true } }
     }
 
     /// How a band opens and closes: none under Reduce Motion.
-    private var bandMotion: Animation? { reduceMotion ? nil : .easeInOut(duration: 0.25) }
+    private var bandMotion: Animation? { reduceMotion ? nil : .easeInOut(duration: Self.bandDuration) }
+    nonisolated private static let bandDuration: TimeInterval = 0.25
 
     /// Selects a season in the open series' band, scrolled into view.
     private func selectInBand(_ season: Tile) {
@@ -884,6 +954,24 @@ struct CoverGrid: View {
     nonisolated fileprivate static let cell: CGFloat = 148
     nonisolated private static let gutter: CGFloat = 18
     nonisolated private static let margin: CGFloat = 20
+    /// The grid's background, opaque, as rows cover a band with it.
+    private static let background = Color(nsColor: .textBackgroundColor)
+
+    /// The width of a row of `columns` tiles.
+    private var rowWidth: CGFloat { CGFloat(columns) * (Self.cell + Self.gutter) - Self.gutter }
+
+    /// On the Series shelf, a row of series' background, from the gap above
+    /// it down, covering a band before it (as later rows are drawn over
+    /// earlier ones): so the series after a band slide off it as it opens,
+    /// showing it from its top down, and back over it as it closes.
+    @ViewBuilder
+    private func backing(_ row: Rows.Row) -> some View {
+        if bySeries, row.band == nil, row.header == nil {
+            Self.background
+                .frame(width: rowWidth + 2 * Self.margin, height: row.height + Rows.rowSpacing)
+                .offset(x: -Self.margin, y: -Rows.rowSpacing)
+        }
+    }
 
     /// How many tiles fit across a grid this wide.
     nonisolated private static func columns(_ width: CGFloat) -> Int {
@@ -898,10 +986,10 @@ struct CoverGrid: View {
                 .lineLimit(1)
         } else if let column = row.band {
             band(row.tiles, pointingAt: column)
-                // Fading in as the series after it move out of its way, and
-                // out as they move back: a fade, which the window server
-                // runs, as a custom animation clipping it stalled midway.
-                .transition(.opacity)
+                // Fading as one, not each season and the tint apart; coming
+                // and going as far off as its series' row moves.
+                .compositingGroup()
+                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: bandEnter)), removal: .opacity.combined(with: .offset(y: bandLeave))))
         } else if bySeries {
             HStack(alignment: .top, spacing: Self.gutter) {
                 ForEach(row.tiles) { series in
@@ -993,7 +1081,7 @@ struct CoverGrid: View {
     /// of their own that points up at the series.
     private func band(_ seasons: [Tile], pointingAt column: Int) -> some View {
         let inset: CGFloat = 10
-        let width = CGFloat(columns) * (Self.cell + Self.gutter) - Self.gutter
+        let width = rowWidth
         let lines = stride(from: 0, to: seasons.count, by: columns).map { Array(seasons[$0..<min($0 + columns, seasons.count)]) }
         return VStack(alignment: .leading, spacing: Rows.rowSpacing) {
             ForEach(lines, id: \.first!.id) { line in
@@ -1139,9 +1227,12 @@ struct TileView: View {
     /// A name's line, its whole name as help only where it's cut short,
     /// as help says only what can't be seen.
     private func nameLine(_ name: String) -> some View {
+        // Whichever fits shown at once, not faded in or out apart from its
+        // tile (as in a band opening or closing, whose captions came late,
+        // or went first).
         ViewThatFits(in: .horizontal) {
-            Text(name).fixedSize()
-            Text(name).lineLimit(1).help(name)
+            Text(name).fixedSize().transition(.identity)
+            Text(name).lineLimit(1).help(name).transition(.identity)
         }
         .font(.callout)
     }
