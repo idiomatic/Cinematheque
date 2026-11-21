@@ -130,6 +130,15 @@ export fn cq_thumbhash(hash_base64: [*:0]const u8, rgba: *[thumbhash.max_pixels 
     return 0;
 }
 
+/// What this build is, as JSON (`version`, `mode`, `zig`); see
+/// version.zig. Any thread.
+export fn cq_version() ?[*:0]u8 {
+    return stringify(@import("version.zig").info) catch |err| {
+        fail(err);
+        return null;
+    };
+}
+
 export fn cq_free(text: ?[*:0]u8) void {
     const t = text orelse return;
     gpa.free(std.mem.span(t));

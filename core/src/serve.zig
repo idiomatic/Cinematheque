@@ -8,6 +8,7 @@ const Io = std.Io;
 const http = std.http;
 const deadline = @import("deadline.zig");
 const url = @import("url.zig");
+const version = @import("version.zig");
 
 /// Answers requests the server doesn't, such as another device's `POST /sync`.
 pub const Handler = struct {
@@ -313,6 +314,12 @@ fn header(request: *const http.Server.Request, name: []const u8) ?[]const u8 {
 }
 
 fn respond(ctx: *const Context, request: *http.Server.Request, peer: Io.net.IpAddress) !void {
+    // What this build is, before the web client or a folder can answer.
+    if (std.mem.eql(u8, request.head.target, "/version") and (request.head.method == .GET or request.head.method == .HEAD)) {
+        const text = try version.json(ctx.gpa);
+        defer ctx.gpa.free(text);
+        return request.respond(text, .{ .extra_headers = &.{.{ .name = "content-type", .value = "application/json" }} });
+    }
     if (ctx.handler) |h| if (try h.function(h.context, ctx.io, ctx.gpa, request, peer)) return;
     var target_buf: [4096]u8 = undefined;
     const raw = request.head.target;

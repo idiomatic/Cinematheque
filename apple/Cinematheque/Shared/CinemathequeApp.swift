@@ -1,3 +1,4 @@
+import CCinematheque
 import SwiftUI
 
 @main
@@ -19,6 +20,11 @@ struct CinemathequeApp: App {
         // from its minimum up.
         .windowResizability(.contentSize)
         .commands {
+            // Its version, and in parentheses the build the core was made
+            // from, as `/version` serves it.
+            CommandGroup(replacing: .appInfo) {
+                Button("About Cinematheque") { NSApplication.shared.orderFrontStandardAboutPanel(options: [.version: Self.build]) }
+            }
             // Show Inspector and Hide Inspector in the View menu.
             InspectorCommands()
             CommandGroup(after: .textEditing) { FindCommand() }
@@ -45,6 +51,18 @@ struct CinemathequeApp: App {
         }
         #endif
     }
+
+    #if os(macOS)
+    /// What the core was built from, and how (`cq_version`): "a9eea2d1b2c3,
+    /// safe".
+    private static var build: String {
+        struct Version: Decodable { let version: String; let mode: String }
+        guard let text = cq_version() else { return "" }
+        defer { cq_free(text) }
+        guard let v = try? JSONDecoder().decode(Version.self, from: Data(bytes: text, count: strlen(text))) else { return "" }
+        return "\(v.version), \(v.mode)"
+    }
+    #endif
 }
 
 /// Setting up, until there's a library; then browsing it, once it's

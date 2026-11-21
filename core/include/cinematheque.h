@@ -172,6 +172,10 @@ char *cq_devices(cq_library *library);
 char *cq_nearby(cq_library *library);
 int cq_device_address(cq_library *library, const char *url, int add);
 
+// What this build is: {"version", "mode", "zig"}, as /version serves it.
+// Any thread.
+char *cq_version(void);
+
 void cq_free(char *text);
 
 // Why the last call on this thread failed.

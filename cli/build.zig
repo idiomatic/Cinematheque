@@ -9,6 +9,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    core.addImport("stamp", stamp(b));
     core.linkSystemLibrary("sqlite3", .{});
     if (target.result.os.tag == .linux) core.linkSystemLibrary("dns_sd", .{});
 
@@ -40,4 +41,20 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     }) });
     b.step("gen", "Build the test repository's generator").dependOn(&b.addInstallArtifact(gen, .{}).step);
+}
+
+/// What this build is built from, for the core's `version.zig`, as
+/// core/build.zig stamps it: `git describe` of the
+/// checkout (the commit, until there are tags), `-dirty` if a tracked file
+/// differs from it (but CHANGELOG.md, whose Unreleased section is kept out
+/// of commits), else `unknown`, as with no Git.
+fn stamp(b: *std.Build) *std.Build.Module {
+    const options = b.addOptions();
+    var code: u8 = 0;
+    const root = b.root.toString(b.allocator) catch @panic("OOM");
+    const described = b.runAllowFail(&.{ "git", "-C", root, "describe", "--always", "--abbrev=12" }, &code, .ignore) catch "unknown";
+    const changed = b.runAllowFail(&.{ "git", "-C", root, "status", "--porcelain", "--untracked-files=no", "--", ":/", ":(top,exclude)CHANGELOG.md" }, &code, .ignore) catch "";
+    const version = std.mem.trim(u8, described, " \n");
+    options.addOption([]const u8, "version", if (changed.len > 0) b.fmt("{s}-dirty", .{version}) else version);
+    return options.createModule();
 }

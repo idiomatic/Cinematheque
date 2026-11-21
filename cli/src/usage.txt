@@ -1,5 +1,6 @@
 Usage: cinematheque [--data DIR] NOUN VERB [ARGUMENTS]
        cinematheque [--data DIR] crawl | sync | serve | refresh
+       cinematheque --version
 
 The app keeps this device's identity and its copy of the catalog in its
 data directory: ~/Library/Application Support/Cinematheque on macOS, and

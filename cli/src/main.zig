@@ -38,7 +38,7 @@ pub const Args = struct {
     /// list` and `title show`.
     shortcut: bool = false,
 
-    const flags = [_][]const u8{ "--leave", "--watched", "--unwatched", "--help", "--web" };
+    const flags = [_][]const u8{ "--leave", "--watched", "--unwatched", "--help", "--web", "--version" };
 
     fn parse(arena: std.mem.Allocator, argv: []const []const u8) !Args {
         var words: std.ArrayList([]const u8) = .empty;
@@ -265,6 +265,10 @@ fn run(init: std.process.Init) !void {
         // A shortcut's help is its command's alone.
         const topic = if (w.len == 0) null else if (args.shortcut) try std.fmt.allocPrint(arena, "{s} {s}", .{ w[0], w[1] }) else w[0];
         return help(out, topic);
+    }
+    if (args.has("--version")) {
+        const v = core.version.info;
+        return out.print("cinematheque {s} ({s}, Zig {s})\n", .{ v.version, v.mode, v.zig });
     }
     if (w.len == 0) usage(out, null);
     const action = find(&actions, w[0]);
