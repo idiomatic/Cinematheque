@@ -46,6 +46,7 @@ test {
     _ = json;
     _ = @import("deadline.zig");
     _ = @import("version.zig");
+    _ = @import("order.zig");
     _ = @import("seal.zig");
     _ = @import("merkle.zig");
     _ = @import("hlc.zig");

@@ -39,6 +39,10 @@ struct CinemathequeApp: App {
             // Show Inspector and Hide Inspector in the View menu.
             InspectorCommands()
             CommandGroup(after: .textEditing) { FindCommand() }
+            CommandGroup(before: .toolbar) {
+                SortCommand()
+                Divider()
+            }
             CommandGroup(after: .toolbar) {
                 Button("Refresh Library") { Task { await library.refresh() } }
                     .keyboardShortcut("r")

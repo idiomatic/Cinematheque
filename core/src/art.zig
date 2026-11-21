@@ -493,6 +493,8 @@ fn appendInfo(arena: std.mem.Allocator, writes: *std.ArrayList(Write), t: Target
     const W = Write;
     const title_fields = .{ .{ "genre", info.genre }, .{ "network", info.network } };
     inline for (title_fields) |f| if (f[1]) |v| try writes.append(arena, W{ .key = t.title_key, .field = f[0], .value = v });
+    // What the title sorts as: a show's, from an episode; a movie's own.
+    if (if (t.is_episode) info.sort_show else info.sort_name) |v| try writes.append(arena, W{ .key = t.title_key, .field = "sort", .value = v });
     if (t.is_episode) {
         if (info.title) |v| try writes.append(arena, W{ .key = t.item_key, .field = "title", .value = v });
         if (info.description) |v| try writes.append(arena, W{ .key = t.item_key, .field = "description", .value = v });
@@ -617,6 +619,15 @@ pub const Tile = struct {
     items: usize = 0,
     /// Every copy it has is under an unavailable directory (an unplugged drive's).
     unavailable: bool = false,
+    /// For ordering (see order.zig): what the title sorts as, if its file
+    /// says (`sort`); when it was released, as written (`released`); when
+    /// a copy of it was first recorded, the earliest of its copies' records
+    /// (wall milliseconds); and when this person's progress in it last
+    /// changed.
+    sort: ?[]const u8 = null,
+    released: ?[]const u8 = null,
+    added_ms: ?u64 = null,
+    watched_ms: ?u64 = null,
 };
 
 /// The grid's tiles: titles some source holds, a series' by season,
@@ -630,9 +641,12 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     var present: std.StringHashMapUnmanaged(void) = .empty;
     // Items' lengths, as their files' metadata gives them.
     var durations: std.StringHashMapUnmanaged(u64) = .empty;
-    // Titles' covers and placeholders (`art`, `art:s01`, `thumb`...), by
-    // their key and field (`<key> <field>`).
+    // Titles' covers and placeholders (`art`, `art:s01`, `thumb`...), and
+    // what they sort as and when they were released, by their key and field
+    // (`<key> <field>`).
     var covers: std.StringHashMapUnmanaged([]const u8) = .empty;
+    // When each tile's first copy was recorded.
+    var added: std.StringHashMapUnmanaged(u64) = .empty;
     {
         // In one pass over the titles' keys, by range (as `LIKE` can't use
         // the key's index), as this runs on each reload, every second of a
@@ -640,8 +654,8 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
         const unavailable = try library.UnavailableDirs.load(replica, arena);
         var seen: std.StringHashMapUnmanaged(void) = .empty;
         const s = try replica.db.prepare(
-            \\SELECT key, field, value FROM winners WHERE key >= 't/' AND key < 't0' AND length(value) > 0
-            \\AND (field = 'duration' OR (field >= 'held:' AND field < 'held;') OR (field >= 'art' AND field < 'aru') OR (field >= 'thumb' AND field < 'thumc'))
+            \\SELECT key, field, value, hlc FROM winners WHERE key >= 't/' AND key < 't0' AND length(value) > 0
+            \\AND (field = 'duration' OR (field >= 'held:' AND field < 'held;') OR (field >= 'art' AND field < 'aru') OR (field >= 'thumb' AND field < 'thumc') OR field = 'sort' OR field = 'released')
         );
         defer s.finalize();
         while (try s.step()) {
@@ -658,6 +672,11 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
             }
             const here = !unavailable.has(field["held:".len..], s.blob(2));
             const held = whole[0 .. library.pastTitle(whole, "/r/") orelse continue];
+            if (tileOf(held)) |id| {
+                const at: u64 = @as(u64, @bitCast(s.int(3))) >> 16;
+                const g = try added.getOrPut(arena, try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season }));
+                if (!g.found_existing or at < g.value_ptr.*) g.value_ptr.* = at;
+            }
             if (seen.contains(held)) {
                 if (here) if (tileOf(held)) |id| try present.put(arena, try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season }), {});
                 continue;
@@ -683,13 +702,21 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     }
     var heads: std.StringHashMapUnmanaged(library.Progress) = .empty;
     for (try library.progressOf(replica, arena, null)) |h| try heads.put(arena, h.item, h.progress);
+    // When this person's progress in each tile last changed.
+    var watched: std.StringHashMapUnmanaged(u64) = .empty;
+    for (try progressChanged(replica, arena)) |c| if (tileOf(c.item)) |id| {
+        const g = try watched.getOrPut(arena, try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season }));
+        if (!g.found_existing or c.at_ms > g.value_ptr.*) g.value_ptr.* = c.at_ms;
+    };
     for (try library.titles(replica, arena)) |t| {
         if (t.qualities == 0 or t.alias != null) continue;
         const own = coverOf(try coverField(arena, &covers, t.key, "art"));
+        const sort = try coverField(arena, &covers, t.key, "sort");
+        const released = try coverField(arena, &covers, t.key, "released");
         const own_thumb = if (own != null) thumbOf(try coverField(arena, &covers, t.key, "thumb")) else null;
         if (t.kind != 's') {
             const id = try std.fmt.allocPrint(arena, "{s}#0", .{t.key});
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb, .unavailable = !present.contains(id) };
+            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb, .unavailable = !present.contains(id), .sort = sort, .released = released, .added_ms = added.get(id), .watched_ms = watched.get(id) };
             progress(&tile, &items, &heads, &durations, id);
             try out.append(arena, tile);
             continue;
@@ -700,11 +727,26 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
             const field = try std.fmt.allocPrint(arena, "art:s{d:0>2}", .{n});
             const cover = coverOf(try coverField(arena, &covers, t.key, field));
             const id = try std.fmt.allocPrint(arena, "{s}#{d}", .{ t.key, n });
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try coverField(arena, &covers, t.key, try thumbField(arena, field))) else own_thumb, .unavailable = !present.contains(id) };
+            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try coverField(arena, &covers, t.key, try thumbField(arena, field))) else own_thumb, .unavailable = !present.contains(id), .sort = sort, .released = released, .added_ms = added.get(id), .watched_ms = watched.get(id) };
             progress(&tile, &items, &heads, &durations, id);
             try out.append(arena, tile);
         }
     }
+    return out.items;
+}
+
+const ProgressChange = struct { item: []const u8, at_ms: u64 };
+
+/// When this person's progress in each item (its full key) last changed, in
+/// wall milliseconds: playing it, or marking it.
+fn progressChanged(replica: *Replica, arena: std.mem.Allocator) ![]const ProgressChange {
+    var out: std.ArrayList(ProgressChange) = .empty;
+    const prefix = try library.progressKey(replica, arena, "");
+    const s = try replica.db.prepare("SELECT key, max(hlc) FROM winners WHERE key >= ?1 AND key < ?2 GROUP BY key");
+    defer s.finalize();
+    try s.bindText(1, prefix);
+    try s.bindText(2, try std.fmt.allocPrint(arena, "{s}\xff", .{prefix}));
+    while (try s.step()) try out.append(arena, .{ .item = try arena.dupe(u8, s.blob(0)[prefix.len..]), .at_ms = @as(u64, @bitCast(s.int(1))) >> 16 });
     return out.items;
 }
 

@@ -4,17 +4,19 @@
 
 const std = @import("std");
 const art = @import("art.zig");
+const order = @import("order.zig");
 const library = @import("library.zig");
 const Replica = @import("replica.zig").Replica;
 
 pub const CoverJson = struct { url: []const u8, offset: u64, length: u64, stamp: []const u8 };
-pub const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, items: usize, unavailable: bool };
+pub const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, items: usize, unavailable: bool, order: order.Order };
 
 pub fn tiles(r: *Replica, arena: std.mem.Allocator) ![]const TileJson {
     const bases = try sourceBases(r, arena);
     const list = try art.tiles(r, arena);
+    const places = try order.orders(arena, list);
     const out = try arena.alloc(TileJson, list.len);
-    for (list, out) |t, *o| o.* = .{
+    for (list, out, places) |t, *o, place| o.* = .{
         .key = t.key,
         .name = t.name,
         .year = t.year,
@@ -29,6 +31,7 @@ pub fn tiles(r: *Replica, arena: std.mem.Allocator) ![]const TileJson {
         .started = t.started,
         .items = t.items,
         .unavailable = t.unavailable,
+        .order = place,
     };
     return out;
 }

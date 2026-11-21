@@ -39,10 +39,11 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// Its tiles, a series' by season, whose names hold `search`, if any:
-    /// Home's are those in progress (movies partway, seasons begun), as
-    /// are the Mac's In Progress; Watched's, what's watched through.
-    @MainActor func tiles(in library: Library, search: String = "") -> [Tile] {
+    /// Its tiles, a series' by season, whose names hold `search`, if any,
+    /// in `order` (else its own): Home's are those in progress (movies
+    /// partway, seasons begun), as are the Mac's In Progress; Watched's,
+    /// what's watched through.
+    @MainActor func tiles(in library: Library, search: String = "", order: ShelfOrder? = nil) -> [Tile] {
         #if os(macOS)
         let downloaded = self == .downloaded ? library.downloadedTiles : []
         #else
@@ -58,6 +59,16 @@ enum Shelf: String, CaseIterable, Identifiable, Hashable {
             case .downloaded: downloaded.contains(tile.id)
             }
             return on && (search.isEmpty || tile.name.localizedCaseInsensitiveContains(search))
+        }
+        .ordered(order ?? defaultOrder)
+    }
+
+    /// What it's sorted by until a person chooses: what's being watched,
+    /// the latest first; else titles, A to Z.
+    var defaultOrder: ShelfOrder {
+        switch self {
+        case .home, .inProgress, .watched: .init(by: .watched)
+        case .movies, .series, .watchlist, .downloaded: .init(by: .title)
         }
     }
 
@@ -114,7 +125,8 @@ extension Library {
                 elapsed: elapsed, runtime: runtime,
                 started: seasons.contains(where: \.started),
                 items: seasons.reduce(0) { $0 + $1.items },
-                unavailable: seasons.allSatisfy(\.unavailable)
+                unavailable: seasons.allSatisfy(\.unavailable),
+                order: tile.order
             )
         }
     }
@@ -143,7 +155,57 @@ extension Library {
     }
 }
 
+/// What a shelf is sorted by, and which way: `reversed` turns the order's
+/// usual direction around (Z to A, the oldest first).
+struct ShelfOrder: Codable, Hashable {
+    var by: By
+    var reversed = false
+
+    enum By: String, Codable, CaseIterable, Identifiable {
+        case title, released, added, watched
+
+        var id: Self { self }
+
+        var name: String {
+            switch self {
+            case .title: "Title"
+            case .released: "Release Date"
+            case .added: "Date Added"
+            case .watched: "Date Watched"
+            }
+        }
+
+        /// The usual direction's name, then the other's.
+        var directions: (String, String) {
+            self == .title ? ("A to Z", "Z to A") : ("Newest First", "Oldest First")
+        }
+    }
+
+    /// A tile's place, if it has one in this order.
+    func place(_ tile: Tile) -> Int? {
+        switch by {
+        case .title: tile.order.title
+        case .released: tile.order.released
+        case .added: tile.order.added
+        case .watched: tile.order.watched
+        }
+    }
+}
+
 extension Array where Element == Tile {
+    /// In `order`, a series' seasons together, by number; those with no
+    /// place in it last, by title.
+    func ordered(_ order: ShelfOrder) -> [Tile] {
+        sorted { a, b in
+            switch (order.place(a), order.place(b)) {
+            case let (x?, y?) where x != y: order.reversed ? x > y : x < y
+            case (_?, nil): true
+            case (nil, _?): false
+            default: (a.order.title, a.season ?? 0) < (b.order.title, b.season ?? 0)
+            }
+        }
+    }
+
     /// One tile per title: a movie's, or a series' first season's (which
     /// carries the series' cover if the season has none).
     var oneEach: [Tile] {

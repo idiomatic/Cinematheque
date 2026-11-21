@@ -34,6 +34,19 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
     /// Every copy it has is on a drive that isn't there (an unavailable
     /// directory of its source's): shown dimmed.
     var unavailable = false
+    /// Its title's place in each order, as the core decides them.
+    let order: Order
+
+    /// Places counting from what comes first in each order's usual
+    /// direction (A to Z, the newest released, the latest added, the
+    /// latest watched); a title with nothing to order it by has none, and
+    /// goes last.
+    struct Order: Codable, Hashable {
+        let title: Int
+        let released: Int?
+        let added: Int?
+        let watched: Int?
+    }
 
     var id: String { season.map { "\(key)#\($0)" } ?? key }
     var isSeries: Bool { kind == "series" }

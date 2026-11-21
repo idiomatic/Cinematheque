@@ -29,6 +29,10 @@ pub const Info = struct {
     genre: ?[]const u8 = null,
     /// `©day`: a release date or year, as written.
     released: ?[]const u8 = null,
+    /// `sonm` and `sosn`: what a movie's or a show's name sorts as ("Thing,
+    /// The"), where it isn't as written.
+    sort_name: ?[]const u8 = null,
+    sort_show: ?[]const u8 = null,
     /// `ldes`, or else `desc`.
     description: ?[]const u8 = null,
     /// `tvsh`, `tvnn`, `tvsn`, and `tves`.
@@ -244,6 +248,10 @@ fn setItem(info: *Info, name: [4]u8, kind: u32, value: []const u8, offset: u64) 
         info.description = text orelse info.description;
     } else if (eql(u8, &name, "desc")) {
         if (info.description == null) info.description = text;
+    } else if (eql(u8, &name, "sonm")) {
+        info.sort_name = text;
+    } else if (eql(u8, &name, "sosn")) {
+        info.sort_show = text;
     } else if (eql(u8, &name, "tvsh")) {
         info.show = text;
     } else if (eql(u8, &name, "tvnn")) {
@@ -256,7 +264,7 @@ fn setItem(info: *Info, name: [4]u8, kind: u32, value: []const u8, offset: u64) 
 }
 
 test "items are read from udta, with the cover's place in the file" {
-    // udta > meta (full box) > hdlr, ilst > ©nam, tvsn, covr.
+    // udta > meta (full box) > hdlr, ilst > ©nam, sosn, tvsn, covr.
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(std.testing.allocator);
     const a = std.testing.allocator;
@@ -279,6 +287,7 @@ test "items are read from udta, with the cover's place in the file" {
     const ar = arena_state.allocator();
     var items: std.ArrayList(u8) = .empty;
     try W.atom(&items, ar, "\xa9nam", try W.data(ar, 1, "Serenity"));
+    try W.atom(&items, ar, "sosn", try W.data(ar, 1, "Firefly"));
     try W.atom(&items, ar, "tvsn", try W.data(ar, 21, &.{ 0, 0, 0, 1 }));
     try W.atom(&items, ar, "covr", try W.data(ar, 13, "\xff\xd8\xff\xe0JPEG"));
     var ilst: std.ArrayList(u8) = .empty;
@@ -294,6 +303,7 @@ test "items are read from udta, with the cover's place in the file" {
     var info: Info = .{};
     parseContainer(&info, buf.items, 1000, false);
     try std.testing.expectEqualStrings("Serenity", info.title.?);
+    try std.testing.expectEqualStrings("Firefly", info.sort_show.?);
     try std.testing.expectEqual(@as(?u32, 1), info.season);
     const cover = info.cover.?;
     try std.testing.expectEqual(@as(u64, 8), cover.length);

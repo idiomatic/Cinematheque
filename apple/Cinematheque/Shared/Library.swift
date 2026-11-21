@@ -118,11 +118,9 @@ final class Library {
         apply(read.tiles, sorted: read.tiles == unsortedTiles ? nil : read.sorted, sources: read.sources, changed: true)
     }
 
-    /// The tiles by name, then year and season.
+    /// The tiles by title, as the core orders them, then season.
     private nonisolated static func sorted(_ tiles: [Tile]) -> [Tile] {
-        tiles.sorted {
-            ($0.name.localizedStandardCompare($1.name), $0.year ?? 0, $0.season ?? 0) < (.orderedSame, $1.year ?? 0, $1.season ?? 0)
-        }
+        tiles.sorted { ($0.order.title, $0.season ?? 0) < ($1.order.title, $1.season ?? 0) }
     }
 
     /// A result of the core's, decoded, on any thread.

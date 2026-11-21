@@ -5,6 +5,7 @@
 
 const main = document.getElementById("main");
 const search = document.getElementById("search");
+const orderMenu = document.getElementById("order");
 const statusBar = document.getElementById("status");
 
 /// What the server last said: tiles, and the watchlist's keys.
@@ -180,8 +181,31 @@ function matching(tiles) {
   return tiles.filter((t) => words.every((w) => t.name.toLowerCase().includes(w)));
 }
 
-function byName(a, b) {
-  return a.name.localeCompare(b.name) || (a.year || 0) - (b.year || 0) || (a.season || 0) - (b.season || 0);
+/// What a shelf is sorted by (`title`, `released`, `added`, or `watched`),
+/// and whether the other way round, as this browser last chose, else what's
+/// being watched the latest first, and the rest by title, as the apps do.
+function orderOf(shelf) {
+  const chosen = JSON.parse(localStorage.getItem("orders") || "{}")[shelf];
+  return chosen || { by: shelf === "in-progress" || shelf === "watched" ? "watched" : "title", reversed: false };
+}
+
+function chooseOrder(shelf, order) {
+  const all = JSON.parse(localStorage.getItem("orders") || "{}");
+  all[shelf] = order;
+  localStorage.setItem("orders", JSON.stringify(all));
+}
+
+/// Tiles in an order, as the core places them (each place counting from
+/// what comes first in the order's usual direction: A to Z, the newest),
+/// a series' seasons together; those with no place in it last, by title.
+function ordered(tiles, order) {
+  return tiles.slice().sort((a, b) => {
+    const x = a.order[order.by];
+    const y = b.order[order.by];
+    if (x != null && y != null && x !== y) return order.reversed ? y - x : x - y;
+    if ((x == null) !== (y == null)) return x == null ? 1 : -1;
+    return a.order.title - b.order.title || (a.season || 0) - (b.season || 0);
+  });
 }
 
 /// Which showing of a page is the latest, so building an older one stops.
@@ -235,34 +259,34 @@ const shelves = {
     const going = all.filter((t) => t.started && !t.watched);
     const listed = all.filter((t) => library.watchlist.has(listKey(t)));
     const parts = [];
-    if (going.length) parts.push(el("h2", {}, "Continue Watching"), ...shelfGrid(going));
-    if (listed.length) parts.push(el("h2", {}, "Watchlist"), ...shelfGrid(listed.sort(byName)));
+    if (going.length) parts.push(el("h2", {}, "Continue Watching"), ...shelfGrid(ordered(going, { by: "watched" })));
+    if (listed.length) parts.push(el("h2", {}, "Watchlist"), ...shelfGrid(ordered(listed, { by: "title" })));
     return parts.length ? parts : [empty("Nothing in progress or on your watchlist yet.")];
   },
   movies: () => {
-    const t = matching(library.tiles.filter((t) => t.kind === "movie")).sort(byName);
+    const t = ordered(matching(library.tiles.filter((t) => t.kind === "movie")), orderOf("movies"));
     return t.length ? [grid(t)] : [empty("No movies.")];
   },
   series: () => {
-    const t = matching(library.tiles.filter((t) => t.kind === "series")).sort(byName);
+    const t = ordered(matching(library.tiles.filter((t) => t.kind === "series")), orderOf("series"));
     return t.length ? seriesGrid(t) : [empty("No series.")];
   },
   watchlist: () => {
-    const t = matching(library.tiles.filter((t) => library.watchlist.has(listKey(t)))).sort(byName);
+    const t = ordered(matching(library.tiles.filter((t) => library.watchlist.has(listKey(t)))), orderOf("watchlist"));
     return t.length ? shelfGrid(t) : [empty("Nothing on your watchlist.")];
   },
   // Played, split in two, as the Mac's sidebar has it.
   "in-progress": () => {
-    const t = matching(library.tiles.filter(onShelf["in-progress"])).sort(byName);
+    const t = ordered(matching(library.tiles.filter(onShelf["in-progress"])), orderOf("in-progress"));
     return t.length ? shelfGrid(t) : [empty("What you're watching shows here.")];
   },
   watched: () => {
-    const t = matching(library.tiles.filter(onShelf.watched)).sort(byName);
+    const t = ordered(matching(library.tiles.filter(onShelf.watched)), orderOf("watched"));
     return t.length ? shelfGrid(t) : [empty("What you've watched shows here.")];
   },
   // What the server keeps, as the Mac's Downloaded shelf has what it does.
   kept: () => {
-    const t = matching(library.tiles.filter(onShelf.kept)).sort(byName);
+    const t = ordered(matching(library.tiles.filter(onShelf.kept)), orderOf("kept"));
     return t.length ? shelfGrid(t) : [empty("What you keep on the server shows here.")];
   },
 };
@@ -923,6 +947,7 @@ async function route() {
   let parts;
   try {
     if (hash.startsWith("title/")) {
+      orderMenu.hidden = true;
       const rest = hash.slice("title/".length);
       // A title key has four segments; a fifth is the season.
       const segments = rest.split("/");
@@ -933,8 +958,13 @@ async function route() {
       show(keepingLine());
       parts = await titlePage(key, season);
     } else {
-      parts = (shelves[hash] || shelves.home)();
-      shelfStatus = counts(shelves[hash] ? hash : "home");
+      const shelf = shelves[hash] ? hash : "home";
+      // Home's two rows have orders of their own.
+      orderMenu.hidden = shelf === "home";
+      const order = orderOf(shelf);
+      orderMenu.value = order.by + (order.reversed ? " reversed" : "");
+      parts = shelves[shelf]();
+      shelfStatus = counts(shelf);
       show(keepingLine() || shelfStatus);
     }
   } catch (e) {
@@ -957,6 +987,12 @@ function edges() {
 nav.addEventListener("scroll", edges, { passive: true });
 addEventListener("resize", edges);
 edges();
+
+orderMenu.addEventListener("change", () => {
+  const [by, reversed] = orderMenu.value.split(" ");
+  chooseOrder(decodeURIComponent(location.hash.slice(1)) || "home", { by, reversed: reversed === "reversed" });
+  route();
+});
 
 search.addEventListener("input", () => {
   if (location.hash.startsWith("#title/")) location.hash = "#movies";

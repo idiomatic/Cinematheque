@@ -4,6 +4,52 @@ import SwiftUI
 extension FocusedValues {
     /// Focuses the library window's search, as Edit › Find does.
     @Entry var find: FindAction?
+    /// The library window's shelf's order, as View › Sort By sets it.
+    @Entry var shelfOrder: Binding<ShelfOrder>?
+}
+
+/// View › Sort By: the shown shelf's order (Title, Release Date, Date
+/// Added, Date Watched), then its direction, as Finder's.
+struct SortCommand: View {
+    @FocusedValue(\.shelfOrder) private var order
+
+    var body: some View {
+        Menu("Sort By") {
+            if let order {
+                Picker("Sort By", selection: Binding(get: { order.wrappedValue.by }, set: { order.wrappedValue = .init(by: $0) })) {
+                    ForEach(ShelfOrder.By.allCases) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                Divider()
+                let names = order.wrappedValue.by.directions
+                Picker("Direction", selection: order.reversed) {
+                    Text(names.0).tag(false)
+                    Text(names.1).tag(true)
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+        }
+        .disabled(order == nil)
+    }
+}
+
+/// Each shelf's order, once chosen, kept as JSON (`@AppStorage` keeps
+/// strings).
+struct ShelfOrders: RawRepresentable {
+    var byShelf: [String: ShelfOrder] = [:]
+
+    init() {}
+    init?(rawValue: String) {
+        byShelf = (try? JSONDecoder().decode([String: ShelfOrder].self, from: Data(rawValue.utf8))) ?? [:]
+    }
+    var rawValue: String { String(decoding: (try? JSONEncoder().encode(byShelf)) ?? Data("{}".utf8), as: UTF8.self) }
+
+    subscript(shelf: Shelf) -> ShelfOrder {
+        get { byShelf[shelf.rawValue] ?? shelf.defaultOrder }
+        set { byShelf[shelf.rawValue] = newValue }
+    }
 }
 
 /// Focusing a window's search: compared by the window it's for, as a
@@ -40,6 +86,7 @@ struct Browser: View {
     /// The shelf shown last, again at launch; at first, In Progress.
     @AppStorage("shelf") private var lastShelf: Shelf = .inProgress
     @State private var shelf: Shelf?
+    @AppStorage("orders") private var orders = ShelfOrders()
     @State private var search = ""
     /// Whether search has the keys (Find, ⌘F, gives it them).
     @FocusState private var searching: Bool
@@ -83,7 +130,7 @@ struct Browser: View {
         } detail: {
             // A scroll view per shelf: one left scrolled past the end of a
             // shorter shelf shows nothing until scrolled.
-            CoverGrid(tiles: shown, selection: $selection, shelf: shelf ?? .inProgress, search: search, positions: positions)
+            CoverGrid(tiles: shown, selection: $selection, shelf: shelf ?? .inProgress, search: search, order: orders[shelf ?? .inProgress], positions: positions)
                 .id(shelf)
                 .navigationTitle(shelf?.title ?? "Cinematheque")
                 .overlay(alignment: .bottom) { StatusBar(counts: counts, hovering: nearBottom) }
@@ -109,6 +156,7 @@ struct Browser: View {
                 .searchable(text: $search, placement: .toolbar)
                 .searchFocused($searching)
                 .focusedSceneValue(\.find, FindAction(window: window) { searching = true })
+                .focusedSceneValue(\.shelfOrder, $orders[shelf ?? .inProgress])
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         inspectorToggle
@@ -143,7 +191,7 @@ struct Browser: View {
             .help(inspecting ? "Hide the inspector" : "Show the inspector")
     }
 
-    private var shown: [Tile] { (shelf ?? .inProgress).tiles(in: library, search: search) }
+    private var shown: [Tile] { (shelf ?? .inProgress).tiles(in: library, search: search, order: orders[shelf ?? .inProgress]) }
 
     private var counts: String { (shelf ?? .inProgress).counts(in: library, search: search) }
 }
@@ -167,6 +215,7 @@ struct CoverGrid: View {
     @Binding var selection: Tile.ID?
     let shelf: Shelf
     let search: String
+    let order: ShelfOrder
     let positions: ScrollMemory
     @State private var position = ScrollPosition(edge: .top)
     /// Whether the shelf's place has been restored, before which the grid's
@@ -391,8 +440,10 @@ struct CoverGrid: View {
             if search.isEmpty, let top = positions.tops[shelf] { scroll(to: top) }
             restored = true
         }
-        // A new search starts at the top, which its results may not reach.
+        // A new search starts at the top, which its results may not reach,
+        // as does a new order.
         .onChange(of: search) { position.scrollTo(edge: .top) }
+        .onChange(of: order) { position.scrollTo(edge: .top) }
         // Once scrolling settles.
         .task(id: visible) {
             try? await Task.sleep(for: .milliseconds(200))
