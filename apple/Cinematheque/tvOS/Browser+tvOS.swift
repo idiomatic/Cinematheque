@@ -155,32 +155,21 @@ private struct ListsView: View {
     }
 }
 
-/// A list's whole page, as a tile, first in its row: a poster's box, with
-/// how many titles it holds where a poster's name is.
+/// A list's whole page, where it's renamed and deleted too: a small
+/// button saying how many titles it holds.
 private struct SeeAll: View {
     let list: String
     let count: Int
 
     var body: some View {
         NavigationLink { ListPage(id: list) } label: {
-            VStack(alignment: .leading, spacing: 14) {
-                Color.clear
-                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                    .overlay {
-                        HStack(spacing: 10) {
-                            Text("See All")
-                            Image(systemName: "chevron.right")
-                        }
-                        .font(.headline)
-                    }
-                    .background(.fill.tertiary, in: .rect(cornerRadius: 12))
-                    .hoverEffect(.highlight)
-                // Moving out of the lifted box's way, as a poster's name.
-                PosterName(name: count == 1 ? "1 title" : "\(count) titles")
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text("See All \(count)")
+                Image(systemName: "chevron.right")
             }
+            .font(.caption)
         }
-        .buttonStyle(.borderless)
+        .controlSize(.small)
     }
 }
 
@@ -210,16 +199,18 @@ private struct ListPage: View {
 private struct Row: View {
     let title: String
     let tiles: [Tile]
-    /// A list's, whose page See All, the row's first tile, opens: first,
-    /// so a long row needn't be scrolled through to reach it.
+    /// A list's, whose page See All, small, beside the heading, opens, so a
+    /// long row needn't be scrolled through to reach it.
     var list: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(title).font(.title3)
+            HStack(alignment: .firstTextBaseline, spacing: 24) {
+                Text(title).font(.title3)
+                if let list { SeeAll(list: list, count: tiles.count) }
+            }
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 40) {
-                    if let list { SeeAll(list: list, count: tiles.count).frame(width: 240) }
                     ForEach(tiles) { Poster(tile: $0).frame(width: 240) }
                 }
                 .padding(.vertical, 30)
