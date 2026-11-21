@@ -276,6 +276,12 @@ struct CoverGrid: View {
             rows.first { $0.tiles.contains { $0.id == tile } }
         }
 
+        /// The first row of a title: a series' name, or the row a movie's
+        /// in, wherever in it the columns put it.
+        func row(holding title: String) -> Row? {
+            rows.first { $0.key == title || $0.tiles.contains { $0.key == title } }
+        }
+
         private static func groups(_ seasons: [Tile]) -> [Group] {
             var order: [String] = []
             var byKey: [String: [Tile]] = [:]
@@ -444,7 +450,7 @@ struct CoverGrid: View {
     /// Puts a title at the top; the first, with the grid's top margin above
     /// it, as when it was first shown.
     private func scroll(to top: String) {
-        guard let row = layout.rows.first(where: { $0.key == top }), row.y > Self.margin else {
+        guard let row = layout.row(holding: top), row.y > Self.margin else {
             return position.scrollTo(edge: .top)
         }
         // Its top just below the toolbar, as offsets count.
