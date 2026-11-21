@@ -6,6 +6,17 @@ struct CinemathequeApp: App {
     @State private var library: Library
 
     init() {
+        #if os(macOS)
+        // Paging by the scroll bar's track jumps rather than animating: the
+        // grid's rows coming into view, and their covers, mid-animation had
+        // SwiftUI set the scroll position from its own, behind AppKit's,
+        // pulling it back as the track was held, and jumping it as it was
+        // let go. Stored, as AppKit reads it past registered defaults, and
+        // only if unset, so `defaults write` can turn it back on.
+        if UserDefaults.standard.object(forKey: "NSScrollAnimationEnabled") == nil {
+            UserDefaults.standard.set(false, forKey: "NSScrollAnimationEnabled")
+        }
+        #endif
         let dataDir = Platform.prepareDataDir()
         _library = State(initialValue: Library(dataDir: dataDir))
     }
