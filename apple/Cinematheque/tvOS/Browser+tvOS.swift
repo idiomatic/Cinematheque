@@ -131,40 +131,18 @@ private struct ListsView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 50) {
-                Button("New List", systemImage: "plus") { library.listPrompt = .init(kind: .create(adding: nil)) }
                 if library.lists.isEmpty {
                     ContentUnavailableView("No Lists", systemImage: "star", description: Text("Make a list to keep titles in, as a watchlist or favorites."))
                         .frame(maxWidth: .infinity)
                 }
                 ForEach(library.lists) { list in
                     let tiles = library.perTitle(Shelf.list(list.id).tiles(in: library))
-                    VStack(alignment: .leading, spacing: 20) {
-                        HStack(spacing: 30) {
-                            Menu {
-                                Button("Rename…", systemImage: "pencil") { library.listPrompt = .init(kind: .rename(list)) }
-                                Button("Delete List…", systemImage: "trash", role: .destructive) { library.deletingList = list }
-                            } label: {
-                                Text(list.name).font(.title3.weight(.semibold))
-                            }
-                            // The whole list, a row being long to scroll
-                            // through by remote once it holds many.
-                            if !tiles.isEmpty {
-                                NavigationLink { ListPage(id: list.id) } label: {
-                                    HStack(spacing: 8) {
-                                        Text("See All")
-                                        Image(systemName: "chevron.right")
-                                    }
-                                }
-                            }
-                        }
-                        if tiles.isEmpty {
-                            Text("Titles you add to this list show here.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Row(title: nil, tiles: tiles)
-                        }
-                    }
+                    // A plain heading, as Home's rows have; the list's page,
+                    // from its row's first tile, renames or deletes it.
+                    Row(title: list.name, tiles: tiles, list: list.id)
                 }
+                // Rare, so last.
+                Button("New List", systemImage: "plus") { library.listPrompt = .init(kind: .create(adding: nil)) }
             }
             .padding(.vertical, 40)
         }
@@ -177,30 +155,71 @@ private struct ListsView: View {
     }
 }
 
-/// One list, whole, as a shelf's grid, under its name.
+/// A list's whole page, as a tile, first in its row: a poster's box, with
+/// how many titles it holds where a poster's name is.
+private struct SeeAll: View {
+    let list: String
+    let count: Int
+
+    var body: some View {
+        NavigationLink { ListPage(id: list) } label: {
+            VStack(alignment: .leading, spacing: 14) {
+                Color.clear
+                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                    .overlay {
+                        HStack(spacing: 10) {
+                            Text("See All")
+                            Image(systemName: "chevron.right")
+                        }
+                        .font(.headline)
+                    }
+                    .background(.fill.tertiary, in: .rect(cornerRadius: 12))
+                    .hoverEffect(.highlight)
+                Text(count == 1 ? "1 title" : "\(count) titles")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+/// One list, whole, as a shelf's grid, under its name; renaming and
+/// deleting it last, as rare.
 private struct ListPage: View {
     let id: String
     @Environment(Library.self) private var library
 
     var body: some View {
         let shelf = Shelf.list(id)
+        let list = library.lists.first { $0.id == id }
         // Its name as the grid's first line, aligned with the covers and
         // scrolling away with them: a navigation title stayed at the top,
         // inset from them.
-        PosterGrid(tiles: library.perTitle(shelf.tiles(in: library)), empty: shelf.empty, heading: shelf.name(in: library))
+        PosterGrid(tiles: library.perTitle(shelf.tiles(in: library)), empty: shelf.empty, heading: shelf.name(in: library)) {
+            if let list {
+                HStack(spacing: 30) {
+                    Button("Rename…") { library.listPrompt = .init(kind: .rename(list)) }
+                    Button("Delete List…", role: .destructive) { library.deletingList = list }
+                }
+            }
+        }
     }
 }
 
 private struct Row: View {
-    /// None where a heading above gives it.
-    let title: String?
+    let title: String
     let tiles: [Tile]
+    /// A list's, whose page See All, the row's first tile, opens: first,
+    /// so a long row needn't be scrolled through to reach it.
+    var list: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            if let title { Text(title).font(.title3) }
+            Text(title).font(.title3)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 40) {
+                    if let list { SeeAll(list: list, count: tiles.count).frame(width: 240) }
                     ForEach(tiles) { Poster(tile: $0).frame(width: 240) }
                 }
                 .padding(.vertical, 30)
@@ -215,11 +234,13 @@ private struct Row: View {
 }
 
 /// Covers in a grid, six to a row.
-struct PosterGrid: View {
+struct PosterGrid<Footer: View>: View {
     let tiles: [Tile]
     var empty = Shelf.movies.empty
-    /// A heading above the covers, scrolling with them.
+    /// A heading above the covers, and what follows them, scrolling with
+    /// them.
     var heading: String? = nil
+    @ViewBuilder var footer: Footer
 
     var body: some View {
         ScrollView {
@@ -233,10 +254,19 @@ struct PosterGrid: View {
                 ForEach(tiles) { Poster(tile: $0) }
             }
             .padding(.vertical, 40)
+            footer
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 40)
         }
         .overlay {
             if tiles.isEmpty { ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(empty)) }
         }
+    }
+}
+
+extension PosterGrid where Footer == EmptyView {
+    init(tiles: [Tile], empty: String = Shelf.movies.empty, heading: String? = nil) {
+        self.init(tiles: tiles, empty: empty, heading: heading) { EmptyView() }
     }
 }
 
