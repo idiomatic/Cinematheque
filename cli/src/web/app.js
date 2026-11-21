@@ -6,6 +6,7 @@
 const main = document.getElementById("main");
 const search = document.getElementById("search");
 const orderMenu = document.getElementById("order");
+const grouping = document.getElementById("grouping");
 const listsNav = document.getElementById("lists-nav");
 const statusBar = document.getElementById("status");
 
@@ -128,6 +129,17 @@ function abandonCovers() {
 
 /// A tile; under its series' name (`underSeries`), a season says only which.
 function tileView(tile, underSeries = false) {
+  const href = "#title/" + encodeURIComponent(tile.key) + (tile.season == null ? "" : "/" + tile.season);
+  return el("a", { class: `tile${tile.season == null ? "" : " season"}${tile.unavailable ? " unavailable" : ""}`, href },
+    coverView(tile, listsOf(listKey(tile)), underSeries ? seasonName(tile.season) : tile.name),
+    el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
+    underSeries ? null : el("div", { class: "sub" }, tile.season == null ? (tile.year ? String(tile.year) : "") : seasonName(tile.season)),
+  );
+}
+
+/// A tile's cover, with its marks: a star if on `lists`, a check if
+/// watched, else its progress; `title` on it while it has no art.
+function coverView(tile, lists, title = tile.name) {
   const cover = el("div", { class: "cover" });
   if ((tile.thumb && tile.thumb !== "-") || tile.cover) {
     let placed = false;
@@ -160,21 +172,134 @@ function tileView(tile, underSeries = false) {
     nearScreen.observe(cover);
   }
   if (!tile.thumb && !tile.cover) {
-    cover.append(el("div", { class: "initials" }, tile.name));
+    cover.append(el("div", { class: "initials" }, title));
   }
-  if (library.listed.has(listKey(tile))) cover.append(el("span", { class: "badge star", title: "On " + listsOf(listKey(tile)).map((l) => l.name).join(", ") }, "★"));
+  if (lists.length) cover.append(el("span", { class: "badge star", title: "On " + lists.map((l) => l.name).join(", ") }, "★"));
   if (tile.watched) cover.append(el("span", { class: "badge watched", title: "Watched" }, "✓"));
   else if (tile.progress > 0) cover.append(el("div", { class: "meter" }, el("span", { style: `width:${Math.round(tile.progress * 100)}%` })));
-  const href = "#title/" + encodeURIComponent(tile.key) + (tile.season == null ? "" : "/" + tile.season);
-  return el("a", { class: `tile${tile.season == null ? "" : " season"}${tile.unavailable ? " unavailable" : ""}`, href },
-    cover,
-    el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
-    underSeries ? null : el("div", { class: "sub" }, tile.season == null ? (tile.year ? String(tile.year) : "") : seasonName(tile.season)),
-  );
+  return cover;
 }
 
+/// "Season 3", "Specials", or a dated series' season's year alone, "2026"
+/// (a season of 1000 or more, as the core reads it), as the apps name them.
 function seasonName(season) {
-  return season === 0 ? "Specials" : `Season ${season}`;
+  return season === 0 ? "Specials" : season >= 1000 ? String(season) : `Season ${season}`;
+}
+
+/// A series' seasons in order, specials last, as the apps have them.
+function seasonsInOrder(seasons) {
+  const sorted = seasons.slice().sort((a, b) => a.season - b.season);
+  return [...sorted.filter((t) => t.season !== 0), ...sorted.filter((t) => t.season === 0)];
+}
+
+/// What a series' seasons (in order) come to, as the Mac's tile says it:
+/// "3 seasons"; a dated series' years, "2024–2026"; of one season but the
+/// first, its name; nothing for a first alone (a miniseries, or one cut
+/// short).
+function seasonsCaption(seasons) {
+  const numbered = seasons.map((t) => t.season).filter((s) => s !== 0);
+  if (numbered.length && numbered[0] >= 1000) {
+    const first = numbered[0], last = numbered.at(-1);
+    return first === last ? String(first) : `${first}–${last}`;
+  }
+  if (seasons.length !== 1) return `${seasons.length} seasons`;
+  return seasons[0].season === 1 ? "" : seasonName(seasons[0].season);
+}
+
+/// Whether the Series shelf shows a tile per series, opening its seasons in
+/// place (Group by Series, as this browser last chose, on at first), else
+/// every season under its series' name.
+function groupsSeries() {
+  return localStorage.getItem("groupsSeries") !== "false";
+}
+
+/// A series' tile, standing for it: its first season's cover, marked as
+/// the whole series is (on a list if any season is, watched if every one
+/// is, else its progress over them all); its name, and under it what its
+/// seasons come to, with its year, if its name has one, at that line's end
+/// (or, where that line's blank, beside its name if there's room). One of
+/// a single season is that season's tile, opening its page; others open
+/// their seasons in place, on a band below their row.
+function seriesTileView(s) {
+  const seasons = s.seasons;
+  const elapsed = seasons.reduce((n, t) => n + (t.elapsed || 0), 0);
+  const runtime = seasons.reduce((n, t) => n + (t.runtime || 0), 0);
+  const whole = { ...seasons[0], watched: seasons.every((t) => t.watched), progress: runtime ? elapsed / runtime : 0 };
+  const lists = library.lists.filter((l) => seasons.some((t) => l.titles.has(listKey(t))));
+  const caption = seasonsCaption(seasons);
+  const year = s.year ? el("span", { class: "year" }, String(s.year)) : null;
+  const label = caption
+    ? [el("div", { class: "name" }, s.name), el("div", { class: "sub split" }, el("span", {}, caption), year)]
+    : [el("div", { class: "name-year" }, el("span", { class: "name" }, s.name), year)];
+  const single = seasons.length === 1;
+  const unavailable = seasons.every((t) => t.unavailable) ? " unavailable" : "";
+  if (single) {
+    return el("a", { class: `tile season series-tile${unavailable}`, href: "#title/" + encodeURIComponent(s.key) + "/" + seasons[0].season }, coverView(whole, lists), ...label);
+  }
+  const a = el("a", { class: `tile season series-tile${unavailable}`, href: "#series", role: "button", "aria-expanded": "false" }, coverView(whole, lists), ...label);
+  a.addEventListener("click", (e) => {
+    e.preventDefault();
+    toggleBand(a, s);
+  });
+  return a;
+}
+
+/// The Series shelf's open series: its tile, and its band.
+let open = null;
+
+/// Opens a series' seasons on a band below its tile's row, its point under
+/// the tile, closing any other; or, open, closes it.
+function toggleBand(tile, s) {
+  const was = open?.tile === tile;
+  closeBand();
+  if (was) return;
+  const band = el("div", { class: "band" }, el("div", { class: "band-inner" },
+    el("div", { class: "grid" }, s.seasons.map((t) => tileView(t, true)))));
+  open = { tile, band };
+  tile.setAttribute("aria-expanded", "true");
+  placeBand();
+  // Grown from nothing, pushing the rows after it down, and faded in.
+  requestAnimationFrame(() => band.classList.add("open"));
+}
+
+/// Closes the open series' band, shrinking it as the rows after it rise.
+function closeBand() {
+  if (!open) return;
+  const { tile, band } = open;
+  open = null;
+  tile.setAttribute("aria-expanded", "false");
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return band.remove();
+  band.addEventListener("transitionend", () => band.remove(), { once: true });
+  band.classList.remove("open");
+}
+
+/// Puts the open band after the last tile of its series' row, as many as
+/// the grid's columns, and its point under the series; again as the window
+/// changes and the columns with it.
+function placeBand() {
+  if (!open) return;
+  const { tile, band } = open;
+  const grid = tile.parentElement;
+  const columns = getComputedStyle(grid).gridTemplateColumns.split(" ").length;
+  const tiles = [...grid.children].filter((c) => !c.classList.contains("band"));
+  const i = tiles.indexOf(tile);
+  tiles[Math.min(tiles.length - 1, Math.floor(i / columns) * columns + columns - 1)].after(band);
+  const at = tile.getBoundingClientRect();
+  band.style.setProperty("--notch", `${at.left - grid.getBoundingClientRect().left + at.width / 2}px`);
+}
+addEventListener("resize", placeBand);
+
+/// The Series shelf's tile per series, in the order their seasons come,
+/// each with all its seasons (not only those a search matched).
+function seriesTiles(tiles) {
+  const series = [];
+  const seen = new Set();
+  for (const t of tiles) {
+    if (seen.has(t.key)) continue;
+    seen.add(t.key);
+    series.push({ key: t.key, name: t.name, year: t.year, seasons: seasonsInOrder(library.tiles.filter((s) => s.key === t.key)) });
+  }
+  return fill(el("div", { class: "grid" }), series, seriesTileView);
 }
 
 /// Tiles matching the search, by name.
@@ -274,7 +399,8 @@ const shelves = {
   },
   series: () => {
     const t = ordered(matching(library.tiles.filter((t) => t.kind === "series")), orderOf("series"));
-    return t.length ? seriesGrid(t) : [empty("No series.")];
+    if (!t.length) return [empty("No series.")];
+    return groupsSeries() ? [seriesTiles(t)] : seriesGrid(t);
   },
   // Every list in turn, by name (All Lists), or the one chosen from the
   // Lists tab's menu, with what's done to lists.
@@ -1041,6 +1167,7 @@ async function route() {
   try {
     if (hash.startsWith("title/")) {
       orderMenu.hidden = true;
+      grouping.hidden = true;
       const rest = hash.slice("title/".length);
       // A title key has four segments; a fifth is the season.
       const segments = rest.split("/");
@@ -1055,6 +1182,9 @@ async function route() {
       const shelf = shelves[tab] ? tab : "home";
       // Home's two rows have orders of their own.
       orderMenu.hidden = shelf === "home";
+      grouping.hidden = shelf !== "series";
+      grouping.querySelector("input").checked = groupsSeries();
+      open = null;
       const order = orderOf(shelf);
       orderMenu.value = order.by + (order.reversed ? " reversed" : "");
       parts = shelves[shelf]();
@@ -1081,6 +1211,11 @@ function edges() {
 nav.addEventListener("scroll", edges, { passive: true });
 addEventListener("resize", edges);
 edges();
+
+grouping.querySelector("input").addEventListener("change", (e) => {
+  localStorage.setItem("groupsSeries", String(e.target.checked));
+  route();
+});
 
 orderMenu.addEventListener("change", () => {
   const [by, reversed] = orderMenu.value.split(" ");

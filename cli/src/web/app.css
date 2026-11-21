@@ -99,6 +99,38 @@ main > h2:first-child { margin-top: 0; }
 }
 .meter span { display: block; height: 100%; border-radius: 2px; background: #fff; }
 .series-name { margin: 28px 0 10px; font-size: 17px; font-weight: 600; }
+/* Group by Series: beside the order, as a checkbox. */
+#grouping { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; white-space: nowrap; font-size: 13px; }
+#grouping[hidden] { display: none; }
+/* A series' tile: what its seasons come to, its year at the line's end;
+   where that line's blank, the year beside its name if an em's left, else
+   wrapped to the line below, at its end, so its lines read alike. */
+.tile .sub.split { display: flex; justify-content: space-between; gap: 4px; }
+.tile .name-year { display: flex; flex-wrap: wrap; column-gap: 1em; align-items: baseline; margin-top: 6px; }
+.tile .name-year .name { margin-top: 0; flex: 0 0 auto; max-width: 100%; }
+.tile .year { margin-left: auto; font-size: 12px; color: var(--dim); }
+.series-tile .name-year, .series-tile .name + .sub { min-height: calc(2.8em + 2px); }
+.series-tile[aria-expanded="true"] .cover { outline: 3px solid var(--accent); outline-offset: -3px; }
+/* An open series' seasons, on a band across the grid below its row, a
+   point at its top under the series; it grows from nothing as it opens,
+   pushing the rows after it down, and shrinks as it closes. */
+.band {
+  grid-column: 1 / -1; display: grid; grid-template-rows: 0fr; opacity: 0;
+  margin: calc(var(--gap) * -0.5) -10px 0;
+  transition: grid-template-rows 0.25s ease-in-out, opacity 0.25s ease-in-out;
+}
+.band.open { grid-template-rows: 1fr; opacity: 1; }
+.band-inner { overflow: hidden; min-height: 0; }
+.band .grid {
+  position: relative; margin-top: 10px; padding: 14px 10px;
+  border-radius: 10px; background: color-mix(in srgb, CanvasText 7%, transparent);
+}
+.band .grid::before {
+  content: ""; position: absolute; top: -10px; left: calc(var(--notch) + 10px - 12px);
+  border: 12px solid transparent; border-top: 0;
+  border-bottom: 10px solid color-mix(in srgb, CanvasText 7%, transparent);
+}
+@media (prefers-reduced-motion: reduce) { .band { transition: none; } }
 /* First on a shelf, it starts where the first row would, as a heading does. */
 main > div:first-child > .series-name:first-child { margin-top: 0; }
 

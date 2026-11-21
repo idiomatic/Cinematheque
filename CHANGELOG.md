@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* The web client's Series shelf shows a tile per series, as the Mac's does, opening its seasons in place on a band below its row; Group by Series, beside the order, turns it off. A dated series' seasons are named by their years.
 * An episode retagged in place gets its new title and description, read again as it's shown, as a season's cover already was once its file changed.
 * On the Mac, View › Refresh Library Fully (⌘⌥R, shown with ⌥ held, or Option-clicking Refresh Library in Settings) lists every folder afresh, so files retagged in place, which a plain refresh misses as their folders' times don't change, get their new covers and descriptions; the command-line app's `crawl --full` does the same.
 * A dated series' seasons (a YouTube channel's, by `tools/youtube.sh`) are named by their years, "2026", not "Season 2026"; on the Mac its tile says "2024–2026".
