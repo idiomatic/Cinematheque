@@ -9,6 +9,22 @@ extension FocusedValues {
     /// Whether the library window's inspector is shown, as View › Show
     /// Inspector sets it.
     @Entry var inspecting: Binding<Bool>?
+    /// Whether the Series shelf is shown, for View › Group by Series.
+    @Entry var showsSeries: Bool?
+}
+
+/// View › Group by Series: the Series shelf's tile per series, opening in
+/// place, or every season under its series' name; a checkmark item, as
+/// Finder's Use Groups.
+struct GroupCommand: View {
+    @FocusedValue(\.showsSeries) private var showsSeries
+    @AppStorage("groupsSeries") private var groupsSeries = true
+
+    var body: some View {
+        // Its state even while dimmed, on another shelf.
+        Toggle("Group by Series", isOn: $groupsSeries)
+            .disabled(showsSeries != true)
+    }
 }
 
 /// View › Show Inspector or Hide Inspector (⌃⌘I, as the system's).
@@ -103,6 +119,7 @@ struct Browser: View {
     /// The list whose name is being edited in the sidebar, if any.
     @State private var renaming: String?
     @AppStorage("orders") private var orders = ShelfOrders()
+    @AppStorage("groupsSeries") private var groupsSeries = true
     @State private var search = ""
     /// Whether search has the keys (Find, ⌘F, gives it them).
     @FocusState private var searching: Bool
@@ -168,8 +185,10 @@ struct Browser: View {
         } detail: {
             // A scroll view per shelf: one left scrolled past the end of a
             // shorter shelf shows nothing until scrolled.
-            CoverGrid(tiles: shown, selection: $selection, shelf: shelf ?? .inProgress, search: search, order: orders[shelf ?? .inProgress], positions: positions)
-                .id(shelf)
+            CoverGrid(tiles: shown, selection: $selection, shelf: shelf ?? .inProgress, search: search, order: orders[shelf ?? .inProgress], positions: positions, groupsSeries: groupsSeries)
+                // Anew as grouping changes too, opening the series selected,
+                // and keeping its place by its topmost title.
+                .id("\(shelf?.rawValue ?? "") \(groupsSeries)")
                 .navigationTitle(shelf?.name(in: library) ?? "Cinematheque")
                 .overlay(alignment: .bottom) { StatusBar(counts: counts, hovering: nearBottom) }
                 // Pointing near the bottom brings back a faded status bar.
@@ -185,6 +204,7 @@ struct Browser: View {
                 .focusedSceneValue(\.find, FindAction(window: window) { searching = true })
                 .focusedSceneValue(\.shelfOrder, $orders[shelf ?? .inProgress])
                 .focusedSceneValue(\.inspecting, $inspecting)
+                .focusedSceneValue(\.showsSeries, shelf == .series)
                 // Beside search while the inspector's hidden; shown, the
                 // inspector's own takes its place, at the window's corner.
                 .toolbar {
@@ -327,6 +347,9 @@ struct CoverGrid: View {
     let search: String
     let order: ShelfOrder
     let positions: ScrollMemory
+    /// Whether the Series shelf shows a tile per series (View › Group by
+    /// Series).
+    var groupsSeries = true
     @State private var position = ScrollPosition(edge: .top)
     /// Whether the shelf's place has been restored, before which the grid's
     /// first layout (at the top) isn't recorded over it.
@@ -561,7 +584,7 @@ struct CoverGrid: View {
     }
 
     /// Whether it's the Series shelf, of a tile per series.
-    private var bySeries: Bool { shelf == .series }
+    private var bySeries: Bool { shelf == .series && groupsSeries }
 
     /// The open series: the one selected, unless collapsed.
     private var open: String? { bySeries && !collapsed ? pointed : nil }
