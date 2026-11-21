@@ -140,7 +140,7 @@ button:disabled { opacity: 0.4; cursor: default; }
    it's as wide as the widest, the one for its turn shown (and under the
    pointer, what pressing does: Cancel, Delete); its slot, a round gauge
    while it comes, then a check. */
-.keep .slot { display: inline-grid; place-items: center; width: 1em; height: 1em; margin-right: 6px; vertical-align: -0.125em; }
+.keep .slot { display: inline-grid; place-items: center; width: 1em; height: 1em; margin-right: 8px; vertical-align: -0.125em; }
 .keep .slot > * { grid-area: 1 / 1; }
 .keep[data-state="kept"] .bin,
 .keep[data-state="kept"]:is(:hover, :focus-visible) .check { visibility: hidden; }

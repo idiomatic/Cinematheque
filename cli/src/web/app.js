@@ -651,7 +651,7 @@ function keepControls(keys, key, quality, size, small = false) {
     const f = state.fetching;
     button.dataset.state = state.held ? "kept" : state.coming ? "coming" : "idle";
     button.classList.toggle("warn", !state.held && !state.coming && !!note && !note.fits);
-    slot.replaceChildren(...(state.held ? [el("span", { class: "check" }, "✓"), el("span", { class: "bin" }, "🗑\uFE0E")]
+    slot.replaceChildren(...(state.held ? [el("span", { class: "check" }, "✓"), el("span", { class: "bin" }, "✕")]
       : state.coming ? [ring(f?.size ? f.done / f.size : null)] : []));
     button.title = state.held ? `Kept on ${downloads.device}${state.only ? " (the only copy)" : ""}; delete it`
       : f?.size ? `Coming to ${downloads.device}: ${bytes(f.done)} of ${bytes(f.size)}; cancel it`
