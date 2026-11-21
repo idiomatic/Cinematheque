@@ -238,24 +238,34 @@ struct Poster: View {
     let tile: Tile
     @Environment(Library.self) private var library
 
+    /// The cover itself, in its own shape, with its marks, which lifts.
+    private var cover: some View {
+        Color.clear
+            .aspectRatio(tile.isSeries ? 1 : 2.0 / 3.0, contentMode: .fit)
+            .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, fit: tile.isSeries) }
+            // Its copies are all on drives that aren't there.
+            .opacity(tile.unavailable ? 0.4 : 1)
+            // A series' tile stands for the whole series.
+            .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: true), watched: tile.watched, padding: 10) }
+            .overlay(alignment: .bottom) {
+                if !tile.watched, tile.progress > 0 {
+                    ProgressView(value: tile.progress).tint(.white).padding(12)
+                }
+            }
+            .clipShape(.rect(cornerRadius: 12))
+            // The cover, not its name, is what lifts.
+            .hoverEffect(.highlight)
+    }
+
     var body: some View {
         NavigationLink(value: tile) {
             VStack(alignment: .leading, spacing: 14) {
+                // A movie's 2:3 box, so names line up along a row; a
+                // series' cover (a season's, square) at its foot, whole,
+                // rather than cropped to fill it.
                 Color.clear
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                    .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name) }
-                    // Its copies are all on drives that aren't there.
-                    .opacity(tile.unavailable ? 0.4 : 1)
-                    // A series' tile stands for the whole series.
-                    .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: true), watched: tile.watched, padding: 10) }
-                    .overlay(alignment: .bottom) {
-                        if !tile.watched, tile.progress > 0 {
-                            ProgressView(value: tile.progress).tint(.white).padding(12)
-                        }
-                    }
-                    .clipShape(.rect(cornerRadius: 12))
-                    // The cover, not its name, is what lifts.
-                    .hoverEffect(.highlight)
+                    .overlay(alignment: .bottom) { cover }
                 PosterName(name: tile.name)
             }
         }
