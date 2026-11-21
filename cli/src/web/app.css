@@ -30,14 +30,19 @@ nav {
 nav.more-after { mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
 nav.more-before { mask-image: linear-gradient(to left, #000 calc(100% - 24px), transparent); }
 nav.more-before.more-after { mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent); }
-nav a {
+nav a, nav button {
   padding: 6px 12px; border-radius: 8px;
   color: var(--text); text-decoration: none; font-weight: 500; white-space: nowrap;
 }
+/* The Lists tab opens its menu, but reads as a tab. */
+nav button { border: 0; background: none; font: inherit; font-weight: 500; cursor: pointer; }
+#lists-tab { anchor-name: --lists-tab; }
+#lists-nav { position-anchor: --lists-tab; inset: auto; top: anchor(bottom); left: anchor(left); margin-top: 4px; }
+.menu hr { border: 0; border-top: 1px solid color-mix(in srgb, CanvasText 15%, transparent); margin: 4px 0; }
 /* The shelf shown: a thin line of the accent under its name, drawn over
    the link, so choosing another moves nothing. */
-nav a { position: relative; }
-nav a[aria-current="page"]::after {
+nav a, nav button { position: relative; }
+nav [aria-current="page"]::after {
   content: ""; position: absolute; left: 12px; right: 12px; bottom: 0;
   height: 2px; border-radius: 1px; background: var(--accent);
 }

@@ -6,6 +6,7 @@
 const main = document.getElementById("main");
 const search = document.getElementById("search");
 const orderMenu = document.getElementById("order");
+const listsNav = document.getElementById("lists-nav");
 const statusBar = document.getElementById("status");
 
 /// What the server last said: tiles; this person's lists, by name, each
@@ -275,11 +276,12 @@ const shelves = {
     const t = ordered(matching(library.tiles.filter((t) => t.kind === "series")), orderOf("series"));
     return t.length ? seriesGrid(t) : [empty("No series.")];
   },
-  // Each list in turn, by name, with what's done to lists.
+  // Every list in turn, by name (All Lists), or the one chosen from the
+  // Lists tab's menu, with what's done to lists.
   lists: () => {
-    const parts = [el("div", { class: "actions" }, el("button", { type: "button", onclick: newList }, "＋ New List"))];
     const order = orderOf("lists");
-    for (const l of library.lists) {
+    const parts = [];
+    for (const l of shownList ? [shownList] : library.lists) {
       const t = ordered(matching(library.tiles.filter((t) => l.titles.has(listKey(t)))), order);
       parts.push(el("div", { class: "list-heading" },
         el("h2", {}, l.name),
@@ -287,7 +289,7 @@ const shelves = {
         el("button", { class: "mark", type: "button", title: "Delete list", "aria-label": `Delete ${l.name}`, onclick: () => deleteList(l) }, "✕")));
       parts.push(...(t.length ? shelfGrid(t) : [el("p", { class: "dim" }, search.value.trim() ? "Nothing on it matches." : "Nothing on it yet: add titles from their pages.")]));
     }
-    if (!library.lists.length) parts.push(empty("Make a list to keep titles in, as a watchlist or favorites."));
+    if (!library.lists.length) parts.push(empty("Make a list to keep titles in, as a watchlist or favorites, from the Lists menu."));
     return parts;
   },
   // Played, split in two, as the Mac's sidebar has it.
@@ -311,6 +313,26 @@ function empty(text) {
 }
 
 // Lists.
+
+/// The list the Lists tab shows (`#lists/<id>`), or none, for all of them.
+let shownList = null;
+
+/// The Lists tab's menu, made afresh as it opens: All Lists, each list,
+/// the one shown checked, then New List…, which shows the new one.
+listsNav.addEventListener("beforetoggle", (e) => {
+  if (e.newState !== "open") return;
+  const here = decodeURIComponent(location.hash.slice(1));
+  const item = (label, checked, onclick) =>
+    el("button", { type: "button", role: "menuitemradio", "aria-checked": checked, onclick: () => { listsNav.hidePopover(); onclick(); } }, (checked ? "✓ " : "\u2003") + label);
+  listsNav.replaceChildren(
+    item("All Lists", here === "lists", () => { location.hash = "#lists"; }),
+    ...library.lists.map((l) => item(l.name, here === `lists/${l.id}`, () => { location.hash = `#lists/${l.id}`; })),
+    el("hr"),
+    item("New List…", false, async () => {
+      const id = await newList();
+      if (id) location.hash = `#lists/${id}`;
+    }));
+});
 
 /// The lists a tile's key is on.
 function listsOf(key) {
@@ -339,7 +361,9 @@ async function deleteList(l) {
   if (!confirm(`Delete the list “${l.name}”? Its titles stay in the library. This can’t be undone.`)) return;
   await api("list-remove", { id: l.id });
   await reload();
-  route();
+  // Its own page goes with it, to all of them.
+  if (shownList?.id === l.id) location.hash = "#lists";
+  else route();
 }
 
 /// A title page's Lists button: a menu of every list, each checked if the
@@ -367,7 +391,7 @@ const onShelf = {
   home: (t) => (t.started && !t.watched) || library.listed.has(listKey(t)),
   movies: (t) => t.kind === "movie",
   series: (t) => t.kind === "series",
-  lists: (t) => library.listed.has(listKey(t)),
+  lists: (t) => (shownList ? shownList.titles : library.listed).has(listKey(t)),
   "in-progress": (t) => t.started && !t.watched,
   watched: (t) => t.watched,
   kept: (t) => heldTile(t),
@@ -993,14 +1017,16 @@ addEventListener("keydown", (e) => {
   e.preventDefault();
 });
 
-// Routing: #home, #movies, #series, #lists, #in-progress, #watched,
+// Routing: #home, #movies, #series, #lists[/<id>], #in-progress, #watched,
 // #title/<key>[/<season>].
 
 async function route() {
   const mine = ++showing;
   const hash = decodeURIComponent(location.hash.slice(1)) || "home";
-  for (const a of document.querySelectorAll("nav a")) a.toggleAttribute("aria-current", a.dataset.shelf === hash);
-  for (const a of document.querySelectorAll("nav a[aria-current]")) {
+  // A list's page is the Lists tab's.
+  const tab = hash.startsWith("lists/") ? "lists" : hash;
+  for (const a of document.querySelectorAll("nav [data-shelf]")) a.toggleAttribute("aria-current", a.dataset.shelf === tab);
+  for (const a of document.querySelectorAll("nav [aria-current]")) {
     a.setAttribute("aria-current", "page");
     // In view, where the bar scrolls in a narrow window (Kept, last, off
     // its edge, showed no shelf chosen at all).
@@ -1023,7 +1049,8 @@ async function route() {
       show(keepingLine());
       parts = await titlePage(key, season);
     } else {
-      const shelf = shelves[hash] ? hash : "home";
+      shownList = hash.startsWith("lists/") ? library.lists.find((l) => l.id === hash.slice("lists/".length)) || null : null;
+      const shelf = shelves[tab] ? tab : "home";
       // Home's two rows have orders of their own.
       orderMenu.hidden = shelf === "home";
       const order = orderOf(shelf);
