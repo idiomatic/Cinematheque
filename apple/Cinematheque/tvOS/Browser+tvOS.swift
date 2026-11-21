@@ -194,9 +194,14 @@ private struct ListPage: View {
                 }
             }
         }
-        // Deleted (here, or by another device), back to Lists.
+        // Deleted (here, or by another device), back to Lists, as the page
+        // has nothing left to focus; on coming back to it too, from a
+        // title opened here, as it may not go back while covered.
         .onChange(of: list == nil) { _, gone in
             if gone { dismiss() }
+        }
+        .onAppear {
+            if list == nil { dismiss() }
         }
     }
 }
