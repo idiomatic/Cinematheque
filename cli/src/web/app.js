@@ -130,11 +130,27 @@ function abandonCovers() {
 /// A tile; under its series' name (`underSeries`), a season says only which.
 function tileView(tile, underSeries = false) {
   const href = "#title/" + encodeURIComponent(tile.key) + (tile.season == null ? "" : "/" + tile.season);
-  return el("a", { class: `tile${tile.season == null ? "" : " season"}${tile.unavailable ? " unavailable" : ""}`, href },
+  const a = el("a", { class: `tile${tile.season == null ? "" : " season"}${tile.unavailable ? " unavailable" : ""}`, href },
     coverView(tile, listsOf(listKey(tile)), underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
     underSeries ? null : el("div", { class: "sub" }, tile.season == null ? (tile.year ? String(tile.year) : "") : seasonName(tile.season)),
   );
+  // What it was drawn from, to draw it again if that changes (see `patch`).
+  a.tileId = idOf(tile);
+  a.underSeries = underSeries;
+  a.looks = looks(tile);
+  return a;
+}
+
+/// A tile's identity, or a series' (its seasons'), for a shelf's makeup.
+function idOf(item) {
+  return item.seasons ? `${item.key}:${item.seasons.map(idOf).join(",")}` : `${item.key}#${item.season ?? ""}`;
+}
+
+/// What a tile shows of its data: its name and year, cover, marks, and
+/// lists; changed, it's drawn again.
+function looks(t) {
+  return JSON.stringify([t.name, t.year, t.cover, t.thumb, t.watched, t.progress, t.unavailable, listsOf(listKey(t)).map((l) => l.id)]);
 }
 
 /// A tile's cover, with its marks: a star if on `lists`, a check if
@@ -163,8 +179,9 @@ function coverView(tile, lists, title = tile.name) {
       img.style.visibility = "hidden";
       img.onload = () => { img.style.visibility = ""; done(); };
       img.onerror = () => { img.remove(); done(); };
-      // Clearing its address cancels the request.
-      img.stop = () => { img.removeAttribute("src"); done(); };
+      // Clearing its address cancels the request; its cover waits to load
+      // again as it nears the screen, its page put back (see `kept`).
+      img.stop = () => { img.removeAttribute("src"); img.remove(); done(); nearScreen.observe(cover); };
       img.src = coverURL(tile.cover);
       // Under the marks (star, check, progress), which come before it.
       cover.prepend(img);
@@ -233,12 +250,13 @@ function seriesTileView(s) {
     : [el("div", { class: "name-year" }, el("span", { class: "name" }, s.name), year)];
   const single = seasons.length === 1;
   const unavailable = seasons.every((t) => t.unavailable) ? " unavailable" : "";
-  if (single) {
-    return el("a", { class: `tile season series-tile${unavailable}`, href: "#title/" + encodeURIComponent(s.key) + "/" + seasons[0].season }, coverView(whole, lists), ...label);
-  }
-  const a = el("a", { class: `tile season series-tile${unavailable}`, href: "#series", role: "button", "aria-expanded": "false", "data-series": s.key }, coverView(whole, lists), ...label);
+  const a = single
+    ? el("a", { class: `tile season series-tile${unavailable}`, href: "#title/" + encodeURIComponent(s.key) + "/" + seasons[0].season }, coverView(whole, lists), ...label)
+    : el("a", { class: `tile season series-tile${unavailable}`, href: "#series", role: "button", "aria-expanded": "false", "data-series": s.key }, coverView(whole, lists), ...label);
+  // What it was drawn from, to draw it again if that changes (see `patch`).
   a.series = s;
-  a.addEventListener("click", (e) => {
+  a.looks = seasons.map(looks).join();
+  if (!single) a.addEventListener("click", (e) => {
     e.preventDefault();
     toggleBand(a, s);
   });
@@ -346,15 +364,68 @@ let showing = 0;
 /// once, the rest a slice a frame, so a shelf of thousands shows at once and
 /// the page never stops answering.
 function fill(parent, items, make) {
+  // A trial run (`makeup`) notes what it would show, drawing none of it.
+  if (trial) {
+    parent.trialItems = items;
+    return parent;
+  }
   const mine = showing;
   let i = 0;
+  parent.dataset.filling = "";
   const slice = (n) => {
     if (mine !== showing) return;
     for (const end = Math.min(items.length, i + n); i < end; i++) parent.append(make(items[i]));
     if (i < items.length) requestAnimationFrame(() => slice(400));
+    else delete parent.dataset.filling;
   };
   slice(80);
   return parent;
+}
+
+/// Whether a shelf's being built only to see what it would show.
+let trial = false;
+
+/// What a shelf shows, as it would be built now: its headings and text,
+/// and its tiles' identities, in order (a trial run, drawing no tiles); the
+/// same, a page of it kept can be put back.
+function makeup(shelf) {
+  trial = true;
+  try {
+    return JSON.stringify(shelves[shelf]().map((p) => p.trialItems ? p.trialItems.map(idOf) : p.textContent));
+  } finally {
+    trial = false;
+  }
+}
+
+/// The shelf left, kept as it was (its page, where it was scrolled, and the
+/// series open), to put back as it's shown again, rather than build it anew,
+/// if it would show the same tiles in the same order; else it's built anew
+/// and put back where it was (see `places`).
+let kept = null;
+/// The makeup of the shelf shown, kept with its page.
+let shownMakeup = null;
+
+/// Draws again the tiles of a page put back whose data changed meanwhile
+/// (watched, played, put on a list, a cover found), as only they need.
+function patch() {
+  const byId = new Map(library.tiles.map((t) => [idOf(t), t]));
+  for (const a of main.querySelectorAll("a.tile")) {
+    let fresh;
+    if (a.series) {
+      const seasons = seasonsInOrder(library.tiles.filter((t) => t.key === a.series.key));
+      if (seasons.map(looks).join() === a.looks) continue;
+      fresh = seriesTileView({ ...a.series, seasons });
+      if (open?.tile === a) {
+        open.tile = fresh;
+        fresh.setAttribute("aria-expanded", "true");
+      }
+    } else {
+      const t = byId.get(a.tileId);
+      if (!t || looks(t) === a.looks) continue;
+      fresh = tileView(t, a.underSeries);
+    }
+    a.replaceWith(fresh);
+  }
 }
 
 function grid(tiles) {
@@ -1178,14 +1249,23 @@ function restore(place, mine) {
   step();
 }
 
-async function route() {
+/// Shows the page the address names: a shelf put back as it was left, or
+/// shown again as its data changes, keeping its place (its changed tiles
+/// drawn again); `fromTop`, as a new search, order, or grouping, anew from
+/// its top, as the Mac's starts.
+async function route(how) {
   const mine = ++showing;
   const hash = decodeURIComponent(location.hash.slice(1)) || "home";
-  // Leaving a shelf, its place; shown again (a search, an order), from the
-  // top, as the Mac's starts.
-  const returning = shownHash !== hash;
-  if (shownHash && !shownHash.startsWith("title/") && returning) places.set(shownHash, { y: scrollY, open: open?.key });
-  if (!returning) places.delete(hash);
+  const fromTop = how?.fromTop === true;
+  if (shownHash && !shownHash.startsWith("title/") && !(fromTop && shownHash === hash)) {
+    places.set(shownHash, { y: scrollY, open: open?.key });
+    // Kept whole only; one still being built is built anew.
+    kept = main.querySelector("[data-filling]") ? null : { hash: shownHash, nodes: [...main.childNodes], makeup: shownMakeup, y: scrollY, open };
+  }
+  if (fromTop) {
+    places.delete(hash);
+    kept = null;
+  }
   shownHash = hash;
   // A list's page is the Lists tab's.
   const tab = hash.startsWith("lists/") ? "lists" : hash;
@@ -1200,6 +1280,7 @@ async function route() {
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r)));
   if (mine !== showing) return;
   let parts;
+  let reused = null;
   try {
     if (hash.startsWith("title/")) {
       orderMenu.hidden = true;
@@ -1213,6 +1294,7 @@ async function route() {
       shelfStatus = "";
       show(keepingLine());
       parts = await titlePage(key, season);
+      shownMakeup = null;
     } else {
       shownList = hash.startsWith("lists/") ? library.lists.find((l) => l.id === hash.slice("lists/".length)) || null : null;
       const shelf = shelves[tab] ? tab : "home";
@@ -1221,9 +1303,12 @@ async function route() {
       grouping.hidden = shelf !== "series";
       grouping.querySelector("input").checked = groupsSeries();
       open = null;
+      shownMakeup = makeup(shelf);
+      reused = kept?.hash === hash && kept.makeup === shownMakeup ? kept : null;
+      kept = null;
       const order = orderOf(shelf);
       orderMenu.value = order.by + (order.reversed ? " reversed" : "");
-      parts = shelves[shelf]();
+      parts = reused ? reused.nodes : shelves[shelf]();
       shelfStatus = counts(shelf);
       show(keepingLine() || shelfStatus);
     }
@@ -1234,6 +1319,13 @@ async function route() {
   if (mine !== showing) return;
   main.replaceChildren(...parts);
   abandonCovers();
+  if (reused) {
+    // Put back as it was, its changed tiles drawn again.
+    open = reused.open;
+    patch();
+    placeBand();
+    return scrollTo(0, reused.y);
+  }
   const place = hash.startsWith("title/") ? null : places.get(hash);
   if (place) restore(place, mine);
   else scrollTo(0, 0);
@@ -1252,18 +1344,18 @@ edges();
 
 grouping.querySelector("input").addEventListener("change", (e) => {
   localStorage.setItem("groupsSeries", String(e.target.checked));
-  route();
+  route({ fromTop: true });
 });
 
 orderMenu.addEventListener("change", () => {
   const [by, reversed] = orderMenu.value.split(" ");
   chooseOrder(decodeURIComponent(location.hash.slice(1)) || "home", { by, reversed: reversed === "reversed" });
-  route();
+  route({ fromTop: true });
 });
 
 search.addEventListener("input", () => {
   if (location.hash.startsWith("#title/")) location.hash = "#movies";
-  else route();
+  else route({ fromTop: true });
 });
 addEventListener("hashchange", route);
 
