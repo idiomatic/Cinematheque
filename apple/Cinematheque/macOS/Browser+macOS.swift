@@ -953,12 +953,18 @@ struct CoverGrid: View {
             }
             .simultaneousGesture(TapGesture(count: 2).onEnded { playSeries(series.key) })
             .contextMenu {
-                // The whole series'; its seasons' lists are theirs.
-                if !series.watched {
-                    Button("Mark as Watched") { library.markWatched(series, true, wholeTitle: true) }
-                }
-                if series.started {
-                    Button("Mark as Unwatched") { library.markWatched(series, false, wholeTitle: true) }
+                if count == 1 {
+                    // Its one season's, Lists too, as the tile is that
+                    // season.
+                    tileMenu(seasons[0])
+                } else {
+                    // The whole series'; its seasons' lists are theirs.
+                    if !series.watched {
+                        Button("Mark as Watched") { library.markWatched(series, true, wholeTitle: true) }
+                    }
+                    if series.started {
+                        Button("Mark as Unwatched") { library.markWatched(series, false, wholeTitle: true) }
+                    }
                 }
             }
     }
