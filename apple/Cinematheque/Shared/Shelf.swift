@@ -209,7 +209,7 @@ struct ShelfOrder: Codable, Hashable {
     var reversed = false
 
     enum By: String, Codable, CaseIterable, Identifiable {
-        case title, released, added, watched
+        case title, released, added, modified, watched
 
         var id: Self { self }
 
@@ -218,6 +218,7 @@ struct ShelfOrder: Codable, Hashable {
             case .title: "Title"
             case .released: "Release Date"
             case .added: "Date Added"
+            case .modified: "Date Modified"
             case .watched: "Date Watched"
             }
         }
@@ -234,6 +235,7 @@ struct ShelfOrder: Codable, Hashable {
         case .title: tile.order.title
         case .released: tile.order.released
         case .added: tile.order.added
+        case .modified: tile.order.modified
         case .watched: tile.order.watched
         }
     }

@@ -572,6 +572,9 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
         if (try exists(replica, t.key, "name")) continue;
         stats.titles_added += 1;
         try replica.write(wall_ms, t.key, "name", t.name);
+        // When it came, for Date Added; a source's first crawl finds what
+        // was there all along, so its titles go by their files' times.
+        if (source.crawled_ms > 0) try replica.write(wall_ms, t.key, "added", try std.fmt.allocPrint(arena, "{d}", .{wall_ms}));
         if (t.year) |y| try replica.write(wall_ms, t.key, "year", try std.fmt.allocPrint(arena, "{d}", .{y}));
     }
     for (items_seen.items) |it| {

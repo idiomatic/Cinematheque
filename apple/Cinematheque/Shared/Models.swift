@@ -45,6 +45,7 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
         let title: Int
         let released: Int?
         let added: Int?
+        let modified: Int?
         let watched: Int?
     }
 

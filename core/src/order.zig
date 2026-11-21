@@ -1,8 +1,10 @@
 //! The orders shelves sort in, decided here once for every player: by
-//! title, by release, by when added, and by when last watched. Each tile
+//! title, by release, by when added, by when last modified, and by when last
+//! watched. Each tile
 //! gets its title's place in each (a series' seasons share their series'),
 //! counting from what comes first in that order's usual direction: A to Z,
-//! the newest released, the latest added, the latest watched. A title with
+//! the newest released, the latest added, the latest modified, the latest
+//! watched. A title with
 //! nothing to order it by (never watched, say) has no place in that order,
 //! and goes last whichever way it's shown.
 
@@ -13,6 +15,7 @@ pub const Order = struct {
     title: u32,
     released: ?u32,
     added: ?u32,
+    modified: ?u32,
     watched: ?u32,
 };
 
@@ -37,6 +40,7 @@ pub fn orders(arena: std.mem.Allocator, tiles: []const art.Tile) ![]Order {
         o.* = g.value_ptr.*;
         const title = &titles.items[o.*];
         if (t.added_ms) |a| title.added = if (title.added) |b| @min(a, b) else a;
+        if (t.modified_ms) |m| title.modified = if (title.modified) |b| @max(m, b) else m;
         if (t.watched_ms) |w| title.watched = if (title.watched) |b| @max(w, b) else w;
     }
 
@@ -45,7 +49,7 @@ pub fn orders(arena: std.mem.Allocator, tiles: []const art.Tile) ![]Order {
     for (ranked, 0..) |*r, i| r.* = @intCast(i);
     std.mem.sort(u32, ranked, titles.items, byTitle);
     for (ranked, 0..) |t, place| titles.items[t].place.title = @intCast(place);
-    inline for (.{ "released", "added", "watched" }) |field| {
+    inline for (.{ "released", "added", "modified", "watched" }) |field| {
         std.mem.sort(u32, ranked, titles.items, latestFirst(field));
         var place: u32 = 0;
         for (ranked) |t| if (@field(titles.items[t], field) != null) {
@@ -65,8 +69,9 @@ const Title = struct {
     year: ?u16,
     released: ?[]const u8,
     added: ?u64 = null,
+    modified: ?u64 = null,
     watched: ?u64 = null,
-    place: Order = .{ .title = 0, .released = null, .added = null, .watched = null },
+    place: Order = .{ .title = 0, .released = null, .added = null, .modified = null, .watched = null },
 };
 
 fn byTitle(titles: []const Title, a: u32, b: u32) bool {
@@ -203,7 +208,7 @@ test "titles ordered every way, a series' seasons together" {
         .{ .key = "t/m/alien/1979", .name = "Alien", .year = 1979, .kind = 'm', .released = "1979-05-25", .added_ms = 10, .watched_ms = 5 },
         .{ .key = "t/s/firefly/-", .name = "Firefly", .year = null, .kind = 's', .season = 1, .released = "2002", .added_ms = 20 },
         .{ .key = "t/s/firefly/-", .name = "Firefly", .year = null, .kind = 's', .season = 2, .added_ms = 40, .watched_ms = 9 },
-        .{ .key = "t/m/zulu/1964", .name = "Zulu", .year = 1964, .kind = 'm', .sort = "Aardvark" },
+        .{ .key = "t/m/zulu/1964", .name = "Zulu", .year = 1964, .kind = 'm', .sort = "Aardvark", .modified_ms = 50 },
     };
     const o = try orders(a, &tiles);
     // By title: Aardvark (Zulu's sort name), Alien, Firefly, Thing.
@@ -225,4 +230,7 @@ test "titles ordered every way, a series' seasons together" {
     try std.testing.expectEqual(@as(?u32, 0), o[2].watched);
     try std.testing.expectEqual(@as(?u32, 1), o[1].watched);
     try std.testing.expectEqual(@as(?u32, null), o[0].watched);
+    // Modified: Zulu alone has a time.
+    try std.testing.expectEqual(@as(?u32, 0), o[4].modified);
+    try std.testing.expectEqual(@as(?u32, null), o[1].modified);
 }

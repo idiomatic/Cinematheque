@@ -490,6 +490,63 @@ fn crawlIndex(arena: std.mem.Allocator, client: *http.Client, base: []const u8, 
     return result;
 }
 
+/// A listing's modification time in Unix milliseconds: RFC 3339 (Caddy's,
+/// and this app's JSON listings), Unix seconds (an `INDEX`'s), or an HTTP
+/// date (nginx's, `Sat, 24 Oct 2026 04:44:00 GMT`); null for none or
+/// another form (HTML listings give none). Offsets are taken as UTC.
+pub fn timeMs(text: []const u8) ?u64 {
+    const t = std.mem.trim(u8, text, " ");
+    if (t.len == 0) return null;
+    if (std.fmt.parseInt(u64, t, 10)) |seconds| return seconds *| 1000 else |_| {}
+    const num = struct {
+        fn at(s: []const u8, from: usize, len: usize) ?u32 {
+            if (from + len > s.len) return null;
+            return std.fmt.parseInt(u32, s[from .. from + len], 10) catch null;
+        }
+    }.at;
+    var y: u32 = 0;
+    var mo: u32 = 0;
+    var d: u32 = 0;
+    var clock: usize = 0;
+    if (t.len >= 19 and t[4] == '-' and t[7] == '-' and (t[10] == 'T' or t[10] == ' ')) {
+        y = num(t, 0, 4) orelse return null;
+        mo = num(t, 5, 2) orelse return null;
+        d = num(t, 8, 2) orelse return null;
+        clock = 11;
+    } else if (t.len >= 25 and t[3] == ',') {
+        // `Sat, 24 Oct 2026 04:44:00 GMT`
+        d = num(t, 5, 2) orelse return null;
+        const months = "JanFebMarAprMayJunJulAugSepOctNovDec";
+        const m = std.mem.indexOf(u8, months, t[8..11]) orelse return null;
+        if (m % 3 != 0) return null;
+        mo = @intCast(m / 3 + 1);
+        y = num(t, 12, 4) orelse return null;
+        clock = 17;
+    } else return null;
+    const h = num(t, clock, 2) orelse return null;
+    const mi = num(t, clock + 3, 2) orelse return null;
+    const sec = num(t, clock + 6, 2) orelse return null;
+    if (mo < 1 or mo > 12 or d < 1 or d > 31 or y < 1970 or h > 23 or mi > 59 or sec > 60) return null;
+    // Days from the civil date (Howard Hinnant's algorithm).
+    const yy: i64 = @as(i64, y) - @intFromBool(mo <= 2);
+    const era = @divFloor(yy, 400);
+    const yoe = yy - era * 400;
+    const mp: i64 = @mod(@as(i64, mo) + 9, 12);
+    const doy = @divFloor(153 * mp + 2, 5) + @as(i64, d) - 1;
+    const doe = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
+    const days = era * 146097 + doe - 719468;
+    return @intCast(((days * 24 + h) * 60 + mi) * 60_000 + @as(i64, sec) * 1000);
+}
+
+test "listing times in each form" {
+    try std.testing.expectEqual(@as(?u64, 1_792_817_040_000), timeMs("2026-10-24T04:44:00.8443915Z"));
+    try std.testing.expectEqual(@as(?u64, 1_792_817_040_000), timeMs("Sat, 24 Oct 2026 04:44:00 GMT"));
+    try std.testing.expectEqual(@as(?u64, 1_792_817_040_000), timeMs("1792817040"));
+    try std.testing.expectEqual(@as(?u64, 951_782_400_000), timeMs("2000-02-29T00:00:00Z"));
+    try std.testing.expectEqual(@as(?u64, null), timeMs(""));
+    try std.testing.expectEqual(@as(?u64, null), timeMs("yesterday"));
+}
+
 test "a damaged snapshot loads as none, and a hostile entry isn't saved" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();

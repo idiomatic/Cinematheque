@@ -633,14 +633,17 @@ pub const Tile = struct {
     items: usize = 0,
     /// Every copy it has is under an unavailable directory (an unplugged drive's).
     unavailable: bool = false,
-    /// For ordering (see order.zig): what the title sorts as, if its file
-    /// says (`sort`); when it was released, as written (`released`); when
-    /// a copy of it was first recorded, the earliest of its copies' records
-    /// (wall milliseconds); and when this person's progress in it last
+    /// For ordering (see order.zig), in Unix milliseconds where times: what
+    /// the title sorts as, if its file says (`sort`); when it was released,
+    /// as written (`released`); when it came (its `added`, written as a
+    /// later crawl first found it, else its files' earliest modification
+    /// time, else the earliest of its copies' records); its files' latest
+    /// modification time; and when this person's progress in it last
     /// changed.
     sort: ?[]const u8 = null,
     released: ?[]const u8 = null,
     added_ms: ?u64 = null,
+    modified_ms: ?u64 = null,
     watched_ms: ?u64 = null,
 };
 
@@ -659,8 +662,10 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
     // what they sort as and when they were released, by their key and field
     // (`<key> <field>`).
     var covers: std.StringHashMapUnmanaged([]const u8) = .empty;
-    // When each tile's first copy was recorded.
-    var added: std.StringHashMapUnmanaged(u64) = .empty;
+    // Each tile's files' earliest and latest times (else, for the earliest,
+    // its copies' earliest record).
+    var first: std.StringHashMapUnmanaged(u64) = .empty;
+    var modified: std.StringHashMapUnmanaged(u64) = .empty;
     {
         // In one pass over the titles' keys, by range (as `LIKE` can't use
         // the key's index), as this runs on each reload, every second of a
@@ -669,7 +674,7 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
         var seen: std.StringHashMapUnmanaged(void) = .empty;
         const s = try replica.db.prepare(
             \\SELECT key, field, value, hlc FROM winners WHERE key >= 't/' AND key < 't0' AND length(value) > 0
-            \\AND (field = 'duration' OR (field >= 'held:' AND field < 'held;') OR (field >= 'art' AND field < 'aru') OR (field >= 'thumb' AND field < 'thumc') OR field = 'sort' OR field = 'released')
+            \\AND (field = 'duration' OR (field >= 'held:' AND field < 'held;') OR (field >= 'art' AND field < 'aru') OR (field >= 'thumb' AND field < 'thumc') OR field = 'sort' OR field = 'released' OR field = 'added')
         );
         defer s.finalize();
         while (try s.step()) {
@@ -687,9 +692,18 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
             const here = !unavailable.has(field["held:".len..], s.blob(2));
             const held = whole[0 .. library.pastTitle(whole, "/r/") orelse continue];
             if (tileOf(held)) |id| {
-                const at: u64 = @as(u64, @bitCast(s.int(3))) >> 16;
-                const g = try added.getOrPut(arena, try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season }));
+                const tile = try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season });
+                var parts = std.mem.splitScalar(u8, s.blob(2), '\t');
+                _ = parts.next();
+                _ = parts.next();
+                const file_ms = crawl.timeMs(parts.rest());
+                const at = file_ms orelse @as(u64, @bitCast(s.int(3))) >> 16;
+                const g = try first.getOrPut(arena, tile);
                 if (!g.found_existing or at < g.value_ptr.*) g.value_ptr.* = at;
+                if (file_ms) |ms| {
+                    const m = try modified.getOrPut(arena, tile);
+                    if (!m.found_existing or ms > m.value_ptr.*) m.value_ptr.* = ms;
+                }
             }
             if (seen.contains(held)) {
                 if (here) if (tileOf(held)) |id| try present.put(arena, try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season }), {});
@@ -727,10 +741,11 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
         const own = coverOf(try coverField(arena, &covers, t.key, "art"));
         const sort = try coverField(arena, &covers, t.key, "sort");
         const released = try coverField(arena, &covers, t.key, "released");
+        const came = if (try coverField(arena, &covers, t.key, "added")) |v| std.fmt.parseInt(u64, v, 10) catch null else null;
         const own_thumb = if (own != null) thumbOf(try coverField(arena, &covers, t.key, "thumb")) else null;
         if (t.kind != 's') {
             const id = try std.fmt.allocPrint(arena, "{s}#0", .{t.key});
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb, .unavailable = !present.contains(id), .sort = sort, .released = released, .added_ms = added.get(id), .watched_ms = watched.get(id) };
+            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb, .unavailable = !present.contains(id), .sort = sort, .released = released, .added_ms = came orelse first.get(id), .modified_ms = modified.get(id), .watched_ms = watched.get(id) };
             progress(&tile, &items, &heads, &durations, id);
             try out.append(arena, tile);
             continue;
@@ -741,7 +756,7 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
             const field = try std.fmt.allocPrint(arena, "art:s{d:0>2}", .{n});
             const cover = coverOf(try coverField(arena, &covers, t.key, field));
             const id = try std.fmt.allocPrint(arena, "{s}#{d}", .{ t.key, n });
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try coverField(arena, &covers, t.key, try thumbField(arena, field))) else own_thumb, .unavailable = !present.contains(id), .sort = sort, .released = released, .added_ms = added.get(id), .watched_ms = watched.get(id) };
+            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try coverField(arena, &covers, t.key, try thumbField(arena, field))) else own_thumb, .unavailable = !present.contains(id), .sort = sort, .released = released, .added_ms = came orelse first.get(id), .modified_ms = modified.get(id), .watched_ms = watched.get(id) };
             progress(&tile, &items, &heads, &durations, id);
             try out.append(arena, tile);
         }
@@ -902,6 +917,35 @@ test "covers round-trip, and a season without one takes its series'" {
     try std.testing.expectEqual(@as(u64, 4_800_000), timed[0].total);
     try std.testing.expectEqual(@as(usize, 2), timed[0].items);
     try std.testing.expect(!timed[0].watched);
+}
+
+test "a title comes when a later crawl finds it; one there all along, by its files' times" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
+    defer r.close();
+    var source: library.Source = .{ .id = "aaaaaaaaaaaaaaaa".*, .url = "http://nas/", .layout = .{} };
+    const alien: crawl.Entry = .{ .url = "http://nas/Alien%20(1979).m4v", .parent = "http://nas/", .is_dir = false, .size = 1, .mtime = "2001-01-01T00:00:00Z" };
+    const zulu: crawl.Entry = .{ .url = "http://nas/Zulu%20(1964).m4v", .parent = "http://nas/", .is_dir = false, .size = 1, .mtime = "Mon, 01 Jan 2024 00:00:00 GMT" };
+    // A source's first crawl: no `added`, the file's time instead.
+    _ = try library.ingest(&r, arena, 5_000_000_000_000, source, &.{alien});
+    try std.testing.expectEqual(@as(?[]const u8, null), try library.fieldValue(&r, arena, "t/m/alien/1979", "added"));
+    // A later one: the time it found the new title.
+    source.crawled_ms = 5_000_000_000_000;
+    _ = try library.ingest(&r, arena, 6_000_000_000_000, source, &.{ alien, zulu });
+    const all = try tiles(&r, arena);
+    for (all) |t| {
+        if (std.mem.eql(u8, t.key, "t/m/alien/1979")) {
+            try std.testing.expectEqual(@as(?u64, 978_307_200_000), t.added_ms);
+            try std.testing.expectEqual(@as(?u64, 978_307_200_000), t.modified_ms);
+        } else {
+            try std.testing.expectEqual(@as(?u64, 6_000_000_000_000), t.added_ms);
+            try std.testing.expectEqual(@as(?u64, 1_704_067_200_000), t.modified_ms);
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 2), all.len);
 }
 
 test "a title in several sources is described once, from its best file, and kept while unchanged" {
