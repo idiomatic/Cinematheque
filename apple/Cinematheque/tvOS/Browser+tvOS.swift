@@ -97,6 +97,11 @@ private struct Stack<Content: View>: View {
     }
 }
 
+extension EnvironmentValues {
+    /// The list a tile is shown on (its row's, or its page's), if any.
+    @Entry var shownOn: String?
+}
+
 /// Rows of what to watch: in progress (movies partway, seasons begun), then
 /// each list.
 private struct HomeView: View {
@@ -112,7 +117,9 @@ private struct HomeView: View {
                         .frame(maxWidth: .infinity)
                 }
                 if !going.isEmpty { Row(title: "Continue Watching", tiles: going) }
-                ForEach(lists, id: \.0.id) { list, tiles in Row(title: list.name, tiles: tiles) }
+                ForEach(lists, id: \.0.id) { list, tiles in
+                    Row(title: list.name, tiles: tiles).environment(\.shownOn, list.id)
+                }
             }
             .padding(.vertical, 40)
         }
@@ -140,9 +147,10 @@ private struct ListsView: View {
                     // A plain heading, as Home's rows have; the list's page,
                     // from its row's first tile, renames or deletes it.
                     Row(title: list.name, tiles: tiles, list: list.id)
+                        .environment(\.shownOn, list.id)
                 }
                 // Rare, so last.
-                Button("New List", systemImage: "plus") { library.listPrompt = .init(kind: .create(adding: nil)) }
+                Button("New List", systemImage: "plus") { library.listPrompt = .init(kind: .create(adding: [])) }
             }
             .padding(.vertical, 40)
         }
@@ -194,6 +202,7 @@ private struct ListPage: View {
                 }
             }
         }
+        .environment(\.shownOn, id)
         // Deleted (here, or by another device), back to Lists, as the page
         // has nothing left to focus; on coming back to it too, from a
         // title opened here, as it may not go back while covered.
@@ -300,6 +309,9 @@ private struct PosterName: View {
 struct Poster: View {
     let tile: Tile
     @Environment(Library.self) private var library
+    /// The list whose row or page it's shown on, whose seasons of a series
+    /// its tile stands for.
+    @Environment(\.shownOn) private var shownOn
 
     /// The cover itself, with its marks, which lifts: a movie's filling the
     /// box; a series' (a season's) in its own shape, square or 4:3.
@@ -344,10 +356,10 @@ struct Poster: View {
             // A series' tile stands for the whole series.
             Menu("Lists", systemImage: "star") {
                 ForEach(library.lists) { list in
-                    Toggle(list.name, isOn: Binding(get: { library.isListed(tile, on: list, anySeason: true) }, set: { library.setListed(tile, on: list, $0, anySeason: true) }))
+                    Toggle(list.name, isOn: Binding(get: { library.isListed(tile, on: list, anySeason: true) }, set: { library.setListed(tile, on: list, $0, anySeason: true, from: shownOn) }))
                 }
                 Divider()
-                Button("New List…") { library.listPrompt = .init(kind: .create(adding: library.listKey(for: tile, anySeason: true))) }
+                Button("New List…") { library.listPrompt = .init(kind: .create(adding: library.listKeys(for: tile, anySeason: true, from: shownOn))) }
             }
             // Unwatched forgets where you stopped, too.
             if !tile.watched {

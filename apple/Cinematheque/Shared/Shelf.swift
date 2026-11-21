@@ -183,22 +183,29 @@ extension Library {
 
     /// Puts a tile on a list, or takes it off; with `anySeason`, a series'
     /// tile standing for the whole series: taking every season of it off,
-    /// or putting on the first not watched through, as its page outlines
-    /// it.
-    func setListed(_ tile: Tile, on list: UserList, _ on: Bool, anySeason: Bool = false) {
+    /// or putting on the seasons it stands for (`listKeys`), shown on the
+    /// list `from`.
+    func setListed(_ tile: Tile, on list: UserList, _ on: Bool, anySeason: Bool = false, from: String? = nil) {
         guard anySeason, tile.isSeries else { return setListed(tile.id, on: list.id, on) }
-        if on { return setListed(listKey(for: tile, anySeason: true), on: list.id, true) }
+        if on { return listKeys(for: tile, anySeason: true, from: from).forEach { setListed($0, on: list.id, true) } }
         for season in tiles where season.key == tile.key && list.titles.contains(season.id) { setListed(season.id, on: list.id, false) }
     }
 
-    /// What goes on a list for a tile: its own; with `anySeason`, a
-    /// series' first season not watched through (specials last), as its
-    /// page outlines it.
-    func listKey(for tile: Tile, anySeason: Bool) -> String {
-        guard anySeason, tile.isSeries else { return tile.id }
-        let seasons = tiles.filter { $0.key == tile.key }
-        let ordered = seasons.filter { $0.season != 0 } + seasons.filter { $0.season == 0 }
-        return (ordered.first { !$0.watched } ?? ordered.first ?? tile).id
+    /// What goes on a list for a tile: its own; with `anySeason`, the
+    /// seasons a series' tile stands for: those on the list it's shown on
+    /// (`from`), so copying it to another list copies them; else those on
+    /// any list; else the rest of it, from the first season not watched
+    /// through to the last (specials left out, as a list's are chosen),
+    /// or, watched through, all of it.
+    func listKeys(for tile: Tile, anySeason: Bool, from: String? = nil) -> [String] {
+        guard anySeason, tile.isSeries else { return [tile.id] }
+        let seasons = tiles.filter { $0.key == tile.key }.sorted { ($0.season ?? 0) < ($1.season ?? 0) }
+        let shown = from.flatMap { id in lists.first { $0.id == id } }.map { Set($0.titles) }
+        if let shown, case let on = seasons.filter({ shown.contains($0.id) }), !on.isEmpty { return on.map(\.id) }
+        if case let on = seasons.filter({ listed.contains($0.id) }), !on.isEmpty { return on.map(\.id) }
+        let numbered = seasons.filter { $0.season != 0 }
+        guard let next = numbered.firstIndex(where: { !$0.watched }) else { return (numbered.isEmpty ? seasons : numbered).map(\.id) }
+        return numbered[next...].map(\.id)
     }
 }
 

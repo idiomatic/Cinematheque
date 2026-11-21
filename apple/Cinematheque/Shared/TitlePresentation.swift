@@ -219,15 +219,15 @@ struct ListToggles: View {
             Toggle(list.name, isOn: Binding(get: { list.titles.contains(key) }, set: { library.setListed(key, on: list.id, $0) }))
         }
         Divider()
-        Button("New List…") { library.listPrompt = .init(kind: .create(adding: key)) }
+        Button("New List…") { library.listPrompt = .init(kind: .create(adding: [key])) }
     }
 }
 
-/// Asking for a list's name: a new one's (to put a title on, if given), or
-/// another for one.
+/// Asking for a list's name: a new one's (to put titles on: a title, or a
+/// series' seasons), or another for one.
 struct ListPrompt: Identifiable {
     enum Kind {
-        case create(adding: String?)
+        case create(adding: [String])
         case rename(UserList)
     }
 
@@ -279,8 +279,8 @@ struct ListRequests: ViewModifier {
         let named = typed.trimmingCharacters(in: .whitespaces)
         guard let prompt = library.listPrompt, !named.isEmpty else { return }
         switch prompt.kind {
-        case .create(let key):
-            if let id = library.createList(named: named), let key { library.setListed(key, on: id, true) }
+        case .create(let keys):
+            if let id = library.createList(named: named) { for key in keys { library.setListed(key, on: id, true) } }
         case .rename(let list):
             library.renameList(list.id, to: named)
         }
