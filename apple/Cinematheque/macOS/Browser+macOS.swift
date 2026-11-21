@@ -518,6 +518,10 @@ struct CoverGrid: View {
         }
         // The last row clears the status bar floating over the grid.
         .contentMargins(.bottom, StatusBar.height, for: .scrollContent)
+        // The scroll bar clear of the window's last 16 points, which the
+        // hidden inspector's divider takes, so dragging it there opened the
+        // inspector rather than scrolling.
+        .contentMargins(.trailing, 18, for: .scrollIndicators)
         // Only when the rows reflow, not at every width an animation (the
         // inspector's) passes through.
         .onGeometryChange(for: Int.self, of: { Self.columns($0.size.width) }) { _, count in
