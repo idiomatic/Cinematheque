@@ -9,9 +9,9 @@
 //!   `duration` (milliseconds).
 //!
 //! A cover is a byte range of a file in a source, `<source> TAB
-//! <path> TAB <offset> TAB <length> TAB <stamp>`, where the stamp is the
-//! file's size and modification time, so a cover is found again only when
-//! its file changes. A cover is a sidecar image beside the video, by Plex,
+//! <path> TAB <offset> TAB <length> TAB <stamp>`, where the stamp is what
+//! describing read it from (see `readStamp`), so a title is described
+//! again only when that changes. A cover is a sidecar image beside the video, by Plex,
 //! Jellyfin, and Kodi convention, or else the one an MP4 embeds. Images
 //! don't replicate: players fetch them from sources by range request.
 
@@ -110,7 +110,20 @@ pub const Job = struct {
     fn imageFile(j: Job) ImageFile {
         return j.sidecar orelse .{ .path = j.target.path, .stamp = j.target.stamp };
     }
+
+    /// What describing read it from: the cover's file's size and time; the
+    /// video's too, if the cover is a sidecar, as its metadata is read all
+    /// the same (a sort name a tool adds later, say); and what describing
+    /// reads (`reads`), so a title described before it read more is
+    /// described again, once, by whichever device crawls it first.
+    fn readStamp(j: Job, arena: std.mem.Allocator) ![]const u8 {
+        if (j.sidecar) |s| return std.fmt.allocPrint(arena, "{s}\t{s}\t{s}", .{ s.stamp, j.target.stamp, reads });
+        return std.fmt.allocPrint(arena, "{s}\t{s}", .{ j.target.stamp, reads });
+    }
 };
+
+/// What describing reads, by version: `r2`, an MP4's sort names too.
+const reads = "r2";
 
 pub const Plan = struct {
     jobs: []Job,
@@ -173,7 +186,7 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
         if (try library.fieldValue(replica, arena, first.target.title_key, first.target.field)) |old| if (Cover.parse(old)) |c| {
             for (list.items) |j| {
                 const src = j.imageFile();
-                if (std.mem.eql(u8, c.source, &j.source.id) and std.mem.eql(u8, c.path, src.path) and std.mem.eql(u8, c.stamp, src.stamp)) {
+                if (std.mem.eql(u8, c.source, &j.source.id) and std.mem.eql(u8, c.path, src.path) and std.mem.eql(u8, c.stamp, try j.readStamp(arena))) {
                     if (c.length > 0 and try library.fieldValue(replica, arena, j.target.title_key, try thumbField(arena, j.target.field)) == null) {
                         var again = j;
                         again.placeholder_for = c;
@@ -221,20 +234,21 @@ fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, wri
         };
         return writePlaceholder(arena, writes, t, bytes, stats);
     }
+    const stamp = try job.readStamp(arena);
     if (job.sidecar) |s| {
         const size = std.fmt.parseInt(u64, s.stamp[0 .. std.mem.indexOfScalar(u8, s.stamp, '\t') orelse 0], 10) catch 0;
         const bytes = fetch(arena, client, try fileUrl(arena, source.url, s.path), 0, size) catch |err| blk: {
             if (unreachable_(err)) return; // to try again next crawl
             break :blk null;
         };
-        try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = s.path, .offset = 0, .length = size, .stamp = s.stamp }).format(arena) });
+        try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = s.path, .offset = 0, .length = size, .stamp = stamp }).format(arena) });
         try writePlaceholder(arena, writes, t, bytes, stats);
         stats.covers += 1;
     }
     if (!isMp4(t.path)) {
         // Remember the file was looked at, without a cover.
         if (job.sidecar == null)
-            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = 0, .length = 0, .stamp = t.stamp }).format(arena) });
+            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = 0, .length = 0, .stamp = stamp }).format(arena) });
         return;
     }
     const info = mp4.read(arena, client, try fileUrl(arena, source.url, t.path)) catch |err| {
@@ -243,13 +257,13 @@ fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, wri
         // A file that can't be read as an MP4 is remembered as without a
         // cover, so it isn't read again until it changes.
         if (job.sidecar == null)
-            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = 0, .length = 0, .stamp = t.stamp }).format(arena) });
+            try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = 0, .length = 0, .stamp = stamp }).format(arena) });
         return;
     };
     stats.described += 1;
     if (job.sidecar == null) {
         const c = info.cover orelse mp4.Cover{ .offset = 0, .length = 0, .image = .jpeg };
-        try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = c.offset, .length = c.length, .stamp = t.stamp }).format(arena) });
+        try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = c.offset, .length = c.length, .stamp = stamp }).format(arena) });
         if (info.cover) |found| {
             stats.covers += 1;
             try writePlaceholder(arena, writes, t, found.bytes, stats);
@@ -931,9 +945,17 @@ test "a title in several sources is described once, from its best file, and kept
     const first = try plan(&r, arena, &crawled);
     try std.testing.expectEqual(@as(usize, 1), first.jobs.len);
     try std.testing.expectEqualStrings(&b.id, &first.jobs[0].source.id);
+    // Described before describing read what it reads now, it's described
+    // again.
+    try r.write(1, "t/m/network-effect/2020", "art", try (Cover{ .source = &b.id, .path = "Network Effect (2020).m4v", .offset = 9, .length = 9, .stamp = "2\tt" }).format(arena));
+    try r.write(1, "t/m/network-effect/2020", "thumb", "-");
+    const older = try plan(&r, arena, &crawled);
+    try std.testing.expectEqual(@as(usize, 1), older.jobs.len);
+    try std.testing.expectEqual(@as(?Cover, null), older.jobs[0].placeholder_for);
+    try r.write(1, "t/m/network-effect/2020", "thumb", "");
     // Once described from b, it's unchanged, whichever source's crawl
     // comes first.
-    try r.write(1, "t/m/network-effect/2020", "art", try (Cover{ .source = &b.id, .path = "Network Effect (2020).m4v", .offset = 9, .length = 9, .stamp = "2\tt" }).format(arena));
+    try r.write(1, "t/m/network-effect/2020", "art", try (Cover{ .source = &b.id, .path = "Network Effect (2020).m4v", .offset = 9, .length = 9, .stamp = "2\tt\t" ++ reads }).format(arena));
     // Without a placeholder, it's planned for one alone, from that cover.
     const again = try plan(&r, arena, &crawled);
     try std.testing.expectEqual(@as(usize, 1), again.jobs.len);
@@ -942,6 +964,32 @@ test "a title in several sources is described once, from its best file, and kept
     const settled = try plan(&r, arena, &crawled);
     try std.testing.expectEqual(@as(usize, 0), settled.jobs.len);
     try std.testing.expectEqual(@as(usize, 1), settled.unchanged);
+}
+
+test "a movie with a poster is described again when its video changes, as a tool adding a sort name changes it" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
+    defer r.close();
+    const a: library.Source = .{ .id = "aaaaaaaaaaaaaaaa".*, .url = "http://nas/", .layout = .{} };
+    const entries = struct {
+        fn of(video_mtime: []const u8) [2]crawl.Entry {
+            return .{
+                .{ .url = "http://nas/Alien%20(1979)/Alien%20(1979).m4v", .parent = "http://nas/Alien%20(1979)/", .is_dir = false, .size = 7, .mtime = video_mtime },
+                .{ .url = "http://nas/Alien%20(1979)/poster.jpg", .parent = "http://nas/Alien%20(1979)/", .is_dir = false, .size = 3, .mtime = "p" },
+            };
+        }
+    }.of;
+    const before = entries("t1");
+    const first = try plan(&r, arena, &.{.{ .source = a, .entries = &before }});
+    try std.testing.expectEqualStrings("Alien (1979)/poster.jpg", first.jobs[0].sidecar.?.path);
+    try r.write(1, "t/m/alien/1979", "art", try (Cover{ .source = &a.id, .path = "Alien (1979)/poster.jpg", .offset = 0, .length = 3, .stamp = try first.jobs[0].readStamp(arena) }).format(arena));
+    try r.write(1, "t/m/alien/1979", "thumb", "-");
+    try std.testing.expectEqual(@as(usize, 0), (try plan(&r, arena, &.{.{ .source = a, .entries = &before }})).jobs.len);
+    const retagged = entries("t2");
+    try std.testing.expectEqual(@as(usize, 1), (try plan(&r, arena, &.{.{ .source = a, .entries = &retagged }})).jobs.len);
 }
 
 test "a JPEG cover's placeholder is the reference ThumbHash of its DC image" {
