@@ -556,7 +556,8 @@ struct CoverGrid: View {
         // none); a season's cover and name; a series' name.
         static let movieHeight = ceil(CoverGrid.cell * 3 / 2) + TileView.spacing + line(.callout) + TileView.spacing + line(.caption1)
         static let seasonHeight = CoverGrid.cell + TileView.spacing + line(.callout)
-        // A series' cover, name, and how many seasons it has.
+        // A series' cover, name, and how many seasons it has (or, of one,
+        // which).
         static let seriesHeight = CoverGrid.cell + TileView.spacing + line(.callout) + TileView.spacing + line(.caption1)
         static let bandGap: CGFloat = 6
         static let bandNotch: CGFloat = 10
@@ -941,7 +942,9 @@ struct CoverGrid: View {
         let count = seasons.count
         // Selected itself, or, of one season, that season.
         let selected = selection == series.key || (count == 1 && seasons[0].id == selection)
-        return TileView(tile: series, aspect: 1, selected: selected, series: count == 1 ? nil : "\(count) seasons")
+        // Named for its series, as every series' is, and under it, how many
+        // seasons, or, of one, which.
+        return TileView(tile: series, aspect: 1, selected: selected, series: count == 1 ? seasons[0].seasonName ?? "" : "\(count) seasons")
             .frame(width: Self.cell)
             .onTapGesture {
                 focused = true
@@ -1014,9 +1017,9 @@ struct TileView: View {
     let tile: Tile
     let aspect: Double
     let selected: Bool
-    /// A series' tile, standing for the whole series: how many seasons it
-    /// has (nil for one).
-    var series: String?? = nil
+    /// A series' tile, standing for the whole series: under its name, how
+    /// many seasons it has, or, of one, which.
+    var series: String? = nil
     @Environment(Library.self) private var library
 
     private var isSeries: Bool { series != nil }
@@ -1057,8 +1060,7 @@ struct TileView: View {
                 .font(.callout)
                 .lineLimit(1)
             if let series {
-                // A line kept for it, of one season.
-                Text(series ?? " ")
+                Text(series)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else if tile.season == nil, let year = tile.year {
