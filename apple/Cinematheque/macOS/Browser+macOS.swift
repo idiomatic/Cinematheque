@@ -1066,9 +1066,16 @@ struct TileView: View {
                 .font(.callout)
                 .lineLimit(1)
             if let series {
-                Text(series)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // Its year, if its name has one, at the line's end, so the
+                // seasons said before it read alike with it or without.
+                HStack {
+                    Text(series)
+                    Spacer(minLength: 4)
+                    if let year = tile.year { Text(String(year)) }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             } else if tile.season == nil, let year = tile.year {
                 Text(String(year))
                     .font(.caption)
