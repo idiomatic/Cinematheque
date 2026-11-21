@@ -322,14 +322,16 @@ const Shown = struct {
     out: *Io.Writer,
     percent: u64 = 0,
 
-    fn report(context: *anyopaque, done: u64, total: u64) void {
+    /// Shows it; and goes on, as nothing here stops wanting it.
+    fn report(context: *anyopaque, done: u64, total: u64) bool {
         const s: *Shown = @ptrCast(@alignCast(context));
         // In tens, to keep to one line.
         const percent = if (total == 0) 100 else done * 10 / total * 10;
-        if (percent == s.percent) return;
+        if (percent == s.percent) return true;
         s.percent = percent;
         s.out.print("  {d}%", .{percent}) catch {};
         s.out.flush() catch {};
+        return true;
     }
 };
 

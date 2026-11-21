@@ -338,6 +338,8 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
             if (choice == null and p.choice.len > 0 and !std.mem.eql(u8, p.choice, "0")) return error.BadRequest;
             try core.download.setNext(&r, arena, p.title, choice);
         }
+        // The file under way, if any, asked again whether it's wanted.
+        w.fetching.recheck();
     } else if (std.mem.eql(u8, name, "describe")) {
         // An episode's title, description, and duration, read from its
         // file, as the apps describe a season's as it's shown.

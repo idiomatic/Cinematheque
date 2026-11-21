@@ -188,10 +188,11 @@ test "a path to fetch to is a video's, within the directory, hidden nowhere" {
 /// petabyte), so a size another device wrote can't overflow what's added.
 const max_size = 1 << 50;
 
-/// How far a file has come, told as it does.
+/// How far a file has come, told as it does; told back whether to go on
+/// (false: it's no longer wanted, and stops, its `.part` deleted).
 pub const Progress = struct {
     context: *anyopaque,
-    report: *const fn (context: *anyopaque, done: u64, total: u64) void,
+    report: *const fn (context: *anyopaque, done: u64, total: u64) bool,
 };
 
 pub const Fetched = enum { fetched, kept };
@@ -209,6 +210,10 @@ pub fn fetch(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, client: *
     for (try race.order(io, gpa, arena, memory, file.urls, now_ms)) |u| {
         fetchFrom(io, client, dir, part, u, file.size, progress) catch |err| {
             if (err == error.Canceled) return err;
+            if (err == error.Unwanted) {
+                dir.deleteFile(io, part) catch {};
+                return err;
+            }
             last = err;
             try memory.lost(io, gpa, u, now_ms);
             continue;
@@ -238,7 +243,7 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
         try out.setLength(io, 0);
         have = 0;
     }
-    if (progress) |p| p.report(p.context, have, size);
+    if (progress) |p| if (!p.report(p.context, have, size)) return error.Unwanted;
     if (have < size) {
         var range_buf: [64]u8 = undefined;
         const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-", .{have});
@@ -279,7 +284,7 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
             };
             if (n == 0) break;
             have += n;
-            if (progress) |p| p.report(p.context, have, size);
+            if (progress) |p| if (!p.report(p.context, have, size)) return error.Unwanted;
         }
         try writer.interface.flush();
     }
@@ -779,6 +784,16 @@ pub const Fetching = struct {
     len: usize = 0,
     done: u64 = 0,
     size: u64 = 0,
+    /// Set as what's kept changes (something deleted, or a series' choice
+    /// of episodes), so the file under way is asked again whether it's
+    /// still wanted, and stops if not.
+    changed: std.atomic.Value(bool) = .init(false),
+
+    /// Asks the file under way, if any, whether it's still wanted. Any
+    /// thread.
+    pub fn recheck(f: *Fetching) void {
+        f.changed.store(true, .release);
+    }
 
     /// Notes `item` under way (null: none), with `done` bytes; one whose key
     /// is too long to note isn't.
@@ -991,14 +1006,21 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
         var noted: struct {
             f: *Fetching,
             io: Io,
-            fn report(context: *anyopaque, done: u64, _: u64) void {
+            replica: *Replica,
+            arena: std.mem.Allocator,
+            item: []const u8,
+            fn report(context: *anyopaque, done: u64, _: u64) bool {
                 const n: *@This() = @ptrCast(@alignCast(context));
                 n.f.progress(n.io, done);
+                // What's kept changed meanwhile: whether this still is.
+                if (!n.f.changed.swap(false, .acq_rel)) return true;
+                return stillWanted(n.replica, n.arena, n.item) catch true;
             }
         } = undefined;
         if (under_way) |u| {
+            u.changed.store(false, .release);
             u.note(io, f.item, f.size);
-            noted = .{ .f = u, .io = io };
+            noted = .{ .f = u, .io = io, .replica = replica, .arena = arena, .item = f.item };
         }
         defer if (under_way) |u| u.note(io, null, 0);
         var file = f;
@@ -1008,6 +1030,8 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
         } else false;
         const fetched = fetch(io, gpa, arena, client, memory, dir, file, wall_ms, if (under_way != null) .{ .context = &noted, .report = @TypeOf(noted).report } else null) catch |err| {
             if (err == error.Canceled) return err;
+            // No longer wanted, as it came: stopped, nothing recorded.
+            if (err == error.Unwanted) continue;
             out.failed += 1;
             out.@"error" = @errorName(err);
             continue;
@@ -1021,6 +1045,20 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
         try locked(writer, io, replica, wall_ms, copy, s.source, value);
     }
     return out;
+}
+
+/// Whether an item (its full key) is still wanted: by hand, or as one of
+/// its series' next episodes.
+fn stillWanted(replica: *Replica, arena: std.mem.Allocator, item: []const u8) !bool {
+    if (try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ want_prefix, item })) != null) return true;
+    const title_end = titleEnd(item) orelse return false;
+    for (try nexts(replica, arena)) |n| {
+        if (!std.mem.eql(u8, n.title, item[0..title_end])) continue;
+        for (try ahead(replica, arena, n.title, n.choice)) |below| {
+            if (item.len > title_end and std.mem.eql(u8, below, item[title_end + 1 ..])) return true;
+        }
+    }
+    return false;
 }
 
 /// Writes `source`'s copy of `key` as `value` (empty: none), copy
@@ -1155,6 +1193,17 @@ test "fetches a file, resuming a part, and keeps one whole" {
     const got = try out.readFileAlloc(io, file.path, arena, .limited(1 << 20));
     try std.testing.expectEqualStrings(content, got);
     try std.testing.expectEqual(.kept, try fetch(io, gpa, arena, &client, &memory, out, file, 1000, null));
+
+    // Told it's no longer wanted as it comes: it stops, its part deleted.
+    const unwanted: File = .{ .item = file.item, .quality = file.quality, .path = "Alien (1979)/Again.mp4", .size = file.size, .urls = &.{live} };
+    var stop = struct {
+        fn report(_: *anyopaque, _: u64, _: u64) bool {
+            return false;
+        }
+    }{};
+    try std.testing.expectError(error.Unwanted, fetch(io, gpa, arena, &client, &memory, out, unwanted, 1000, .{ .context = &stop, .report = @TypeOf(stop).report }));
+    try std.testing.expectError(error.FileNotFound, out.statFile(io, "Alien (1979)/Again.mp4.part", .{}));
+    try std.testing.expectError(error.FileNotFound, out.statFile(io, "Alien (1979)/Again.mp4", .{}));
 }
 
 test "reconciling keeps what's wanted and the next episodes, and drops watched duplicates" {

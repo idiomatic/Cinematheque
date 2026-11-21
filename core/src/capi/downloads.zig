@@ -43,6 +43,7 @@ export fn cq_download_remove(lib: *Library, key: [*:0]const u8) c_int {
 
 fn downloadRemove(lib: *Library, arena: std.mem.Allocator, key: []const u8) !void {
     _ = try download.remove(lib.io(), arena, try lib.main(), &lib.writer, lib.now(), key);
+    lib.fetching.recheck();
 }
 
 /// Chooses which of a series' episodes download, as it's watched: the
@@ -57,6 +58,7 @@ fn downloadNext(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, 
     const parsed = download.Choice.parse(choice);
     if (parsed == null and choice.len > 0 and !std.mem.eql(u8, choice, "0")) return error.InvalidArgument;
     try download.setNext(try lib.main(), arena, title_key, parsed);
+    lib.fetching.recheck();
 }
 
 /// What downloading would come to, as a JSON array, one object per choice
