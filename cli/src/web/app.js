@@ -236,7 +236,8 @@ function seriesTileView(s) {
   if (single) {
     return el("a", { class: `tile season series-tile${unavailable}`, href: "#title/" + encodeURIComponent(s.key) + "/" + seasons[0].season }, coverView(whole, lists), ...label);
   }
-  const a = el("a", { class: `tile season series-tile${unavailable}`, href: "#series", role: "button", "aria-expanded": "false" }, coverView(whole, lists), ...label);
+  const a = el("a", { class: `tile season series-tile${unavailable}`, href: "#series", role: "button", "aria-expanded": "false", "data-series": s.key }, coverView(whole, lists), ...label);
+  a.series = s;
   a.addEventListener("click", (e) => {
     e.preventDefault();
     toggleBand(a, s);
@@ -248,18 +249,20 @@ function seriesTileView(s) {
 let open = null;
 
 /// Opens a series' seasons on a band below its tile's row, its point under
-/// the tile, closing any other; or, open, closes it.
-function toggleBand(tile, s) {
+/// the tile, closing any other; or, open, closes it. `instantly`, as a
+/// shelf comes back as it was left, without growing.
+function toggleBand(tile, s, instantly = false) {
   const was = open?.tile === tile;
   closeBand();
   if (was) return;
   const band = el("div", { class: "band" }, el("div", { class: "band-inner" },
     el("div", { class: "grid" }, s.seasons.map((t) => tileView(t, true)))));
-  open = { tile, band };
+  open = { tile, band, key: s.key };
   tile.setAttribute("aria-expanded", "true");
+  if (instantly) band.classList.add("open");
   placeBand();
   // Grown from nothing, pushing the rows after it down, and faded in.
-  requestAnimationFrame(() => band.classList.add("open"));
+  if (!instantly) requestAnimationFrame(() => band.classList.add("open"));
 }
 
 /// Closes the open series' band, shrinking it as the rows after it rise.
@@ -1148,9 +1151,42 @@ addEventListener("keydown", (e) => {
 // Routing: #home, #movies, #series, #lists[/<id>], #in-progress, #watched,
 // #title/<key>[/<season>].
 
+/// Each shelf's place as it was left (where it was scrolled, and the series
+/// open), to come back to, as the Mac's shelves keep theirs: by Back from a
+/// title's page, or choosing it again.
+const places = new Map();
+// The browser's own restoring would scroll before a shelf's rebuilt.
+history.scrollRestoration = "manual";
+/// The page shown, whose place is kept as another's shown.
+let shownHash = null;
+
+/// Puts a shelf back as it was left: its series open again, at once, and
+/// scrolled there once enough of it is built (a screenful comes first, the
+/// rest a slice a frame).
+function restore(place, mine) {
+  let frames = 0;
+  const step = () => {
+    if (mine !== showing) return;
+    if (place.open && !open) {
+      const tile = main.querySelector(`[data-series="${CSS.escape(place.open)}"]`);
+      if (tile) toggleBand(tile, tile.series, true);
+    }
+    const built = document.documentElement.scrollHeight >= place.y + innerHeight;
+    if ((built && (!place.open || open)) || ++frames > 120) return scrollTo(0, place.y);
+    requestAnimationFrame(step);
+  };
+  step();
+}
+
 async function route() {
   const mine = ++showing;
   const hash = decodeURIComponent(location.hash.slice(1)) || "home";
+  // Leaving a shelf, its place; shown again (a search, an order), from the
+  // top, as the Mac's starts.
+  const returning = shownHash !== hash;
+  if (shownHash && !shownHash.startsWith("title/") && returning) places.set(shownHash, { y: scrollY, open: open?.key });
+  if (!returning) places.delete(hash);
+  shownHash = hash;
   // A list's page is the Lists tab's.
   const tab = hash.startsWith("lists/") ? "lists" : hash;
   for (const a of document.querySelectorAll("nav [data-shelf]")) a.toggleAttribute("aria-current", a.dataset.shelf === tab);
@@ -1198,7 +1234,9 @@ async function route() {
   if (mine !== showing) return;
   main.replaceChildren(...parts);
   abandonCovers();
-  scrollTo(0, 0);
+  const place = hash.startsWith("title/") ? null : places.get(hash);
+  if (place) restore(place, mine);
+  else scrollTo(0, 0);
 }
 
 /// Marks which edges of the shelves' bar have more past them, for their
