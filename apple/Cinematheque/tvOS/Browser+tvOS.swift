@@ -209,6 +209,11 @@ private struct Row: View {
                 Text(title).font(.title3)
                 if let list { SeeAll(list: list, count: tiles.count) }
             }
+            // As the row below: See All, small and at the left, takes focus
+            // moving down from the tab bar, as the heading's whole width
+            // does, not a cover more nearly beneath the tab.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .focusSection()
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 40) {
                     ForEach(tiles) { Poster(tile: $0).frame(width: 240) }
