@@ -911,7 +911,12 @@ async function route() {
   const mine = ++showing;
   const hash = decodeURIComponent(location.hash.slice(1)) || "home";
   for (const a of document.querySelectorAll("nav a")) a.toggleAttribute("aria-current", a.dataset.shelf === hash);
-  for (const a of document.querySelectorAll("nav a[aria-current]")) a.setAttribute("aria-current", "page");
+  for (const a of document.querySelectorAll("nav a[aria-current]")) {
+    a.setAttribute("aria-current", "page");
+    // In view, where the bar scrolls in a narrow window (Kept, last, off
+    // its edge, showed no shelf chosen at all).
+    a.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
   // The tab shows chosen before its shelf is built, so the click answers at once.
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r)));
   if (mine !== showing) return;
@@ -941,6 +946,17 @@ async function route() {
   abandonCovers();
   scrollTo(0, 0);
 }
+
+/// Marks which edges of the shelves' bar have more past them, for their
+/// fades, as it scrolls and as the window changes.
+const nav = document.querySelector("nav");
+function edges() {
+  nav.classList.toggle("more-before", nav.scrollLeft > 1);
+  nav.classList.toggle("more-after", nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1);
+}
+nav.addEventListener("scroll", edges, { passive: true });
+addEventListener("resize", edges);
+edges();
 
 search.addEventListener("input", () => {
   if (location.hash.startsWith("#title/")) location.hash = "#movies";

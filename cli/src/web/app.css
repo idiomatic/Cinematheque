@@ -25,13 +25,22 @@ header {
    once search has narrowed. */
 nav {
   display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none;
-  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
 }
+/* Faded at an edge only where more is hidden past it. */
+nav.more-after { mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+nav.more-before { mask-image: linear-gradient(to left, #000 calc(100% - 24px), transparent); }
+nav.more-before.more-after { mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent); }
 nav a {
   padding: 6px 12px; border-radius: 8px;
   color: var(--text); text-decoration: none; font-weight: 500; white-space: nowrap;
 }
-nav a[aria-current="page"] { background: var(--raised); }
+/* The shelf shown: a thin line of the accent under its name, drawn over
+   the link, so choosing another moves nothing. */
+nav a { position: relative; }
+nav a[aria-current="page"]::after {
+  content: ""; position: absolute; left: 12px; right: 12px; bottom: 0;
+  height: 2px; border-radius: 1px; background: var(--accent);
+}
 #search {
   flex: 0 10 220px; min-width: 120px; padding: 6px 10px; border-radius: 8px;
   border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
