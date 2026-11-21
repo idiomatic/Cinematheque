@@ -263,7 +263,7 @@ struct Poster: View {
         // Pressed and held: a series' tile stands for the whole series.
         .contextMenu {
             // A series' tile stands for the whole series.
-            Menu("Add to List", systemImage: "star") {
+            Menu("Lists", systemImage: "star") {
                 ForEach(library.lists) { list in
                     Toggle(list.name, isOn: Binding(get: { library.isListed(tile, on: list, anySeason: true) }, set: { library.setListed(tile, on: list, $0, anySeason: true) }))
                 }

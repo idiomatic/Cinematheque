@@ -647,7 +647,7 @@ struct CoverGrid: View {
                             DownloadMenuItems(key: target.key, items: target.items, title: tile.key)
                             Divider()
                         }
-                        Menu("Add to List") { ListToggles(key: tile.id) }
+                        Menu("Lists") { ListToggles(key: tile.id) }
                         // Unwatched forgets where you stopped, too.
                         if !tile.watched {
                             Button("Mark as Watched") { library.markWatched(tile, true) }
