@@ -104,6 +104,7 @@ struct RootView: View {
             await library.keepInSync()
         }
         .background { PhaseWatcher() }
+        .modifier(ListRequests())
     }
 }
 

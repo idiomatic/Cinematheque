@@ -141,12 +141,18 @@ char *cq_title(cq_library *library, const char *key);
 int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *height);
 
 // This person's private data: progress in items (e.g.,
-// "t/m/alien/1979/v/-"), and the watchlist of titles.
+// "t/m/alien/1979/v/-"), and lists of titles (movies' title keys, seasons'
+// tiles, "<title key>#<season>"): cq_lists is them all, by name, each with
+// "id", "name", and "titles"; the Watchlist's ID is "watchlist", whatever
+// it's named. cq_list_create returns a new list's ID as a JSON string.
 int cq_set_progress(cq_library *library, const char *item_key, unsigned long long position_ms, unsigned long long duration_ms);
 int cq_set_watched(cq_library *library, const char *item_key, int watched);
 int cq_remove_progress(cq_library *library, const char *item_key);
-char *cq_watchlist(cq_library *library);
-int cq_set_watchlisted(cq_library *library, const char *title_key, int on);
+char *cq_lists(cq_library *library);
+char *cq_list_create(cq_library *library, const char *name);
+int cq_list_rename(cq_library *library, const char *id, const char *name);
+int cq_list_remove(cq_library *library, const char *id);
+int cq_set_listed(cq_library *library, const char *id, const char *title_key, int on);
 
 // Long, but returns once listening: serves this library to devices and
 // folders as sources (a JSON array of objects with "prefix", the path

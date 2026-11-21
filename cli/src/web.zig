@@ -2,7 +2,7 @@
 //! script and style, embedded) that browses the library and plays from its
 //! sources, and the JSON it asks for under `/api/`. A browser has no keys of
 //! its own, so it acts as this device's person: its progress, watched marks,
-//! and watchlist are theirs. Anyone who can reach the port can use it, as
+//! and lists are theirs. Anyone who can reach the port can use it, as
 //! they can the media it serves.
 
 const std = @import("std");
@@ -23,7 +23,7 @@ pub const Web = struct {
     identity: core.replica.Identity,
     /// Answers first (another device's sync), before the web client does.
     next: core.serve.Handler,
-    /// Held around this device's own writes (progress, the watchlist), one
+    /// Held around this device's own writes (progress, lists), one
     /// connection writing as the device at a time.
     writer: Io.Mutex = .init,
     /// Servers whose copies didn't answer lately, for copy racing.
@@ -155,7 +155,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         const status: http.Status = switch (err) {
             error.NoSuchTitle, error.NotFound => .not_found,
             error.Forbidden => .forbidden,
-            error.BadRequest, error.SyntaxError, error.UnexpectedEndOfInput, error.InvalidCharacter, error.Overflow => .bad_request,
+            error.BadRequest, error.InvalidArgument, error.SyntaxError, error.UnexpectedEndOfInput, error.InvalidCharacter, error.Overflow => .bad_request,
             else => .internal_server_error,
         };
         try request.respond(@errorName(err), .{ .status = status, .extra_headers = &guarded });
@@ -253,7 +253,7 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
         defer r.close();
         return sendJson(arena, request, .{
             .tiles = try core.views.tiles(&r, arena),
-            .watchlist = try core.art.watchlist(&r, arena),
+            .lists = try core.lists.lists(&r, arena),
         });
     }
     if (get and std.mem.eql(u8, name, "title")) {
@@ -313,15 +313,26 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     defer w.writer.unlock(io);
     var r = try open(w, io, gpa);
     defer r.close();
+    // A new list's ID, to answer with.
+    var created: ?[]const u8 = null;
     if (std.mem.eql(u8, name, "progress")) {
         const p = try std.json.parseFromSliceLeaky(struct { item: []const u8, position: u64, duration: u64 }, arena, body, .{});
         try core.library.setProgress(&r, arena, now(io), p.item, p.position, p.duration);
     } else if (std.mem.eql(u8, name, "watched")) {
         const p = try std.json.parseFromSliceLeaky(struct { item: []const u8, watched: bool }, arena, body, .{});
         try core.library.setWatched(&r, arena, now(io), p.item, p.watched);
-    } else if (std.mem.eql(u8, name, "watchlist")) {
-        const p = try std.json.parseFromSliceLeaky(struct { key: []const u8, on: bool }, arena, body, .{});
-        try core.art.setWatchlisted(&r, arena, now(io), p.key, p.on);
+    } else if (std.mem.eql(u8, name, "listed")) {
+        const p = try std.json.parseFromSliceLeaky(struct { list: []const u8, key: []const u8, on: bool }, arena, body, .{});
+        try core.lists.setListed(&r, arena, now(io), p.list, p.key, p.on);
+    } else if (std.mem.eql(u8, name, "list-create")) {
+        const p = try std.json.parseFromSliceLeaky(struct { name: []const u8 }, arena, body, .{});
+        created = try core.lists.create(io, &r, arena, now(io), p.name);
+    } else if (std.mem.eql(u8, name, "list-rename")) {
+        const p = try std.json.parseFromSliceLeaky(struct { id: []const u8, name: []const u8 }, arena, body, .{});
+        try core.lists.rename(&r, arena, now(io), p.id, p.name);
+    } else if (std.mem.eql(u8, name, "list-remove")) {
+        const p = try std.json.parseFromSliceLeaky(struct { id: []const u8 }, arena, body, .{});
+        try core.lists.remove(&r, arena, now(io), p.id);
     } else if (std.mem.eql(u8, name, "download") or std.mem.eql(u8, name, "download-remove") or std.mem.eql(u8, name, "download-next")) {
         // This device's downloads, which it fetches as it reconciles.
         if (!w.downloads) return error.NotFound;
@@ -353,6 +364,7 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     if (!std.mem.eql(u8, name, "describe")) w.changed.store(@intCast(now(io)), .release);
     // Downloads wanted, and a series' next episodes, move with any of it.
     if (w.downloads and !std.mem.eql(u8, name, "describe")) w.reconcile_again.store(true, .release);
+    if (created) |id| return sendJson(arena, request, id);
     return sendJson(arena, request, true);
 }
 

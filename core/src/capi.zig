@@ -8,7 +8,7 @@
 //! ones (crawling, syncing, describing) may run on any thread, each on a
 //! connection of its own. Only one connection writes as this device at a
 //! time: long ones wait for each other, and other writes fail with `Busy`
-//! while one runs, but for progress and watchlists, which don't need to.
+//! while one runs, but for progress and lists, which don't need to.
 
 pub const std = @import("std");
 

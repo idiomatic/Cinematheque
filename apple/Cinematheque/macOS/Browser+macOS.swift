@@ -80,7 +80,7 @@ struct FindCommand: View {
 /// by shelf and search, beside an inspector for the one selected.
 struct Browser: View {
     /// The shelves in the sidebar.
-    static let shelves: [Shelf] = [.movies, .series, .watchlist, .inProgress, .watched, .downloaded]
+    static let shelves: [Shelf] = [.movies, .series, .inProgress, .watched, .downloaded]
 
     @Environment(Library.self) private var library
     /// The shelf shown last, again at launch; at first, In Progress.
@@ -115,16 +115,37 @@ struct Browser: View {
         }
         .environment(\.play, PlayAction(inWindow: { playing = $0 }, newWindow: { openWindow(value: $0) }))
         .onAppear {
-            // One the sidebar has no longer (another build's) gives way.
-            if shelf == nil { shelf = Self.shelves.contains(lastShelf) ? lastShelf : .inProgress }
+            // One the sidebar has no longer (another build's, or a list
+            // deleted) gives way.
+            if shelf == nil { shelf = shown(lastShelf) ? lastShelf : .inProgress }
         }
         .onChange(of: shelf) { if let shelf { lastShelf = shelf } }
+        .onChange(of: library.lists) { if let shelf, !shown(shelf) { self.shelf = .inProgress } }
     }
 
     private var browser: some View {
         NavigationSplitView {
-            List(Self.shelves, selection: $shelf) { shelf in
-                Label(shelf.title, systemImage: shelf.symbol)
+            List(selection: $shelf) {
+                ForEach(Self.shelves) { shelf in
+                    Label(shelf.title, systemImage: shelf.symbol)
+                }
+                Section("Lists") {
+                    ForEach(library.lists) { list in
+                        Label(list.name, systemImage: Shelf.list(list.id).symbol)
+                            .tag(Shelf.list(list.id))
+                            .contextMenu {
+                                Button("Rename…") { library.listPrompt = .init(kind: .rename(list)) }
+                                Button("Delete List…") { library.deletingList = list }
+                            }
+                    }
+                    // A row of its own, last: at the sidebar's foot, under
+                    // its glass, the list took its clicks.
+                    Button { library.listPrompt = .init(kind: .create(adding: nil)) } label: {
+                        Label("New List…", systemImage: "plus")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
         } detail: {
@@ -132,7 +153,7 @@ struct Browser: View {
             // shorter shelf shows nothing until scrolled.
             CoverGrid(tiles: shown, selection: $selection, shelf: shelf ?? .inProgress, search: search, order: orders[shelf ?? .inProgress], positions: positions)
                 .id(shelf)
-                .navigationTitle(shelf?.title ?? "Cinematheque")
+                .navigationTitle(shelf?.name(in: library) ?? "Cinematheque")
                 .overlay(alignment: .bottom) { StatusBar(counts: counts, hovering: nearBottom) }
                 // Pointing near the bottom brings back a faded status bar.
                 .onContinuousHover { phase in
@@ -183,6 +204,12 @@ struct Browser: View {
             if let url = Launch.play.flatMap(URL.init(string:)) { playing = PlayRequest(url: url, item: Launch.item ?? "", start: 0) }
         }
         #endif
+    }
+
+    /// Whether the sidebar has a shelf: its own, or a list there is.
+    private func shown(_ shelf: Shelf) -> Bool {
+        if case .list(let id) = shelf { return library.lists.contains { $0.id == id } }
+        return Self.shelves.contains(shelf)
     }
 
     private var inspectorToggle: some View {
@@ -553,8 +580,7 @@ struct CoverGrid: View {
                             DownloadMenuItems(key: target.key, items: target.items, title: tile.key)
                             Divider()
                         }
-                        let listed = library.isListed(tile)
-                        Button(listed ? "Remove from Watchlist" : "Add to Watchlist") { library.setListed(tile, !listed) }
+                        Menu("Add to List") { ListToggles(key: tile.id) }
                         // Unwatched forgets where you stopped, too.
                         if !tile.watched {
                             Button("Mark as Watched") { library.markWatched(tile, true) }

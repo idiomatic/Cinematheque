@@ -31,15 +31,52 @@ extension Library {
         changed()
     }
 
-    /// What's on the watchlist: a movie, by its title's key, or a season,
-    /// by its tile's (`<title key>#<season>`), each on its own.
-    static func watchlistKey(_ title: String, season: Int?) -> String {
+    /// What goes on a list: a movie, by its title's key, or a season, by
+    /// its tile's (`<title key>#<season>`), each on its own.
+    static func listKey(_ title: String, season: Int?) -> String {
         season.map { "\(title)#\($0)" } ?? title
     }
 
-    func setWatchlisted(_ key: String, _ on: Bool) {
-        check(reload: false) { cq_set_watchlisted($0, key, on ? 1 : 0) }
-        watchlist = Set(decode([String].self) { cq_watchlist($0) } ?? [])
+    /// Reads the lists again, assigning only what differs.
+    func readLists() {
+        let read = decode([UserList].self) { cq_lists($0) } ?? []
+        if read != lists {
+            lists = read
+            listed = Set(read.flatMap(\.titles))
+        }
+    }
+
+    /// The lists `key` is on.
+    func lists(holding key: String) -> [UserList] {
+        lists.filter { $0.titles.contains(key) }
+    }
+
+    /// Puts `key` on the list `id`, or takes it off.
+    func setListed(_ key: String, on id: String, _ on: Bool) {
+        check(reload: false) { cq_set_listed($0, id, key, on ? 1 : 0) }
+        readLists()
+        changed()
+    }
+
+    /// Makes a list, returning its ID.
+    @discardableResult
+    func createList(named name: String) -> String? {
+        let id = decode(String.self) { cq_list_create($0, name) }
+        readLists()
+        changed()
+        return id
+    }
+
+    func renameList(_ id: String, to name: String) {
+        check(reload: false) { cq_list_rename($0, id, name) }
+        readLists()
+        changed()
+    }
+
+    /// Deletes a list, for good; its titles stay in the library.
+    func removeList(_ id: String) {
+        check(reload: false) { cq_list_remove($0, id) }
+        readLists()
         changed()
     }
 

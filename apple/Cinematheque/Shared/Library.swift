@@ -11,7 +11,14 @@ final class Library {
     var handle: Handle?
     private(set) var status: Status?
     private(set) var tiles: [Tile] = []
-    var watchlist: Set<String> = []
+    /// This person's lists, by name (`cq_lists`), and every title on any.
+    var lists: [UserList] = []
+    var listed: Set<String> = []
+    /// A list's name asked for (a new one's, or another for one), and a
+    /// list to delete once confirmed, wherever it was asked from (a
+    /// context menu's gone by the time it's answered).
+    var listPrompt: ListPrompt?
+    var deletingList: UserList?
     private(set) var sources: [Source] = []
     private(set) var members: [Member] = []
     private(set) var devices: [Device] = []
@@ -139,8 +146,7 @@ final class Library {
             unsortedTiles = read
             tiles = sorted
         }
-        let list = Set(decode([String].self) { cq_watchlist($0) } ?? [])
-        if list != watchlist { watchlist = list }
+        readLists()
         if repos != sources { sources = repos }
         let people = decode([Member].self) { cq_members($0) } ?? []
         if people != members { members = people }
@@ -287,7 +293,8 @@ final class Library {
         unavailableFolders = []
         tiles = []
         unsortedTiles = []
-        watchlist = []
+        lists = []
+        listed = []
         sources = []
         members = []
         devices = []

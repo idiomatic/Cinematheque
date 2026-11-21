@@ -1,6 +1,6 @@
 // Cinematheque's web client: browses the library its server shares, and
 // plays from its sources. The server is this device; what's watched, and
-// the watchlist, are its person's.
+// lists, are its person's.
 "use strict";
 
 const main = document.getElementById("main");
@@ -8,8 +8,9 @@ const search = document.getElementById("search");
 const orderMenu = document.getElementById("order");
 const statusBar = document.getElementById("status");
 
-/// What the server last said: tiles, and the watchlist's keys.
-let library = { tiles: [], watchlist: new Set() };
+/// What the server last said: tiles; this person's lists, by name, each
+/// with its titles' keys; and every key on any list.
+let library = { tiles: [], lists: [], listed: new Set() };
 
 async function api(name, body) {
   const response = await fetch("api/" + name, body === undefined ? {} : {
@@ -52,13 +53,14 @@ addEventListener("pointermove", (e) => {
 
 async function reload() {
   const [got, kept] = await Promise.all([api("tiles"), api("downloads").catch(() => ({ enabled: false }))]);
-  library = { tiles: got.tiles, watchlist: new Set(got.watchlist) };
+  const lists = got.lists.map((l) => ({ ...l, titles: new Set(l.titles) }));
+  library = { tiles: got.tiles, lists, listed: new Set(lists.flatMap((l) => [...l.titles])) };
   noteDownloads(kept);
 }
 
 // Tiles.
 
-/// A tile's key on the watchlist: a movie's title key, or `<key>#<season>`.
+/// A tile's key on a list: a movie's title key, or `<key>#<season>`.
 function listKey(tile) {
   return tile.season == null ? tile.key : `${tile.key}#${tile.season}`;
 }
@@ -159,7 +161,7 @@ function tileView(tile, underSeries = false) {
   if (!tile.thumb && !tile.cover) {
     cover.append(el("div", { class: "initials" }, tile.name));
   }
-  if (library.watchlist.has(listKey(tile))) cover.append(el("span", { class: "badge star", title: "On Watchlist" }, "★"));
+  if (library.listed.has(listKey(tile))) cover.append(el("span", { class: "badge star", title: "On " + listsOf(listKey(tile)).map((l) => l.name).join(", ") }, "★"));
   if (tile.watched) cover.append(el("span", { class: "badge watched", title: "Watched" }, "✓"));
   else if (tile.progress > 0) cover.append(el("div", { class: "meter" }, el("span", { style: `width:${Math.round(tile.progress * 100)}%` })));
   const href = "#title/" + encodeURIComponent(tile.key) + (tile.season == null ? "" : "/" + tile.season);
@@ -257,11 +259,13 @@ const shelves = {
   home: () => {
     const all = matching(library.tiles);
     const going = all.filter((t) => t.started && !t.watched);
-    const listed = all.filter((t) => library.watchlist.has(listKey(t)));
     const parts = [];
     if (going.length) parts.push(el("h2", {}, "Continue Watching"), ...shelfGrid(ordered(going, { by: "watched" })));
-    if (listed.length) parts.push(el("h2", {}, "Watchlist"), ...shelfGrid(ordered(listed, { by: "title" })));
-    return parts.length ? parts : [empty("Nothing in progress or on your watchlist yet.")];
+    for (const l of library.lists) {
+      const on = all.filter((t) => l.titles.has(listKey(t)));
+      if (on.length) parts.push(el("h2", {}, l.name), ...shelfGrid(ordered(on, { by: "title" })));
+    }
+    return parts.length ? parts : [empty("Nothing in progress or on your lists yet.")];
   },
   movies: () => {
     const t = ordered(matching(library.tiles.filter((t) => t.kind === "movie")), orderOf("movies"));
@@ -271,9 +275,20 @@ const shelves = {
     const t = ordered(matching(library.tiles.filter((t) => t.kind === "series")), orderOf("series"));
     return t.length ? seriesGrid(t) : [empty("No series.")];
   },
-  watchlist: () => {
-    const t = ordered(matching(library.tiles.filter((t) => library.watchlist.has(listKey(t)))), orderOf("watchlist"));
-    return t.length ? shelfGrid(t) : [empty("Nothing on your watchlist.")];
+  // Each list in turn, by name, with what's done to lists.
+  lists: () => {
+    const parts = [el("div", { class: "actions" }, el("button", { type: "button", onclick: newList }, "＋ New List"))];
+    const order = orderOf("lists");
+    for (const l of library.lists) {
+      const t = ordered(matching(library.tiles.filter((t) => l.titles.has(listKey(t)))), order);
+      parts.push(el("div", { class: "list-heading" },
+        el("h2", {}, l.name),
+        el("button", { class: "mark", type: "button", title: "Rename list", "aria-label": `Rename ${l.name}`, onclick: () => renameList(l) }, "✎"),
+        el("button", { class: "mark", type: "button", title: "Delete list", "aria-label": `Delete ${l.name}`, onclick: () => deleteList(l) }, "✕")));
+      parts.push(...(t.length ? shelfGrid(t) : [el("p", { class: "dim" }, search.value.trim() ? "Nothing on it matches." : "Nothing on it yet: add titles from their pages.")]));
+    }
+    if (!library.lists.length) parts.push(empty("Make a list to keep titles in, as a watchlist or favorites."));
+    return parts;
   },
   // Played, split in two, as the Mac's sidebar has it.
   "in-progress": () => {
@@ -295,12 +310,64 @@ function empty(text) {
   return el("p", { class: "empty" }, text);
 }
 
+// Lists.
+
+/// The lists a tile's key is on.
+function listsOf(key) {
+  return library.lists.filter((l) => l.titles.has(key));
+}
+
+/// Asks for a new list's name, and makes it, returning its ID.
+async function newList() {
+  const name = prompt("New list’s name:", "")?.trim();
+  if (!name) return null;
+  const id = await api("list-create", { name });
+  await reload();
+  route();
+  return id;
+}
+
+async function renameList(l) {
+  const name = prompt(`Rename “${l.name}” to:`, l.name)?.trim();
+  if (!name || name === l.name) return;
+  await api("list-rename", { id: l.id, name });
+  await reload();
+  route();
+}
+
+async function deleteList(l) {
+  if (!confirm(`Delete the list “${l.name}”? Its titles stay in the library. This can’t be undone.`)) return;
+  await api("list-remove", { id: l.id });
+  await reload();
+  route();
+}
+
+/// A title page's Lists button: a menu of every list, each checked if the
+/// title's on it, pressed to put it on or take it off; then New List…,
+/// which puts it on the new one.
+function listsMenu(key) {
+  const on = listsOf(key);
+  const menu = el("div", { class: "menu", popover: "auto", id: "lists-menu" },
+    ...library.lists.map((l) => el("button", { type: "button", role: "menuitemcheckbox", "aria-checked": l.titles.has(key), onclick: async () => {
+      await api("listed", { list: l.id, key, on: !l.titles.has(key) });
+      await reload();
+      route();
+    } }, (l.titles.has(key) ? "✓ " : "\u2003") + l.name)),
+    el("button", { type: "button", onclick: async () => {
+      const id = await newList();
+      if (id) { await api("listed", { list: id, key, on: true }); await reload(); route(); }
+    } }, "\u2003New List…"));
+  // The same name whatever it's on, so nothing beside it moves.
+  const label = on.length ? "★ Lists" : "☆ Lists";
+  return [el("button", { class: "mark", type: "button", popovertarget: "lists-menu", "aria-pressed": on.length > 0, title: on.length ? "On " + on.map((l) => l.name).join(", ") : "Add to a list" }, label), menu];
+}
+
 /// Each shelf's tiles, before a search.
 const onShelf = {
-  home: (t) => (t.started && !t.watched) || library.watchlist.has(listKey(t)),
+  home: (t) => (t.started && !t.watched) || library.listed.has(listKey(t)),
   movies: (t) => t.kind === "movie",
   series: (t) => t.kind === "series",
-  watchlist: (t) => library.watchlist.has(listKey(t)),
+  lists: (t) => library.listed.has(listKey(t)),
   "in-progress": (t) => t.started && !t.watched,
   watched: (t) => t.watched,
   kept: (t) => heldTile(t),
@@ -411,7 +478,6 @@ async function titlePage(key, season) {
 
   const next = nextIndex(items);
   const resuming = items[next] && items[next].position > 0 && !items[next].watched;
-  const listed = library.watchlist.has(isSeries ? `${key}#${season}` : key);
   const allWatched = items.length > 0 && items.every((i) => i.watched);
   const nextLabel = !items[next] ? "Play" : isSeries
     ? `${resuming ? "Resume" : "Play"} ${items[next].label}`
@@ -424,8 +490,7 @@ async function titlePage(key, season) {
   const actions = el("div", { class: "actions" },
     resuming ? el("button", { type: "button", disabled: !quality, onclick: () => play(next, true) }, "⏮ Start Over") : null,
     el("button", { class: "primary", type: "button", disabled: !quality, onclick: () => play(next) }, "▶ " + nextLabel),
-    el("button", { class: "mark", type: "button", "aria-pressed": listed, onclick: async () => { await api("watchlist", { key: isSeries ? `${key}#${season}` : key, on: !listed }); await reload(); route(); } },
-      listed ? "★ On Watchlist" : "☆ Watchlist"),
+    ...listsMenu(isSeries ? `${key}#${season}` : key),
     el("button", { class: "mark", type: "button", "aria-pressed": allWatched, onclick: async () => {
       for (const i of items) await api("watched", { item: `${key}/${i.key}`, watched: !allWatched });
       await reload(); route();
@@ -928,7 +993,7 @@ addEventListener("keydown", (e) => {
   e.preventDefault();
 });
 
-// Routing: #home, #movies, #series, #watchlist, #in-progress, #watched,
+// Routing: #home, #movies, #series, #lists, #in-progress, #watched,
 // #title/<key>[/<season>].
 
 async function route() {

@@ -6,7 +6,7 @@ import TVServices
 import UniformTypeIdentifiers
 
 /// What the Top Shelf extension shows, written where it can read it (the
-/// app group's container): Continue Watching, then the watchlist, as
+/// app group's container): Continue Watching, then each list, as
 /// Home's rows, each title with its cover as a JPEG beside the list. The
 /// extension reads `TopShelf/ContentProvider.swift`'s copy of this shape.
 enum TopShelfPublisher {
@@ -56,10 +56,8 @@ enum TopShelfPublisher {
         guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else { return }
         let directory = container.appending(path: "TopShelf", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let rows = [
-            ("Continue Watching", Array(Shelf.home.tiles(in: library).prefix(most))),
-            ("Watchlist", Array(library.perTitle(Shelf.watchlist.tiles(in: library)).prefix(most))),
-        ]
+        let rows = [("Continue Watching", Array(Shelf.home.tiles(in: library).prefix(most)))]
+            + library.lists.map { ($0.name, Array(library.perTitle(Shelf.list($0.id).tiles(in: library)).prefix(most))) }
         var sections: [Content.Section] = []
         for (title, tiles) in rows where !tiles.isEmpty {
             var items: [Content.Item] = []

@@ -1,7 +1,7 @@
 #if os(tvOS)
 import SwiftUI
 
-/// The tab bar: Home, Movies, Series, Watchlist, Watched, Settings, and
+/// The tab bar: Home, Movies, Series, Lists, Watched, Settings, and
 /// Search, each shelf a navigation stack opening titles' detail pages.
 struct Browser: View {
     /// A tab: a shelf, search, or settings.
@@ -23,6 +23,8 @@ struct Browser: View {
                     Stack(opening: shelf == .home ? $opening : nil) {
                         if shelf == .home {
                             HomeView()
+                        } else if shelf == .lists {
+                            ListsView()
                         } else {
                             // A page per series (its seasons are there), so a
                             // cover per title.
@@ -96,21 +98,57 @@ private struct Stack<Content: View>: View {
 }
 
 /// Rows of what to watch: in progress (movies partway, seasons begun), then
-/// the watchlist.
+/// each list.
 private struct HomeView: View {
     @Environment(Library.self) private var library
 
     var body: some View {
         let going = Shelf.home.tiles(in: library)
-        let listed = library.perTitle(Shelf.watchlist.tiles(in: library))
+        let lists = library.lists.map { ($0, library.perTitle(Shelf.list($0.id).tiles(in: library))) }.filter { !$0.1.isEmpty }
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 50) {
-                if going.isEmpty && listed.isEmpty {
+                if going.isEmpty && lists.isEmpty {
                     ContentUnavailableView("Nothing in Progress", systemImage: "play.rectangle", description: Text(Shelf.home.empty))
                         .frame(maxWidth: .infinity)
                 }
                 if !going.isEmpty { Row(title: "Continue Watching", tiles: going) }
-                if !listed.isEmpty { Row(title: "Watchlist", tiles: listed) }
+                ForEach(lists, id: \.0.id) { list, tiles in Row(title: list.name, tiles: tiles) }
+            }
+            .padding(.vertical, 40)
+        }
+    }
+}
+
+/// Each list, a row apiece, by name, with New List; a list's own Rename
+/// and Delete in its heading's menu.
+private struct ListsView: View {
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 50) {
+                Button("New List", systemImage: "plus") { library.listPrompt = .init(kind: .create(adding: nil)) }
+                if library.lists.isEmpty {
+                    ContentUnavailableView("No Lists", systemImage: "star", description: Text("Make a list to keep titles in, as a watchlist or favorites."))
+                        .frame(maxWidth: .infinity)
+                }
+                ForEach(library.lists) { list in
+                    let tiles = library.perTitle(Shelf.list(list.id).tiles(in: library))
+                    VStack(alignment: .leading, spacing: 20) {
+                        Menu {
+                            Button("Rename…", systemImage: "pencil") { library.listPrompt = .init(kind: .rename(list)) }
+                            Button("Delete List…", systemImage: "trash", role: .destructive) { library.deletingList = list }
+                        } label: {
+                            Text(list.name).font(.title3.weight(.semibold))
+                        }
+                        if tiles.isEmpty {
+                            Text("Titles you add to this list show here.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Row(title: nil, tiles: tiles)
+                        }
+                    }
+                }
             }
             .padding(.vertical, 40)
         }
@@ -118,12 +156,13 @@ private struct HomeView: View {
 }
 
 private struct Row: View {
-    let title: String
+    /// None where a heading above gives it.
+    let title: String?
     let tiles: [Tile]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(title).font(.title3)
+            if let title { Text(title).font(.title3) }
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 40) {
                     ForEach(tiles) { Poster(tile: $0).frame(width: 240) }
@@ -204,9 +243,13 @@ struct Poster: View {
         .buttonStyle(.borderless)
         // Pressed and held: a series' tile stands for the whole series.
         .contextMenu {
-            let listed = library.isListed(tile, anySeason: true)
-            Button(listed ? "Remove from Watchlist" : "Add to Watchlist", systemImage: listed ? "star.slash" : "star") {
-                library.setListed(tile, !listed, anySeason: true)
+            // A series' tile stands for the whole series.
+            Menu("Add to List", systemImage: "star") {
+                ForEach(library.lists) { list in
+                    Toggle(list.name, isOn: Binding(get: { library.isListed(tile, on: list, anySeason: true) }, set: { library.setListed(tile, on: list, $0, anySeason: true) }))
+                }
+                Divider()
+                Button("New List…") { library.listPrompt = .init(kind: .create(adding: library.listKey(for: tile, anySeason: true))) }
             }
             // Unwatched forgets where you stopped, too.
             if !tile.watched {

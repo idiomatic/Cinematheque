@@ -270,3 +270,11 @@ nonisolated extension URL {
         return appending(path: path)
     }
 }
+
+/// One of this person's lists (a Watchlist, Favorites): movies' title keys
+/// and seasons' tiles (`<title key>#<season>`).
+nonisolated struct UserList: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let titles: [String]
+}

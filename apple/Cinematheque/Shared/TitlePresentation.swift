@@ -143,23 +143,18 @@ extension Library {
     }
 }
 
-/// The watchlist and watched marks of a movie or a season, as two buttons
-/// for the platform to lay out and style.
+/// The lists and watched marks of a movie or a season, for the platform
+/// to lay out and style.
 struct Marks: View {
     let detail: TitleDetail
     let items: [TitleDetail.Item]
-    /// The season they're of, which is on the watchlist on its own.
+    /// The season they're of, which goes on a list on its own.
     var season: Int? = nil
     @Environment(Library.self) private var library
 
     var body: some View {
-        let key = Library.watchlistKey(detail.key, season: season)
-        let listed = library.watchlist.contains(key)
         let watched = !items.isEmpty && items.allSatisfy(\.watched)
-        Button(listed ? "On Watchlist" : "Watchlist", systemImage: listed ? "star.fill" : "star") {
-            library.setWatchlisted(key, !listed)
-        }
-        .help(listed ? "Remove from your watchlist" : "Add to your watchlist")
+        ListsMenu(key: Library.listKey(detail.key, season: season))
         // A status that pressing toggles: it shows whether it's watched.
         Button(watched ? "Watched" : "Unwatched", systemImage: watched ? "checkmark.circle.fill" : "circle") {
             library.setWatched(items, of: detail, !watched)
@@ -193,5 +188,88 @@ struct CoverMarks: View {
             .symbolRenderingMode(.palette)
             .foregroundStyle(.white, color)
             .shadow(color: .black.opacity(0.3), radius: 2)
+    }
+}
+
+/// A movie's or a season's lists, as a menu: its star filled if it's on
+/// any, its name the same whatever it's on, so nothing beside it moves.
+struct ListsMenu: View {
+    let key: String
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        let on = library.lists(holding: key)
+        Menu {
+            ListToggles(key: key)
+        } label: {
+            Label("Lists", systemImage: on.isEmpty ? "star" : "star.fill")
+        }
+        .help(on.isEmpty ? "Add to a list" : "On " + on.map(\.name).joined(separator: ", "))
+    }
+}
+
+/// A menu's lists, each checked if `key` is on it, chosen to put it on or
+/// take it off; then New List…, putting it on the new one.
+struct ListToggles: View {
+    let key: String
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        ForEach(library.lists) { list in
+            Toggle(list.name, isOn: Binding(get: { list.titles.contains(key) }, set: { library.setListed(key, on: list.id, $0) }))
+        }
+        Divider()
+        Button("New List…") { library.listPrompt = .init(kind: .create(adding: key)) }
+    }
+}
+
+/// Asking for a list's name: a new one's (to put a title on, if given), or
+/// another for one.
+struct ListPrompt: Identifiable {
+    enum Kind {
+        case create(adding: String?)
+        case rename(UserList)
+    }
+
+    let id = UUID()
+    let kind: Kind
+}
+
+/// Answers the library's requests about lists, from wherever they came:
+/// a list's name, in an alert with a field, and deleting one, confirmed
+/// first, as it's for good.
+struct ListRequests: ViewModifier {
+    @Environment(Library.self) private var library
+    @State private var name = ""
+
+    func body(content: Content) -> some View {
+        let renaming: UserList? = if case .rename(let list) = library.listPrompt?.kind { list } else { nil }
+        content
+            .alert(renaming == nil ? "New List" : "Rename List", isPresented: Binding(get: { library.listPrompt != nil }, set: { if !$0 { library.listPrompt = nil } })) {
+                TextField("Name", text: $name)
+                Button("Cancel", role: .cancel) {}
+                Button(renaming == nil ? "Create" : "Rename") { answer() }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .onChange(of: library.listPrompt?.id) { name = renaming?.name ?? "" }
+            .confirmationDialog("Delete “\(library.deletingList?.name ?? "")”?", isPresented: Binding(get: { library.deletingList != nil }, set: { if !$0 { library.deletingList = nil } }), titleVisibility: .visible) {
+                Button("Delete List", role: .destructive) {
+                    if let list = library.deletingList { library.removeList(list.id) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Its titles stay in the library. This can’t be undone.")
+            }
+    }
+
+    private func answer() {
+        guard let prompt = library.listPrompt else { return }
+        let named = name.trimmingCharacters(in: .whitespaces)
+        switch prompt.kind {
+        case .create(let key):
+            if let id = library.createList(named: named), let key { library.setListed(key, on: id, true) }
+        case .rename(let list):
+            library.renameList(list.id, to: named)
+        }
     }
 }

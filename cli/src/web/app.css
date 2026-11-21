@@ -116,6 +116,17 @@ main > div:first-child > .series-name:first-child { margin-top: 0; }
 button.mark { background: none; border-color: transparent; color: var(--dim); padding: 7px 8px; }
 button.mark:hover { color: var(--text); }
 button.mark[aria-pressed="true"] { color: var(--text); }
+/* A list's name with its Rename and Delete beside it. */
+.list-heading { display: flex; align-items: center; gap: 2px; margin: 24px 0 12px; }
+.list-heading h2 { margin: 0 6px 0 0; }
+.dim { color: var(--dim); }
+/* The Lists menu, under its button where browsers anchor popovers: one
+   list to a row, checked if the title's on it. */
+button[popovertarget="lists-menu"] { anchor-name: --lists; }
+#lists-menu { position-anchor: --lists; inset: auto; top: anchor(bottom); left: anchor(left); margin-top: 4px; }
+.menu { margin: 0; padding: 6px; border-radius: 10px; border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); background: Canvas; color: inherit; box-shadow: 0 8px 24px rgb(0 0 0 / 0.25); }
+.menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 12px; white-space: nowrap; }
+.menu button:hover { background: var(--raised); }
 .heading { display: flex; gap: 12px; align-items: center; margin: 24px 0 4px; max-width: 80ch; }
 .heading h2 { margin: 0; font-size: 17px; }
 .quality { display: flex; gap: 10px; align-items: center; margin: 16px 0 0; }

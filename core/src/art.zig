@@ -857,26 +857,6 @@ fn coverOf(value: ?[]const u8) ?Cover {
     return if (c.length > 0) c else null;
 }
 
-fn watchlistKey(replica: *Replica, arena: std.mem.Allocator) ![]u8 {
-    return std.fmt.allocPrint(arena, "p/{s}/watchlist", .{std.fmt.bytesToHex(replica.personKey(), .lower)});
-}
-
-/// Adds a title to this person's watchlist, or removes it; private to the
-/// person's devices.
-pub fn setWatchlisted(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, title_key: []const u8, on: bool) !void {
-    try replica.writePrivate(wall_ms, try watchlistKey(replica, arena), &.{.{ title_key, if (on) "1" else "" }});
-}
-
-/// The titles on this person's watchlist.
-pub fn watchlist(replica: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
-    var out: std.ArrayList([]const u8) = .empty;
-    const s = try replica.db.prepare("SELECT field FROM winners WHERE key = ?1 AND value = CAST('1' AS BLOB) ORDER BY field");
-    defer s.finalize();
-    try s.bindText(1, try watchlistKey(replica, arena));
-    while (try s.step()) try out.append(arena, try arena.dupe(u8, s.blob(0)));
-    return out.items;
-}
-
 test "covers round-trip, and a season without one takes its series'" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
@@ -922,11 +902,6 @@ test "covers round-trip, and a season without one takes its series'" {
     try std.testing.expectEqual(@as(u64, 4_800_000), timed[0].total);
     try std.testing.expectEqual(@as(usize, 2), timed[0].items);
     try std.testing.expect(!timed[0].watched);
-
-    try setWatchlisted(&r, arena, 2, "t/s/firefly/-", true);
-    try std.testing.expectEqual(@as(usize, 1), (try watchlist(&r, arena)).len);
-    try setWatchlisted(&r, arena, 3, "t/s/firefly/-", false);
-    try std.testing.expectEqual(@as(usize, 0), (try watchlist(&r, arena)).len);
 }
 
 test "a title in several sources is described once, from its best file, and kept while unchanged" {

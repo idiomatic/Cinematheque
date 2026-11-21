@@ -3,7 +3,7 @@
 const std = @import("std");
 const capi = @import("../capi.zig");
 const library = @import("../library.zig");
-const art = @import("../art.zig");
+const lists = @import("../lists.zig");
 const replica_ = @import("../replica.zig");
 const Replica = replica_.Replica;
 const Library = capi.Library;
@@ -45,26 +45,59 @@ fn removeProgress(lib: *Library, arena: std.mem.Allocator, item_key: []const u8)
     try library.removeProgress(r.replica, arena, lib.now(), item_key);
 }
 
-/// What's on this person's watchlist, as a JSON array of keys: a movie's
-/// title key, or a season's tile (`<title key>#<season>`).
-export fn cq_watchlist(lib: *Library) ?[*:0]u8 {
-    return json(lib, getWatchlist, .{});
+/// This person's lists, by name, as a JSON array of objects: `id`, `name`,
+/// and `titles`, each a movie's title key or a season's tile
+/// (`<title key>#<season>`).
+export fn cq_lists(lib: *Library) ?[*:0]u8 {
+    return json(lib, getLists, .{});
 }
 
-fn getWatchlist(lib: *Library, arena: std.mem.Allocator) ![]const []const u8 {
-    return art.watchlist(try lib.main(), arena);
+fn getLists(lib: *Library, arena: std.mem.Allocator) ![]const lists.List {
+    return lists.lists(try lib.main(), arena);
 }
 
-/// Adds a movie or a season (as `cq_watchlist` keys them) to this person's
-/// watchlist (nonzero `on`), or removes it.
-export fn cq_set_watchlisted(lib: *Library, title_key: [*:0]const u8, on: c_int) c_int {
-    return status(lib, setWatchlisted, .{ std.mem.span(title_key), on != 0 });
+/// Makes a list named `name`, returning its ID as a JSON string.
+export fn cq_list_create(lib: *Library, name: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, createList, .{std.mem.span(name)});
 }
 
-fn setWatchlisted(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, on: bool) !void {
+fn createList(lib: *Library, arena: std.mem.Allocator, name: []const u8) ![]const u8 {
     const r = try privateWriter(lib);
     defer if (r.locked) lib.writer.unlock(lib.io());
-    try art.setWatchlisted(r.replica, arena, lib.now(), title_key, on);
+    return lists.create(lib.io(), r.replica, arena, lib.now(), name);
+}
+
+export fn cq_list_rename(lib: *Library, id: [*:0]const u8, name: [*:0]const u8) c_int {
+    return status(lib, renameList, .{ std.mem.span(id), std.mem.span(name) });
+}
+
+fn renameList(lib: *Library, arena: std.mem.Allocator, id: []const u8, name: []const u8) !void {
+    const r = try privateWriter(lib);
+    defer if (r.locked) lib.writer.unlock(lib.io());
+    try lists.rename(r.replica, arena, lib.now(), id, name);
+}
+
+/// Deletes a list, for good.
+export fn cq_list_remove(lib: *Library, id: [*:0]const u8) c_int {
+    return status(lib, removeList, .{std.mem.span(id)});
+}
+
+fn removeList(lib: *Library, arena: std.mem.Allocator, id: []const u8) !void {
+    const r = try privateWriter(lib);
+    defer if (r.locked) lib.writer.unlock(lib.io());
+    try lists.remove(r.replica, arena, lib.now(), id);
+}
+
+/// Puts a movie or a season (as `cq_lists` keys them) on the list `id`
+/// (nonzero `on`), or takes it off.
+export fn cq_set_listed(lib: *Library, id: [*:0]const u8, title_key: [*:0]const u8, on: c_int) c_int {
+    return status(lib, setListed, .{ std.mem.span(id), std.mem.span(title_key), on != 0 });
+}
+
+fn setListed(lib: *Library, arena: std.mem.Allocator, id: []const u8, title_key: []const u8, on: bool) !void {
+    const r = try privateWriter(lib);
+    defer if (r.locked) lib.writer.unlock(lib.io());
+    try lists.setListed(r.replica, arena, lib.now(), id, title_key, on);
 }
 
 /// The main connection, for private writes, which need the writer lock only

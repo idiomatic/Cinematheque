@@ -1,6 +1,6 @@
 import TVServices
 
-/// The Top Shelf: Continue Watching, then the watchlist, as the app last
+/// The Top Shelf: Continue Watching, then each list, as the app last
 /// wrote them to the app group's container (`TopShelfPublisher`, whose
 /// shape `Content` copies), each item opening its title's page.
 final class ContentProvider: TVTopShelfContentProvider {
