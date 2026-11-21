@@ -251,7 +251,9 @@ struct SeriesInspectorView: View {
                             Text("Up next: \(name)").font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    let facts = detail.facts(season: nil)
+                    // A series' (no runtime, which a movie's facts give as
+                    // its first item's).
+                    let facts = detail.facts(season: up?.season ?? 0)
                     if !facts.isEmpty { Text(facts).foregroundStyle(.secondary) }
                     if let description = detail.fields["description"] {
                         Text(description).textSelection(.enabled)
