@@ -11,7 +11,7 @@ const json = capi.json;
 const span = capi.span;
 
 /// The sources, as a JSON array of objects with `id`, `url`,
-/// `quality`, `skip`, `copies`, `managed` (a device's downloads), and
+/// `quality`, `by_folder`, `skip`, `copies`, `managed` (a device's downloads), and
 /// `unavailable`, its unavailable directories
 /// (`dir`, relative to it, empty for the whole of it, and `since`, in
 /// milliseconds since the epoch). Any thread, on a connection of its own,

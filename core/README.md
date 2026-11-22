@@ -6,7 +6,7 @@ Cinematheque's core, a Zig library: the replicated library and what devices need
 zig build test
 ```
 
-It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` also makes a static library, `libcinematheque.a`, with a C interface ([cinematheque.h](include/cinematheque.h), [capi.zig](src/capi.zig)) whose results are JSON, for apps in other languages. Swift imports it as `CCinematheque`, by its [module map](include/module.modulemap).
+It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` also makes a static library, `libcinematheque.a`, with a C interface ([cinematheque.h](include/cinematheque.h), [capi.zig](src/capi.zig), documented in [include/README.md](include/README.md)) whose results are JSON, for apps in other languages. Swift imports it as `CCinematheque`, by its [module map](include/module.modulemap).
 
 ## Modules
 

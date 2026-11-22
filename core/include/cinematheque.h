@@ -1,13 +1,13 @@
 // Cinematheque's core, for apps in C and languages that call it (Swift).
 // Results are JSON strings, freed with cq_free; on failure, functions
-// return NULL or -1, and cq_error says why. See src/capi.zig, which
-// documents each result's form.
+// return NULL or -1, and cq_error says why. See README.md beside this
+// file, which documents each function and result's form.
 //
 // Functions belong to one thread, the app's main one, except the long ones
 // (cq_crawl, cq_sync, cq_describe) and those marked "any thread", which
 // may run on any thread. While a
 // long one runs, other changes to the library fail with "Busy"; progress
-// and the watchlist don't wait.
+// and private lists don't wait.
 
 #ifndef CINEMATHEQUE_H
 #define CINEMATHEQUE_H
@@ -175,7 +175,7 @@ int cq_list_share(cq_library *library, const char *id, int on);
 int cq_serve(cq_library *library, int port, const char *folders_json);
 void cq_stop_serving(cq_library *library);
 
-// Names, shown in place of keys: this person's ("user") or this device's
+// Names, shown in place of keys: this person's ("person") or this device's
 // ("device"); this person's named devices; devices found nearby (long: it
 // listens for 2 seconds) and added by address, with their names, whether
 // they're of this library and their people members; and adding (nonzero

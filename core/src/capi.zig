@@ -1,7 +1,7 @@
 //! A C interface to the library, for apps in other languages (Swift, for the
 //! Apple players). Results are JSON strings, freed with `cq_free`; on
 //! failure, functions return null (or -1) and `cq_error` says why. See
-//! include/cinematheque.h.
+//! include/cinematheque.h, and include/README.md, which documents it.
 //!
 //! Threads: functions on a library, except those marked as long, belong to
 //! one thread (the app's main one), on the library's own connection. Long

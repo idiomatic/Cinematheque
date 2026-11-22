@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Core: the C interface documented, each function and the form of its result, in core/include/README.md.
 * Docs: tightened, each point stated once, long sentences split, and what had gone stale brought up to date.
 * Apple: signing set in Signing.xcconfig rather than the target, so a team in Local.xcconfig isn't hidden by one Xcode left blank.
 * A prototype iPhone app, in the same multiplatform app: a tab bar of Home, Movies, Series, Lists, and Search, title pages, and playing; setting up, Settings, and downloading are still to come.

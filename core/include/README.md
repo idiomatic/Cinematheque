@@ -1,0 +1,189 @@
+# The C interface
+
+The core's interface for apps in other languages: [cinematheque.h](cinematheque.h), exported by [capi.zig](../src/capi.zig) and its parts in [capi/](../src/capi), built into `libcinematheque.a` by `zig build`. Swift imports it as `CCinematheque`, by its [module map](module.modulemap). [AGENTS.md](../../AGENTS.md#core-interface) specifies what it does; this is how to call it.
+
+## Conventions
+
+* **The handle:** `cq_open` opens a device's data directory and returns a `cq_library *`, or NULL; `cq_close` stops serving and pairing and frees it. The directory may hold no library yet: `cq_status`'s `library` is null until `cq_found` creates one or pairing joins one.
+* **Strings in** are NUL-terminated UTF-8, copied if kept, so the caller may free them once a call returns. Keys are lowercase hex (64 digits for a person's or a device's). Lists of strings go in as JSON arrays.
+* **Results** are JSON, every string valid UTF-8 (a name that isn't, from a Latin-1 file, gets U+FFFD for its bad bytes). Each `char *` returned is the caller's, freed with `cq_free` (which takes NULL). A result may be JSON `null`, as `cq_served`'s before any sync.
+* **Failure:** a function returning `char *` returns NULL, one returning `int` returns -1 (else 0, or a count or port as said), and `cq_error` says why: a Zig error's name, such as `Busy`, `NoLibrary`, or `WrongCode`. It's per thread, so read it on the thread that failed, before its next call. Functions returning `void` can't fail, or fail silently where nothing hangs on them (`cq_race_warm`, `cq_race_lost`).
+* **Threads:** functions belong to one thread, the app's main one, on the library's own connection, unless marked *any thread* or *long* below. A long one (crawling, syncing, describing, pairing, looking for devices, reconciling downloads) blocks until done, so call it off the main thread; each runs on a connection of its own. The main connection catches up with other connections' writes before it acts.
+* **Writing:** one connection writes as this device at a time. While a long operation writes, most other changes fail with `Busy` rather than wait: try again once it's done. Progress, and changes to a list of this person's that isn't shared, don't need to wait, and don't fail (but for this device's first private write, which certifies its private stream). `cq_downloads_configure` and `cq_describe` wait their turn instead.
+* **Reloading:** a long operation commits as it goes. `cq_data_version` changes once another connection has committed, so poll it and reload (`cq_tiles`, `cq_title`) when it does; `cq_steps` says how far the operation has come. A device that pushes to this one changes `cq_received`.
+* **Leaving:** `cq_leave` refuses with `Busy` while another thread has a connection open; none opens while it leaves.
+
+## Errors
+
+The names the apps put in words, and what they mean:
+
+| Error | Meaning |
+|---|---|
+| `Busy` | Another connection is writing as this device (a long operation), or one is open while leaving |
+| `NoLibrary` | This device has no library yet |
+| `LibraryExists` | It has one already (founding, or offering to pair) |
+| `WrongCode` | Pairing: the code doesn't match the one shown |
+| `Closed` | Pairing: the new device stopped offering, after too many wrong codes |
+| `Removed` | A sync: this device was removed from the library; call `cq_leave` |
+| `NotAMember` | A sync: the other device refused this one as not a member |
+| `Refused` | The other device refused a request (it may be too old) |
+| `Stale` | The two devices' clocks are more than ten minutes apart |
+| `WrongRecipient` | Another device answered at that address |
+| `FoundersDevice` | Only the founder's devices may remove the founder's devices |
+| `PathTaken` | Downloading: another file is where this one would go |
+| `BadAddress` | Not a web address (http or https, with a host, and no query or fragment) |
+| `TooMany`, `TooDeep` | Crawling: a source lists more than any library holds, or nests too deeply |
+| `InvalidArgument` | An argument isn't of the form the function takes |
+
+Others are the system's or the network's (`ConnectionRefused`, `ConnectionTimedOut`, `Timeout`, `UnknownHostName`, `HostUnreachable`, `NetworkUnreachable`, `AccessDenied`, ...).
+
+## Opening and the build
+
+| Function | What it does |
+|---|---|
+| `cq_open(data_dir)` | Opens `data_dir`; if NULL, `$CINEMATHEQUE_DATA`, else the default (see [AGENTS.md](../../AGENTS.md#identity-and-membership)) |
+| `cq_close(library)` | Stops serving and pairing, and frees the handle |
+| `cq_version()` | *Any thread.* What the build is, as `/version` serves it: `{"version", "mode", "zig"}` (what it was built from, as `git describe` gives it; its optimizing; and Zig's version) |
+| `cq_error()` | Why the last call on this thread failed (not freed) |
+| `cq_free(text)` | Frees a result |
+
+## Identity and membership
+
+| Function | What it does |
+|---|---|
+| `cq_status(library)` | This device: `person` (its person's key), `paired` (acting as another of its person's devices), `library` (the library's ID, or null), `founder` (the founder's person key, or null), `members` (how many), `others` (how many other devices its person has, not removed), and `crawl_every` (the library's interval in hours, 0 for only when asked) |
+| `cq_found(library)` | Creates a library, founded by this person |
+| `cq_members(library)` | The members: an array of `{key, name, founder, you}`, `name` null if unset |
+| `cq_member(library, person_key, add)` | Adds (nonzero `add`) a person as a member, or removes one, for good |
+| `cq_remove_device(library, device_key)` | Removes another device: its writes past where this one has seen them are refused everywhere, and it's served no more |
+| `cq_remove_self(library, successor)` | Removes this device, as it leaves: first handing the library over to `successor` (a person's key, or NULL), if this person founded it; then cutting off its streams just past these writes. Sync so another device takes the removal, then `cq_leave` |
+| `cq_leave(library)` | Forgets the library and this device's identity (seeds and replica), stopping serving and pairing, so it can pair again as a new device |
+
+## Pairing
+
+A new device offers to be added and shows a code; a member's device, given the code, adds it.
+
+| Function | What it does |
+|---|---|
+| `cq_pair_offer(library, name)` | On a device with no library: offers to be added, serving `/pair` and advertising it by DNS-SD as `name`, until paired or stopped. Returns its state, as `cq_pair_check` does, with a new code; offering again starts over with another |
+| `cq_pair_check(library)` | The offer's state: `{code, paired, closed}`: `code` to show while offering (else null); `paired` once it has the library (and, if added as another of a person's devices, that person); `closed` once it stopped after too many wrong codes. Poll it while showing the code |
+| `cq_pair_stop(library)` | Stops offering |
+| `cq_pair(library, url, join, code)` | *Long.* On a member's device: adds the device offering at `url` (a `cq_nearby` result whose `pairing` is set), given its code, as another of this person's devices, or with nonzero `join`, as a new member's. Returns `{person, device}`: this person's key (else the new member's, to add by `cq_member`) and the new device's (to name by `cq_name`). Fails with `WrongCode` or `Closed` |
+
+## Names and devices
+
+| Function | What it does |
+|---|---|
+| `cq_set_name(library, which, name)` | Names this person (`which` `"person"`) or this device (`"device"`), for every device to show in place of keys |
+| `cq_name(library, device_key, person_key, name)` | Names another device, as `person_key`'s (one just paired, until it names itself) |
+| `cq_devices(library)` | This person's named devices, not removed: an array of `{key, name, you}` |
+| `cq_nearby(library)` | *Long* (it listens for 2 seconds). Devices found by DNS-SD, other than this one, then those added by address: an array of `{url, device, host, person, person_key, ours, member, added, pairing}`: `url` to sync or pair with; `device` and `person`, their advertised names (or null); `host`, as DNS-SD resolved it (an Apple TV's own name, as tvOS tells apps only "Apple TV"); `person_key`; `ours` (of this library); `member` (its person is one); `added` (by address); and `pairing` (`"new"` for a new device offering to be added, else null) |
+| `cq_device_address(library, url, add)` | Adds (nonzero `add`) or forgets a device's address, such as one off the network, which syncing then reaches too; on this device only |
+
+## Sources
+
+| Function | What it does |
+|---|---|
+| `cq_repos(library)` | *Any thread,* on a connection of its own (counting copies reads every one). The sources: an array of `{id, url, quality, by_folder, skip, copies, managed, unavailable}`: `managed` for a device's downloads; `unavailable` its unavailable directories, `{dir, since}` (`dir` relative to the source, empty for the whole of it; `since` in milliseconds since the epoch) |
+| `cq_repo_add(library, url, quality, skip)` | Adds a source by URL, as typed (percent-encoded, a `/` added at its end), with a quality name and a prefix of names to skip, each NULL for the default |
+| `cq_repo_set(library, source, quality, skip)` | Changes a source's settings, those not NULL; applied at the next crawl |
+| `cq_repo_quality_by_folder(library, source, on)` | Whether a source's files take their quality from the first folder within it (nonzero), else from its name or the files'; copies move at the next crawl |
+| `cq_repo_remove(library, source)` | Removes a source (by ID or URL) and its copies, for every device |
+| `cq_remove_unavailable(library, source, dir)` | Removes an unavailable directory's copies, as if deleted |
+
+## Crawling, syncing, and describing
+
+| Function | What it does |
+|---|---|
+| `cq_crawl(library)` | *Long.* Crawls every source but devices' downloads, committing each as it goes, then describes what's new (covers and metadata), prioritized titles first. Returns an array, one per source, of `{url, files, titles, covers, error, crawl_ms, total_ms, requests, reused, changed, lately, manual}`: `error` null or why its crawl failed; `titles` added; `covers` always 0; listing's and the whole crawl's times; listings read and reused; copies added, changed, or removed |
+| `cq_crawl_full(library)` | *Long.* As `cq_crawl`, listing every directory afresh, so files rewritten in place (retagged) are seen |
+| `cq_crawl_due(library)` | *Long.* As `cq_crawl`, for a refresh not asked for, once synced: skips sources a device crawled within the library's interval, give or take a 24th of it (`lately`), or every source, if it's crawled only when asked (`manual`) |
+| `cq_crawl_every(library, hours)` | Sets the library's interval, for every device: 1, 3, 24 (the default), or 168 hours, or 0 for only when asked |
+| `cq_sync(library, url)` | *Long.* Syncs with the device at `url`, or if NULL, every device of this library found or added. Returns an array of `{url, name, new, sent, error}`: the device's advertised name, operations won and pushed, and `error` (null, or why; `Removed` means this device was) |
+| `cq_sync_known(library)` | *Long.* As `cq_sync` with every device, but with those the last such sync found (and those added), without looking for them again, unless none has; for a change to reach other devices at once |
+| `cq_describe(library, item_key)` | *Long.* Reads an item's metadata (an episode's title, description, and duration) from its first copy, if an MP4 |
+| `cq_prioritize(library, title_keys_json)` | *Any thread.* The titles a crawl describes first, a JSON array of title keys (those on screen) |
+| `cq_data_version(library)` | A number that changes when another connection has committed; -1 with no library |
+| `cq_steps(library)` | *Any thread.* How far the long operation running has come: `{phase, done, total}`, `phase` `"crawling"`, `"describing"`, `"syncing"`, or null |
+
+## Serving
+
+| Function | What it does |
+|---|---|
+| `cq_serve(library, port, folders_json)` | Serves the library to devices and folders as sources (a JSON array of `{prefix, path}`: the path each is served at, and the folder), on `port`, else 8008, else any free port, advertised by DNS-SD, on a task of its own until stopped or closed. Returns once listening, with the port; serving again restarts it |
+| `cq_stop_serving(library)` | Stops serving |
+| `cq_served(library)` | The last sync served: `{device, name, operations, at}` (the device's key and name, operations sent, and when, in milliseconds since the epoch), or `null` |
+| `cq_received(library)` | The last push taken, in the same form (operations won); reload when it changes |
+
+## Browsing
+
+| Function | What it does |
+|---|---|
+| `cq_tiles(library)` | *Any thread,* on a connection of its own (it reads the whole catalog). The tiles, below |
+| `cq_title(library, key)` | One title, below; fails with `NoSuchTitle` |
+| `cq_thumbhash(hash_base64, rgba, width, height)` | *Any thread.* Renders a tile's `thumb` into `rgba` (32×32×4 bytes: RGBA, not premultiplied, 32 pixels on its longer side), setting `width` and `height`. Returns 0, or -1 if it isn't a ThumbHash |
+
+A **tile** is a movie or a season, with this person's progress ([views.zig](../src/views.zig)):
+
+| Field | |
+|---|---|
+| `key`, `name`, `year` | The title's key, name, and year (or null) |
+| `kind`, `season` | `"movie"` or `"series"`; a season's number, else null |
+| `cover` | Null, or `{url, offset, length, stamp}`: a byte range to fetch, and what changes when it does |
+| `thumb` | Null, or the cover's placeholder, a ThumbHash in base64 (`"-"` for a cover not a JPEG) |
+| `watched`, `progress`, `elapsed`, `runtime`, `started` | Every item watched; the share of its running time played (0 to 1); milliseconds played, of how many; whether any item has progress |
+| `items`, `unavailable` | How many items it holds; whether every copy it has is unavailable |
+| `order` | Its title's place in each order, `{title, released, added, modified, watched}`, each counted from what comes first in the order's usual direction, null for no place (see [AGENTS.md](../../AGENTS.md#library)) |
+
+A **title**: `key`, `name`, `year`, `aliasOf` (the key it's an alias of, or null), `aliases`, `fields` (its metadata: `description`, `genre`, `released`, ...), `covers` (by field, `art` or `art:s01`..., each as a tile's `cover`), `seasons` (a series', in order, specials, 0, last), and `items`, in order (each season's episodes by number, specials last), each with:
+
+| Field | |
+|---|---|
+| `key` | The item's key |
+| `season`, `number`, `aired` | An episode's season and number (a special's number null; a dated one's season its year, its number its month and day, and `aired` its date, `YYYY-MM-DD`) |
+| `label`, `name`, `version` | What to call it: "Episode 3", "Special", "March 12", or a version's name; its name in a list ("3. Title"); a movie's item's version ("Standard", "Extended"), empty for an episode |
+| `fields` | Its metadata (an episode's `title`, `description`, `duration`) |
+| `position`, `duration`, `watched` | This person's progress, in milliseconds |
+| `next` | Whether Play plays it, of its season or of the movie's versions |
+| `described` | Whether it was described from one of its files as that file is now; else describe it (`cq_describe`) as it's shown |
+| `qualities` | Each `{label, name, short, height, copies}`: as keyed, as its sources name it, for a picker ("4K HDR"), its resolution's lines (or null); `copies` each `{url, size, mtime, source, unavailable}`, `url` ready to play |
+
+## Copy racing
+
+| Function | What it does |
+|---|---|
+| `cq_race(library, urls_json)` | *Long* (up to 1.5 seconds), *any thread.* Takes a JSON array of an item's copies' URLs, in the order a player would try them, and returns them in the order to try: those whose servers answer first; one that failed lately, last |
+| `cq_race_lost(library, url)` | *Any thread.* Notes that a copy didn't load, so its server goes last for a while |
+| `cq_race_warm(library, urls_json)` | *Long, any thread.* Looks up the names of the servers of a JSON array of URLs (the sources'), so the first race finds them answered |
+
+## Downloads
+
+This device's own: kept in a folder, and served as a source of its own that no device crawls.
+
+| Function | What it does |
+|---|---|
+| `cq_downloads_configure(library, dir, served_at)` | Sets the folder and the URL it's served at |
+| `cq_download(library, key, quality)` | Wants a title's, a season's (`<title key>/e/s01`), or an item's files kept, each item as of now, in `quality` (NULL or empty: the one most items have), until deleted |
+| `cq_download_next(library, title_key, choice)` | A series' choice of episodes: the next N after where this person is (`"3"`), the watched going as their space is needed; `"all"`, kept however watched; or `""` or `"0"`, none |
+| `cq_download_remove(library, key)` | Deletes a title's, season's, or item's files held here, and stops wanting them |
+| `cq_download_sizes(library, key, choices_json, quality)` | What downloading would come to, for each choice in a JSON array of strings (a series' choice for `key`, its title; or `""` for `key`'s own files in `quality`): an array of `{choice, size, needed}`, in bytes, `needed` what isn't here yet |
+| `cq_downloads(library)` | All of it: `{dir, source, held, wanted, next, ahead, free, floor, running, done_mb, total_mb, fetching}`: the folder and its source's ID (null if unset); `held`, each `{item, size, only}` (the only copy); `wanted`, `{key, quality}`; `next`, each series' `{title, choice}`; `ahead`, the items those choices come to now; free bytes (or null) and the floor kept free; whether reconciling runs, and its megabytes done of how many; and the file under way, `{item, done, size}`, or null |
+| `cq_reconcile(library)` | *Long,* on a connection of its own. Fetches, records, and deletes to match what's kept, then returns `{fetched, kept, deleted, failed, no_room, held, error, busy}` (`no_room`: files left to keep the floor free; `held`: files waiting while downloads are held). If one runs already, asks it to run again and returns at once with `busy` |
+| `cq_downloads_hold(library, on)` | *Any thread.* Holds new downloads back (nonzero) while a stream plays, or lets them go; one under way finishes |
+
+## Progress and lists
+
+This person's own, written on this device's private stream (see [AGENTS.md](../../AGENTS.md#library)).
+
+| Function | What it does |
+|---|---|
+| `cq_set_progress(library, item_key, position_ms, duration_ms)` | Records where this person stopped in an item (e.g., `t/m/alien/1979/v/-`); a position in the first 10 seconds empties it |
+| `cq_set_watched(library, item_key, watched)` | Marks an item watched (nonzero) or not; not empties the position too |
+| `cq_remove_progress(library, item_key)` | Removes this person's progress in an item: its position and watched mark |
+| `cq_lists(library)` | This person's lists, then other members' shared ones, each by name: an array of `{id, name, owner, ownerName, mine, shared, titles, wanted}`: another member's `id` is `<owner>/<id>`, and the Watchlist's `watchlist`; `owner`, its person's key; `ownerName`, another member's name, if set; `mine` (only its owner changes it); `shared` (every member sees it); `titles`, movies' title keys and seasons' tiles (`<title key>#<season>`); `wanted`, the placeholders among them, `{key, name, note}` |
+| `cq_list_create(library, name)` | Makes a list; returns its ID, as a JSON string |
+| `cq_list_rename(library, id, name)` | Renames a list of this person's |
+| `cq_list_remove(library, id)` | Deletes a list, for good |
+| `cq_set_listed(library, id, title_key, on)` | Puts a movie or season (keyed as `cq_lists` has them) on a list (nonzero `on`), or takes it off |
+| `cq_list_want(library, id, want_json)` | Puts a title not in the library yet on a list, as a placeholder: `want_json` is `{kind, name}` (`kind` `"movie"` or `"series"`), with `year`, `season` (a series', else the first), and `note` optional. Returns its key, as a JSON string, keyed as its file will be |
+| `cq_list_share(library, id, on)` | Shares a list of this person's with every member (nonzero `on`), or makes it theirs alone again |

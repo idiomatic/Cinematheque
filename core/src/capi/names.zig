@@ -99,10 +99,11 @@ fn removeSelf(lib: *Library, _: std.mem.Allocator, successor: ?[]const u8) !void
 /// Long (it listens for 2 seconds): the devices found on the network, by
 /// DNS-SD, other than this one, and those added by address, as a JSON
 /// array of objects with `url` (to sync with, or for one `pairing`, to pair
-/// with), `device` and `person` (their names, if advertised), `person` (key),
+/// with), `device` and `person` (their names, if advertised), `host` (as
+/// DNS-SD resolved it), `person_key`,
 /// `ours` (of this library), `member` (its person is one), `added`, and
-/// `pairing` (for a new device offering to pair, by `cq_pair`, what for:
-/// `pair`, to be another of this person's, or `join`, a new member's).
+/// `pairing` (`new`, for a new device offering to be added, by `cq_pair`;
+/// else null).
 export fn cq_nearby(lib: *Library) ?[*:0]u8 {
     return json(lib, nearby, .{});
 }

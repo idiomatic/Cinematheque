@@ -95,7 +95,7 @@ fn downloads(lib: *Library, arena: std.mem.Allocator) !download.Report {
 /// as it goes; if one runs already, asks it to run again and returns at
 /// once, with `busy`. Returns a JSON object with `fetched`, `kept`,
 /// `deleted`, `failed`, `no_room` (files left to keep the floor free),
-/// `error`, and `busy`.
+/// `held` (files waiting while downloads are held), `error`, and `busy`.
 export fn cq_reconcile(lib: *Library) ?[*:0]u8 {
     return json(lib, reconcile, .{});
 }
