@@ -19,6 +19,31 @@ Every device keeps its own copy of the catalog (the titles, their episodes and v
 * **On a Mac or an Apple TV,** build the app; [apple/README.md](apple/README.md) says how. It needs Xcode 27 or later.
 * **On the command line,** on macOS or Linux, build the command-line app; [cli/README.md](cli/README.md) says how, and how to use it. It builds and shares a library; run in the background, it keeps the library available to your other devices and to browsers.
 
+### Running a downloaded build
+
+[Releases](https://github.com/idiomatic/Cinematheque/releases) carry the Mac app and the command-line app, each with a `.sha256` file; check a download with `shasum -a 256 -c FILE.sha256` (`sha256sum -c` on Linux). The Apple TV and iPhone apps aren't released yet; build them from source.
+
+They aren't notarized yet, only signed to run locally, so macOS stops them the first time:
+
+* **The Mac app:** unzip it, move Cinematheque.app to Applications, and open it. macOS says it can't check it for malicious software; choose Done, then open System Settings › Privacy & Security, scroll to Security, choose Open Anyway beside Cinematheque, and confirm with your password. (Control-clicking and choosing Open no longer gets past this since macOS 15.) Or, in Terminal, clear the mark the download left, then open it as usual:
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Cinematheque.app
+  ```
+
+* **The command-line app on macOS:** a file downloaded in a browser carries the same mark; clear it, then run it:
+
+  ```sh
+  tar -xzf cinematheque-*.tar.gz
+  xattr -d com.apple.quarantine cinematheque
+  ./cinematheque --version
+  ```
+
+  One fetched with `curl` carries no mark.
+* **The command-line app on Linux:** it needs the system's SQLite and Avahi's compatibility library for DNS-SD: `apk add sqlite-libs avahi-compat-libdns_sd` (Alpine), `dnf install sqlite-libs avahi-compat-libdns_sd` (Fedora), or `apt install libsqlite3-0 libavahi-compat-libdnssd1` (Debian, Ubuntu), with Avahi's daemon running.
+
+The first time either app reaches your network, macOS asks to let it find devices on your local network; allow it, or it can't reach your NAS or your other devices (System Settings › Privacy & Security › Local Network changes it later).
+
 ## Preparing a source
 
 A source is a folder of videos your devices can reach over your network. The easiest is one you already have.

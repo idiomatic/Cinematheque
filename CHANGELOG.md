@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* README: running a downloaded build (checking its checksum, getting past macOS's first-run check, Linux's libraries, Local Network access); and a plan for showing the apps in the README, in DEVELOPMENT.md.
 * Mac: a season's inspector scrolls smoothly while its episodes are read from their files the first time. Download sizes no longer read the whole series again for each episode (about 7 times faster on a 115-episode series), and aren't worked out again as each episode is read.
 * Web client: a title page's Lists button shows a chevron, as a button opening a menu does, and tells screen readers it opens one.
 * Kinds and modes as enums, parsed once, rather than flags and strings: a title's kind, a list's mode (`mode` in lists' JSON, for lists every member changes, to come), why a crawl skipped a source (`skipped`), a long operation's phase in the apps, and where a source's quality comes from (`quality_from` in sources' JSON, set by `cq_repo_quality_from_names`, `cq_repo_quality_from_folder`, or `cq_repo_quality_named`; `cq_repo_skip` sets what to skip). A setting a newer device wrote keeps a source from being crawled rather than guessed at, and a folder's source moved to another port keeps its quality setting.
