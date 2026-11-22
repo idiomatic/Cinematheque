@@ -4,7 +4,7 @@ How agents working on this project at once share what they're doing and claim wh
 
 * **Worktrees:** every change, small fixes too, is made in a worktree of its own, on a branch (a detached one has nothing to merge), and lands on `main` by fast-forward; the main worktree's files are only merged into, never edited, so no agent's edits meet another's merge.
 * **Sessions:** `<root>/.coordination/sessions/<session>.md`, one per agent: its work, worktree, and claims; deleted when done. Read them all before starting.
-* **Locks:** `zig run .coordination/lock.zig -- COMMAND` (Zig 0.17, from any worktree) takes, renews, releases, and lists them. Each has an owner (the session), an expiry (30 minutes by default; renew long ones), and a note (`LOCK_NOTE`); an expired one may be taken over, as its owner may have crashed. They're advisory. Run from source, not prebuilt, so it can't go stale (about 70 ms cached).
+* **Locks:** `zig run .coordination/lock.zig -- COMMAND` (Zig 0.17, from any worktree) takes, renews, releases, and lists them. Locks are advisory. Each has an owner (the session), an expiry (30 minutes by default; renew long ones), and a note (`LOCK_NOTE`); an expired one may be taken over, as its owner may have crashed. The tool runs from source, not prebuilt, so it can't go stale (about 70 ms cached).
 * **What to lock:** shared resources, not files (worktrees keep those apart):
   * `main`: merging into `main`, folding, and proposing pushes; not building or testing, which a worktree does first
   * `data`: the shared data directory (`~/Library/Application Support/Cinematheque`), and [cli/test.sh](../cli/test.sh) runs using it

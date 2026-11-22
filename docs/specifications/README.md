@@ -1,6 +1,6 @@
 # Specifications
 
-External specifications and papers Cinematheque relies on. They're linked rather than collected, since their licenses don't clearly permit redistribution.
+External specifications and papers Cinematheque relies on. They're linked, not collected, since their licenses don't clearly permit redistribution.
 
 ## Sync
 
