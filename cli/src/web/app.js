@@ -749,19 +749,22 @@ async function deleteList(l) {
 /// which puts it on the new one.
 function listsMenu(key) {
   const on = listsOf(key);
-  const menu = el("div", { class: "menu", popover: "auto", id: "lists-menu" },
+  const menu = el("div", { class: "menu", popover: "auto", id: "lists-menu", role: "menu", "aria-label": "Lists" },
     ...library.mine.map((l) => el("button", { type: "button", role: "menuitemcheckbox", "aria-checked": l.titles.has(key), onclick: async () => {
       await api("listed", { list: l.id, key, on: !l.titles.has(key) });
       await reload();
       route();
     } }, (l.titles.has(key) ? "✓ " : "\u2003") + l.name)),
-    el("button", { type: "button", onclick: async () => {
+    el("button", { type: "button", role: "menuitem", onclick: async () => {
       const id = await newList();
       if (id) { await api("listed", { list: id, key, on: true }); await reload(); route(); }
     } }, "\u2003New List…"));
-  // The same name whatever it's on, so nothing beside it moves.
-  const label = on.length ? "★ Lists" : "☆ Lists";
-  return [el("button", { class: "mark", type: "button", popovertarget: "lists-menu", "aria-pressed": on.length > 0, title: on.length ? "On " + on.map((l) => l.name).join(", ") : "Add to a list" }, label), menu];
+  // The same name whatever it's on, so nothing beside it moves; its
+  // chevron says it opens a menu, as a pull-down button's does.
+  const button = el("button", { class: on.length ? "mark on" : "mark", type: "button", popovertarget: "lists-menu", "aria-haspopup": "menu", "aria-expanded": "false", title: on.length ? "On " + on.map((l) => l.name).join(", ") : "Lists" },
+    on.length ? "★ Lists" : "☆ Lists", el("span", { class: "chevron", "aria-hidden": "true" }, "▾"));
+  menu.addEventListener("toggle", (e) => button.setAttribute("aria-expanded", String(e.newState === "open")));
+  return [button, menu];
 }
 
 /// Each shelf's tiles, before a search.

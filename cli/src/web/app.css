@@ -194,7 +194,8 @@ main > div:first-child > .series-name:first-child { margin-top: 0; }
 /* The marks: toggles set now and then, quieter than what plays. */
 button.mark { background: none; border-color: transparent; color: var(--dim); padding: 7px 8px; }
 button.mark:hover { color: var(--text); }
-button.mark[aria-pressed="true"] { color: var(--text); }
+button.mark[aria-pressed="true"], button.mark.on { color: var(--text); }
+button.mark .chevron { margin-left: 4px; font-size: 0.9em; }
 /* A list's name with its Rename and Delete beside it. */
 .list-heading { display: flex; align-items: center; gap: 2px; margin: 24px 0 12px; }
 /* A placeholder: not in the library yet, dimmed, its ✕ taking it off. */
