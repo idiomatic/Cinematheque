@@ -35,6 +35,7 @@ The names the apps put in words, and what they mean:
 | `BadAddress` | Not a web address (http or https, with a host, and no query or fragment) |
 | `TooMany`, `TooDeep` | Crawling: a source lists more than any library holds, or nests too deeply |
 | `InvalidArgument` | An argument isn't of the form the function takes |
+| `UnknownQualitySetting` | Crawling: a newer device set where a source's quality comes from in a way this one can't read |
 
 Others are the system's or the network's (`ConnectionRefused`, `ConnectionTimedOut`, `Timeout`, `UnknownHostName`, `HostUnreachable`, `NetworkUnreachable`, `AccessDenied`, ...).
 
@@ -89,11 +90,12 @@ A new device offers to be added and shows a code; a member's device, given the c
 
 | Function | What it does |
 |---|---|
-| `cq_repos(library)` | *Any thread,* on a connection of its own (counting copies reads every one). The sources: an array of `{id, url, quality, by_folder, skip, copies, managed, unavailable}`: `managed` for a device's downloads; `unavailable` its unavailable directories, `{dir, since}` (`dir` relative to the source, empty for the whole of it; `since` in milliseconds since the epoch) |
-| `cq_repo_add(library, url, quality, skip)` | Adds a source by URL, as typed (percent-encoded, a `/` added at its end), with a quality name and a prefix of names to skip, each NULL for the default |
-| `cq_repo_set(library, source, quality, skip)` | Changes a source's settings, those not NULL; applied at the next crawl |
-| `cq_repo_quality_by_folder(library, source)` | Takes a source's files' quality from the first folder within it; copies move at the next crawl |
-| `cq_repo_quality_by_name(library, source)` | Takes it from the source's name, if it has one, else the files' |
+| `cq_repos(library)` | *Any thread,* on a connection of its own (counting copies reads every one). The sources: an array of `{id, url, quality_from, quality, skip, copies, managed, unavailable}`: `quality_from` where its files' quality comes from (`"names"`, `"folder"`, `"named"`, or `"unknown"`, a newer device's setting, by which this one doesn't crawl it), and `quality` the name, if named; `managed` for a device's downloads; `unavailable` its unavailable directories, `{dir, since}` (`dir` relative to the source, empty for the whole of it; `since` in milliseconds since the epoch) |
+| `cq_repo_add(library, url, skip)` | Adds a source by URL, as typed (percent-encoded, a `/` added at its end), with a prefix of names to skip (NULL for the default); its files' quality is from their names until set |
+| `cq_repo_skip(library, source, skip)` | Sets the prefix of names to skip; applied at the next crawl |
+| `cq_repo_quality_from_names(library, source)` | Takes a source's files' quality from their names; copies move at the next crawl |
+| `cq_repo_quality_from_folder(library, source)` | Takes it from the first folder within the source |
+| `cq_repo_quality_named(library, source, name)` | Names one quality for all its files |
 | `cq_repo_remove(library, source)` | Removes a source (by ID or URL) and its copies, for every device |
 | `cq_remove_unavailable(library, source, dir)` | Removes an unavailable directory's copies, as if deleted |
 
@@ -101,9 +103,9 @@ A new device offers to be added and shows a code; a member's device, given the c
 
 | Function | What it does |
 |---|---|
-| `cq_crawl(library)` | *Long.* Crawls every source but devices' downloads, committing each as it goes, then describes what's new (covers and metadata), prioritized titles first. Returns an array, one per source, of `{url, files, titles, covers, error, crawl_ms, total_ms, requests, reused, changed, lately, manual}`: `error` null or why its crawl failed; `titles` added; `covers` always 0; listing's and the whole crawl's times; listings read and reused; copies added, changed, or removed |
+| `cq_crawl(library)` | *Long.* Crawls every source but devices' downloads, committing each as it goes, then describes what's new (covers and metadata), prioritized titles first. Returns an array, one per source, of `{url, files, titles, covers, error, crawl_ms, total_ms, requests, reused, changed, skipped}`: `error` null or why its crawl failed; `skipped` null, or why it wasn't crawled (`"lately"`, `"manual"`, or `"downloads"`, a device's own); `titles` added; `covers` always 0; listing's and the whole crawl's times; listings read and reused; copies added, changed, or removed |
 | `cq_crawl_full(library)` | *Long.* As `cq_crawl`, listing every directory afresh, so files rewritten in place (retagged) are seen |
-| `cq_crawl_due(library)` | *Long.* As `cq_crawl`, for a refresh not asked for, once synced: skips sources a device crawled within the library's interval, give or take a 24th of it (`lately`), or every source, if it's crawled only when asked (`manual`) |
+| `cq_crawl_due(library)` | *Long.* As `cq_crawl`, for a refresh not asked for, once synced: skips sources a device crawled within the library's interval, give or take a 24th of it (`skipped` `"lately"`), or every source, if it's crawled only when asked (`"manual"`) |
 | `cq_crawl_every(library, hours)` | Sets the library's interval, for every device: 1, 3, 24 (the default), or 168 hours, or 0 for only when asked |
 | `cq_sync(library)` | *Long.* Syncs with every device of this library found or added. Returns an array of `{url, name, new, sent, error}`: the device's advertised name, operations won and pushed, and `error` (null, or why; `Removed` means this device was) |
 | `cq_sync_with(library, url)` | *Long.* As `cq_sync`, with the device at `url` alone |
@@ -189,7 +191,7 @@ This person's own, written on this device's private stream (see [AGENTS.md](../.
 | `cq_mark_watched(library, item_key)` | Marks an item watched |
 | `cq_mark_unwatched(library, item_key)` | Marks an item unwatched, emptying its position too, so it plays from the beginning |
 | `cq_remove_progress(library, item_key)` | Removes this person's progress in an item: its position and watched mark |
-| `cq_lists(library)` | This person's lists, then other members' shared ones, each by name: an array of `{id, name, owner, ownerName, mine, shared, titles, wanted}`: another member's `id` is `<owner>/<id>`, and the Watchlist's `watchlist`; `owner`, its person's key; `ownerName`, another member's name, if set; `mine` (only its owner changes it); `shared` (every member sees it); `titles`, movies' title keys and seasons' tiles (`<title key>#<season>`); `wanted`, the placeholders among them, `{key, name, note}` |
+| `cq_lists(library)` | This person's lists, then other members' shared ones, each by name: an array of `{id, name, owner, ownerName, mine, mode, titles, wanted}`: another member's `id` is `<owner>/<id>`, and the Watchlist's `watchlist`; `owner`, its person's key; `ownerName`, another member's name, if set; `mine` (only its owner changes it); `mode`, `"private"` (its owner's alone) or `"shared"` (every member sees it); `titles`, movies' title keys and seasons' tiles (`<title key>#<season>`); `wanted`, the placeholders among them, `{key, name, note}` |
 | `cq_list_create(library, name)` | Makes a list; returns its ID, as a JSON string |
 | `cq_list_rename(library, id, name)` | Renames a list of this person's |
 | `cq_list_remove(library, id)` | Deletes a list, for good |

@@ -72,8 +72,8 @@ export fn cq_crawl_full(lib: *Library) ?[*:0]u8 {
 /// Long: as `cq_crawl`, but for a refresh not asked for (at launch, or on
 /// a timer), once synced: skips sources a device crawled within the
 /// library's interval (`cq_crawl_every`), give or take a 24th of it
-/// (`lately` in their results), whose copies syncing brought; or all of
-/// them, if it's Manually (`manual`).
+/// (`skipped` `lately` in their results), whose copies syncing brought; or
+/// all of them, if it's Manually (`manual`).
 export fn cq_crawl_due(lib: *Library) ?[*:0]u8 {
     return json(lib, crawlDue, .{});
 }
@@ -109,7 +109,7 @@ fn crawlDue(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
         if (rp.managed or (every != null and !rp.crawledLately(lib.now(), window))) {
             try due.append(arena, rp);
             try places.append(arena, i);
-        } else o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .manual = every == null, .lately = every != null };
+        } else o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .skipped = if (every == null) .manual else .lately };
     }
     for (places.items, try crawlAndDescribe(lib, arena, &r, due.items, library.crawlSource)) |i, c| out[i] = c;
     return out;
@@ -127,7 +127,7 @@ fn crawlAndDescribe(lib: *Library, arena: std.mem.Allocator, r: *Replica, list: 
     for (list, out) |rp, *o| {
         defer lib.steps.step();
         if (rp.managed) {
-            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null };
+            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .skipped = .downloads };
             continue;
         }
         try lib.writer.lock(lib.io());

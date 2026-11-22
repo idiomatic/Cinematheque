@@ -445,7 +445,7 @@ test "a shared list is every member's to see, and its owner's alone to change" {
     var seen = try lists.lists(b, arena);
     try testing.expectEqual(@as(usize, 2), seen.len);
     try testing.expectEqualStrings("Date Night", seen[1].name);
-    try testing.expect(!seen[1].mine and seen[1].shared);
+    try testing.expect(!seen[1].mine and seen[1].mode == .shared);
     try testing.expectEqualStrings(&std.fmt.bytesToHex(a.personKey(), .lower), seen[1].owner);
     try testing.expectEqualStrings(try std.fmt.allocPrint(arena, "{s}/{s}", .{ seen[1].owner, id }), seen[1].id);
     try testing.expectEqual(@as(usize, 2), seen[1].titles.len);
@@ -468,7 +468,7 @@ test "a shared list is every member's to see, and its owner's alone to change" {
     _ = try p.sync(1, 0);
     try testing.expectEqual(@as(usize, 1), (try lists.lists(b, arena)).len);
     seen = try lists.lists(a, arena);
-    try testing.expect(seen[0].mine and !seen[0].shared);
+    try testing.expect(seen[0].mine and seen[0].mode == .private);
     try testing.expectEqual(@as(usize, 2), seen[0].titles.len);
 }
 

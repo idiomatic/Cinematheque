@@ -50,15 +50,15 @@ int cq_member_add(cq_library *library, const char *person_key);
 // For good: a person removed comes back only as someone new.
 int cq_member_remove(cq_library *library, const char *person_key);
 
-// Sources; quality and skip may be NULL, for the default or no
-// change.
+// Sources; cq_repo_add's skip may be NULL, for the default.
 char *cq_repos(cq_library *library); // any thread
-int cq_repo_add(cq_library *library, const char *url, const char *quality, const char *skip);
-int cq_repo_set(cq_library *library, const char *source, const char *quality, const char *skip);
-// Where a source's files take their quality from: the first folder within
-// it, or its name (else the files').
-int cq_repo_quality_by_folder(cq_library *library, const char *source);
-int cq_repo_quality_by_name(cq_library *library, const char *source);
+int cq_repo_add(cq_library *library, const char *url, const char *skip);
+int cq_repo_skip(cq_library *library, const char *source, const char *skip);
+// Where a source's files take their quality from: their names, the first
+// folder within it, or one name for all.
+int cq_repo_quality_from_names(cq_library *library, const char *source);
+int cq_repo_quality_from_folder(cq_library *library, const char *source);
+int cq_repo_quality_named(cq_library *library, const char *source, const char *name);
 int cq_repo_remove(cq_library *library, const char *source);
 // Forgets an unavailable directory of a source, as if deleted.
 int cq_remove_unavailable(cq_library *library, const char *source, const char *dir);
@@ -155,8 +155,8 @@ int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *
 // tiles, "<title key>#<season>"): cq_lists is them all, by name, then
 // other members' shared lists, each with "id" (another member's,
 // "<owner>/<id>"), "name", "owner" (its person's key, in hex), "ownerName"
-// (another member's name, if set), "mine" (only its owner changes it), "shared"
-// (every member sees it), "titles", and "wanted" (placeholders among the
+// (another member's name, if set), "mine" (only its owner changes it), "mode"
+// ("private", its owner's alone, or "shared", every member sees it), "titles", and "wanted" (placeholders among the
 // titles, not in the library when listed: "key", "name", "note"); the
 // Watchlist's ID is "watchlist", whatever it's named. cq_list_share shares
 // a list of this person's with every member; cq_list_stop_sharing makes it

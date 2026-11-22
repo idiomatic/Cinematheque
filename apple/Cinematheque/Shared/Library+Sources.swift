@@ -5,17 +5,21 @@ import os
 extension Library {
     // Managing.
 
-    func addSource(_ url: String, quality: String?, skip: String?) {
-        checkAndReload { cq_repo_add($0, url, quality, skip) }
+    func addSource(_ url: String, skip: String?) {
+        checkAndReload { cq_repo_add($0, url, skip) }
     }
 
-    func setSource(_ id: String, quality: String?, skip: String?) {
-        checkAndReload { cq_repo_set($0, id, quality, skip) }
+    /// Sets where a source's files' quality comes from, by ID or URL;
+    /// copies move at its next crawl. A newer device's setting is left as
+    /// it is.
+    func setQuality(_ source: String, _ quality: Source.Quality) {
+        switch quality {
+        case .names: checkAndReload { cq_repo_quality_from_names($0, source) }
+        case .folder: checkAndReload { cq_repo_quality_from_folder($0, source) }
+        case .named(let name): checkAndReload { cq_repo_quality_named($0, source, name) }
+        case .unknown: break
+        }
     }
-
-    /// Whether a source's files take their quality from the first folder
-    /// within it, by ID or URL; copies move at its next crawl.
-    func setQualityByFolder(_ source: String, _ on: Bool) { checkAndReload { on ? cq_repo_quality_by_folder($0, source) : cq_repo_quality_by_name($0, source) } }
 
     func removeSource(_ id: String) { checkAndReload { cq_repo_remove($0, id) } }
 
@@ -146,7 +150,7 @@ extension Library {
         }
         folders[folders.count - 1].url = "http://\(host):\(port)/\(prefix)/"
         saveFolders()
-        addSource(folders[folders.count - 1].url, quality: nil, skip: ",")
+        addSource(folders[folders.count - 1].url, skip: ",")
         await crawl()
     }
 
@@ -215,8 +219,8 @@ extension Library {
             parts.port = port
             guard let moved = parts.string else { continue }
             let old = sources.first { $0.url == folder.url }
-            addSource(moved, quality: old?.quality.isEmpty == false ? old?.quality : nil, skip: old?.skip ?? ",")
-            if let old { removeSource(old.id) }
+            addSource(moved, skip: old?.skip ?? ",")
+            if let old { setQuality(moved, old.qualitySetting); removeSource(old.id) }
             folders[i].url = moved
         }
         saveFolders()
@@ -283,13 +287,13 @@ extension Library {
             let requests: Int?
             let reused: Int?
             let changed: Int?
-            let lately: Bool?
-            let manual: Bool?
+            let skipped: Skipped?
         }
+        enum Skipped: String, Decodable { case lately, manual, downloads }
         guard let sources = try? JSONDecoder().decode([Crawled].self, from: data) else { return }
-        // Those skipped (crawled lately, or only on Refresh Library) aren't
-        // worth a line each.
-        for s in sources where s.manual != true && s.lately != true {
+        // Those skipped (crawled lately, only on Refresh Library, or a
+        // device's downloads) aren't worth a line each.
+        for s in sources where s.skipped == nil {
             if let error = s.error {
                 crawlLog.notice("Crawled \(Self.logged(s.url), privacy: .public): failed, \(error, privacy: .public)")
                 continue

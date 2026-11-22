@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Kinds and modes as enums, parsed once, rather than flags and strings: a title's kind, a list's mode (`mode` in lists' JSON, for lists every member changes, to come), why a crawl skipped a source (`skipped`), a long operation's phase in the apps, and where a source's quality comes from (`quality_from` in sources' JSON, set by `cq_repo_quality_from_names`, `cq_repo_quality_from_folder`, or `cq_repo_quality_named`; `cq_repo_skip` sets what to skip). A setting a newer device wrote keeps a source from being crawled rather than guessed at, and a folder's source moved to another port keeps its quality setting.
 * Core: the C interface has one function per action, with no argument choosing among them (`cq_member_add` and `cq_member_remove` for `cq_member`, `cq_sync` and `cq_sync_with` for `cq_sync`'s optional address, and so on). The apps' code likewise (pairing as yours or someone new's, leaving or ending a library, Start Over, marking a whole series watched), and a placeholder's kind taken as a kind, not whether it's a series, so one the library doesn't know is refused rather than taken for a movie.
 * Core: the C interface documented, each function and the form of its result, in core/include/README.md.
 * Docs: tightened, each point stated once, long sentences split, and what had gone stale brought up to date.

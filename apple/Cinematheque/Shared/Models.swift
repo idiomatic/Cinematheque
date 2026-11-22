@@ -180,10 +180,28 @@ nonisolated struct Source: Codable, Identifiable, Hashable {
 
     let id: String
     let url: String
+    /// Where its files' quality comes from, and the name, if named.
+    let quality_from: QualityFrom
     let quality: String
-    /// Its files' quality is the first folder within it, named as it is.
-    var by_folder = false
     let skip: String
+
+    /// Where a source's files' quality comes from, as the core names it:
+    /// their names, the first folder within it, one name, or a newer
+    /// device's setting, which this one doesn't crawl by.
+    enum QualityFrom: String, Codable, Hashable { case names, folder, named, unknown }
+
+    /// Its quality setting, the name with it.
+    var qualitySetting: Quality {
+        switch quality_from {
+        case .names: .names
+        case .folder: .folder
+        case .named: .named(quality)
+        case .unknown: .unknown
+        }
+    }
+
+    /// A quality setting: where it comes from, a name with `named`.
+    enum Quality: Hashable { case names, folder, named(String), unknown }
     let copies: Int
     var unavailable: [Unavailable] = []
     /// A device's downloads, which no one crawls (see the core's
@@ -331,7 +349,7 @@ nonisolated struct UserList: Codable, Identifiable, Hashable {
     var ownerName: String?
     /// Only its owner changes it; every member sees it, if shared.
     var mine: Bool?
-    var shared: Bool?
+    var mode: Mode?
     let titles: [String]
     /// The placeholders among its titles: not in the library when put on
     /// it, by name, keyed as their files will be.
@@ -344,7 +362,10 @@ nonisolated struct UserList: Codable, Identifiable, Hashable {
     }
 
     var isMine: Bool { mine ?? true }
-    var isShared: Bool { shared ?? false }
+    var isShared: Bool { mode == .shared }
+
+    /// Who sees it: its owner alone, or every member.
+    enum Mode: String, Codable, Hashable { case `private`, shared }
 
     /// Its name as shown: another member's, as theirs, if they're named
     /// (a shared list's marked by a symbol of people, wherever it's named).

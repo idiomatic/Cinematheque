@@ -9,7 +9,7 @@ const library = @import("library.zig");
 const Replica = @import("replica.zig").Replica;
 
 pub const CoverJson = struct { url: []const u8, offset: u64, length: u64, stamp: []const u8 };
-pub const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: []const u8, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, items: usize, unavailable: bool, order: order.Order };
+pub const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: library.TitleKind, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, items: usize, unavailable: bool, order: order.Order };
 
 pub fn tiles(r: *Replica, arena: std.mem.Allocator) ![]const TileJson {
     const bases = try sourceBases(r, arena);
@@ -20,7 +20,7 @@ pub fn tiles(r: *Replica, arena: std.mem.Allocator) ![]const TileJson {
         .key = t.key,
         .name = t.name,
         .year = t.year,
-        .kind = if (t.kind == 's') "series" else "movie",
+        .kind = t.kind,
         .season = t.season,
         .cover = if (t.cover) |c| try coverJson(arena, bases, c) else null,
         .thumb = t.thumb,
@@ -121,10 +121,13 @@ pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
                 c.* = .{ .url = if (rp) |b| try art.fileUrl(arena, b.url, h.path) else "", .size = h.size, .mtime = h.mtime, .source = h.source, .unavailable = h.unavailable };
                 // The quality's name as its sources give it: its folder's, or
                 // the source's.
-                if (rp) |b| {
-                    if (library.named(b.layout, h.path).folder) |f| name = f //
-                    else if (b.layout.quality.len > 0) name = b.layout.quality;
-                }
+                if (rp) |b| switch (b.layout.quality) {
+                    .folder => if (library.named(b.layout, h.path).folder) |f| {
+                        name = f;
+                    },
+                    .named => |n| name = n,
+                    .names, .unknown => {},
+                };
             }
             name = try fullName(arena, rn.label, name);
             ro.* = .{ .label = rn.label, .name = name, .short = "", .height = height(rn.label, name), .copies = copies };

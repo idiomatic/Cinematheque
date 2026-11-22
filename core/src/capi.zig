@@ -243,11 +243,14 @@ pub const CrawlJson = struct {
     requests: usize = 0,
     reused: usize = 0,
     changed: usize = 0,
-    /// Not crawled (`cq_crawl_due`): a device did lately, or the library's
-    /// sources are looked in only when asked (`manual`).
-    lately: bool = false,
-    manual: bool = false,
+    /// Why it wasn't crawled, if it wasn't.
+    skipped: ?Skipped = null,
 };
+
+/// Why a crawl skipped a source: a device crawled it within the library's
+/// interval (`cq_crawl_due`), the library's sources are looked in only when
+/// asked (`cq_crawl_due`), or it's a device's downloads, never crawled.
+pub const Skipped = enum { lately, manual, downloads };
 pub const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, sent: usize = 0, @"error": ?[]const u8 };
 pub const HeardJson = struct { device: []const u8, name: ?[]const u8, operations: usize, at: u64 };
 

@@ -167,13 +167,8 @@ private struct SourceSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var url = ""
     @State private var quality = ""
-    @State private var from = QualityFrom.names
+    @State private var from = Source.QualityFrom.names
     @State private var advanced = false
-
-    /// Where a source's files' quality comes from: their names, the first
-    /// folder within the source (`Movies/QUALITY/TITLE.m4v`), or one name
-    /// for all of them.
-    private enum QualityFrom: Hashable { case names, folder, named }
     @FocusState private var typing: Bool
 
     var body: some View {
@@ -202,13 +197,17 @@ private struct SourceSheet: View {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
                 Button(source == nil ? "Add" : "Save") {
-                    let name = from == .named ? quality : ""
+                    let chosen: Source.Quality = switch from {
+                    case .names: .names
+                    case .folder: .folder
+                    case .named: .named(quality)
+                    case .unknown: .unknown
+                    }
                     if let source {
-                        library.setSource(source.id, quality: name, skip: nil)
-                        if source.by_folder != (from == .folder) { library.setQualityByFolder(source.id, from == .folder) }
+                        if chosen != source.qualitySetting { library.setQuality(source.id, chosen) }
                     } else {
-                        library.addSource(url, quality: name.isEmpty ? nil : name, skip: ",")
-                        if from == .folder { library.setQualityByFolder(url, true) }
+                        library.addSource(url, skip: ",")
+                        if chosen != .names { library.setQuality(url, chosen) }
                         Task { await library.crawl() }
                     }
                     dismiss()
@@ -219,7 +218,7 @@ private struct SourceSheet: View {
         .onAppear {
             if let source {
                 quality = source.quality
-                from = source.by_folder ? .folder : quality.isEmpty ? .names : .named
+                from = source.quality_from
                 advanced = from != .names
             }
         }
@@ -236,9 +235,11 @@ private struct SourceSheet: View {
             }
             Section("Advanced", isExpanded: $advanced) {
                 Picker("Quality", selection: $from) {
-                    Text("From File Names").tag(QualityFrom.names)
-                    Text("From the Folder Under It").tag(QualityFrom.folder)
-                    Text("Named").tag(QualityFrom.named)
+                    Text("From File Names").tag(Source.QualityFrom.names)
+                    Text("From the Folder Under It").tag(Source.QualityFrom.folder)
+                    Text("Named").tag(Source.QualityFrom.named)
+                    // Kept as it is, unless another is chosen.
+                    if from == .unknown { Text("Set by a Newer Version").tag(Source.QualityFrom.unknown) }
                 }
                 // Only for a name, as Settings show a choice's details.
                 if from == .named {

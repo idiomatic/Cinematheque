@@ -223,7 +223,7 @@ struct SourcesPage: View {
             return
         }
         problem = nil
-        library.addSource(address, quality: nil, skip: ",")
+        library.addSource(address, skip: ",")
         Task { await library.crawl() }
     }
 }

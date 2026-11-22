@@ -46,8 +46,8 @@ pub const List = struct {
     ownerName: []const u8 = "",
     /// Whether it's this person's own, which only they change.
     mine: bool = true,
-    /// Whether every member sees it.
-    shared: bool = false,
+    /// Whether it's its owner's alone, or every member sees it.
+    mode: Mode = .private,
     /// Movies' title keys and seasons' tiles, in key order, placeholders'
     /// too.
     titles: []const []const u8,
@@ -61,6 +61,10 @@ pub const Wanted = struct {
     name: []const u8,
     note: []const u8,
 };
+
+/// Who sees a list: its owner alone, or every member, as its mode's log
+/// names it (`private`, `shared`).
+pub const Mode = enum { private, shared };
 
 /// This person's lists, then other members' shared ones, each by name.
 pub fn lists(replica: *Replica, arena: std.mem.Allocator) ![]const List {
@@ -78,8 +82,11 @@ pub fn lists(replica: *Replica, arena: std.mem.Allocator) ![]const List {
     }
     if (!named_watchlist) try out.append(arena, .{ .id = watchlist_id, .name = "Watchlist", .owner = me, .titles = &.{} });
     for (out.items) |*l| {
-        l.shared = try shared(replica, try public(arena, me, l.id));
-        const on = try titles(replica, arena, if (l.shared) try public(arena, me, l.id) else try key(replica, arena, l.id));
+        l.mode = try modeOf(replica, try public(arena, me, l.id));
+        const on = try titles(replica, arena, switch (l.mode) {
+            .private => try key(replica, arena, l.id),
+            .shared => try public(arena, me, l.id),
+        });
         l.titles = on.titles;
         l.wanted = on.wanted;
     }
@@ -112,7 +119,7 @@ fn others(replica: *Replica, arena: std.mem.Allocator, me: []const u8, out: *std
         for (members) |m| {
             if (std.mem.eql(u8, &m, &owner)) break;
         } else continue;
-        if (!try shared(replica, k)) continue;
+        if (try modeOf(replica, k) != .shared) continue;
         const on = try titles(replica, arena, k);
         try out.append(arena, .{
             .id = k[2..],
@@ -120,7 +127,7 @@ fn others(replica: *Replica, arena: std.mem.Allocator, me: []const u8, out: *std
             .owner = parsed.owner,
             .ownerName = library.nameOf(names, parsed.owner) orelse "",
             .mine = false,
-            .shared = true,
+            .mode = .shared,
             .titles = on.titles,
             .wanted = on.wanted,
         });
@@ -130,13 +137,13 @@ fn others(replica: *Replica, arena: std.mem.Allocator, me: []const u8, out: *std
 /// Shares a list of this person's with every member.
 pub fn share(io: Io, replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []const u8) !void {
     const list = try own(replica, arena, id);
-    if (list.shared) return;
+    if (list.mode == .shared) return;
     const public_key = try public(arena, list.owner, id);
     const private_key = try key(replica, arena, id);
     // Its titles to the public key first, then off the private one, so a
     // failure between leaves them in both, not neither.
     const moved = try entries(replica, arena, private_key);
-    try writePublic(replica, wall_ms, public_key, &.{ .{ "name", list.name }, .{ try newMode(io, arena), "shared" } }, moved);
+    try writePublic(replica, wall_ms, public_key, &.{ .{ "name", list.name }, .{ try newMode(io, arena), @tagName(Mode.shared) } }, moved);
     try writePrivate(replica, wall_ms, private_key, try emptied(arena, moved));
 }
 
@@ -145,12 +152,12 @@ pub fn share(io: Io, replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, 
 /// recalling what other devices hold).
 pub fn stopSharing(io: Io, replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []const u8) !void {
     const list = try own(replica, arena, id);
-    if (!list.shared) return;
+    if (list.mode == .private) return;
     const public_key = try public(arena, list.owner, id);
     const private_key = try key(replica, arena, id);
     const moved = try entries(replica, arena, public_key);
     try writePrivate(replica, wall_ms, private_key, moved);
-    try writePublic(replica, wall_ms, public_key, &.{ .{ "name", "" }, .{ try newMode(io, arena), "private" } }, try emptied(arena, moved));
+    try writePublic(replica, wall_ms, public_key, &.{ .{ "name", "" }, .{ try newMode(io, arena), @tagName(Mode.private) } }, try emptied(arena, moved));
 }
 
 /// A field of the mode's log, written once: `mode:` and a random suffix.
@@ -160,15 +167,17 @@ fn newMode(io: Io, arena: std.mem.Allocator) ![]const u8 {
     return std.fmt.allocPrint(arena, "mode:{s}", .{std.fmt.bytesToHex(bytes, .lower)});
 }
 
-/// Whether a list's public key's latest mode is shared.
-fn shared(replica: *Replica, public_key: []const u8) !bool {
+/// A list's public key's latest mode; private if it has none.
+fn modeOf(replica: *Replica, public_key: []const u8) !Mode {
     const s = try replica.db.prepare(
         \\SELECT value FROM winners WHERE key = ?1 AND field >= 'mode:' AND field < 'mode;'
         \\  ORDER BY hlc DESC, field DESC LIMIT 1
     );
     defer s.finalize();
     try s.bindText(1, public_key);
-    return try s.step() and std.mem.eql(u8, s.blob(0), "shared");
+    if (!try s.step()) return .private;
+    // Admission takes no other (see `validPublicField`).
+    return std.meta.stringToEnum(Mode, s.blob(0)) orelse error.Malformed;
 }
 
 /// A key's titles' fields and values, placeholders' too.
@@ -205,7 +214,7 @@ fn writePublic(replica: *Replica, wall_ms: u64, k: []const u8, first: []const [2
 
 /// Writes fields of a list's titles, where they are.
 fn writeTitles(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, list: List, fields: []const [2][]const u8) !void {
-    if (list.shared)
+    if (list.mode == .shared)
         try writePublic(replica, wall_ms, try public(arena, list.owner, list.id), &.{}, fields)
     else
         try writePrivate(replica, wall_ms, try key(replica, arena, list.id), fields);
@@ -225,7 +234,7 @@ pub fn rename(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []c
     const n = try checkName(name);
     const list = try own(replica, arena, id);
     try replica.writePrivate(wall_ms, try key(replica, arena, null), &.{.{ id, n }});
-    if (list.shared) try writePublic(replica, wall_ms, try public(arena, list.owner, id), &.{.{ "name", n }}, &.{});
+    if (list.mode == .shared) try writePublic(replica, wall_ms, try public(arena, list.owner, id), &.{.{ "name", n }}, &.{});
 }
 
 /// Deletes a list, for good: its name emptied, so no device brings it
@@ -236,7 +245,7 @@ pub fn remove(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []c
     var off: std.ArrayList([2][]const u8) = .empty;
     for (list.titles) |t| try off.append(arena, .{ t, "" });
     // A shared one's name emptied too, so other members' devices drop it.
-    if (list.shared)
+    if (list.mode == .shared)
         try writePublic(replica, wall_ms, try public(arena, list.owner, id), &.{.{ "name", "" }}, off.items)
     else
         try writePrivate(replica, wall_ms, try key(replica, arena, id), off.items);
@@ -263,7 +272,7 @@ pub fn want(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []con
     if (t.len > max_note or !std.unicode.utf8ValidateSlice(t)) return error.InvalidArgument;
     for (t) |c| if (c < 0x20 or c == 0x7f) return error.InvalidArgument;
     const y = if (year) |v| try std.fmt.allocPrint(arena, "{d}", .{v}) else "-";
-    const title = try std.fmt.allocPrint(arena, "t/{c}/{s}/{s}", .{ @intFromEnum(kind), normalized, y });
+    const title = try std.fmt.allocPrint(arena, "t/{c}/{s}/{s}", .{ @backingInt(kind), normalized, y });
     // Listed as players list it: a movie by its title, a series by season.
     const k = switch (kind) {
         .movie => title,
@@ -297,7 +306,7 @@ fn own(replica: *Replica, arena: std.mem.Allocator, id: []const u8) !List {
 /// Whether a list of this person's is shared, as changing it then writes
 /// to the device's public stream.
 pub fn isShared(replica: *Replica, arena: std.mem.Allocator, id: []const u8) !bool {
-    return (try own(replica, arena, id)).shared;
+    return (try own(replica, arena, id)).mode == .shared;
 }
 
 /// The titles at a list's key, private or public.
@@ -351,7 +360,7 @@ pub fn validPublicField(field: []const u8, value: []const u8) bool {
     if (std.mem.startsWith(u8, field, "mode:")) {
         if (field.len != 5 + 16) return false;
         for (field[5..]) |c| if (!std.ascii.isHex(c)) return false;
-        return std.mem.eql(u8, value, "shared") or std.mem.eql(u8, value, "private");
+        return std.meta.stringToEnum(Mode, value) != null;
     }
     return std.mem.startsWith(u8, field, "t/");
 }
@@ -440,7 +449,7 @@ test "a list shared keeps its titles, renamed and changed where they are" {
     try setListed(&r, arena, 1, watchlist_id, "t/m/alien/1979", true);
     try share(std.testing.io, &r, arena, 2, watchlist_id);
     var l = (try lists(&r, arena))[0];
-    try std.testing.expect(l.shared);
+    try std.testing.expectEqual(Mode.shared, l.mode);
     try std.testing.expectEqualStrings("t/m/alien/1979", l.titles[0]);
     // Its private copy emptied, its titles public.
     try std.testing.expectEqual(@as(usize, 0), (try entries(&r, arena, try key(&r, arena, watchlist_id))).len);
@@ -453,7 +462,7 @@ test "a list shared keeps its titles, renamed and changed where they are" {
     try share(std.testing.io, &r, arena, 5, watchlist_id);
     try stopSharing(std.testing.io, &r, arena, 6, watchlist_id);
     l = (try lists(&r, arena))[0];
-    try std.testing.expect(!l.shared);
+    try std.testing.expectEqual(Mode.private, l.mode);
     try std.testing.expectEqual(@as(usize, 2), l.titles.len);
     try std.testing.expectEqual(@as(usize, 0), (try entries(&r, arena, try public(arena, l.owner, watchlist_id))).len);
     // Deleted while shared, its public name's emptied too.

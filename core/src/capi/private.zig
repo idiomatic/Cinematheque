@@ -60,8 +60,8 @@ fn removeProgress(lib: *Library, arena: std.mem.Allocator, item_key: []const u8)
 /// This person's lists, then other members' shared ones, each by name, as
 /// a JSON array of objects: `id` (another member's, `<owner>/<id>`),
 /// `name`, `owner` (its person's key, in hex), `ownerName` (another
-/// member's name, if set), `mine` (only its owner changes it), `shared` (every member sees
-/// it), `titles`, each a movie's title key or a season's tile
+/// member's name, if set), `mine` (only its owner changes it), `mode`
+/// (`private`, its owner's alone, or `shared`, every member sees it), `titles`, each a movie's title key or a season's tile
 /// (`<title key>#<season>`), and `wanted`, the placeholders among them
 /// (`key`, `name` as typed, and `note`).
 export fn cq_lists(lib: *Library) ?[*:0]u8 {

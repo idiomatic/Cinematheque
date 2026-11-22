@@ -610,7 +610,7 @@ const shelves = {
       el("h2", {}, listLabel(l)),
       el("button", { class: "mark", type: "button", title: "Add a missing title", "aria-label": `Add a title not in the library to ${l.name}`, onclick: () => askWanted(l) }, "＋"),
       el("button", { class: "mark", type: "button", title: "Rename list", "aria-label": `Rename ${l.name}`, onclick: () => renameList(l) }, "✎"),
-      el("button", { class: "mark", type: "button", "aria-pressed": l.shared, title: l.shared ? "Shared with everyone in the library" : "Share with everyone in the library", "aria-label": l.shared ? `Stop sharing ${l.name}` : `Share ${l.name}`, onclick: () => shareList(l) }, l.shared ? "Shared" : "Share"),
+      el("button", { class: "mark", type: "button", "aria-pressed": isShared(l), title: isShared(l) ? "Shared with everyone in the library" : "Share with everyone in the library", "aria-label": isShared(l) ? `Stop sharing ${l.name}` : `Share ${l.name}`, onclick: () => shareList(l) }, isShared(l) ? "Shared" : "Share"),
       el("button", { class: "mark", type: "button", title: "Delete list", "aria-label": `Delete ${l.name}`, onclick: () => deleteList(l) }, "✕"))
       : el("div", { class: "list-heading" }, el("h2", {}, listLabel(l)));
     return [heading, ...(t.length ? shelfGrid(t) : [el("p", { class: "dim" }, query() ? "Nothing on it matches." : l.mine ? "Nothing on it yet: add titles from their pages." : "Nothing on it yet.")])];
@@ -697,9 +697,12 @@ function listName(l) {
 }
 
 /// A list's name with, if it's shared (this person's or another's), a mark
+/// Whether every member sees a list (its `mode`), not its owner alone.
+function isShared(l) { return l.mode === "shared"; }
+
 /// of two people before it, in the text's own color.
 function listLabel(l) {
-  if (!l.shared) return listName(l);
+  if (!isShared(l)) return listName(l);
   const mark = el("span", { class: "shared-mark", role: "img", "aria-label": "Shared", title: "Shared with everyone in the library" });
   mark.innerHTML = '<svg viewBox="0 0 20 16" fill="currentColor" aria-hidden="true"><circle cx="7" cy="4.5" r="3.2"/><path d="M0.5 15.5c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6z"/><circle cx="14.5" cy="5.5" r="2.6" opacity=".55"/><path d="M13.2 10.1c.4-.1.9-.1 1.3-.1 2.9 0 5 2 5 5.5h-4.6c0-2.2-.6-4-1.7-5.4z" opacity=".55"/></svg>';
   return [mark, listName(l)];
@@ -726,8 +729,8 @@ async function renameList(l) {
 /// Shares a list with everyone in the library, confirmed first, as their
 /// devices keep what they receive; or makes it this person's alone again.
 async function shareList(l) {
-  if (!l.shared && !confirm(`Share “${l.name}” with everyone in the library? They’ll see its titles, and only you can change it. If you stop sharing it, their devices keep what they’ve already received.`)) return;
-  await api("list-share", { id: l.id, on: !l.shared });
+  if (!isShared(l) && !confirm(`Share “${l.name}” with everyone in the library? They’ll see its titles, and only you can change it. If you stop sharing it, their devices keep what they’ve already received.`)) return;
+  await api("list-share", { id: l.id, on: !isShared(l) });
   await reload();
   route();
 }

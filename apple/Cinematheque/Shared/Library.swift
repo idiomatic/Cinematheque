@@ -42,11 +42,13 @@ final class Library {
     private(set) var steps: Steps?
 
     struct Steps: Codable, Equatable {
-        /// `crawling`, `describing`, or `syncing`.
-        let phase: String?
+        let phase: Phase?
         let done: Int
         let total: Int
     }
+
+    /// The phase of a long operation, as the core names it.
+    enum Phase: String, Codable { case crawling, describing, syncing }
     /// Counts changes, so views showing details can refresh.
     var revision = 0
 

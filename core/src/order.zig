@@ -204,11 +204,11 @@ test "titles ordered every way, a series' seasons together" {
     defer state.deinit();
     const a = state.allocator();
     const tiles = [_]art.Tile{
-        .{ .key = "t/m/thing/1982", .name = "The Thing", .year = 1982, .kind = 'm', .added_ms = 30 },
-        .{ .key = "t/m/alien/1979", .name = "Alien", .year = 1979, .kind = 'm', .released = "1979-05-25", .added_ms = 10, .watched_ms = 5 },
-        .{ .key = "t/s/firefly/-", .name = "Firefly", .year = null, .kind = 's', .season = 1, .released = "2002", .added_ms = 20 },
-        .{ .key = "t/s/firefly/-", .name = "Firefly", .year = null, .kind = 's', .season = 2, .added_ms = 40, .watched_ms = 9 },
-        .{ .key = "t/m/zulu/1964", .name = "Zulu", .year = 1964, .kind = 'm', .sort = "Aardvark", .modified_ms = 50 },
+        .{ .key = "t/m/thing/1982", .name = "The Thing", .year = 1982, .kind = .movie, .added_ms = 30 },
+        .{ .key = "t/m/alien/1979", .name = "Alien", .year = 1979, .kind = .movie, .released = "1979-05-25", .added_ms = 10, .watched_ms = 5 },
+        .{ .key = "t/s/firefly/-", .name = "Firefly", .year = null, .kind = .series, .season = 1, .released = "2002", .added_ms = 20 },
+        .{ .key = "t/s/firefly/-", .name = "Firefly", .year = null, .kind = .series, .season = 2, .added_ms = 40, .watched_ms = 9 },
+        .{ .key = "t/m/zulu/1964", .name = "Zulu", .year = 1964, .kind = .movie, .sort = "Aardvark", .modified_ms = 50 },
     };
     const o = try orders(a, &tiles);
     // By title: Aardvark (Zulu's sort name), Alien, Firefly, Thing.

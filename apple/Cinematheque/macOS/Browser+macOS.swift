@@ -1498,14 +1498,13 @@ struct StatusBar: View {
     /// details found), or what's running ("Looking for new videos").
     static func describe(_ activity: String, _ p: Library.Steps?) -> String {
         guard let p, let phase = p.phase else { return activity + "…" }
-        let done = min(p.done + (phase == "describing" ? 0 : 1), p.total).formatted()
+        let done = min(p.done + (phase == .describing ? 0 : 1), p.total).formatted()
         let total = p.total.formatted()
         return switch phase {
-        case "crawling": "Looking in \(done) of \(total) \(p.total == 1 ? "source" : "sources")…"
-        case "describing": p.total == 0 ? "Finding covers…" : "Finding covers for \(p.done.formatted()) of \(total)…"
+        case .crawling: "Looking in \(done) of \(total) \(p.total == 1 ? "source" : "sources")…"
+        case .describing: p.total == 0 ? "Finding covers…" : "Finding covers for \(p.done.formatted()) of \(total)…"
         // Catching up, as a refresh does first, says only what it's for.
-        case "syncing": activity + "…"
-        default: activity + "…"
+        case .syncing: activity + "…"
         }
     }
 }

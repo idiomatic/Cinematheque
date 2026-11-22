@@ -11,7 +11,8 @@ const json = capi.json;
 const span = capi.span;
 
 /// The sources, as a JSON array of objects with `id`, `url`,
-/// `quality`, `by_folder`, `skip`, `copies`, `managed` (a device's downloads), and
+/// `quality_from` (`names`, `folder`, `named`, or `unknown`, a newer
+/// device's), `quality` (its name, if named), `skip`, `copies`, `managed` (a device's downloads), and
 /// `unavailable`, its unavailable directories
 /// (`dir`, relative to it, empty for the whole of it, and `since`, in
 /// milliseconds since the epoch). Any thread, on a connection of its own,
@@ -21,7 +22,7 @@ export fn cq_repos(lib: *Library) ?[*:0]u8 {
 }
 
 const AbsenceJson = struct { dir: []const u8, since: u64 };
-const SourceJson = struct { id: []const u8, url: []const u8, quality: []const u8, by_folder: bool, skip: []const u8, copies: i64, unavailable: []const AbsenceJson, managed: bool };
+const SourceJson = struct { id: []const u8, url: []const u8, quality_from: std.meta.Tag(library.QualityFrom), quality: []const u8, skip: []const u8, copies: i64, unavailable: []const AbsenceJson, managed: bool };
 
 fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
     var connection = try long.reader(lib, arena);
@@ -33,8 +34,11 @@ fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
     for (list, out) |rp, *o| o.* = .{
         .id = try arena.dupe(u8, &rp.id),
         .url = rp.url,
-        .quality = rp.layout.quality,
-        .by_folder = rp.layout.by_folder,
+        .quality_from = rp.layout.quality,
+        .quality = switch (rp.layout.quality) {
+            .named => |n| n,
+            .names, .folder, .unknown => "",
+        },
         .skip = rp.layout.skip,
         .copies = counts.get(&rp.id) orelse 0,
         .managed = rp.managed,

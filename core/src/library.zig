@@ -33,19 +33,46 @@ const url = @import("url.zig");
 const Blake3 = std.crypto.hash.Blake3;
 
 pub const Layout = struct {
-    /// The quality of every file in the source (e.g., a HandBrake
-    /// preset's name), or empty if unknown. Reading it from the files
-    /// themselves (e.g., an MP4's tracks) is to come. Stored as the
-    /// source's `rendition` field, its name kept as data.
-    quality: []const u8 = "",
+    /// Where its files' quality comes from.
+    quality: QualityFrom = .names,
     /// Names starting with this are skipped (e.g., housekeeping folders), or
     /// none if empty.
     skip: []const u8 = ",",
-    /// Each file's quality is the first folder within the source, named as
-    /// it is (`Movies/HQ 1080p30 Surround/Alien (1979).m4v`), and that
-    /// folder isn't read as part of the file's name. Stored as the source's
-    /// `quality-by` field, `folder`.
-    by_folder: bool = false,
+};
+
+/// Where a source's files' quality comes from. Stored as its `quality-by`
+/// field (`folder`, else empty) and its `rendition` field (the name, kept
+/// as data), as older devices read them.
+pub const QualityFrom = union(enum) {
+    /// The files' names' technical tokens (`2160p hevc hdr`), else unknown.
+    names,
+    /// The first folder within the source, named as it is
+    /// (`Movies/HQ 1080p30 Surround/Alien (1979).m4v`); that folder isn't
+    /// read as part of the file's name.
+    folder,
+    /// One name for every file (e.g., a HandBrake preset's).
+    named: []const u8,
+    /// A `quality-by` a newer device wrote, which this one can't apply (as
+    /// reading the files' own, to come), so it doesn't crawl the source
+    /// rather than record its copies under other qualities.
+    unknown,
+
+    /// As stored: its `quality-by` and `rendition`.
+    fn fromFields(by: []const u8, rendition: []const u8) QualityFrom {
+        if (std.mem.eql(u8, by, "folder")) return .folder;
+        if (by.len > 0) return .unknown;
+        return if (rendition.len > 0) .{ .named = rendition } else .names;
+    }
+
+    /// Its `quality-by` and `rendition` fields, to store.
+    fn fields(q: QualityFrom) ?[2][]const u8 {
+        return switch (q) {
+            .names => .{ "", "" },
+            .folder => .{ "folder", "" },
+            .named => |n| .{ "", n },
+            .unknown => null,
+        };
+    }
 };
 
 /// How a source's file is read: the path to parse, and its quality folder,
@@ -53,7 +80,7 @@ pub const Layout = struct {
 pub const Named = struct { path: []const u8, folder: ?[]const u8 };
 
 pub fn named(layout: Layout, rel: []const u8) Named {
-    if (!layout.by_folder) return .{ .path = rel, .folder = null };
+    if (layout.quality != .folder) return .{ .path = rel, .folder = null };
     const slash = std.mem.indexOfScalar(u8, rel, '/') orelse return .{ .path = rel, .folder = null };
     return .{ .path = rel[slash + 1 ..], .folder = rel[0..slash] };
 }
@@ -295,9 +322,10 @@ pub fn addSource(replica: *Replica, wall_ms: u64, target: []const u8, layout: La
     try replica.begin();
     errdefer replica.rollback();
     try replica.write(wall_ms, key, "url", target);
-    try replica.write(wall_ms, key, "rendition", layout.quality);
+    const quality = layout.quality.fields() orelse return error.InvalidArgument;
+    try replica.write(wall_ms, key, "rendition", quality[1]);
     try replica.write(wall_ms, key, "skip", layout.skip);
-    if (layout.by_folder) try replica.write(wall_ms, key, "quality-by", "folder");
+    if (quality[0].len > 0) try replica.write(wall_ms, key, "quality-by", quality[0]);
     try replica.commit();
     return id;
 }
@@ -313,26 +341,26 @@ pub fn findSource(replica: *Replica, arena: std.mem.Allocator, which: []const u8
     return error.NoSuchSource;
 }
 
-/// Changes a source's settings, those given. Copies move to a new
-/// quality at the next crawl.
-pub fn setSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, which: []const u8, quality: ?[]const u8, skip: ?[]const u8, by_folder: ?bool) !Source {
+/// Sets where a source's files' quality comes from. Copies move to their
+/// new qualities at the next crawl.
+pub fn setQualityFrom(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, which: []const u8, quality: QualityFrom) !Source {
     var source = try findSource(replica, arena, which);
+    const stored = quality.fields() orelse return error.InvalidArgument;
     const key = try std.fmt.allocPrint(arena, "r/{s}", .{source.id});
     try replica.begin();
     errdefer replica.rollback();
-    if (quality) |v| {
-        try replica.write(wall_ms, key, "rendition", v);
-        source.layout.quality = v;
-    }
-    if (skip) |v| {
-        try replica.write(wall_ms, key, "skip", v);
-        source.layout.skip = v;
-    }
-    if (by_folder) |v| {
-        try replica.write(wall_ms, key, "quality-by", if (v) "folder" else "");
-        source.layout.by_folder = v;
-    }
+    try replica.write(wall_ms, key, "quality-by", stored[0]);
+    try replica.write(wall_ms, key, "rendition", stored[1]);
     try replica.commit();
+    source.layout.quality = quality;
+    return source;
+}
+
+/// Sets the prefix of names a source's crawls skip, applied at the next.
+pub fn setSkip(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, which: []const u8, skip: []const u8) !Source {
+    var source = try findSource(replica, arena, which);
+    try replica.write(wall_ms, try std.fmt.allocPrint(arena, "r/{s}", .{source.id}), "skip", skip);
+    source.layout.skip = skip;
     return source;
 }
 
@@ -415,6 +443,7 @@ pub fn crawlSourceAfresh(replica: *Replica, io: Io, arena: std.mem.Allocator, cl
 
 /// Crawls a source, reusing `prev`'s listings where they're unchanged.
 fn crawlFrom(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, source: Source, workers: usize, prev: ?*const crawl.Snapshot) !CrawlStats {
+    if (source.layout.quality == .unknown) return error.UnknownQualitySetting;
     const key = try snapshotKey(arena, source.id);
     var entries: std.ArrayList(crawl.Entry) = .empty;
     const start = Io.Timestamp.now(io, .awake);
@@ -441,23 +470,29 @@ fn crawlFrom(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.h
 
 pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
     var out: std.ArrayList(Source) = .empty;
+    // Each one's `quality-by` and `rendition`, read together once all are.
+    var stored: std.ArrayList([2][]const u8) = .empty;
     const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key >= 'r/' AND key < 'r0' ORDER BY key");
     defer s.finalize();
     while (try s.step()) {
         const key = s.blob(0);
         if (key.len != 18) continue;
-        if (out.items.len == 0 or !std.mem.eql(u8, &out.items[out.items.len - 1].id, key[2..18]))
+        if (out.items.len == 0 or !std.mem.eql(u8, &out.items[out.items.len - 1].id, key[2..18])) {
             try out.append(arena, .{ .id = key[2..18].*, .url = "", .layout = .{} });
+            try stored.append(arena, .{ "", "" });
+        }
         const r = &out.items[out.items.len - 1];
+        const quality = &stored.items[stored.items.len - 1];
         const field = s.blob(1);
         const value = try arena.dupe(u8, s.blob(2));
         if (std.mem.eql(u8, field, "url")) r.url = value //
-        else if (std.mem.eql(u8, field, "rendition")) r.layout.quality = value //
+        else if (std.mem.eql(u8, field, "rendition")) quality[1] = value //
         else if (std.mem.eql(u8, field, "skip")) r.layout.skip = value //
-        else if (std.mem.eql(u8, field, "quality-by")) r.layout.by_folder = std.mem.eql(u8, value, "folder") //
+        else if (std.mem.eql(u8, field, "quality-by")) quality[0] = value //
         else if (std.mem.eql(u8, field, "managed")) r.managed = value.len > 0 //
         else if (std.mem.eql(u8, field, "crawled")) r.crawled_ms = std.fmt.parseInt(u64, value, 10) catch 0;
     }
+    for (out.items, stored.items) |*r, q| r.layout.quality = .fromFields(q[0], q[1]);
     // Dropped sources have no URL, and one whose URL isn't fit to fetch
     // from (as any member could write) is none.
     var kept: std.ArrayList(Source) = .empty;
@@ -741,8 +776,11 @@ const Parents = struct {
 /// qualities by folder; else the source's, if it names one; else what the
 /// file's name says (e.g., `2160p-hevc-hdr`); else `-`, unknown.
 pub fn qualityOf(arena: std.mem.Allocator, layout: Layout, p: naming.Parsed, folder: ?[]const u8) ![]const u8 {
-    if (folder) |f| return normalize(arena, f);
-    if (layout.quality.len > 0) return normalize(arena, layout.quality);
+    switch (layout.quality) {
+        .folder => if (folder) |f| return normalize(arena, f),
+        .named => |n| return normalize(arena, n),
+        .names, .unknown => {},
+    }
     if (p.quality) |r| return normalize(arena, r);
     return "-";
 }
@@ -778,7 +816,7 @@ fn exists(replica: *Replica, key: []const u8, field: []const u8) !bool {
 
 pub const Title = struct {
     key: []const u8,
-    kind: u8,
+    kind: TitleKind,
     name: []const u8,
     year: ?u16,
     /// Episodes or versions below it.
@@ -807,8 +845,10 @@ pub fn titles(replica: *Replica, arena: std.mem.Allocator) ![]Title {
         const key = s.blob(0);
         const title_len = prefixSegments(key, 4) orelse continue;
         if (out.items.len == 0 or !std.mem.eql(u8, out.items[out.items.len - 1].key, key[0..title_len])) {
+            // A kind this build doesn't know (a newer device's) isn't shown.
+            const kind = std.enums.fromInt(TitleKind, key[2]) orelse continue;
             const tk = try arena.dupe(u8, key[0..title_len]);
-            try out.append(arena, .{ .key = tk, .kind = key[2], .name = "", .year = null, .alias = alias_of.get(tk) });
+            try out.append(arena, .{ .key = tk, .kind = kind, .name = "", .year = null, .alias = alias_of.get(tk) });
         }
         const t = &out.items[out.items.len - 1];
         const field = s.blob(1);
@@ -1092,7 +1132,7 @@ pub fn closeMatches(arena: std.mem.Allocator, all: []const Title) ![]Match {
         const f = try by_folded.getOrPut(arena, info.folded);
         if (!f.found_existing) f.value_ptr.* = .empty;
         try f.value_ptr.append(arena, i);
-        const y = try by_year.getOrPut(arena, (@as(u32, info.t.kind) << 16) | (info.t.year orelse 0));
+        const y = try by_year.getOrPut(arena, (@as(u32, @backingInt(info.t.kind)) << 16) | (info.t.year orelse 0));
         if (!y.found_existing) y.value_ptr.* = .empty;
         try y.value_ptr.append(arena, i);
     }
@@ -1224,7 +1264,7 @@ pub fn facets(arena: std.mem.Allocator, all: []const Title) ![]Facet {
     var counts: std.StringArrayHashMapUnmanaged(usize) = .empty;
     for (all) |t| {
         if (t.alias != null or t.qualities == 0) continue;
-        try bump(arena, &counts, if (t.kind == 's') "kind\tseries" else "kind\tmovie");
+        try bump(arena, &counts, try std.fmt.allocPrint(arena, "kind\t{t}", .{t.kind}));
         if (t.year) |y| try bump(arena, &counts, try std.fmt.allocPrint(arena, "decade\t{d}s", .{y / 10 * 10}));
         for (t.labels.items) |l| try bump(arena, &counts, try std.fmt.allocPrint(arena, "quality\t{s}", .{l}));
     }
@@ -1352,11 +1392,11 @@ test "qualities come from the source, or else from the file's name" {
     try testing.expectEqualStrings((try keys(a, sd)).item, (try keys(a, uhd)).item);
     try testing.expectEqualStrings("720p", try qualityOf(a, .{}, sd, null));
     try testing.expectEqualStrings("2160p-hdr", try qualityOf(a, .{}, uhd, null));
-    try testing.expectEqualStrings("very-fast-720p30", try qualityOf(a, .{ .quality = "Very Fast 720p30" }, uhd, null));
+    try testing.expectEqualStrings("very-fast-720p30", try qualityOf(a, .{ .quality = .{ .named = "Very Fast 720p30" } }, uhd, null));
     try testing.expectEqualStrings("-", try qualityOf(a, .{}, naming.parse("Alien (1979).mkv", &scratch[2]), null));
     // A source naming qualities by folder: the first folder is the quality,
     // and isn't read as the file's name.
-    const by_folder: Layout = .{ .by_folder = true };
+    const by_folder: Layout = .{ .quality = .folder };
     const as = named(by_folder, "HQ 1080p30 Surround/Firefly/Season 01/Firefly S01E02.m4v");
     try testing.expectEqualStrings("Firefly/Season 01/Firefly S01E02.m4v", as.path);
     try testing.expectEqualStrings("hq-1080p30-surround", try qualityOf(a, by_folder, naming.parse(as.path, &scratch[2]), as.folder));
@@ -1369,21 +1409,21 @@ test "close matches" {
     defer arena_state.deinit();
     const a = arena_state.allocator();
     const all = [_]Title{
-        .{ .key = "t/m/amélie/2001", .kind = 'm', .name = "Amélie", .year = 2001, .qualities = 1 },
-        .{ .key = "t/m/amelie/2001", .kind = 'm', .name = "Amelie", .year = 2001, .qualities = 1 },
-        .{ .key = "t/m/heat/1995", .kind = 'm', .name = "Heat", .year = 1995, .qualities = 1 },
-        .{ .key = "t/m/heat/1959", .kind = 'm', .name = "Heat", .year = 1959, .qualities = 1 },
-        .{ .key = "t/m/gattaca/1997", .kind = 'm', .name = "Gattaca", .year = 1997, .qualities = 1 },
-        .{ .key = "t/m/gatacca/1997", .kind = 'm', .name = "Gatacca", .year = 1997, .qualities = 1 },
-        .{ .key = "t/m/alien/1979", .kind = 'm', .name = "Alien", .year = 1979, .qualities = 1 },
-        .{ .key = "t/m/alien/1980", .kind = 'm', .name = "Alien", .year = 1980, .qualities = 1 },
-        .{ .key = "t/m/aliens/1986", .kind = 'm', .name = "Aliens", .year = 1986, .qualities = 1 },
-        .{ .key = "t/m/rocky-2/1979", .kind = 'm', .name = "Rocky 2", .year = 1979, .qualities = 1 },
-        .{ .key = "t/m/rocky-3/1979", .kind = 'm', .name = "Rocky 3", .year = 1979, .qualities = 1 },
+        .{ .key = "t/m/amélie/2001", .kind = .movie, .name = "Amélie", .year = 2001, .qualities = 1 },
+        .{ .key = "t/m/amelie/2001", .kind = .movie, .name = "Amelie", .year = 2001, .qualities = 1 },
+        .{ .key = "t/m/heat/1995", .kind = .movie, .name = "Heat", .year = 1995, .qualities = 1 },
+        .{ .key = "t/m/heat/1959", .kind = .movie, .name = "Heat", .year = 1959, .qualities = 1 },
+        .{ .key = "t/m/gattaca/1997", .kind = .movie, .name = "Gattaca", .year = 1997, .qualities = 1 },
+        .{ .key = "t/m/gatacca/1997", .kind = .movie, .name = "Gatacca", .year = 1997, .qualities = 1 },
+        .{ .key = "t/m/alien/1979", .kind = .movie, .name = "Alien", .year = 1979, .qualities = 1 },
+        .{ .key = "t/m/alien/1980", .kind = .movie, .name = "Alien", .year = 1980, .qualities = 1 },
+        .{ .key = "t/m/aliens/1986", .kind = .movie, .name = "Aliens", .year = 1986, .qualities = 1 },
+        .{ .key = "t/m/rocky-2/1979", .kind = .movie, .name = "Rocky 2", .year = 1979, .qualities = 1 },
+        .{ .key = "t/m/rocky-3/1979", .kind = .movie, .name = "Rocky 3", .year = 1979, .qualities = 1 },
     };
     const matches = try closeMatches(a, &all);
     // Held by no source, so not for review.
-    const unheld = [_]Title{ all[2], .{ .key = "t/m/heat/1996", .kind = 'm', .name = "Heat", .year = 1996 } };
+    const unheld = [_]Title{ all[2], .{ .key = "t/m/heat/1996", .kind = .movie, .name = "Heat", .year = 1996 } };
     try testing.expectEqual(@as(usize, 0), (try closeMatches(a, &unheld)).len);
     var reasons: std.StringHashMapUnmanaged(void) = .empty;
     for (matches) |m| try reasons.put(a, m.reason, {});
@@ -1513,9 +1553,14 @@ test "state: sources, aliases, progress, and members can be listed, set, and rem
     defer r.close();
 
     const id = try addSource(&r, 1000, "http://nas.local/Movies/", .{});
-    const changed = try setSource(&r, arena, 2000, "http://nas.local/Movies", "4K HEVC", null, null);
-    try std.testing.expectEqualStrings("4K HEVC", changed.layout.quality);
-    try std.testing.expectEqualStrings("4K HEVC", (try findSource(&r, arena, &id)).layout.quality);
+    const changed = try setQualityFrom(&r, arena, 2000, "http://nas.local/Movies", .{ .named = "4K HEVC" });
+    try std.testing.expectEqualStrings("4K HEVC", changed.layout.quality.named);
+    try std.testing.expectEqualStrings("4K HEVC", (try findSource(&r, arena, &id)).layout.quality.named);
+    // By folder, the name goes; a newer device's setting is kept, unapplied.
+    _ = try setQualityFrom(&r, arena, 3000, &id, .folder);
+    try std.testing.expectEqual(QualityFrom.folder, (try findSource(&r, arena, &id)).layout.quality);
+    try r.write(4000, try std.fmt.allocPrint(arena, "r/{s}", .{&id}), "quality-by", "file");
+    try std.testing.expectEqual(QualityFrom.unknown, (try findSource(&r, arena, &id)).layout.quality);
     try std.testing.expectEqualStrings(",", (try findSource(&r, arena, &id)).layout.skip);
 
     try addAlias(&r, 3000, "t/m/rogue-protocol/2019", "t/m/rogue-protocol/2018");

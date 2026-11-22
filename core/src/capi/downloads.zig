@@ -158,13 +158,13 @@ fn removeUnavailable(lib: *Library, arena: std.mem.Allocator, source: []const u8
     _ = try library.removeUnavailable(r, arena, lib.now(), try library.findSource(r, arena, source), dir);
 }
 
-/// Adds a source by URL, as typed, with its quality and the prefix of
-/// names to skip (each null for the default).
-export fn cq_repo_add(lib: *Library, target: [*:0]const u8, quality: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
-    return status(lib, sourceAdd, .{ std.mem.span(target), span(quality), span(skip) });
+/// Adds a source by URL, as typed, with the prefix of names to skip (null
+/// for the default); its files' quality is from their names until set.
+export fn cq_repo_add(lib: *Library, target: [*:0]const u8, skip: ?[*:0]const u8) c_int {
+    return status(lib, sourceAdd, .{ std.mem.span(target), span(skip) });
 }
 
-fn sourceAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, quality: ?[]const u8, skip: ?[]const u8) !void {
+fn sourceAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, skip: ?[]const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
     const r = try lib.main();
@@ -172,39 +172,42 @@ fn sourceAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, qualit
     try @import("../url.zig").escape(arena, &typed, std.mem.trim(u8, target, " \n"));
     if (!std.mem.endsWith(u8, typed.items, "/")) try typed.append(arena, '/');
     var layout: library.Layout = .{};
-    if (quality) |v| layout.quality = v;
     if (skip) |v| layout.skip = v;
     _ = try library.addSource(r, lib.now(), typed.items, layout);
 }
 
-/// Changes a source's settings, those not null.
-export fn cq_repo_set(lib: *Library, source: [*:0]const u8, quality: ?[*:0]const u8, skip: ?[*:0]const u8) c_int {
-    return status(lib, sourceSet, .{ std.mem.span(source), span(quality), span(skip) });
+/// Sets the prefix of names a source's crawls skip, applied at the next.
+export fn cq_repo_skip(lib: *Library, source: [*:0]const u8, skip: [*:0]const u8) c_int {
+    return status(lib, sourceSkip, .{ std.mem.span(source), std.mem.span(skip) });
 }
 
-fn sourceSet(lib: *Library, arena: std.mem.Allocator, source: []const u8, quality: ?[]const u8, skip: ?[]const u8) !void {
+fn sourceSkip(lib: *Library, arena: std.mem.Allocator, source: []const u8, skip: []const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
-    _ = try library.setSource(try lib.main(), arena, lib.now(), source, quality, skip, null);
+    _ = try library.setSkip(try lib.main(), arena, lib.now(), source, skip);
 }
 
-/// Takes a source's files' quality from the first folder within it. Copies
-/// move at the next crawl.
-export fn cq_repo_quality_by_folder(lib: *Library, source: [*:0]const u8) c_int {
-    return status(lib, sourceByFolder, .{ std.mem.span(source), true });
+/// Takes a source's files' quality from their names. Copies move at the
+/// next crawl.
+export fn cq_repo_quality_from_names(lib: *Library, source: [*:0]const u8) c_int {
+    return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom.names });
 }
 
-/// Takes a source's files' quality from its name, if it has one, else the
-/// files'. Copies move at the next crawl.
-export fn cq_repo_quality_by_name(lib: *Library, source: [*:0]const u8) c_int {
-    return status(lib, sourceByFolder, .{ std.mem.span(source), false });
+/// Takes a source's files' quality from the first folder within it.
+export fn cq_repo_quality_from_folder(lib: *Library, source: [*:0]const u8) c_int {
+    return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom.folder });
 }
 
-/// Writes the source's setting, its value either way.
-fn sourceByFolder(lib: *Library, arena: std.mem.Allocator, source: []const u8, on: bool) !void {
+/// Names one quality for all a source's files (e.g., a HandBrake preset's).
+export fn cq_repo_quality_named(lib: *Library, source: [*:0]const u8, name: [*:0]const u8) c_int {
+    return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom{ .named = std.mem.span(name) } });
+}
+
+/// Writes where the source's quality comes from: its value, written alike.
+fn sourceQuality(lib: *Library, arena: std.mem.Allocator, source: []const u8, quality: library.QualityFrom) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
-    _ = try library.setSource(try lib.main(), arena, lib.now(), source, null, null, on);
+    _ = try library.setQualityFrom(try lib.main(), arena, lib.now(), source, quality);
 }
 
 /// Removes a source, by ID or URL, and the copies it held.

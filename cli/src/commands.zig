@@ -160,18 +160,33 @@ pub fn device(app: *App, c: Command) !void {
 /// A source's quality setting, as listed: by its folders, a name, or the
 /// files' names.
 fn qualitySetting(arena: std.mem.Allocator, layout: lib.Layout) ![]const u8 {
-    if (layout.by_folder) return "by folder";
-    return std.fmt.allocPrint(arena, "\"{s}\"", .{layout.quality});
+    return switch (layout.quality) {
+        .names => "by name",
+        .folder => "by folder",
+        .named => |n| std.fmt.allocPrint(arena, "\"{s}\"", .{n}),
+        .unknown => "set by a newer version",
+    };
+}
+
+/// What `--quality-by` takes.
+const QualityBy = enum { folder, name };
+
+/// Where a source's quality comes from, as `--quality-by` and `--quality`
+/// say, given what it was; null if they say nothing. By name keeps a name
+/// already given.
+fn qualityFrom(c: Command, by: ?QualityBy, was: lib.QualityFrom) ?lib.QualityFrom {
+    if (by == .folder) return .folder;
+    if (c.args.get("--quality")) |n| return if (n.len > 0) .{ .named = n } else .names;
+    if (by == .name) return if (was == .named) was else .names;
+    return null;
 }
 
 pub fn source(app: *App, c: Command) !void {
     const settings = &.{ "--quality", "--skip", "--quality-by" };
     // `--quality-by folder` reads each file's quality from the first folder
-    // within the source; `name`, from the source's name or the file's.
-    const by_folder: ?bool = if (c.args.get("--quality-by")) |v|
-        (if (std.mem.eql(u8, v, "folder")) true else if (std.mem.eql(u8, v, "name")) false else return error.Usage)
-    else
-        null;
+    // within the source; `name`, from the source's name (`--quality`), or
+    // else the file's.
+    const by: ?QualityBy = if (c.args.get("--quality-by")) |v| std.meta.stringToEnum(QualityBy, v) orelse return error.Usage else null;
     if (c.is("list", 0, &.{})) {
         var r = try app.open();
         defer r.close();
@@ -193,14 +208,15 @@ pub fn source(app: *App, c: Command) !void {
         try core.url.escape(app.arena, &typed, c.rest[0]);
         if (!std.mem.endsWith(u8, typed.items, "/")) try typed.append(app.arena, '/');
         var layout: lib.Layout = .{};
-        if (c.args.get("--quality")) |v| layout.quality = v;
+        if (qualityFrom(c, by, .names)) |q| layout.quality = q;
         if (c.args.get("--skip")) |v| layout.skip = v;
-        layout.by_folder = by_folder orelse false;
         try app.out.print("added source {s}\n", .{try lib.addSource(&r, app.now(), typed.items, layout)});
     } else if (c.is("set", 1, settings) and c.args.count() > 0) {
         var r = try app.open();
         defer r.close();
-        const rp = try lib.setSource(&r, app.arena, app.now(), c.rest[0], c.args.get("--quality"), c.args.get("--skip"), by_folder);
+        var rp = try lib.findSource(&r, app.arena, c.rest[0]);
+        if (qualityFrom(c, by, rp.layout.quality)) |q| rp = try lib.setQualityFrom(&r, app.arena, app.now(), c.rest[0], q);
+        if (c.args.get("--skip")) |v| rp = try lib.setSkip(&r, app.arena, app.now(), c.rest[0], v);
         try app.out.print("{s}  quality: {s}, skip: \"{s}\"; crawl to apply\n", .{ rp.id, try qualitySetting(app.arena, rp.layout), rp.layout.skip });
     } else if (c.is("remove", 1, &.{"--unavailable"}) and c.args.get("--unavailable") != null) {
         var r = try app.open();
@@ -234,7 +250,10 @@ pub fn title(app: *App, c: Command) !void {
             shown += 1;
             try out.print("{s}", .{t.name});
             if (t.year) |y| try out.print(" ({d})", .{y});
-            try out.print(" {s}: {d} {s}, {d} {s} [", .{ if (t.kind == 's') "series" else "movie", t.items, if (t.kind == 's') "episodes" else "versions", t.qualities, if (t.qualities == 1) "quality" else "qualities" });
+            try out.print(" {s}: {d} {s}, {d} {s} [", .{ @tagName(t.kind), t.items, switch (t.kind) {
+                .movie => "versions",
+                .series => "episodes",
+            }, t.qualities, if (t.qualities == 1) "quality" else "qualities" });
             for (t.labels.items, 0..) |l, i| try out.print("{s}{s}", .{ if (i > 0) ", " else "", l });
             try out.print("]  {s}{s}{s}\n", .{ t.key, if (t.alias != null) " -> " else "", t.alias orelse "" });
         }
@@ -453,8 +472,8 @@ fn crawlAndDescribe(app: *App, r: *core.replica.Replica, workers: usize, sources
         const s = try crawler(r, app.io, app.arena, &client, app.now(), rp, workers);
         const i = s.ingest;
         try app.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; copies {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories unavailable; {d} ms in all\n", .{
-            rp.url,         s.crawl.requests, s.crawl.skipped,    s.crawl_ms,         i.files,      i.skipped, i.extras,   i.unparsed,
-            i.titles_added, i.copies_added, i.copies_changed, i.copies_removed, i.duplicates, i.unavailable,  s.total_ms,
+            rp.url,         s.crawl.requests, s.crawl.skipped,  s.crawl_ms,       i.files,      i.skipped,     i.extras,   i.unparsed,
+            i.titles_added, i.copies_added,   i.copies_changed, i.copies_removed, i.duplicates, i.unavailable, s.total_ms,
         });
         if (i.duplicate_example) |e| try app.out.print("  e.g., {s}\n", .{e});
         try app.out.flush();

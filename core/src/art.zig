@@ -628,7 +628,7 @@ pub const Tile = struct {
     key: []const u8,
     name: []const u8,
     year: ?u16,
-    kind: u8,
+    kind: library.TitleKind,
     season: ?u16 = null,
     cover: ?Cover = null,
     /// The cover's placeholder, a ThumbHash in base64.
@@ -759,22 +759,25 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
         const released = try coverField(arena, &covers, t.key, "released");
         const came = if (try coverField(arena, &covers, t.key, "added")) |v| std.fmt.parseInt(u64, v, 10) catch null else null;
         const own_thumb = if (own != null) thumbOf(try coverField(arena, &covers, t.key, "thumb")) else null;
-        if (t.kind != 's') {
-            const id = try std.fmt.allocPrint(arena, "{s}#0", .{t.key});
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb, .unavailable = !present.contains(id), .sort = sort, .released = released, .added_ms = came orelse first.get(id), .modified_ms = modified.get(id), .watched_ms = watched.get(id) };
-            progress(&tile, &items, &heads, &durations, id);
-            try out.append(arena, tile);
-            continue;
-        }
-        const list = (seasons.get(t.key) orelse std.ArrayList(u16).empty).items;
-        std.mem.sort(u16, list, {}, std.sort.asc(u16));
-        for (list) |n| {
-            const field = try std.fmt.allocPrint(arena, "art:s{d:0>2}", .{n});
-            const cover = coverOf(try coverField(arena, &covers, t.key, field));
-            const id = try std.fmt.allocPrint(arena, "{s}#{d}", .{ t.key, n });
-            var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try coverField(arena, &covers, t.key, try thumbField(arena, field))) else own_thumb, .unavailable = !present.contains(id), .sort = sort, .released = released, .added_ms = came orelse first.get(id), .modified_ms = modified.get(id), .watched_ms = watched.get(id) };
-            progress(&tile, &items, &heads, &durations, id);
-            try out.append(arena, tile);
+        switch (t.kind) {
+            .movie => {
+                const id = try std.fmt.allocPrint(arena, "{s}#0", .{t.key});
+                var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .cover = own, .thumb = own_thumb, .unavailable = !present.contains(id), .sort = sort, .released = released, .added_ms = came orelse first.get(id), .modified_ms = modified.get(id), .watched_ms = watched.get(id) };
+                progress(&tile, &items, &heads, &durations, id);
+                try out.append(arena, tile);
+            },
+            .series => {
+                const list = (seasons.get(t.key) orelse std.ArrayList(u16).empty).items;
+                std.mem.sort(u16, list, {}, std.sort.asc(u16));
+                for (list) |n| {
+                    const field = try std.fmt.allocPrint(arena, "art:s{d:0>2}", .{n});
+                    const cover = coverOf(try coverField(arena, &covers, t.key, field));
+                    const id = try std.fmt.allocPrint(arena, "{s}#{d}", .{ t.key, n });
+                    var tile: Tile = .{ .key = t.key, .name = t.name, .year = t.year, .kind = t.kind, .season = n, .cover = cover orelse own, .thumb = if (cover != null) thumbOf(try coverField(arena, &covers, t.key, try thumbField(arena, field))) else own_thumb, .unavailable = !present.contains(id), .sort = sort, .released = released, .added_ms = came orelse first.get(id), .modified_ms = modified.get(id), .watched_ms = watched.get(id) };
+                    progress(&tile, &items, &heads, &durations, id);
+                    try out.append(arena, tile);
+                }
+            },
         }
     }
     return out.items;
