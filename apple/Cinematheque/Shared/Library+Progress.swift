@@ -23,6 +23,21 @@ extension Library {
         setWatched(wholeTitle ? detail.items : Playback.items(detail, season: tile.season), of: detail, watched)
     }
 
+    /// Forgets the titles this person has watched through (Watched's):
+    /// each one's items unwatched, as Mark as Unwatched would, an item at a
+    /// time, then the tiles reloaded once. What's partway through stays.
+    func forgetWatched() {
+        for tile in tiles where tile.watched {
+            guard let detail = detail(tile.key) else { continue }
+            for item in Playback.items(detail, season: tile.season) {
+                check(reload: false) { cq_set_watched($0, "\(detail.key)/\(item.key)", 0) }
+            }
+        }
+        revision += 1
+        changed()
+        reload()
+    }
+
     /// Marks an item watched, or unwatched, forgetting where this person
     /// stopped (the core's rule).
     func setWatched(_ item: String, _ watched: Bool) {

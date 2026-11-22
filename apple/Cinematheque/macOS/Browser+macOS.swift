@@ -11,6 +11,31 @@ extension FocusedValues {
     @Entry var inspecting: Binding<Bool>?
     /// Whether the Series shelf is shown, for View › Group by Series.
     @Entry var showsSeries: Bool?
+    /// Makes a list in the library window, as File › New List does.
+    @Entry var newList: NewListAction?
+}
+
+/// Making a list in a window: compared by the window it's for, as
+/// `FindAction` is.
+struct NewListAction: Equatable {
+    let window: UUID
+    let perform: () -> Void
+
+    func callAsFunction() { perform() }
+
+    static func == (a: NewListAction, b: NewListAction) -> Bool { a.window == b.window }
+}
+
+/// File › New List (⇧⌘N, as Notes' New Folder), as the ⊕ at the sidebar's
+/// Lists heading.
+struct NewListCommand: View {
+    @FocusedValue(\.newList) private var newList
+
+    var body: some View {
+        Button("New List") { newList?() }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .disabled(newList == nil)
+    }
 }
 
 /// View › Group by Series: the Series shelf's tile per series, opening in
@@ -94,6 +119,54 @@ struct FindAction: Equatable {
     static func == (a: FindAction, b: FindAction) -> Bool { a.window == b.window }
 }
 
+/// The grid's search: AppKit's search field, in a toolbar item of the
+/// grid's own, so it stays over the content it searches whether the
+/// inspector's open or not (SwiftUI's `searchable` puts it at the window's
+/// trailing end, over the inspector while it's shown). Escape clears it, as
+/// AppKit's does.
+private struct SearchField: NSViewRepresentable {
+    @Binding var text: String
+    /// Where Find reaches the field, to give it the keys.
+    let focus: SearchFocus
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = "Search"
+        field.sendsSearchStringImmediately = true
+        field.delegate = context.coordinator
+        focus.field = field
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ note: Notification) {
+            guard let field = note.object as? NSSearchField else { return }
+            text.wrappedValue = field.stringValue
+        }
+    }
+}
+
+/// The search field, for Find to give the keys; not observed.
+final class SearchFocus {
+    weak var field: NSSearchField?
+
+    func callAsFunction() {
+        guard let field else { return }
+        field.window?.makeFirstResponder(field)
+    }
+}
+
 /// Edit › Find (⌘F), focusing the library window's search, as the covers
 /// have the keys at launch.
 struct FindCommand: View {
@@ -123,8 +196,10 @@ struct Browser: View {
     @AppStorage("orders") private var orders = ShelfOrders()
     @AppStorage("groupsSeries") private var groupsSeries = true
     @State private var search = ""
-    /// Whether search has the keys (Find, ⌘F, gives it them).
-    @FocusState private var searching: Bool
+    /// The search field, which Find (⌘F) gives the keys.
+    @State private var searchFocus = SearchFocus()
+    /// Watched's titles to forget, once confirmed.
+    @State private var forgetting = false
     /// This window's, for its Find action.
     @State private var window = UUID()
     @State private var selection: Tile.ID?
@@ -165,7 +240,7 @@ struct Browser: View {
                 ForEach(Self.shelves) { shelf in
                     Label(shelf.title, systemImage: shelf.symbol)
                 }
-                Section("Lists") {
+                Section {
                     ForEach(library.lists) { list in
                         ListRow(list: list, renaming: $renaming)
                             .tag(Shelf.list(list.id))
@@ -184,14 +259,18 @@ struct Browser: View {
                                 }
                             }
                     }
-                    // A row of its own, last: at the sidebar's foot, under
-                    // its glass, the list took its clicks. Named in place,
-                    // as Notes' New Folder is.
-                    Button(action: newList) {
-                        Label("New List", systemImage: "plus")
+                } header: {
+                    // Always shown, where Mail and Photos show theirs as
+                    // the pointer nears; named in place, as Notes' New
+                    // Folder is.
+                    HStack {
+                        Text("Lists")
+                        Spacer()
+                        Button("New List", systemImage: "plus.circle", action: newList)
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .help("New list")
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
                 }
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
@@ -210,20 +289,45 @@ struct Browser: View {
                     if near != nearBottom { nearBottom = near }
                 }
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { _, height in gridHeight = height }
-                // Search, as SwiftUI places it, goes last; the inspector's
-                // toggle just before it, as in Photos.
-                .searchable(text: $search, placement: .toolbar)
-                .searchFocused($searching)
-                .focusedSceneValue(\.find, FindAction(window: window) { searching = true })
+                .focusedSceneValue(\.find, FindAction(window: window) { searchFocus() })
+                .focusedSceneValue(\.newList, NewListAction(window: window) { newList() })
                 .focusedSceneValue(\.shelfOrder, $orders[shelf ?? .inProgress])
                 .focusedSceneValue(\.inspecting, $inspecting)
                 .focusedSceneValue(\.showsSeries, shelf == .series)
-                // Beside search while the inspector's hidden; shown, the
-                // inspector's own takes its place, at the window's corner.
+                // A shelf's own action, then search, over the grid; and the
+                // inspector's toggle at the window's far right while it's
+                // hidden, where its own is while it's shown, as Xcode's.
                 .toolbar {
+                    if shelf == .downloaded {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Show in Finder", systemImage: "folder") {
+                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: library.downloadsDir)
+                            }
+                            .help("Show in Finder")
+                        }
+                    }
+                    if shelf == .watched {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Forget Watched…", systemImage: "eraser") { forgetting = true }
+                                .help("Forget watched titles")
+                                .disabled(shown.isEmpty)
+                        }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        SearchField(text: $search, focus: searchFocus)
+                            .frame(width: 160)
+                    }
                     if !inspecting {
                         ToolbarItem(placement: .primaryAction) { inspectorToggle }
                     }
+                }
+                // Hard to undo: every watched mark, on all this person's
+                // devices.
+                .confirmationDialog("Forget the titles you've watched?", isPresented: $forgetting) {
+                    Button("Forget", role: .destructive) { library.forgetWatched() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Their watched marks are forgotten on all your devices. What you're partway through stays.")
                 }
         }
         // Outside the split view, as Apple's own example has it: full
@@ -254,8 +358,12 @@ struct Browser: View {
                 }
             }
             .inspectorColumnWidth(min: 300, ideal: 360, max: 520)
+            // At the end of its section, the window's far right, where the
+            // grid's is while it's hidden.
             .toolbar {
                 if inspecting {
+                    // Before macOS 26, at its section's start.
+                    if #available(macOS 26, *) { ToolbarSpacer(.flexible) }
                     ToolbarItem(placement: .primaryAction) { inspectorToggle }
                 }
             }

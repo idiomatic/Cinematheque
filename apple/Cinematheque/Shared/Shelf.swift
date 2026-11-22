@@ -4,8 +4,9 @@ import Foundation
 /// searched, and how it's counted. Each platform shows them its own way
 /// (the Mac in a sidebar, the Apple TV in a tab bar).
 enum Shelf: Identifiable, Hashable, RawRepresentable {
-    /// In Progress is the Mac's Home (which shows what's in progress
-    /// elsewhere); Downloaded, what this Mac keeps, is the Mac's only too.
+    /// Watching (`inProgress`, as it's stored) is the Mac's Home (which
+    /// shows what's in progress elsewhere); Downloaded, what this Mac keeps,
+    /// is the Mac's only too.
     /// Lists is every list, the Apple TV's tab; the Mac shows each list on
     /// its own, by ID.
     case home, movies, series, lists, inProgress, watched, downloaded
@@ -50,7 +51,7 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
         case .movies: "Movies"
         case .series: "Series"
         case .lists: "Lists"
-        case .inProgress: "In Progress"
+        case .inProgress: "Watching"
         case .watched: "Watched"
         case .downloaded: "Downloaded"
         case .list: "List"

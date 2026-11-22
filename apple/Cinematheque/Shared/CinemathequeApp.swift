@@ -45,7 +45,9 @@ struct CinemathequeApp: App {
                 SortCommand()
                 Divider()
             }
-            CommandGroup(after: .toolbar) {
+            CommandGroup(after: .newItem) {
+                NewListCommand()
+                Divider()
                 // With ⌥ held, Refresh Library Fully, listing every folder
                 // afresh, as a folder's time doesn't change as a file in
                 // it is retagged in place.
@@ -140,10 +142,13 @@ private struct PhaseWatcher: View {
 }
 
 extension View {
-    /// The library window's least size, on the Mac (setup's is its own).
+    /// The library window's least size, on the Mac (setup's is its own):
+    /// wide enough, with the sidebar and the inspector shown, for the grid's
+    /// toolbar to hold a shelf's action and search beside its name, which
+    /// SwiftUI drops, not shrinks, when it's short.
     func browsingSize() -> some View {
         #if os(macOS)
-        frame(minWidth: 900, minHeight: 560)
+        frame(minWidth: 960, minHeight: 560)
         #else
         self
         #endif

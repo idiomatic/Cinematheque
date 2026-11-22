@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* On the Mac, In Progress is now Watching; search sits over the grid it searches, and the inspector's toggle stays at the window's far right, open or not; the Watched shelf's Forget Watched… forgets every title on it, on all your devices, after asking; the Downloaded shelf's Show in Finder opens its folder; a ⊕ beside Lists, or File › New List (⇧⌘N), makes a list; and Refresh Library moves to the File menu, out of Settings.
 * The web client has two layouts, by the window's width: wide, the Mac's sidebar (Movies, Series, Watching, Watched, Kept, then your lists, with ⊕ for a new one) and search at the top right; narrow, a tab bar at the bottom (Home, Movies, Series, Lists, and Search), Home and Lists showing rows that scroll sideways, each cover in its own shape, with See All. Every page has its own address, so Back retraces them and a title opens in a new tab or is bookmarked. In Progress is now Watching.
 * On the Apple TV, a spinner shows on the black while a video's made ready and the display switches to it, until the player shows its own.
 * On the Apple TV, a Top Shelf title selected opens over the app, at once, Back closing it, with Play or Resume focused, and Play/Pause on it plays it straight away; a movie partway through focuses Resume, not Start Over before it.

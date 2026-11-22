@@ -74,25 +74,6 @@ struct SourcesPane: View {
             } primaryAction: { ids in
                 editing = library.sources.first { $0.id == ids.first }
             }
-            HStack {
-                Button("Add Folder…") { choosingFolder = true }
-                    .help("Add a folder on this Mac")
-                Button("Add Server…") { adding = true }
-                    .help("Add a server, such as a NAS")
-                Spacer()
-                // Nothing in the row comes or goes: the spinner keeps its
-                // place, and the button is dimmed while a refresh runs (its
-                // steps show in the library window's status bar).
-                ProgressView().controlSize(.small).opacity(library.activity == nil ? 0 : 1)
-                    .help(library.activity.map { $0 + "…" } ?? "")
-                // Option-clicked, as the menu's ⌥ alternate, fully.
-                Button("Refresh Library") {
-                    let full = NSEvent.modifierFlags.contains(.option)
-                    Task { await library.refresh(full: full) }
-                }
-                    .help("Look for new videos, or with Option, reread every folder")
-                    .disabled(library.sources.isEmpty || library.activity != nil)
-            }
             // For every device: a NAS's disks spin up for each look.
             DisclosureGroup("Advanced", isExpanded: $advanced) {
                 VStack(alignment: .leading) {
@@ -106,6 +87,15 @@ struct SourcesPane: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.top, 4)
+            }
+            // At the pane's foot, as Settings' actions are; refreshing is
+            // File › Refresh Library's.
+            HStack {
+                Button("Add Folder…") { choosingFolder = true }
+                    .help("Add a folder on this Mac")
+                Button("Add Server…") { adding = true }
+                    .help("Add a server, such as a NAS")
+                Spacer()
             }
         }
         .padding()
