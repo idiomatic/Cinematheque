@@ -8,13 +8,19 @@ Scripts that work alongside Cinematheque, outside the apps.
 
 ## YouTube
 
-[youtube.sh](youtube.sh) downloads a YouTube channel's videos (or a playlist's) with [yt-dlp](https://github.com/yt-dlp/yt-dlp) into a folder you then add as a source, where they show as a series: a season per year, an episode per upload, in date order.
+[youtube.sh](youtube.sh) downloads YouTube channels' videos (or playlists') with [yt-dlp](https://github.com/yt-dlp/yt-dlp) into a directory you then add as a source, each channel a folder that shows as a series: a season per year, an episode per upload, in date order.
 
 ```sh
-tools/youtube.sh 'https://www.youtube.com/@kurzgesagt/videos' ~/Movies/YouTube
+tools/youtube.sh ~/Movies/YouTube 'https://www.youtube.com/@kurzgesagt/videos'
 ```
 
-Run it again to fetch what's new: it notes what it has fetched in the folder's `.yt-dlp-archive`, so it skips those without asking YouTube about each. It needs yt-dlp and FFmpeg (`brew install yt-dlp ffmpeg`).
+The URLs it's given are kept in the directory's `.yt-dlp-url`, one to a line, so given none, it fetches every one again for what's new:
+
+```sh
+tools/youtube.sh ~/Movies/YouTube
+```
+
+Only adding URLs changes the file (each kept once, `sort -u`); fetching again hands it to yt-dlp as is (`--batch-file`), which skips lines starting with `#`, so a URL can be set aside, or deleted, there. It notes what it has fetched in the directory's `.yt-dlp-archive`, so it skips those without asking YouTube about each. It needs yt-dlp and FFmpeg (`brew install yt-dlp ffmpeg`).
 
 * **Format:** `-t mp4`, yt-dlp's preset for H.264 video and AAC audio in an MP4, which every player plays; YouTube offers H.264 up to 1080p.
 * **Metadata:** `--embed-metadata` and `--embed-thumbnail` put each video's title, description, and thumbnail in its file, so describing finds them without sidecar files (the thumbnail as JPEG, for its placeholder). A season's cover is one of its videos' thumbnails.
