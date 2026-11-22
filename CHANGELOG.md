@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Apple: signing set in Signing.xcconfig rather than the target, so a team in Local.xcconfig isn't hidden by one Xcode left blank.
 * A prototype iPhone app, in the same multiplatform app: a tab bar of Home, Movies, Series, Lists, and Search, title pages, and playing; setting up, Settings, and downloading are still to come.
 * The Apple TV has a home page in place of its tab bar: the sections' buttons at the top (Movies, Series, Lists, Watched, Search, and Settings), then Continue Watching and a row per list, each with See All. Every section is a page of its own, Back always leads home, and Back at home leaves the app. Rows show each cover in its own shape, at one height; a series opens a page of its seasons, square, with Play or Resume for the season to watch and the series' watched mark; and a season's page has the seasons before and after it in its top corner.
 * On the Mac, In Progress is now Watching; search sits over the grid it searches, and the inspector's toggle stays at the window's far right, open or not; the Watched shelf's Forget Watched… forgets every title on it, on all your devices, after asking; the Downloaded shelf's Show in Finder opens its folder; a ⊕ beside Lists, or File › New List (⇧⌘N), makes a list; and Refresh Library moves to the File menu, out of Settings.

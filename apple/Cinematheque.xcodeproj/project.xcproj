@@ -96,10 +96,6 @@
         "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletv*]": "App Icon & Top Shelf Image",
         "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]": "AppIcon",
         "CODE_SIGN_ENTITLEMENTS[sdk=appletv*]": "Cinematheque.entitlements",
-        "CODE_SIGN_IDENTITY[sdk=macosx*]": "-",
-        "CODE_SIGN_STYLE[sdk=appletv*]": "Automatic",
-        "CODE_SIGN_STYLE[sdk=iphone*]": "Automatic",
-        "CODE_SIGN_STYLE[sdk=macosx*]": "Manual",
         "COMBINE_HIDPI_IMAGES[sdk=macosx*]": "YES",
         "CURRENT_PROJECT_VERSION": "1",
         "DEAD_CODE_STRIPPING": "YES",
@@ -162,7 +158,6 @@
       ],
       "build-settings": {
         "CODE_SIGN_ENTITLEMENTS": "TopShelf.entitlements",
-        "CODE_SIGN_STYLE": "Automatic",
         "CURRENT_PROJECT_VERSION": "1",
         "GENERATE_INFOPLIST_FILE": "YES",
         "INFOPLIST_FILE": "TopShelf/Info.plist",

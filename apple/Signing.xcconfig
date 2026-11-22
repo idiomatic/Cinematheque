@@ -1,4 +1,14 @@
-// The app's signing settings that are particular to a developer, such as
-// DEVELOPMENT_TEAM, belong in Local.xcconfig beside this file, which Git
-// ignores, so they stay out of commits. Without it, the app is signed ad hoc.
+// The app's signing, here rather than in the target, as Xcode's Signing
+// editor writes what it shows into the target, whose settings outrank this
+// file's: a team left blank there hides Local.xcconfig's.
+//
+// The Mac's is ad hoc, until it's signed for distribution; tvOS's and iOS's
+// automatic, so the simulators need no team.
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_STYLE[sdk=macosx*] = Manual
+CODE_SIGN_IDENTITY[sdk=macosx*] = -
+
+// A developer's own settings, such as DEVELOPMENT_TEAM, belong in
+// Local.xcconfig beside this file, which Git ignores, so they stay out of
+// commits.
 #include? "Local.xcconfig"

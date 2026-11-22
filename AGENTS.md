@@ -122,7 +122,7 @@ Their details, as built, are in [apple/README.md](apple/README.md#in-detail).
 * **Addresses from other devices:** only web addresses (http or https) are opened in the browser or fetched as covers (no more than the cover's length), and only paths within a folder are shown in Finder or played from it, as another member's device may have written them.
 * **Settings' notes:** each says first why one would use the setting, then only what of how it works bears on choosing it (a NAS's disks waking, say); a confirmation says what an action does.
 * **Retreat:** every flow has a way back out: a step's Back (or the platform's Back), a sheet's or dialog's Cancel, a download's Cancel; what can't be taken back is confirmed first, saying so.
-* **Project:** Xcode's recommended settings but for script sandboxing (the core's build phase), the App Sandbox, the hardened runtime (until signing for distribution), and its macOS 15 minimum; a developer's signing settings in an ignored `Local.xcconfig`; `Info.plist` allowing plain HTTP and Bonjour on the local network, and declaring `cinematheque://` links on tvOS only, as the Mac handles none (SwiftUI would open a window for each).
+* **Project:** Xcode's recommended settings but for script sandboxing (the core's build phase), the App Sandbox, the hardened runtime (until signing for distribution), and its macOS 15 minimum; signing in `Signing.xcconfig`, not the target, whose settings Xcode's Signing editor writes and which outrank it; a developer's own (the team) in an ignored `Local.xcconfig` it includes; `Info.plist` allowing plain HTTP and Bonjour on the local network, and declaring `cinematheque://` links on tvOS only, as the Mac handles none (SwiftUI would open a window for each).
 
 ## macOS player
 
