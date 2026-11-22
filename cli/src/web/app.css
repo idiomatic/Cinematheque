@@ -13,51 +13,68 @@
 * { box-sizing: border-box; }
 body { margin: 0; }
 
+/* Wide: the sidebar beside the shelf's header and page, the window
+   scrolling them, the sidebar staying. Narrow (below): the tab bar. */
+body {
+  display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr); grid-template-rows: auto 1fr;
+  min-height: 100vh; --sidebar: 210px;
+}
+#sidebar {
+  grid-row: 1 / span 2; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  padding: 0 10px 48px; font-size: 14px;
+  background: color-mix(in srgb, CanvasText 5%, Canvas);
+  border-right: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+}
+/* The app's name, in the header's row, sharing its line, the shelves
+   below it. */
+#sidebar a.brand {
+  display: flex; align-items: center; gap: 8px; height: 57px; margin: 0 -10px 12px; padding: 0 18px;
+  font-size: 15px; font-weight: 600; border-radius: 0;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+}
+#sidebar a.brand:hover { background: none; }
+#sidebar a.brand svg { width: 22px; height: 22px; flex: none; }
+#sidebar nav { display: grid; gap: 1px; }
+#sidebar a {
+  display: block; padding: 5px 10px; border-radius: 6px;
+  color: var(--text); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#sidebar a[hidden] { display: none; }
+#sidebar a:hover { background: color-mix(in srgb, CanvasText 6%, transparent); }
+/* The shelf shown, filled, as a sidebar's selection. */
+#sidebar a[aria-current="page"] { background: color-mix(in srgb, CanvasText 13%, transparent); font-weight: 500; }
+/* The Lists heading, its ⊕ making a new list at its right, always shown. */
+.lists-heading {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 18px 0 4px; padding: 0 4px 0 10px; font-size: 12px; font-weight: 600; color: var(--dim);
+}
+.lists-heading .add { border: 0; background: none; padding: 0 4px; font-size: 16px; line-height: 1; color: var(--dim); }
+.lists-heading .add:hover { color: var(--text); }
+
 header {
   position: sticky; top: 0; z-index: 2;
-  display: flex; gap: 16px; align-items: center;
-  padding: 12px 24px;
+  display: flex; gap: 16px; align-items: center; min-height: 57px;
+  padding: 10px 24px;
   background: color-mix(in srgb, Canvas 85%, transparent);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
 }
-/* On one line, scrolling sideways where the window's too narrow for it,
-   once search has narrowed. */
-nav {
-  display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none;
-}
-/* Faded at an edge only where more is hidden past it. */
-nav.more-after { mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
-nav.more-before { mask-image: linear-gradient(to left, #000 calc(100% - 24px), transparent); }
-nav.more-before.more-after { mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent); }
-nav a, nav button {
-  padding: 6px 12px; border-radius: 8px;
-  color: var(--text); text-decoration: none; font-weight: 500; white-space: nowrap;
-}
-/* The Lists tab opens its menu, but reads as a tab. */
-nav button { border: 0; background: none; font: inherit; font-weight: 500; cursor: pointer; }
-#lists-tab { anchor-name: --lists-tab; }
-#lists-nav { position-anchor: --lists-tab; inset: auto; top: anchor(bottom); left: anchor(left); margin-top: 4px; }
-.menu hr { border: 0; border-top: 1px solid color-mix(in srgb, CanvasText 15%, transparent); margin: 4px 0; }
-/* The shelf shown: a thin line of the accent under its name, drawn over
-   the link, so choosing another moves nothing. */
-nav a, nav button { position: relative; }
-nav [aria-current="page"]::after {
-  content: ""; position: absolute; left: 12px; right: 12px; bottom: 0;
-  height: 2px; border-radius: 1px; background: var(--accent);
-}
-/* As wide as the order shown, not the longest, so the shelves keep room. */
+/* The shelf's name, as the Mac's toolbar has it, giving way to the rest. */
+#shelf-title { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* As wide as the order shown, not the longest, so the title keeps room. */
 #order { flex: 0 0 auto; padding: 6px 10px; field-sizing: content; }
 #search {
   flex: 0 10 220px; min-width: 120px; padding: 6px 10px; border-radius: 8px;
   border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
   background: Canvas; color: inherit; font: inherit;
 }
+/* The tab bar, narrow only. */
+#tabs { display: none; }
 
 /* Room above the first row, as the Mac's grid has. */
 main { padding: 28px 24px 64px; }
 h2 { font-size: 20px; margin: 24px 0 12px; }
-main > h2:first-child { margin-top: 0; }
+main > h2:first-child, main > .list-heading:first-child { margin-top: 0; }
 .empty { color: var(--dim); margin-top: 48px; text-align: center; }
 
 .grid {
@@ -131,6 +148,31 @@ main > h2:first-child { margin-top: 0; }
   border-bottom: 10px solid color-mix(in srgb, CanvasText 7%, transparent);
 }
 @media (prefers-reduced-motion: reduce) { .band { transition: none; } }
+/* Carousels (Home's rows, and Lists'): every cover one height, each its
+   own width, by its shape (`--shape`, width over height: its cover's, else
+   its placeholder's), the row scrolling sideways; a carousel isn't a grid,
+   so its gaps needn't line up across rows. */
+.row-heading { display: flex; align-items: baseline; gap: 12px; margin: 24px 0 10px; }
+.row-heading h2 { margin: 0; flex: 1 1 auto; min-width: 0; }
+main > .row-heading:first-child, main > .shelf-links:first-child + .row-heading { margin-top: 0; }
+.see-all { flex: 0 0 auto; font-size: 13px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.see-all:hover { text-decoration: underline; }
+.carousel {
+  display: flex; gap: var(--gap); overflow-x: auto; overscroll-behavior-x: contain;
+  margin: 0 -24px; padding: 2px 24px 8px; scroll-padding-inline: 24px; scroll-snap-type: x proximity;
+}
+.carousel .tile { flex: 0 0 auto; width: calc(var(--row) * var(--shape, 0.6667)); scroll-snap-align: start; }
+.carousel .tile .cover { width: 100%; height: var(--row); aspect-ratio: auto; }
+.carousel .tile.season .cover img { object-fit: cover; background: none; }
+:root { --row: 210px; }
+/* Home's way to the shelves its rows don't show, as the Apple TV's home
+   page has its sections' buttons first. */
+.shelf-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+.shelf-links a {
+  padding: 6px 14px; border-radius: 16px; text-decoration: none; color: inherit; font-size: 14px;
+  background: var(--raised); border: 1px solid color-mix(in srgb, CanvasText 15%, transparent);
+}
+.new-list { margin: 0 0 8px; }
 /* First on a shelf, it starts where the first row would, as a heading does. */
 main > div:first-child > .series-name:first-child { margin-top: 0; }
 
@@ -249,7 +291,7 @@ button.warn { color: #ff9f0a; }
 
 
 #status {
-  position: fixed; left: 0; right: 0; bottom: 0; padding: 6px 24px;
+  position: fixed; left: var(--sidebar); right: 0; bottom: 0; padding: 6px 24px;
   font-size: 12px; color: var(--dim);
   background: color-mix(in srgb, Canvas 85%, transparent);
   backdrop-filter: blur(20px);
@@ -268,11 +310,39 @@ button.warn { color: #ff9f0a; }
 }
 #curtain.open { opacity: 0; }
 
+/* Narrow, by the window's width, not the device (as `wide` in app.js):
+   the iPhone's tab bar at the bottom, in thumbs' reach, for the sidebar;
+   search on its own tab. */
+@media (max-width: 767px) {
+  body { display: block; --sidebar: 0px; }
+  #sidebar { display: none; }
+  #search { display: none; }
+  body[data-shelf="search"] #search { display: block; flex: 1 1 auto; }
+  body[data-shelf="search"] #shelf-title { display: none; }
+  /* A title's or a list's page names itself. */
+  body:is([data-shelf="title"], [data-shelf="list"]) header { display: none; }
+  #tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, Canvas 85%, transparent);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  }
+  #tabs a {
+    display: grid; justify-items: center; gap: 2px; padding: 4px 0;
+    font-size: 10px; font-weight: 500; color: var(--dim); text-decoration: none;
+  }
+  #tabs svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  #tabs a[aria-current="page"] { color: var(--accent); }
+  #status { bottom: calc(53px + env(safe-area-inset-bottom)); }
+  main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+}
 @media (max-width: 640px) {
-  :root { --cell: 120px; --gap: 14px; }
-  header { flex-wrap: wrap; padding: 10px 14px; }
-  #search { width: 100%; }
-  main { padding: 4px 14px 64px; }
+  :root { --cell: 120px; --gap: 14px; --row: 165px; }
+  header { padding: 10px 14px; }
+  main { padding: 20px 14px calc(96px + env(safe-area-inset-bottom)); }
+  .carousel { margin: 0 -14px; padding: 2px 14px 8px; scroll-padding-inline: 14px; }
   .page { grid-template-columns: 1fr; }
   .page .art { width: 200px; }
 }

@@ -8,17 +8,24 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<header>
-  <nav>
-    <a href="#home" data-shelf="home">Home</a>
+<!-- Wide, the Mac's sidebar; narrow, the iPhone's tab bar (#tabs), by the
+     window's width (see `wide` in app.js). -->
+<aside id="sidebar">
+  <!-- The app's name, in the header's row, as a sidebar app's window has
+       it, above the shelves. -->
+  <a href="#" class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="brand-red" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d7263d"/><stop offset="1" stop-color="#8e1023"/></linearGradient></defs><rect width="24" height="24" rx="5.5" fill="url(#brand-red)"/><path d="M6.5 9.5h11v8h-11zM8 7.5h8M9.5 5.5h5" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Cinematheque</a>
+  <nav aria-label="Shelves">
     <a href="#movies" data-shelf="movies">Movies</a>
     <a href="#series" data-shelf="series">Series</a>
-    <button type="button" id="lists-tab" data-shelf="lists" popovertarget="lists-nav" aria-haspopup="menu">Lists ▾</button>
-    <a href="#in-progress" data-shelf="in-progress">In Progress</a>
+    <a href="#watching" data-shelf="watching">Watching</a>
     <a href="#watched" data-shelf="watched">Watched</a>
     <a href="#kept" data-shelf="kept" hidden>Kept</a>
   </nav>
-  <div id="lists-nav" class="menu" popover="auto" role="menu"></div>
+  <div class="lists-heading"><span>Lists</span><button type="button" id="new-list" class="add" title="New list" aria-label="New list">⊕</button></div>
+  <nav id="sidebar-lists" aria-label="Lists"></nav>
+</aside>
+<header>
+  <h1 id="shelf-title"></h1>
   <select id="order" aria-label="Sort by" title="Sort by" hidden>
     <option value="title">Title</option>
     <option value="title reversed">Title, Z to A</option>
@@ -36,6 +43,13 @@
   <input id="search" type="search" placeholder="Search" aria-label="Search" autocomplete="off">
 </header>
 <main id="main"></main>
+<nav id="tabs" aria-label="Shelves">
+  <a href="#home" data-tab="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7V20.5h-5.5v-6h-6v6H3.5z"/></svg>Home</a>
+  <a href="#movies" data-tab="movies"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M7.5 4v16M16.5 4v16M3.5 9h4M3.5 15h4M16.5 9h4M16.5 15h4"/></svg>Movies</a>
+  <a href="#series" data-tab="series"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="13" rx="2"/><path d="M8 20.5h8"/></svg>Series</a>
+  <a href="#lists" data-tab="lists"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5h11.5M9 12h11.5M9 17.5h11.5"/><circle cx="4.5" cy="6.5" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="17.5" r="1"/></svg>Lists</a>
+  <a href="#search" data-tab="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>Search</a>
+</nav>
 <!-- A title not in the library yet, put on a list by name (see askWanted). -->
 <dialog id="want">
   <form method="dialog">

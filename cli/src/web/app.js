@@ -7,8 +7,13 @@ const main = document.getElementById("main");
 const search = document.getElementById("search");
 const orderMenu = document.getElementById("order");
 const grouping = document.getElementById("grouping");
-const listsNav = document.getElementById("lists-nav");
+const sidebarLists = document.getElementById("sidebar-lists");
+const shelfTitle = document.getElementById("shelf-title");
 const statusBar = document.getElementById("status");
+
+/// Whether the window's wide enough for the sidebar, else it has the tab
+/// bar, as app.css's media query has it.
+const wide = matchMedia("(min-width: 768px)");
 
 /// What the server last said: tiles; this person's lists, by name, each
 /// with its titles' keys; and every key on any list.
@@ -65,6 +70,9 @@ async function reload() {
     // On any list shown, others' too, as the Lists shelf counts them.
     shown: new Set(lists.flatMap((l) => [...l.titles])),
   };
+  // The sidebar's: this person's lists, then other members' shared ones.
+  sidebarLists.replaceChildren(...lists.map((l) => el("a", { href: `#lists/${l.id}`, "data-shelf": `lists/${l.id}` }, listLabel(l))));
+  markShown();
   noteDownloads(kept);
 }
 
@@ -155,7 +163,7 @@ function placeholders(l) {
 function wantedView(tile, underSeries) {
   const link = /^https?:\/\//.test(tile.wanted) ? tile.wanted : null;
   const on = library.mine.filter((l) => (l.wanted || []).some((w) => w.key === tile.wantedKey));
-  const a = el(link ? "a" : "div", { class: `tile wanted${tile.season == null ? "" : " season"}`, ...(link ? { href: link, target: "_blank", rel: "noopener" } : {}), title: tile.wanted || "Not in the library yet" },
+  const a = el(link ? "a" : "div", { class: `tile wanted${tile.season == null ? "" : " season"}`, style: `--shape:${shapeOf(tile)}`, ...(link ? { href: link, target: "_blank", rel: "noopener" } : {}), title: tile.wanted || "Not in the library yet" },
     coverView(tile, [], underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "sub split" }, el("span", {}, "Not in library"),
@@ -175,7 +183,8 @@ function wantedView(tile, underSeries) {
 function tileView(tile, underSeries = false) {
   if (tile.wanted != null) return wantedView(tile, underSeries);
   const href = "#title/" + encodeURIComponent(tile.key) + (tile.season == null ? "" : "/" + tile.season);
-  const a = el("a", { class: `tile${tile.season == null ? "" : " season"}${tile.unavailable ? " unavailable" : ""}`, href },
+  // Its shape for a carousel; a grid's cells are the column's.
+  const a = el("a", { class: `tile${tile.season == null ? "" : " season"}${tile.unavailable ? " unavailable" : ""}`, href, style: `--shape:${shapeOf(tile)}` },
     coverView(tile, listsOf(listKey(tile)), underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
     underSeries ? null : el("div", { class: "sub" }, tile.season == null ? (tile.year ? String(tile.year) : "") : seasonName(tile.season)),
@@ -196,6 +205,32 @@ function idOf(item) {
 /// lists; changed, it's drawn again.
 function looks(t) {
   return JSON.stringify([t.name, t.year, t.cover, t.thumb, t.watched, t.progress, t.unavailable, listsOf(listKey(t)).map((l) => l.id)]);
+}
+
+/// Covers' shapes, width over height: nearly all are a poster's (2:3) or
+/// square (a season's, often); a few, a TV's.
+const shapes = [2 / 3, 1, 4 / 3, 16 / 9];
+
+/// The shape nearest `ratio`.
+function nearestShape(ratio) {
+  return shapes.reduce((a, b) => Math.abs(Math.log(b / ratio)) < Math.abs(Math.log(a / ratio)) ? b : a);
+}
+
+/// A tile's shape, for a carousel to size it before its cover loads: its
+/// placeholder's (a ThumbHash keeps its image's approximate width over
+/// height, as the core's `thumbhash.aspectRatio` reads it), else a movie's
+/// 2:3 or a season's square.
+function shapeOf(tile) {
+  if (tile.thumb && tile.thumb !== "-") {
+    try {
+      const h = Uint8Array.from(atob(tile.thumb), (c) => c.charCodeAt(0));
+      const alpha = (h[2] & 0x80) !== 0, landscape = (h[4] & 0x80) !== 0;
+      const lx = landscape ? (alpha ? 5 : 7) : h[3] & 7;
+      const ly = landscape ? h[3] & 7 : (alpha ? 5 : 7);
+      if (lx && ly) return nearestShape(lx / ly);
+    } catch { /* No placeholder to go by. */ }
+  }
+  return tile.season == null ? 2 / 3 : 1;
 }
 
 /// A tile's cover, with its marks: a star if on `lists`, a check if
@@ -222,7 +257,12 @@ function coverView(tile, lists, title = tile.name) {
       };
       // Shown at once, once loaded, without a fade, over its placeholder.
       img.style.visibility = "hidden";
-      img.onload = () => { img.style.visibility = ""; done(); };
+      img.onload = () => {
+        img.style.visibility = "";
+        // In a carousel, the cover's own shape, if its placeholder's differs.
+        if (img.naturalHeight) cover.closest(".tile")?.style.setProperty("--shape", nearestShape(img.naturalWidth / img.naturalHeight));
+        done();
+      };
       img.onerror = () => { img.remove(); done(); };
       // Clearing its address cancels the request; its cover waits to load
       // again as it nears the screen, its page put back (see `kept`).
@@ -368,9 +408,15 @@ function seriesTiles(tiles) {
   return fill(el("div", { class: "grid" }), series, seriesTileView);
 }
 
+/// What's searched for: what's typed, where search is shown (beside every
+/// shelf, wide; narrow, on its own tab).
+function query() {
+  return wide.matches || shownShelf === "search" ? search.value.trim() : "";
+}
+
 /// Tiles matching the search, by name.
 function matching(tiles) {
-  const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+  const words = query().toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return tiles;
   return tiles.filter((t) => words.every((w) => t.name.toLowerCase().includes(w)));
 }
@@ -379,8 +425,10 @@ function matching(tiles) {
 /// and whether the other way round, as this browser last chose, else what's
 /// being watched the latest first, and the rest by title, as the apps do.
 function orderOf(shelf) {
-  const chosen = JSON.parse(localStorage.getItem("orders") || "{}")[shelf];
-  return chosen || { by: shelf === "in-progress" || shelf === "watched" ? "watched" : "title", reversed: false };
+  const all = JSON.parse(localStorage.getItem("orders") || "{}");
+  // Watching was In Progress.
+  const chosen = all[shelf] || (shelf === "watching" ? all["in-progress"] : null);
+  return chosen || { by: shelf === "watching" || shelf === "watched" ? "watched" : "title", reversed: false };
 }
 
 function chooseOrder(shelf, order) {
@@ -500,17 +548,33 @@ function shelfGrid(tiles) {
   return [movies.length ? grid(movies) : null, ...(seasons.length ? seriesGrid(seasons) : [])].filter(Boolean);
 }
 
+/// A row of tiles under its name, scrolling sideways, its See All (how many
+/// it holds) going to its whole shelf, as iOS's rows have it.
+function carousel(name, tiles, href) {
+  const titles = new Set(tiles.map((t) => t.key)).size;
+  return [el("div", { class: "row-heading" }, el("h2", {}, name),
+    el("a", { class: "see-all", href }, `See All ${titles.toLocaleString()} ›`)),
+  fill(el("div", { class: "carousel" }, []), tiles, (t) => tileView(t))];
+}
+
+/// A list's titles, and its placeholders, matching the search.
+function onList(l) {
+  return matching([...library.tiles.filter((t) => l.titles.has(listKey(t))), ...placeholders(l)]);
+}
+
 const shelves = {
+  // The tab bar's: Continue Watching, then a row per list, as the Apple
+  // TV's home page has them; the shelves they don't show first.
   home: () => {
-    const all = matching(library.tiles);
-    const going = all.filter((t) => t.started && !t.watched);
-    const parts = [];
-    if (going.length) parts.push(el("h2", {}, "Continue Watching"), ...shelfGrid(ordered(going, { by: "watched" })));
+    const going = matching(library.tiles.filter(onShelf.watching));
+    const parts = [el("nav", { class: "shelf-links", "aria-label": "More shelves" },
+      el("a", { href: "#watched" }, "Watched"), downloads.enabled ? el("a", { href: "#kept" }, "Kept") : null)];
+    if (going.length) parts.push(...carousel("Continue Watching", ordered(going, { by: "watched" }), "#watching"));
     for (const l of library.lists) {
-      const on = [...all.filter((t) => l.titles.has(listKey(t))), ...matching(placeholders(l))];
-      if (on.length) parts.push(el("h2", {}, listLabel(l)), ...shelfGrid(ordered(on, { by: "title" })));
+      const on = onList(l);
+      if (on.length) parts.push(...carousel(listLabel(l), ordered(on, orderOf(`lists/${l.id}`)), `#lists/${l.id}`));
     }
-    return parts.length ? parts : [empty("Nothing in progress or on your lists yet.")];
+    return parts.length > 1 ? parts : [...parts, empty("Nothing in progress or on your lists yet.")];
   },
   movies: () => {
     const t = ordered(matching(library.tiles.filter((t) => t.kind === "movie")), orderOf("movies"));
@@ -521,30 +585,50 @@ const shelves = {
     if (!t.length) return [empty("No series.")];
     return groupsSeries() ? [seriesTiles(t)] : seriesGrid(t);
   },
-  // Every list in turn, by name (All Lists), or the one chosen from the
-  // Lists tab's menu, with what's done to lists.
+  // Every list as a row, its See All going to its page, then a new one.
   lists: () => {
-    const order = orderOf("lists");
-    const parts = [];
-    for (const l of shownList ? [shownList] : library.lists) {
-      const t = ordered(matching([...library.tiles.filter((t) => l.titles.has(listKey(t))), ...placeholders(l)]), order);
-      // Another member's: theirs to change, so only its name.
-      parts.push(l.mine ? el("div", { class: "list-heading" },
-        el("h2", {}, listLabel(l)),
-        el("button", { class: "mark", type: "button", title: "Add a missing title", "aria-label": `Add a title not in the library to ${l.name}`, onclick: () => askWanted(l) }, "＋"),
-        el("button", { class: "mark", type: "button", title: "Rename list", "aria-label": `Rename ${l.name}`, onclick: () => renameList(l) }, "✎"),
-        el("button", { class: "mark", type: "button", "aria-pressed": l.shared, title: l.shared ? "Shared with everyone in the library" : "Share with everyone in the library", "aria-label": l.shared ? `Stop sharing ${l.name}` : `Share ${l.name}`, onclick: () => shareList(l) }, l.shared ? "Shared" : "Share"),
-        el("button", { class: "mark", type: "button", title: "Delete list", "aria-label": `Delete ${l.name}`, onclick: () => deleteList(l) }, "✕"))
-        : el("div", { class: "list-heading" }, el("h2", {}, listLabel(l))));
-      parts.push(...(t.length ? shelfGrid(t) : [el("p", { class: "dim" }, search.value.trim() ? "Nothing on it matches." : l.mine ? "Nothing on it yet: add titles from their pages." : "Nothing on it yet.")]));
+    const parts = [el("div", { class: "new-list" }, el("button", { type: "button", title: "New list", onclick: async () => {
+      const id = await newList();
+      if (id) location.hash = `#lists/${id}`;
+    } }, "⊕ New List"))];
+    for (const l of library.lists) {
+      const on = onList(l);
+      if (on.length) parts.push(...carousel(listLabel(l), ordered(on, orderOf(`lists/${l.id}`)), `#lists/${l.id}`));
+      else parts.push(el("div", { class: "row-heading" }, el("h2", {}, listLabel(l)), el("a", { class: "see-all", href: `#lists/${l.id}` }, "See All ›")),
+        el("p", { class: "dim" }, query() ? "Nothing on it matches." : "Nothing on it yet."));
     }
-    if (!library.lists.length) parts.push(empty("Make a list to keep titles in, as a watchlist or favorites, from the Lists menu."));
+    if (!library.lists.length) parts.push(empty("Make a list to keep titles in, as a watchlist or favorites."));
     return parts;
   },
+  // A list's page, with what's done to it, if it's this person's.
+  list: () => {
+    const l = shownList;
+    if (!l) return [empty("That list is gone.")];
+    const t = ordered(onList(l), orderOf(`lists/${l.id}`));
+    // Another member's: theirs to change, so only its name.
+    const heading = l.mine ? el("div", { class: "list-heading" },
+      el("h2", {}, listLabel(l)),
+      el("button", { class: "mark", type: "button", title: "Add a missing title", "aria-label": `Add a title not in the library to ${l.name}`, onclick: () => askWanted(l) }, "＋"),
+      el("button", { class: "mark", type: "button", title: "Rename list", "aria-label": `Rename ${l.name}`, onclick: () => renameList(l) }, "✎"),
+      el("button", { class: "mark", type: "button", "aria-pressed": l.shared, title: l.shared ? "Shared with everyone in the library" : "Share with everyone in the library", "aria-label": l.shared ? `Stop sharing ${l.name}` : `Share ${l.name}`, onclick: () => shareList(l) }, l.shared ? "Shared" : "Share"),
+      el("button", { class: "mark", type: "button", title: "Delete list", "aria-label": `Delete ${l.name}`, onclick: () => deleteList(l) }, "✕"))
+      : el("div", { class: "list-heading" }, el("h2", {}, listLabel(l)));
+    return [heading, ...(t.length ? shelfGrid(t) : [el("p", { class: "dim" }, query() ? "Nothing on it matches." : l.mine ? "Nothing on it yet: add titles from their pages." : "Nothing on it yet.")])];
+  },
   // Played, split in two, as the Mac's sidebar has it.
-  "in-progress": () => {
-    const t = ordered(matching(library.tiles.filter(onShelf["in-progress"])), orderOf("in-progress"));
+  watching: () => {
+    const t = ordered(matching(library.tiles.filter(onShelf.watching)), orderOf("watching"));
     return t.length ? shelfGrid(t) : [empty("What you're watching shows here.")];
+  },
+  // The tab bar's: movies, then a tile per series, as the Apple TV's.
+  search: () => {
+    if (!query()) return [empty("Search for a movie or series by name.")];
+    const t = ordered(matching(library.tiles), orderOf("search"));
+    if (!t.length) return [empty("Nothing matches.")];
+    const movies = t.filter((x) => x.kind === "movie");
+    const series = t.filter((x) => x.kind === "series");
+    if (!movies.length || !series.length) return [movies.length ? grid(movies) : seriesTiles(series)];
+    return [el("h2", {}, "Movies"), grid(movies), el("h2", {}, "Series"), seriesTiles(series)];
   },
   watched: () => {
     const t = ordered(matching(library.tiles.filter(onShelf.watched)), orderOf("watched"));
@@ -593,24 +677,13 @@ function askWanted(l) {
   dialog.showModal();
 }
 
-/// The list the Lists tab shows (`#lists/<id>`), or none, for all of them.
+/// The list whose page is shown (`#lists/<id>`).
 let shownList = null;
 
-/// The Lists tab's menu, made afresh as it opens: All Lists, each list,
-/// the one shown checked, then New List…, which shows the new one.
-listsNav.addEventListener("beforetoggle", (e) => {
-  if (e.newState !== "open") return;
-  const here = decodeURIComponent(location.hash.slice(1));
-  const item = (label, checked, onclick) =>
-    el("button", { type: "button", role: "menuitemradio", "aria-checked": checked, onclick: () => { listsNav.hidePopover(); onclick(); } }, checked ? "✓ " : "\u2003", label);
-  listsNav.replaceChildren(
-    item("All Lists", here === "lists", () => { location.hash = "#lists"; }),
-    ...library.lists.map((l) => item(listLabel(l), here === `lists/${l.id}`, () => { location.hash = `#lists/${l.id}`; })),
-    el("hr"),
-    item("New List…", false, async () => {
-      const id = await newList();
-      if (id) location.hash = `#lists/${id}`;
-    }));
+/// The sidebar's ⊕, at the Lists heading's right: a new list, shown.
+document.getElementById("new-list").addEventListener("click", async () => {
+  const id = await newList();
+  if (id) location.hash = `#lists/${id}`;
 });
 
 /// This person's lists a tile's key is on.
@@ -693,8 +766,10 @@ const onShelf = {
   home: (t) => (t.started && !t.watched) || library.listed.has(listKey(t)),
   movies: (t) => t.kind === "movie",
   series: (t) => t.kind === "series",
-  lists: (t) => (shownList ? shownList.titles : library.shown).has(listKey(t)),
-  "in-progress": (t) => t.started && !t.watched,
+  lists: (t) => library.shown.has(listKey(t)),
+  list: (t) => !!shownList?.titles.has(listKey(t)),
+  watching: (t) => t.started && !t.watched,
+  search: () => true,
   watched: (t) => t.watched,
   kept: (t) => heldTile(t),
 };
@@ -707,9 +782,9 @@ function counts(shelf) {
   const titles = new Set(all.map((t) => t.key)).size;
   const noun = shelf === "movies" ? (titles === 1 ? "movie" : "movies") : shelf === "series" ? "series" : titles === 1 ? "title" : "titles";
   const n = (x) => x.toLocaleString();
-  if (search.value.trim()) {
+  if (query()) {
     const found = new Set(matching(all).map((t) => t.key)).size;
-    return `${n(found)} of ${n(titles)} ${noun} match “${search.value.trim()}”`;
+    return `${n(found)} of ${n(titles)} ${noun} match “${query()}”`;
   }
   if (shelf === "series") {
     const episodes = all.reduce((sum, t) => sum + t.items, 0);
@@ -921,7 +996,7 @@ const watching = new Set();
 
 function noteDownloads(kept) {
   downloads = kept.enabled ? { enabled: true, device: kept.device, ...kept.report } : { enabled: false };
-  document.querySelector('nav a[data-shelf="kept"]').hidden = !downloads.enabled;
+  document.querySelector('#sidebar a[data-shelf="kept"]').hidden = !downloads.enabled;
   for (const update of watching) update();
   if (!problemShown) show(keepingLine() || shelfStatus);
   pollDownloads();
@@ -1321,8 +1396,10 @@ addEventListener("keydown", (e) => {
   e.preventDefault();
 });
 
-// Routing: #home, #movies, #series, #lists[/<id>], #in-progress, #watched,
-// #title/<key>[/<season>].
+// Routing: #home, #movies, #series, #watching, #watched, #kept, #lists,
+// #lists/<id>, #search, #title/<key>[/<season>]: each page an address of
+// its own, so Back retraces them, and a title opens in a new tab or is
+// bookmarked.
 
 /// Each shelf's place as it was left (where it was scrolled, and the series
 /// open), to come back to, as the Mac's shelves keep theirs: by Back from a
@@ -1357,7 +1434,10 @@ function restore(place, mine) {
 /// its top, as the Mac's starts.
 async function route(how) {
   const mine = ++showing;
-  const hash = decodeURIComponent(location.hash.slice(1)) || "home";
+  // Wide has no Home, its rows being the sidebar's shelves.
+  const hash = decodeURIComponent(location.hash.slice(1)) || (wide.matches ? "movies" : "home");
+  // Watching was In Progress.
+  if (hash === "in-progress") return location.replace("#watching");
   const fromTop = how?.fromTop === true;
   if (shownHash && !shownHash.startsWith("title/") && !(fromTop && shownHash === hash)) {
     places.set(shownHash, { y: scrollY, open: open?.key });
@@ -1369,15 +1449,10 @@ async function route(how) {
     kept = null;
   }
   shownHash = hash;
-  // A list's page is the Lists tab's.
-  const tab = hash.startsWith("lists/") ? "lists" : hash;
-  for (const a of document.querySelectorAll("nav [data-shelf]")) a.toggleAttribute("aria-current", a.dataset.shelf === tab);
-  for (const a of document.querySelectorAll("nav [aria-current]")) {
-    a.setAttribute("aria-current", "page");
-    // In view, where the bar scrolls in a narrow window (Kept, last, off
-    // its edge, showed no shelf chosen at all).
-    a.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }
+  shownShelf = hash.startsWith("title/") ? "title" : hash.startsWith("lists/") ? "list" : shelves[hash] ? hash : "home";
+  if (shownShelf !== "title") lastShelf = shownShelf === "home" ? "home" : hash;
+  document.body.dataset.shelf = shownShelf;
+  markShown();
   // The tab shows chosen before its shelf is built, so the click answers at once.
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r)));
   if (mine !== showing) return;
@@ -1395,21 +1470,24 @@ async function route(how) {
       // Cleared first, so a problem the page finds stays.
       shelfStatus = "";
       show(keepingLine());
+      shelfTitle.textContent = "";
       parts = await titlePage(key, season);
       shownMakeup = null;
     } else {
-      shownList = hash.startsWith("lists/") ? library.lists.find((l) => l.id === hash.slice("lists/".length)) || null : null;
-      const shelf = shelves[tab] ? tab : "home";
-      // Home's two rows have orders of their own.
-      orderMenu.hidden = shelf === "home";
+      shownList = shownShelf === "list" ? library.lists.find((l) => l.id === hash.slice("lists/".length)) || null : null;
+      const shelf = shownShelf;
+      // Home's and Lists' rows have orders of their own.
+      orderMenu.hidden = shelf === "home" || shelf === "lists";
       grouping.hidden = shelf !== "series";
       grouping.querySelector("input").checked = groupsSeries();
       open = null;
       shownMakeup = makeup(shelf);
       reused = kept?.hash === hash && kept.makeup === shownMakeup ? kept : null;
       kept = null;
-      const order = orderOf(shelf);
+      const order = orderOf(orderKey());
       orderMenu.value = order.by + (order.reversed ? " reversed" : "");
+      // A list's page names it in its heading, with what's done to it.
+      shelfTitle.textContent = shelf === "list" ? "" : shelfNames[shelf];
       parts = reused ? reused.nodes : shelves[shelf]();
       shelfStatus = counts(shelf);
       show(keepingLine() || shelfStatus);
@@ -1431,18 +1509,49 @@ async function route(how) {
   const place = hash.startsWith("title/") ? null : places.get(hash);
   if (place) restore(place, mine);
   else scrollTo(0, 0);
+  // The Search tab, chosen, is for typing.
+  if (shownShelf === "search" && !wide.matches && !search.value) search.focus();
 }
 
-/// Marks which edges of the shelves' bar have more past them, for their
-/// fades, as it scrolls and as the window changes.
-const nav = document.querySelector("nav");
-function edges() {
-  nav.classList.toggle("more-before", nav.scrollLeft > 1);
-  nav.classList.toggle("more-after", nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1);
+/// The shelf shown (`movies`, `list` for a list's page, `title` for a
+/// title's), the page last shown that wasn't a title's, and their names.
+let shownShelf = null;
+let lastShelf = null;
+const shelfNames = {
+  home: "Home",
+  movies: "Movies",
+  series: "Series",
+  watching: "Watching",
+  watched: "Watched",
+  kept: "Kept",
+  lists: "Lists",
+  search: "Search",
+};
+
+/// What a shelf's order is kept as: each list's its own.
+function orderKey() {
+  return shownShelf === "list" ? shownHash : shownShelf;
 }
-nav.addEventListener("scroll", edges, { passive: true });
-addEventListener("resize", edges);
-edges();
+
+/// Marks the shelf shown in the sidebar, and its tab in the tab bar (a
+/// list's page the Lists tab's; Watching's, Watched's, and Kept's Home's,
+/// whose rows and links lead to them); a title's page, the shelf it was
+/// opened from.
+function markShown() {
+  const at = shownShelf === "title" ? lastShelf : shownHash;
+  for (const a of document.querySelectorAll("#sidebar [data-shelf]")) {
+    if (a.dataset.shelf === at) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
+  const tab = !at ? null : at.startsWith("lists") ? "lists" : ["watching", "watched", "kept"].includes(at) ? "home" : at;
+  for (const a of document.querySelectorAll("#tabs [data-tab]")) {
+    if (a.dataset.tab === tab) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
+}
+
+// Across the width, search applies or doesn't, and Home's shown or not.
+wide.addEventListener("change", () => route());
 
 grouping.querySelector("input").addEventListener("change", (e) => {
   localStorage.setItem("groupsSeries", String(e.target.checked));
@@ -1451,12 +1560,13 @@ grouping.querySelector("input").addEventListener("change", (e) => {
 
 orderMenu.addEventListener("change", () => {
   const [by, reversed] = orderMenu.value.split(" ");
-  chooseOrder(decodeURIComponent(location.hash.slice(1)) || "home", { by, reversed: reversed === "reversed" });
+  chooseOrder(orderKey(), { by, reversed: reversed === "reversed" });
   route({ fromTop: true });
 });
 
 search.addEventListener("input", () => {
-  if (location.hash.startsWith("#title/")) location.hash = "#movies";
+  // From a title's page, the shelf it was opened from.
+  if (shownShelf === "title") location.hash = "#" + (lastShelf && lastShelf !== "home" ? lastShelf : "movies");
   else route({ fromTop: true });
 });
 addEventListener("hashchange", route);
