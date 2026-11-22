@@ -9,12 +9,17 @@ nonisolated struct Cover: Codable, Hashable {
     let stamp: String
 }
 
+/// A title's kind, as the core names it.
+nonisolated enum TitleKind: String, Codable, Hashable {
+    case movie, series
+}
+
 /// One tile of the grid: a movie, or a season of a series.
 nonisolated struct Tile: Codable, Identifiable, Hashable {
     let key: String
     let name: String
     let year: Int?
-    let kind: String
+    let kind: TitleKind
     let season: Int?
     let cover: Cover?
     /// The cover's placeholder, a ThumbHash in base64.
@@ -49,13 +54,13 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
         let parts = w.key.split(separator: "#", maxSplits: 1)
         let key = String(parts[0])
         let segments = key.split(separator: "/")
-        self.init(key: key, name: w.name, year: segments.last.flatMap { Int($0) }, kind: key.hasPrefix("t/s/") ? "series" : "movie",
+        self.init(key: key, name: w.name, year: segments.last.flatMap { Int($0) }, kind: key.hasPrefix("t/s/") ? .series : .movie,
                   season: parts.count > 1 ? Int(parts[1]) : nil, cover: nil, thumb: nil, watched: false, progress: 0, elapsed: 0,
                   runtime: 0, started: false, items: 0, order: .init(title: .max, released: nil, added: nil, modified: nil, watched: nil),
                   wanted: w.note)
     }
 
-    init(key: String, name: String, year: Int?, kind: String, season: Int?, cover: Cover?, thumb: String?, watched: Bool, progress: Double,
+    init(key: String, name: String, year: Int?, kind: TitleKind, season: Int?, cover: Cover?, thumb: String?, watched: Bool, progress: Double,
          elapsed: Int, runtime: Int, started: Bool, items: Int, unavailable: Bool = false, order: Order, wanted: String? = nil) {
         self.key = key
         self.name = name
@@ -88,7 +93,7 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
     }
 
     var id: String { season.map { "\(key)#\($0)" } ?? key }
-    var isSeries: Bool { kind == "series" }
+    var isSeries: Bool { kind == .series }
     /// "Season 3", "Specials" for season 0, or a dated series' season's
     /// year alone, "2026" (a season of 1000 or more, as the core reads
     /// it), as "Season 2026" read as a 2,026th.

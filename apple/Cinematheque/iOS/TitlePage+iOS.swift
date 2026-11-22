@@ -42,7 +42,7 @@ struct TitlePage: View {
                         .buttonStyle(.borderedProminent)
                         if next?.inProgress == true {
                             Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: items, chosen: quality), overFromStart: true)
+                                playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: items, chosen: quality))?.fromBeginning
                             }
                             .labelStyle(.iconOnly)
                             .buttonStyle(.bordered)

@@ -77,7 +77,7 @@ pub const Web = struct {
         var r = try open(w, io, gpa);
         defer r.close();
         // Found before writing, so looking holds up no page's writes.
-        const found = try core.sync.reachable(io, arena, &r, w.own, null);
+        const found = try core.sync.everyDevice(io, arena, &r, w.own);
         try w.writer.lock(io);
         defer w.writer.unlock(io);
         try r.refresh();
@@ -320,7 +320,7 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
         try core.library.setProgress(&r, arena, now(io), p.item, p.position, p.duration);
     } else if (std.mem.eql(u8, name, "watched")) {
         const p = try std.json.parseFromSliceLeaky(struct { item: []const u8, watched: bool }, arena, body, .{});
-        try core.library.setWatched(&r, arena, now(io), p.item, p.watched);
+        if (p.watched) try core.library.markWatched(&r, arena, now(io), p.item) else try core.library.markUnwatched(&r, arena, now(io), p.item);
     } else if (std.mem.eql(u8, name, "listed")) {
         const p = try std.json.parseFromSliceLeaky(struct { list: []const u8, key: []const u8, on: bool }, arena, body, .{});
         try core.lists.setListed(&r, arena, now(io), p.list, p.key, p.on);
@@ -340,7 +340,7 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     } else if (std.mem.eql(u8, name, "list-share")) {
         // Every member's to see, or this person's alone again.
         const p = try std.json.parseFromSliceLeaky(struct { id: []const u8, on: bool }, arena, body, .{});
-        try core.lists.share(io, &r, arena, now(io), p.id, p.on);
+        if (p.on) try core.lists.share(io, &r, arena, now(io), p.id) else try core.lists.stopSharing(io, &r, arena, now(io), p.id);
     } else if (std.mem.eql(u8, name, "download") or std.mem.eql(u8, name, "download-remove") or std.mem.eql(u8, name, "download-next")) {
         // This device's downloads, which it fetches as it reconciles.
         if (!w.downloads) return error.NotFound;

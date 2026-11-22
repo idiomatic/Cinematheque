@@ -437,8 +437,8 @@ test "a shared list is every member's to see, and its owner's alone to change" {
     const b = &p.replicas[1];
     const id = try lists.create(testing.io, a, arena, 1000, "Date Night");
     try lists.setListed(a, arena, 1001, id, "t/m/alien/1979", true);
-    _ = try lists.want(a, arena, 1002, id, false, "Dune: Part Three", 2026, null, "");
-    try lists.share(testing.io, a, arena, 1003, id, true);
+    _ = try lists.want(a, arena, 1002, id, .movie, "Dune: Part Three", 2026, null, "");
+    try lists.share(testing.io, a, arena, 1003, id);
     _ = try p.sync(1, 0);
 
     // b sees a's list, as a's, with its titles and placeholder.
@@ -464,7 +464,7 @@ test "a shared list is every member's to see, and its owner's alone to change" {
     try testing.expectEqual(@as(usize, 2), seen[1].titles.len);
 
     // Made private again, it's gone from b's lists, and a keeps its titles.
-    try lists.share(testing.io, a, arena, 3000, id, false);
+    try lists.stopSharing(testing.io, a, arena, 3000, id);
     _ = try p.sync(1, 0);
     try testing.expectEqual(@as(usize, 1), (try lists.lists(b, arena)).len);
     seen = try lists.lists(a, arena);

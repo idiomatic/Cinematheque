@@ -1245,7 +1245,7 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     try want(&r, arena, "t/m/alien/1979", "");
     try setNext(&r, arena, "t/s/firefly/-", .{ .next = 2 });
     // Episode 1 watched: 2 and 3 are next.
-    try library.setWatched(&r, arena, 4, keys[1], true);
+    try library.markWatched(&r, arena, 4, keys[1]);
 
     var client: std.http.Client = .{ .allocator = gpa, .io = io };
     defer client.deinit();
@@ -1274,7 +1274,7 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     try std.testing.expectEqual(1, done.held);
 
     // Episode 2 watched: 4 comes; 2 stays until its space is needed.
-    try library.setWatched(&r, arena, 6, keys[2], true);
+    try library.markWatched(&r, arena, 6, keys[2]);
     done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 7, null, null);
     try std.testing.expectEqual(1, done.fetched);
     try std.testing.expectEqual(0, done.deleted);
@@ -1284,11 +1284,11 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     try std.testing.expect(finished[0].deletable);
 
     // A download by hand stays, watched or not.
-    try library.setWatched(&r, arena, 8, keys[0], true);
+    try library.markWatched(&r, arena, 8, keys[0]);
     try std.testing.expectEqual(1, (try finishedWith(&r, arena, s.source)).len);
     // Watched, but the only copy (the NAS lost it): never deleted.
     try r.write(9, try std.fmt.allocPrint(arena, "{s}/r/-", .{keys[3]}), nas_field, "");
-    try library.setWatched(&r, arena, 9, keys[3], true);
+    try library.markWatched(&r, arena, 9, keys[3]);
     finished = try finishedWith(&r, arena, s.source);
     try std.testing.expectEqual(2, finished.len);
     try std.testing.expect(!finished[1].deletable);
@@ -1324,7 +1324,7 @@ test "a series' choice of episodes: the next few, or all" {
     try r.write(2, "t/s/firefly/-", "name", "Firefly");
     const items = [_][]const u8{ "e/s00e01", "e/s01e01", "e/s01e02", "e/s01e03", "e/s02e01", "e/s02e02" };
     for (items) |i| try r.write(2, try std.fmt.allocPrint(arena, "t/s/firefly/-/{s}/r/-", .{i}), field, try std.fmt.allocPrint(arena, "{s}.mp4\t1000\t1", .{i}));
-    try library.setWatched(&r, arena, 3, "t/s/firefly/-/e/s01e01", true);
+    try library.markWatched(&r, arena, 3, "t/s/firefly/-/e/s01e01");
 
     const cases = [_]struct { choice: []const u8, want: []const []const u8 }{
         .{ .choice = "1", .want = &.{"e/s01e02"} },

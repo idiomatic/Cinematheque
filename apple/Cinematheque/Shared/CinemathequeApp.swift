@@ -54,7 +54,7 @@ struct CinemathequeApp: App {
                 Button("Refresh Library") { Task { await library.refresh() } }
                     .keyboardShortcut("r")
                     .modifierKeyAlternate(.option) {
-                        Button("Refresh Library Fully") { Task { await library.refresh(full: true) } }
+                        Button("Refresh Library Fully") { Task { await library.refreshFully() } }
                             .keyboardShortcut("r", modifiers: [.command, .option])
                     }
                     .disabled(!library.hasLibrary || library.activity != nil)

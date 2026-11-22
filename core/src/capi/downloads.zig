@@ -102,11 +102,16 @@ export fn cq_reconcile(lib: *Library) ?[*:0]u8 {
 
 const ReconciledJson = struct { fetched: usize = 0, kept: usize = 0, deleted: usize = 0, failed: usize = 0, no_room: usize = 0, held: usize = 0, @"error": ?[]const u8 = null, busy: bool = false };
 
-/// Holds downloads back (nonzero), as while a stream plays, which they'd
-/// slow: none begins, though one under way finishes; or lets them go (then
-/// `cq_reconcile` fetches what waited). Any thread.
-export fn cq_downloads_hold(lib: *Library, on: c_int) void {
-    lib.hold.store(on != 0, .release);
+/// Holds downloads back, as while a stream plays, which they'd slow: none
+/// begins, though one under way finishes. Any thread.
+export fn cq_downloads_hold(lib: *Library) void {
+    lib.hold.store(true, .release);
+}
+
+/// Lets downloads held back go; then `cq_reconcile` fetches what waited.
+/// Any thread.
+export fn cq_downloads_resume(lib: *Library) void {
+    lib.hold.store(false, .release);
 }
 
 fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
@@ -183,13 +188,19 @@ fn sourceSet(lib: *Library, arena: std.mem.Allocator, source: []const u8, qualit
     _ = try library.setSource(try lib.main(), arena, lib.now(), source, quality, skip, null);
 }
 
-/// Whether a source's files take their quality from the first folder
-/// within it (nonzero), else from its name or the files'. Copies move at
-/// the next crawl.
-export fn cq_repo_quality_by_folder(lib: *Library, source: [*:0]const u8, on: c_int) c_int {
-    return status(lib, sourceByFolder, .{ std.mem.span(source), on != 0 });
+/// Takes a source's files' quality from the first folder within it. Copies
+/// move at the next crawl.
+export fn cq_repo_quality_by_folder(lib: *Library, source: [*:0]const u8) c_int {
+    return status(lib, sourceByFolder, .{ std.mem.span(source), true });
 }
 
+/// Takes a source's files' quality from its name, if it has one, else the
+/// files'. Copies move at the next crawl.
+export fn cq_repo_quality_by_name(lib: *Library, source: [*:0]const u8) c_int {
+    return status(lib, sourceByFolder, .{ std.mem.span(source), false });
+}
+
+/// Writes the source's setting, its value either way.
 fn sourceByFolder(lib: *Library, arena: std.mem.Allocator, source: []const u8, on: bool) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());

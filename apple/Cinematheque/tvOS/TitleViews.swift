@@ -36,7 +36,7 @@ struct MovieView: View {
                     HStack(spacing: 30) {
                         if Playback.nextItem(detail, season: nil)?.inProgress == true {
                             Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality), overFromStart: true)
+                                playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality))?.fromBeginning
                             }
                         }
                         Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
@@ -156,7 +156,7 @@ struct SeasonView: View {
                         HStack(spacing: 30) {
                             if Playback.nextItem(detail, season: shown.season)?.inProgress == true {
                                 Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                    playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: items, chosen: quality), overFromStart: true)
+                                    playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: items, chosen: quality))?.fromBeginning
                                 }
                             }
                             Button(Playback.playLabel(Playback.nextItem(detail, season: shown.season)), systemImage: "play.fill") {

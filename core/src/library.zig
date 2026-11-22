@@ -389,23 +389,38 @@ pub const CrawlStats = struct {
     total_ms: i64,
 };
 
+/// A title's kind, as its key's letter has it (`t/m/...`, `t/s/...`), and
+/// as JSON names it (`movie`, `series`).
+pub const TitleKind = enum(u8) { movie = 'm', series = 's' };
+
 /// Crawls a source, reusing this device's last crawl of it where its
-/// directories haven't changed (unless `full`, as a directory's time
-/// doesn't change as a file in it is rewritten in place, retagged),
-/// brings the library's copies in line with what it found, and keeps the
-/// crawl for next time. Describing what it found is separate (see
-/// `art.plan` and `art.run`), so its titles show before their covers.
-pub fn crawlSource(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, source: Source, workers: usize, full: bool) !CrawlStats {
-    const key = try snapshotKey(arena, source.id);
+/// directories haven't changed, brings the library's copies in line with
+/// what it found, and keeps the crawl for next time. Describing what it
+/// found is separate (see `art.plan` and `art.run`), so its titles show
+/// before their covers.
+pub fn crawlSource(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, source: Source, workers: usize) !CrawlStats {
     var prev: ?crawl.Snapshot = null;
-    if (!full) if (try replica.local(arena, key)) |saved| {
+    if (try replica.local(arena, try snapshotKey(arena, source.id))) |saved| {
         prev = try crawl.Snapshot.init(arena, try crawl.Snapshot.load(arena, saved));
-    };
+    }
+    return crawlFrom(replica, io, arena, client, wall_ms, source, workers, if (prev) |*p| p else null);
+}
+
+/// As `crawlSource`, but listing every directory afresh, reusing none of
+/// the last crawl, as a directory's time doesn't change as a file in it is
+/// rewritten in place (retagged).
+pub fn crawlSourceAfresh(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, source: Source, workers: usize) !CrawlStats {
+    return crawlFrom(replica, io, arena, client, wall_ms, source, workers, null);
+}
+
+/// Crawls a source, reusing `prev`'s listings where they're unchanged.
+fn crawlFrom(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, source: Source, workers: usize, prev: ?*const crawl.Snapshot) !CrawlStats {
+    const key = try snapshotKey(arena, source.id);
     var entries: std.ArrayList(crawl.Entry) = .empty;
     const start = Io.Timestamp.now(io, .awake);
     const result = try crawl.crawl(io, arena, client, source.url, .{
         .workers = workers,
-        .prev = if (prev) |*p| p else null,
+        .prev = prev,
         .entries = &entries,
     });
     const crawled = Io.Timestamp.now(io, .awake);
@@ -898,13 +913,15 @@ pub fn setProgress(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, it
         try replica.writePrivate(wall_ms, key, &.{ .{ "position", position }, .{ "duration", duration } });
 }
 
-/// Marks an item watched or not, by hand.
-/// Marks an item watched, or not; unwatched forgets where this person
-/// stopped too, so it plays from the beginning.
-pub fn setWatched(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8, watched: bool) !void {
-    const key = try progressKey(replica, arena, item_key);
-    if (watched) return replica.writePrivate(wall_ms, key, &.{.{ "watched", "1" }});
-    try replica.writePrivate(wall_ms, key, &.{ .{ "position", "" }, .{ "duration", "" }, .{ "watched", "0" } });
+/// Marks an item watched, by hand.
+pub fn markWatched(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8) !void {
+    try replica.writePrivate(wall_ms, try progressKey(replica, arena, item_key), &.{.{ "watched", "1" }});
+}
+
+/// Marks an item unwatched, emptying where this person stopped too, so it
+/// plays from the beginning.
+pub fn markUnwatched(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, item_key: []const u8) !void {
+    try replica.writePrivate(wall_ms, try progressKey(replica, arena, item_key), &.{ .{ "position", "" }, .{ "duration", "" }, .{ "watched", "0" } });
 }
 
 /// Removes this person's progress in an item: its position and watched mark.
@@ -1262,7 +1279,7 @@ test "a crawl records when it was, so refreshes not asked for skip it for a day"
     try std.testing.expect(window >= 23 * 3600 * 1000 and window <= 25 * 3600 * 1000);
     try std.testing.expect(!(try sources(&r, arena))[0].crawledLately(1000, window));
     const at: u64 = 1_000_000;
-    _ = try crawlSource(&r, io, arena, &client, at, (try sources(&r, arena))[0], 4, false);
+    _ = try crawlSource(&r, io, arena, &client, at, (try sources(&r, arena))[0], 4);
     const source = (try sources(&r, arena))[0];
     try std.testing.expectEqual(at, source.crawled_ms);
     try std.testing.expect(source.crawledLately(at + window - 1, window));
@@ -1289,13 +1306,13 @@ test "a full crawl sees a file rewritten in place, which reusing listings misses
     defer r.close();
     _ = try addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
     const source = (try sources(&r, arena))[0];
-    _ = try crawlSource(&r, io, arena, &client, 1000, source, 1, false);
+    _ = try crawlSource(&r, io, arena, &client, 1000, source, 1);
     // Retagged: rewritten in place, its directory's time unchanged.
     try tmp.dir.writeFile(io, .{ .sub_path = "Movies/Alien (1979).mp4", .data = "xyz" });
-    const reused = try crawlSource(&r, io, arena, &client, 2000, source, 1, false);
+    const reused = try crawlSource(&r, io, arena, &client, 2000, source, 1);
     try std.testing.expectEqual(@as(usize, 1), reused.crawl.skipped);
     try std.testing.expectEqual(@as(usize, 0), reused.ingest.copies_changed);
-    const full = try crawlSource(&r, io, arena, &client, 3000, source, 1, true);
+    const full = try crawlSourceAfresh(&r, io, arena, &client, 3000, source, 1);
     try std.testing.expectEqual(@as(usize, 0), full.crawl.skipped);
     try std.testing.expectEqual(@as(usize, 1), full.ingest.copies_changed);
 }
@@ -1411,7 +1428,7 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
     // one would look unchanged.
     const Fresh = struct {
         fn crawl(rr: *Replica, io_: Io, a: std.mem.Allocator, c: *std.http.Client, wall: u64, rp: Source) !CrawlStats {
-            return crawlSource(rr, io_, a, c, wall, rp, 1, true);
+            return crawlSourceAfresh(rr, io_, a, c, wall, rp, 1);
         }
     };
 
@@ -1507,7 +1524,7 @@ test "state: sources, aliases, progress, and members can be listed, set, and rem
     try std.testing.expectEqual(@as(usize, 0), (try aliases(&r, arena)).len);
 
     try setProgress(&r, arena, 5000, "t/m/network-effect/2020/v/-", 60_000, 6_000_000);
-    try setWatched(&r, arena, 6000, "t/s/worldhoppers/-/e/s01e02", true);
+    try markWatched(&r, arena, 6000, "t/s/worldhoppers/-/e/s01e02");
     try std.testing.expectEqual(@as(usize, 2), (try progressOf(&r, arena, null)).len);
     const one = try progressOf(&r, arena, "t/m/network-effect/2020");
     try std.testing.expectEqual(@as(usize, 1), one.len);
@@ -1521,7 +1538,7 @@ test "state: sources, aliases, progress, and members can be listed, set, and rem
     try std.testing.expectEqual(@as(usize, 1), (try progressOf(&r, arena, null)).len);
     // Marked unwatched: where it stopped is forgotten too.
     try setProgress(&r, arena, 7100, "t/m/network-effect/2020/v/-", 600_000, 6_000_000);
-    try setWatched(&r, arena, 7200, "t/m/network-effect/2020/v/-", false);
+    try markUnwatched(&r, arena, 7200, "t/m/network-effect/2020/v/-");
     try std.testing.expectEqual(@as(usize, 0), (try progressOf(&r, arena, "t/m/network-effect/2020")).len);
 
     const other = (try replica_.personKeyPair(@splat(2))).public_key.toBytes();

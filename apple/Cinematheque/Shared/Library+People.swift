@@ -37,17 +37,27 @@ extension Library {
         if let handle { cq_pair_stop(handle.pointer) }
     }
 
-    /// Pairs the new device `device`, given the code it shows: sends it the
-    /// library, and unless it's a new person's (`join`), this person's
+    /// Adds the new device `device` as another of this person's devices,
+    /// given the code it shows: sends it the library and this person's
     /// secret. Returns who it is (for `welcome`), or what went wrong, in
     /// words.
-    func pair(_ device: NearbyDevice, code: String, join: Bool) async -> (Paired?, String?) {
+    func pairPerson(_ device: NearbyDevice, code: String) async -> (Paired?, String?) {
+        await pair(device, code: code) { cq_pair_person($0, $1, $2) }
+    }
+
+    /// Adds the new device `device` as a new member's, given the code it
+    /// shows: sends it the library alone. Returns who it is (for
+    /// `welcomeMember`), or what went wrong, in words.
+    func pairMember(_ device: NearbyDevice, code: String) async -> (Paired?, String?) {
+        await pair(device, code: code) { cq_pair_member($0, $1, $2) }
+    }
+
+    private func pair(_ device: NearbyDevice, code: String, by send: @escaping @Sendable (OpaquePointer, String, String) -> UnsafeMutablePointer<CChar>?) async -> (Paired?, String?) {
         guard let handle else { return (nil, "The library isn't open.") }
         let url = device.url
-        let join: Int32 = join ? 1 : 0
         let name = device.deviceName ?? "The device"
         let (paired, failure): (Paired?, String?) = await Task.detached {
-            guard let text = cq_pair(handle.pointer, url, join, code) else { return (nil, String(cString: cq_error())) }
+            guard let text = send(handle.pointer, url, code) else { return (nil, String(cString: cq_error())) }
             defer { cq_free(text) }
             return (try? JSONDecoder().decode(Paired.self, from: Data(bytes: text, count: strlen(text))), nil)
         }.value
@@ -75,7 +85,7 @@ extension Library {
     func renameDevice(_ key: String, _ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let person = status?.person else { return }
-        check { cq_name($0, key, person, trimmed) }
+        checkAndReload { cq_name($0, key, person, trimmed) }
     }
 
     /// Copy racing (see the core's race.zig): `urls`, an item's copies, in
@@ -100,34 +110,42 @@ extension Library {
 
     /// Forgets a source's unavailable directory, as if it were deleted: its
     /// copies go, for every device.
-    func removeUnavailable(_ source: String, _ dir: String) { check { cq_remove_unavailable($0, source, dir) } }
+    func removeUnavailable(_ source: String, _ dir: String) { checkAndReload { cq_remove_unavailable($0, source, dir) } }
 
     /// Removes another of this person's devices from the library: its later
     /// writes are refused, and it's served no more.
-    func removeDevice(_ key: String) { check { cq_remove_device($0, key) } }
+    func removeDevice(_ key: String) { checkAndReload { cq_remove_device($0, key) } }
 
     /// Takes in a device just paired: names it as it advertised itself, or
     /// as its host is named if that's generic (until it names itself), so
-    /// it's among its person's devices at once, and if it's a new person's
-    /// (`join`), adds its person as a member.
-    func welcome(_ paired: Paired, from device: NearbyDevice, join: Bool) {
+    /// it's among its person's devices at once.
+    func welcome(_ paired: Paired, from device: NearbyDevice) {
         if let name = device.deviceName {
-            check(reload: false) { cq_name($0, paired.device, paired.person, name) }
+            check { cq_name($0, paired.device, paired.person, name) }
         }
-        if join { check(reload: false) { cq_member($0, paired.person, 1) } }
         reload()
+    }
+
+    /// As `welcome`, for a new person's device: adds its person as a member
+    /// too.
+    func welcomeMember(_ paired: Paired, from device: NearbyDevice) {
+        check { cq_member_add($0, paired.person) }
+        welcome(paired, from: device)
     }
 
     // Names and devices.
 
-    enum Named: String { case person, device }
+    enum Named { case person, device }
 
     /// Names this person or this device, for every device to show in place of
     /// keys, and advertises the new name.
     func setName(_ which: Named, _ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        check { cq_set_name($0, which.rawValue, trimmed) }
+        switch which {
+        case .person: checkAndReload { cq_set_person_name($0, trimmed) }
+        case .device: checkAndReload { cq_set_device_name($0, trimmed) }
+        }
         if servingPort != nil { serve() }
     }
 
@@ -142,7 +160,10 @@ extension Library {
         return data.flatMap { try? JSONDecoder().decode([NearbyDevice].self, from: $0) } ?? []
     }
 
-    /// Adds a device by address (e.g., one off the network), or removes one.
-    func setDeviceAddress(_ url: String, _ add: Bool) { check(reload: false) { cq_device_address($0, url, add ? 1 : 0) } }
+    /// Adds a device by address (e.g., one off the network).
+    func addDeviceAddress(_ url: String) { check { cq_device_address_add($0, url) } }
+
+    /// Forgets an address added.
+    func forgetDeviceAddress(_ url: String) { check { cq_device_address_forget($0, url) } }
 
 }

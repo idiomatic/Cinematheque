@@ -133,7 +133,7 @@ extension Library {
     /// Downloads a title, season (`<title>/e/s01`), or item, in the
     /// quality given (else the one most items have).
     func download(_ key: String, quality: String?) {
-        check { cq_download($0, key, quality) }
+        checkAndReload { cq_download($0, key, quality) }
         reconcileSoon()
     }
 
@@ -142,7 +142,7 @@ extension Library {
     func removeDownload(_ key: String) {
         // The series' choice, if it asks for any of them, is stopped first
         // (by the core).
-        check { cq_download_remove($0, key) }
+        checkAndReload { cq_download_remove($0, key) }
     }
 
     /// How far an item, or a movie's or season's items, have come (`of`,
@@ -189,7 +189,7 @@ extension Library {
     /// Chooses which of a series' episodes download as it's watched (see
     /// `Downloads.Next`); empty, none.
     func chooseDownloads(_ title: String, _ choice: String) {
-        check { cq_download_next($0, title, choice) }
+        checkAndReload { cq_download_next($0, title, choice) }
         reconcileSoon()
     }
 
@@ -219,7 +219,7 @@ extension Library {
         if let id = downloads?.source, let old = sources.first(where: { $0.id == id }), old.url != url {
             removeSource(old.id)
         }
-        check { cq_downloads_configure($0, path, url) }
+        checkAndReload { cq_downloads_configure($0, path, url) }
     }
 
 
@@ -230,7 +230,7 @@ extension Library {
         let was = !streams.isEmpty
         if on { streams.insert(id) } else { streams.remove(id) }
         guard let handle, was != !streams.isEmpty else { return }
-        cq_downloads_hold(handle.pointer, streams.isEmpty ? 0 : 1)
+        if streams.isEmpty { cq_downloads_resume(handle.pointer) } else { cq_downloads_hold(handle.pointer) }
         if streams.isEmpty { reconcileSoon() }
     }
 

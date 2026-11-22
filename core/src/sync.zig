@@ -111,11 +111,17 @@ pub fn addedAddresses(r: *Replica, arena: std.mem.Allocator) ![]const []const u8
     return urls;
 }
 
-/// Adds a device by URL, or removes one added; returns its sync URL.
-pub fn setAdded(r: *Replica, arena: std.mem.Allocator, target: []const u8, add: bool) ![]const u8 {
+/// Adds a device by URL; returns its sync URL.
+pub fn addAddress(r: *Replica, arena: std.mem.Allocator, target: []const u8) ![]const u8 {
     const u = try syncUrl(arena, target);
-    const key = try std.mem.concat(arena, u8, &.{ added_prefix, u });
-    if (add) try r.setLocal(key, "") else try r.removeLocal(key);
+    try r.setLocal(try std.mem.concat(arena, u8, &.{ added_prefix, u }), "");
+    return u;
+}
+
+/// Forgets an address added; returns its sync URL.
+pub fn forgetAddress(r: *Replica, arena: std.mem.Allocator, target: []const u8) ![]const u8 {
+    const u = try syncUrl(arena, target);
+    try r.removeLocal(try std.mem.concat(arena, u8, &.{ added_prefix, u }));
     return u;
 }
 
@@ -126,15 +132,17 @@ pub const Devices = struct {
     names: std.StringHashMapUnmanaged([]const u8),
 };
 
-/// `target` alone, if given; else every device of `r`'s library found nearby
-/// (but this one, advertised as `own`), then those added that weren't.
-pub fn reachable(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8, target: ?[]const u8) !Devices {
-    if (target) |t| {
-        const urls = try arena.alloc([]const u8, 1);
-        urls[0] = try syncUrl(arena, t);
-        return .{ .urls = urls, .names = .empty };
-    }
+/// Every device of `r`'s library found nearby (but this one, advertised as
+/// `own`), then those added that weren't.
+pub fn everyDevice(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8) !Devices {
     return withAdded(arena, r, try nearby(io, arena, r, own));
+}
+
+/// The device at `target` alone.
+pub fn oneDevice(arena: std.mem.Allocator, target: []const u8) !Devices {
+    const urls = try arena.alloc([]const u8, 1);
+    urls[0] = try syncUrl(arena, target);
+    return .{ .urls = urls, .names = .empty };
 }
 
 /// Every device of `r`'s library found nearby (but this one, advertised as

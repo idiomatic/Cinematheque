@@ -912,7 +912,7 @@ test "covers round-trip, and a season without one takes its series'" {
     try std.testing.expectEqualStrings(c.path, all[0].cover.?.path);
     try std.testing.expectEqualStrings("Firefly/season02.jpg", all[1].cover.?.path);
 
-    try library.setWatched(&r, arena, 2, "t/s/firefly/-/e/s01e01", true);
+    try library.markWatched(&r, arena, 2, "t/s/firefly/-/e/s01e01");
     const after = try tiles(&r, arena);
     try std.testing.expect(after[0].watched and after[0].progress == 1 and after[0].started);
     try std.testing.expect(!after[1].watched and after[1].progress == 0 and !after[1].started);

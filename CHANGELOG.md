@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Core: the C interface has one function per action, with no argument choosing among them (`cq_member_add` and `cq_member_remove` for `cq_member`, `cq_sync` and `cq_sync_with` for `cq_sync`'s optional address, and so on). The apps' code likewise (pairing as yours or someone new's, leaving or ending a library, Start Over, marking a whole series watched), and a placeholder's kind taken as a kind, not whether it's a series, so one the library doesn't know is refused rather than taken for a movie.
 * Core: the C interface documented, each function and the form of its result, in core/include/README.md.
 * Docs: tightened, each point stated once, long sentences split, and what had gone stale brought up to date.
 * Apple: signing set in Signing.xcconfig rather than the target, so a team in Local.xcconfig isn't hidden by one Xcode left blank.

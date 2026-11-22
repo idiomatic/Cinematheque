@@ -58,7 +58,7 @@ fn crawlEvery(lib: *Library, _: std.mem.Allocator, hours: u64) !void {
 /// and `error` (null, or why its crawl failed), one per source, with its
 /// times and counts (see `CrawlJson`).
 export fn cq_crawl(lib: *Library) ?[*:0]u8 {
-    return json(lib, crawlAll, .{ false, false });
+    return json(lib, crawlAll, .{});
 }
 
 /// Long: as `cq_crawl`, but listing every directory afresh, reusing none
@@ -66,7 +66,7 @@ export fn cq_crawl(lib: *Library) ?[*:0]u8 {
 /// whose directories' times don't change, are seen (Refresh Library
 /// Fully).
 export fn cq_crawl_full(lib: *Library) ?[*:0]u8 {
-    return json(lib, crawlAll, .{ false, true });
+    return json(lib, crawlAllAfresh, .{});
 }
 
 /// Long: as `cq_crawl`, but for a refresh not asked for (at launch, or on
@@ -75,18 +75,52 @@ export fn cq_crawl_full(lib: *Library) ?[*:0]u8 {
 /// (`lately` in their results), whose copies syncing brought; or all of
 /// them, if it's Manually (`manual`).
 export fn cq_crawl_due(lib: *Library) ?[*:0]u8 {
-    return json(lib, crawlAll, .{ true, false });
+    return json(lib, crawlDue, .{});
 }
 
-fn crawlAll(lib: *Library, arena: std.mem.Allocator, due: bool, full: bool) ![]const CrawlJson {
+/// How a source is crawled: reusing the last crawl's listings, or afresh.
+const Crawler = fn (*Replica, Io, std.mem.Allocator, *std.http.Client, u64, library.Source, usize) anyerror!library.CrawlStats;
+
+fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
     var r = try connection(lib, arena);
     defer release(lib, &r);
-    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
-    defer client.deinit();
+    return crawlAndDescribe(lib, arena, &r, try library.sources(&r, arena), library.crawlSource);
+}
+
+fn crawlAllAfresh(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
+    var r = try connection(lib, arena);
+    defer release(lib, &r);
+    return crawlAndDescribe(lib, arena, &r, try library.sources(&r, arena), library.crawlSourceAfresh);
+}
+
+/// The sources due: those no device crawled within the library's interval,
+/// unless it's Manually. The rest are told as skipped, in their places.
+fn crawlDue(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
+    var r = try connection(lib, arena);
+    defer release(lib, &r);
     const list = try library.sources(&r, arena);
-    const out = try arena.alloc(CrawlJson, list.len);
     const every = try library.crawlEvery(&r, arena);
     const window = if (every) |hours| library.crawlWindow(lib.io(), hours) else 0;
+    const out = try arena.alloc(CrawlJson, list.len);
+    var due: std.ArrayList(library.Source) = .empty;
+    var places: std.ArrayList(usize) = .empty;
+    for (list, out, 0..) |rp, *o, i| {
+        // A device's downloads are told as such, wherever they are.
+        if (rp.managed or (every != null and !rp.crawledLately(lib.now(), window))) {
+            try due.append(arena, rp);
+            try places.append(arena, i);
+        } else o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .manual = every == null, .lately = every != null };
+    }
+    for (places.items, try crawlAndDescribe(lib, arena, &r, due.items, library.crawlSource)) |i, c| out[i] = c;
+    return out;
+}
+
+/// Crawls `list`'s sources, but devices' downloads, committing each as it's
+/// crawled, then describes what's new; a result per source.
+fn crawlAndDescribe(lib: *Library, arena: std.mem.Allocator, r: *Replica, list: []const library.Source, comptime crawler: Crawler) ![]const CrawlJson {
+    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
+    defer client.deinit();
+    const out = try arena.alloc(CrawlJson, list.len);
     var crawled: std.ArrayList(art.Crawled) = .empty;
     lib.steps.start(.crawling, list.len);
     defer lib.steps.finish();
@@ -96,18 +130,10 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator, due: bool, full: bool) ![]c
             o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null };
             continue;
         }
-        if (due and every == null) {
-            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .manual = true };
-            continue;
-        }
-        if (due and rp.crawledLately(lib.now(), window)) {
-            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .lately = true };
-            continue;
-        }
         try lib.writer.lock(lib.io());
         defer lib.writer.unlock(lib.io());
         try r.refresh();
-        const s = library.crawlSource(&r, lib.io(), arena, &client, lib.now(), rp, 16, full) catch |err| {
+        const s = crawler(r, lib.io(), arena, &client, lib.now(), rp, 16) catch |err| {
             o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = @errorName(err) };
             continue;
         };
@@ -125,9 +151,9 @@ fn crawlAll(lib: *Library, arena: std.mem.Allocator, due: bool, full: bool) ![]c
         };
         try crawled.append(arena, .{ .source = rp, .entries = s.entries });
     }
-    const plan = try art.plan(&r, arena, crawled.items);
+    const plan = try art.plan(r, arena, crawled.items);
     lib.steps.start(.describing, plan.jobs.len);
-    _ = try art.run(lib.io(), &r, arena, &client, lib.now(), plan.jobs, .{
+    _ = try art.run(lib.io(), r, arena, &client, lib.now(), plan.jobs, .{
         .workers = 16,
         .priority = &lib.priority,
         .writer = &lib.writer,
@@ -154,18 +180,23 @@ export fn cq_data_version(lib: *Library) i64 {
     return r.db.scalar("PRAGMA data_version") catch -1;
 }
 
-/// Long: pulls from the device at `target`, or else from every device of this
-/// library found or added, as a JSON array of objects with `url`, `new`
-/// (operations won), and `error`.
-export fn cq_sync(lib: *Library, target: ?[*:0]const u8) ?[*:0]u8 {
-    return json(lib, syncAll, .{ span(target), false });
+/// Long: syncs with every device of this library found or added, as a
+/// JSON array of objects with `url`, `name` (as it advertised itself),
+/// `new` (operations won), `sent` (operations pushed), and `error`.
+export fn cq_sync(lib: *Library) ?[*:0]u8 {
+    return json(lib, syncEvery, .{});
 }
 
-/// Long: as `cq_sync` with every device, but with those the last such sync
-/// found nearby (and those added), without looking for two seconds again;
-/// if none has, it looks. For a change to reach other devices at once.
+/// Long: as `cq_sync`, with the device at `url` alone.
+export fn cq_sync_with(lib: *Library, url: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, syncWith, .{std.mem.span(url)});
+}
+
+/// Long: as `cq_sync`, but with the devices the last such sync found
+/// nearby (and those added), without looking for two seconds again; if
+/// none has, it looks. For a change to reach other devices at once.
 export fn cq_sync_known(lib: *Library) ?[*:0]u8 {
-    return json(lib, syncAll, .{ null, true });
+    return json(lib, syncKnown, .{});
 }
 
 /// The devices of this library a sync last found nearby.
@@ -209,44 +240,60 @@ pub const Known = struct {
     }
 };
 
-fn syncAll(lib: *Library, arena: std.mem.Allocator, target: ?[]const u8, known: bool) ![]const SyncJson {
+fn syncEvery(lib: *Library, arena: std.mem.Allocator) ![]const SyncJson {
     // Devices are counted once they're found.
     lib.steps.start(.syncing, 0);
     defer lib.steps.finish();
     var r = try connection(lib, arena);
     defer release(lib, &r);
-    const reachable = if (target != null)
-        try sync.reachable(lib.io(), arena, &r, try lib.store.serviceName(arena), target)
-    else found: {
-        const seen = (if (known) try lib.known.get(lib.io(), arena) else null) orelse looked: {
-            const fresh = try sync.nearby(lib.io(), arena, &r, try lib.store.serviceName(arena));
-            try lib.known.save(lib.io(), fresh);
-            break :looked fresh;
-        };
-        break :found try sync.withAdded(arena, &r, seen);
-    };
-    const urls = reachable.urls;
-    const names = reachable.names;
-    // Found before writing, so looking (however long the network makes
-    // it) holds up no one else's writes; then caught up with theirs.
+    return exchangeAll(lib, arena, &r, try sync.withAdded(arena, &r, try lookNearby(lib, arena, &r)));
+}
+
+fn syncKnown(lib: *Library, arena: std.mem.Allocator) ![]const SyncJson {
+    lib.steps.start(.syncing, 0);
+    defer lib.steps.finish();
+    var r = try connection(lib, arena);
+    defer release(lib, &r);
+    const seen = (try lib.known.get(lib.io(), arena)) orelse try lookNearby(lib, arena, &r);
+    return exchangeAll(lib, arena, &r, try sync.withAdded(arena, &r, seen));
+}
+
+fn syncWith(lib: *Library, arena: std.mem.Allocator, url: []const u8) ![]const SyncJson {
+    lib.steps.start(.syncing, 0);
+    defer lib.steps.finish();
+    var r = try connection(lib, arena);
+    defer release(lib, &r);
+    return exchangeAll(lib, arena, &r, try sync.oneDevice(arena, url));
+}
+
+/// The devices of this library found nearby, remembered for `cq_sync_known`.
+fn lookNearby(lib: *Library, arena: std.mem.Allocator, r: *Replica) !sync.Devices {
+    const fresh = try sync.nearby(lib.io(), arena, r, try lib.store.serviceName(arena));
+    try lib.known.save(lib.io(), fresh);
+    return fresh;
+}
+
+/// Syncs with `devices`, found before writing, so looking (however long the
+/// network makes it) holds up no one else's writes; then caught up with
+/// theirs.
+fn exchangeAll(lib: *Library, arena: std.mem.Allocator, r: *Replica, devices: sync.Devices) ![]const SyncJson {
     try lib.writer.lock(lib.io());
     defer lib.writer.unlock(lib.io());
     try r.refresh();
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
-    const out = try arena.alloc(SyncJson, urls.len);
-    lib.steps.start(.syncing, urls.len);
-    for (urls, out) |u, *o| {
+    const out = try arena.alloc(SyncJson, devices.urls.len);
+    lib.steps.start(.syncing, devices.urls.len);
+    for (devices.urls, out) |u, *o| {
         defer lib.steps.step();
-        const exchanged = sync.exchange(arena, &client, &r, u, lib.now()) catch |err| {
-            o.* = .{ .url = u, .name = names.get(u), .new = 0, .@"error" = @errorName(err) };
+        const exchanged = sync.exchange(arena, &client, r, u, lib.now()) catch |err| {
+            o.* = .{ .url = u, .name = devices.names.get(u), .new = 0, .@"error" = @errorName(err) };
             continue;
         };
-        o.* = .{ .url = u, .name = names.get(u), .new = exchanged.stats.won, .sent = exchanged.sent, .@"error" = null };
+        o.* = .{ .url = u, .name = devices.names.get(u), .new = exchanged.stats.won, .sent = exchanged.sent, .@"error" = null };
     }
     return out;
 }
-
 
 /// The last sync this device served, while serving, as JSON: `device` (the
 /// key of the device that asked), its `name` if it has one, how many

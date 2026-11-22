@@ -127,27 +127,37 @@ fn others(replica: *Replica, arena: std.mem.Allocator, me: []const u8, out: *std
     }
 }
 
-/// Shares a list of this person's with every member, or makes it theirs
-/// alone again.
-pub fn share(io: Io, replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []const u8, on: bool) !void {
+/// Shares a list of this person's with every member.
+pub fn share(io: Io, replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []const u8) !void {
     const list = try own(replica, arena, id);
-    if (list.shared == on) return;
+    if (list.shared) return;
     const public_key = try public(arena, list.owner, id);
     const private_key = try key(replica, arena, id);
+    // Its titles to the public key first, then off the private one, so a
+    // failure between leaves them in both, not neither.
+    const moved = try entries(replica, arena, private_key);
+    try writePublic(replica, wall_ms, public_key, &.{ .{ "name", list.name }, .{ try newMode(io, arena), "shared" } }, moved);
+    try writePrivate(replica, wall_ms, private_key, try emptied(arena, moved));
+}
+
+/// Makes a shared list its owner's alone again: its titles back to its
+/// private key first, then off the public one, emptied (hiding it, not
+/// recalling what other devices hold).
+pub fn stopSharing(io: Io, replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []const u8) !void {
+    const list = try own(replica, arena, id);
+    if (!list.shared) return;
+    const public_key = try public(arena, list.owner, id);
+    const private_key = try key(replica, arena, id);
+    const moved = try entries(replica, arena, public_key);
+    try writePrivate(replica, wall_ms, private_key, moved);
+    try writePublic(replica, wall_ms, public_key, &.{ .{ "name", "" }, .{ try newMode(io, arena), "private" } }, try emptied(arena, moved));
+}
+
+/// A field of the mode's log, written once: `mode:` and a random suffix.
+fn newMode(io: Io, arena: std.mem.Allocator) ![]const u8 {
     var bytes: [8]u8 = undefined;
     io.random(&bytes);
-    const mode = try std.fmt.allocPrint(arena, "mode:{s}", .{std.fmt.bytesToHex(bytes, .lower)});
-    if (on) {
-        // Its titles to the public key first, then off the private one, so
-        // a failure between leaves them in both, not neither.
-        const moved = try entries(replica, arena, private_key);
-        try writePublic(replica, wall_ms, public_key, &.{ .{ "name", list.name }, .{ mode, "shared" } }, moved);
-        try writePrivate(replica, wall_ms, private_key, try emptied(arena, moved));
-    } else {
-        const moved = try entries(replica, arena, public_key);
-        try writePrivate(replica, wall_ms, private_key, moved);
-        try writePublic(replica, wall_ms, public_key, &.{ .{ "name", "" }, .{ mode, "private" } }, try emptied(arena, moved));
-    }
+    return std.fmt.allocPrint(arena, "mode:{s}", .{std.fmt.bytesToHex(bytes, .lower)});
 }
 
 /// Whether a list's public key's latest mode is shared.
@@ -244,7 +254,7 @@ pub fn setListed(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: 
 /// movie, or a series' season (the first, unless another's given), by its
 /// name and year as its file will have them, so it's there as it arrives;
 /// returns its key.
-pub fn want(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []const u8, series: bool, name: []const u8, year: ?u16, season: ?u16, note: []const u8) ![]const u8 {
+pub fn want(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []const u8, kind: library.TitleKind, name: []const u8, year: ?u16, season: ?u16, note: []const u8) ![]const u8 {
     const list = try own(replica, arena, id);
     const n = try checkName(name);
     const normalized = try library.normalize(arena, n);
@@ -253,16 +263,20 @@ pub fn want(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []con
     if (t.len > max_note or !std.unicode.utf8ValidateSlice(t)) return error.InvalidArgument;
     for (t) |c| if (c < 0x20 or c == 0x7f) return error.InvalidArgument;
     const y = if (year) |v| try std.fmt.allocPrint(arena, "{d}", .{v}) else "-";
-    const title = try std.fmt.allocPrint(arena, "t/{c}/{s}/{s}", .{ @as(u8, if (series) 's' else 'm'), normalized, y });
-    const k = if (series) try std.fmt.allocPrint(arena, "{s}#{d}", .{ title, season orelse 1 }) else title;
+    const title = try std.fmt.allocPrint(arena, "t/{c}/{s}/{s}", .{ @intFromEnum(kind), normalized, y });
+    // Listed as players list it: a movie by its title, a series by season.
+    const k = switch (kind) {
+        .movie => title,
+        .series => try std.fmt.allocPrint(arena, "{s}#{d}", .{ title, season orelse 1 }),
+    };
     try writeTitles(replica, arena, wall_ms, list, &.{.{ k, try std.fmt.allocPrint(arena, "w\t{s}\t{s}", .{ n, t }) }});
     return k;
 }
 
 /// A placeholder's fields, as the apps and the web client send them.
 pub const WantJson = struct {
-    /// "movie" or "series".
-    kind: []const u8,
+    /// `movie` or `series`; any other is refused.
+    kind: library.TitleKind,
     name: []const u8,
     year: ?u16 = null,
     /// A series' season, the first unless given.
@@ -271,7 +285,7 @@ pub const WantJson = struct {
 };
 
 pub fn wantJson(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []const u8, w: WantJson) ![]const u8 {
-    return want(replica, arena, wall_ms, id, std.mem.eql(u8, w.kind, "series"), w.name, w.year, w.season, w.note);
+    return want(replica, arena, wall_ms, id, w.kind, w.name, w.year, w.season, w.note);
 }
 
 /// One of this person's own lists, which only they change.
@@ -399,11 +413,11 @@ test "a placeholder is keyed as its file will be, so it's on the list as it arri
     const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
     var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
-    const movie = try want(&r, arena, 1, watchlist_id, false, "Dune: Part Three", 2026, null, "https://example.com/dune");
+    const movie = try want(&r, arena, 1, watchlist_id, .movie, "Dune: Part Three", 2026, null, "https://example.com/dune");
     // As the file `Dune Part Three (2026).m4v` will be keyed.
     var scratch: [256]u8 = undefined;
     try std.testing.expectEqualStrings((try library.keys(arena, @import("naming.zig").parse("Dune Part Three (2026).m4v", &scratch))).title, movie);
-    try std.testing.expectEqualStrings("t/s/the-chair/-#1", try want(&r, arena, 2, watchlist_id, true, "The Chair", null, null, ""));
+    try std.testing.expectEqualStrings("t/s/the-chair/-#1", try want(&r, arena, 2, watchlist_id, .series, "The Chair", null, null, ""));
     const l = (try lists(&r, arena))[0];
     try std.testing.expectEqual(@as(usize, 2), l.titles.len);
     try std.testing.expectEqual(@as(usize, 2), l.wanted.len);
@@ -412,8 +426,8 @@ test "a placeholder is keyed as its file will be, so it's on the list as it arri
     // Taken off as any title is.
     try setListed(&r, arena, 3, watchlist_id, movie, false);
     try std.testing.expectEqual(@as(usize, 1), (try lists(&r, arena))[0].wanted.len);
-    try std.testing.expectError(error.InvalidArgument, want(&r, arena, 4, watchlist_id, false, "...", null, null, ""));
-    try std.testing.expectError(error.InvalidArgument, want(&r, arena, 4, watchlist_id, false, "Alien", 1979, null, "a\nb"));
+    try std.testing.expectError(error.InvalidArgument, want(&r, arena, 4, watchlist_id, .movie, "...", null, null, ""));
+    try std.testing.expectError(error.InvalidArgument, want(&r, arena, 4, watchlist_id, .movie, "Alien", 1979, null, "a\nb"));
 }
 
 test "a list shared keeps its titles, renamed and changed where they are" {
@@ -424,7 +438,7 @@ test "a list shared keeps its titles, renamed and changed where they are" {
     var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
     defer r.close();
     try setListed(&r, arena, 1, watchlist_id, "t/m/alien/1979", true);
-    try share(std.testing.io, &r, arena, 2, watchlist_id, true);
+    try share(std.testing.io, &r, arena, 2, watchlist_id);
     var l = (try lists(&r, arena))[0];
     try std.testing.expect(l.shared);
     try std.testing.expectEqualStrings("t/m/alien/1979", l.titles[0]);
@@ -436,14 +450,23 @@ test "a list shared keeps its titles, renamed and changed where they are" {
     try std.testing.expectEqual(@as(usize, 2), l.titles.len);
     try std.testing.expectEqualStrings("Ours", l.name);
     // Shared again, nothing changes; made private, its titles come back.
-    try share(std.testing.io, &r, arena, 5, watchlist_id, true);
-    try share(std.testing.io, &r, arena, 6, watchlist_id, false);
+    try share(std.testing.io, &r, arena, 5, watchlist_id);
+    try stopSharing(std.testing.io, &r, arena, 6, watchlist_id);
     l = (try lists(&r, arena))[0];
     try std.testing.expect(!l.shared);
     try std.testing.expectEqual(@as(usize, 2), l.titles.len);
     try std.testing.expectEqual(@as(usize, 0), (try entries(&r, arena, try public(arena, l.owner, watchlist_id))).len);
     // Deleted while shared, its public name's emptied too.
-    try share(std.testing.io, &r, arena, 7, watchlist_id, true);
+    try share(std.testing.io, &r, arena, 7, watchlist_id);
     try remove(&r, arena, 8, watchlist_id);
     try std.testing.expectEqual(@as(usize, 0), (try lists(&r, arena)).len);
+}
+
+test "a placeholder's kind is one the library knows, or refused" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const series = try std.json.parseFromSliceLeaky(WantJson, arena, "{\"kind\":\"series\",\"name\":\"The Chair\"}", .{});
+    try std.testing.expectEqual(library.TitleKind.series, series.kind);
+    try std.testing.expectError(error.InvalidEnumTag, std.json.parseFromSliceLeaky(WantJson, arena, "{\"kind\":\"album\",\"name\":\"Kid A\"}", .{}));
 }

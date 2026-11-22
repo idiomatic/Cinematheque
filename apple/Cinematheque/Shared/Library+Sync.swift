@@ -67,7 +67,7 @@ extension Library {
             while !Task.isCancelled {
                 // With the devices the last sync found, without looking
                 // for two seconds again.
-                if await syncQuietly(known: true) { return }
+                if await syncKnownQuietly() { return }
                 guard handle != nil, hasLibrary else { return }
                 try? await Task.sleep(for: .milliseconds(500))
             }
@@ -75,16 +75,22 @@ extension Library {
     }
 
     /// Syncs with every device, without showing it as an activity, unless
-    /// something else is running; returns whether it did. `known`, with
-    /// those the last sync found (`cq_sync_known`), not looking again.
+    /// something else is running; returns whether it did.
     @discardableResult
-    func syncQuietly(known: Bool = false) async -> Bool {
+    func syncQuietly() async -> Bool { await syncQuietly { cq_sync($0) } }
+
+    /// As `syncQuietly`, with the devices the last sync found
+    /// (`cq_sync_known`), not looking again.
+    @discardableResult
+    func syncKnownQuietly() async -> Bool { await syncQuietly { cq_sync_known($0) } }
+
+    private func syncQuietly(_ sync: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async -> Bool {
         guard let handle, hasLibrary, activity == nil, !syncingQuietly, !leavingLibrary else { return false }
         syncingQuietly = true
         defer { syncingQuietly = false }
         lastSync = .now
         let data: Data? = await Task.detached {
-            guard let text = known ? cq_sync_known(handle.pointer) : cq_sync(handle.pointer, nil) else { return nil }
+            guard let text = sync(handle.pointer) else { return nil }
             defer { cq_free(text) }
             return Data(bytes: text, count: strlen(text))
         }.value

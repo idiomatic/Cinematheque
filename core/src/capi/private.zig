@@ -23,15 +23,27 @@ fn setProgress(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, po
     try library.setProgress(r.replica, arena, lib.now(), item_key, position_ms, duration_ms);
 }
 
-/// Marks an item watched (nonzero) or not.
-export fn cq_set_watched(lib: *Library, item_key: [*:0]const u8, watched: c_int) c_int {
-    return status(lib, setWatched, .{ std.mem.span(item_key), watched != 0 });
+/// Marks an item watched.
+export fn cq_mark_watched(lib: *Library, item_key: [*:0]const u8) c_int {
+    return status(lib, markWatched, .{std.mem.span(item_key)});
 }
 
-fn setWatched(lib: *Library, arena: std.mem.Allocator, item_key: []const u8, watched: bool) !void {
+fn markWatched(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !void {
     const r = try privateWriter(lib);
     defer if (r.locked) lib.writer.unlock(lib.io());
-    try library.setWatched(r.replica, arena, lib.now(), item_key, watched);
+    try library.markWatched(r.replica, arena, lib.now(), item_key);
+}
+
+/// Marks an item unwatched, forgetting where this person stopped, so it
+/// plays from the beginning.
+export fn cq_mark_unwatched(lib: *Library, item_key: [*:0]const u8) c_int {
+    return status(lib, markUnwatched, .{std.mem.span(item_key)});
+}
+
+fn markUnwatched(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !void {
+    const r = try privateWriter(lib);
+    defer if (r.locked) lib.writer.unlock(lib.io());
+    try library.markUnwatched(r.replica, arena, lib.now(), item_key);
 }
 
 /// Removes this person's progress in an item: its position and watched mark.
@@ -92,12 +104,17 @@ fn removeList(lib: *Library, arena: std.mem.Allocator, id: []const u8) !void {
     try lists.remove(r.replica, arena, lib.now(), id);
 }
 
-/// Puts a movie or a season (as `cq_lists` keys them) on the list `id`
-/// (nonzero `on`), or takes it off.
-export fn cq_set_listed(lib: *Library, id: [*:0]const u8, title_key: [*:0]const u8, on: c_int) c_int {
-    return status(lib, setListed, .{ std.mem.span(id), std.mem.span(title_key), on != 0 });
+/// Puts a movie or a season (as `cq_lists` keys them) on the list `id`.
+export fn cq_list_add_title(lib: *Library, id: [*:0]const u8, title_key: [*:0]const u8) c_int {
+    return status(lib, setListed, .{ std.mem.span(id), std.mem.span(title_key), true });
 }
 
+/// Takes a movie or a season off the list `id`.
+export fn cq_list_remove_title(lib: *Library, id: [*:0]const u8, title_key: [*:0]const u8) c_int {
+    return status(lib, setListed, .{ std.mem.span(id), std.mem.span(title_key), false });
+}
+
+/// Writes whether a title's on a list: its value, the same write either way.
 fn setListed(lib: *Library, arena: std.mem.Allocator, id: []const u8, title_key: []const u8, on: bool) !void {
     const r = try listWriter(lib, arena, id);
     defer if (r.locked) lib.writer.unlock(lib.io());
@@ -120,18 +137,30 @@ fn listWant(lib: *Library, arena: std.mem.Allocator, id: []const u8, want_json: 
     return lists.wantJson(r.replica, arena, lib.now(), id, w);
 }
 
-/// Shares a list of this person's with every member (nonzero `on`), or
-/// makes it theirs alone again.
-export fn cq_list_share(lib: *Library, id: [*:0]const u8, on: c_int) c_int {
-    return status(lib, shareList, .{ std.mem.span(id), on != 0 });
+/// Shares a list of this person's with every member.
+export fn cq_list_share(lib: *Library, id: [*:0]const u8) c_int {
+    return status(lib, shareList, .{std.mem.span(id)});
 }
 
-fn shareList(lib: *Library, arena: std.mem.Allocator, id: []const u8, on: bool) !void {
+fn shareList(lib: *Library, arena: std.mem.Allocator, id: []const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
     const r = try lib.main();
     try r.refresh();
-    try lists.share(lib.io(), r, arena, lib.now(), id, on);
+    try lists.share(lib.io(), r, arena, lib.now(), id);
+}
+
+/// Makes a shared list of this person's theirs alone again.
+export fn cq_list_stop_sharing(lib: *Library, id: [*:0]const u8) c_int {
+    return status(lib, stopSharing, .{std.mem.span(id)});
+}
+
+fn stopSharing(lib: *Library, arena: std.mem.Allocator, id: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    const r = try lib.main();
+    try r.refresh();
+    try lists.stopSharing(lib.io(), r, arena, lib.now(), id);
 }
 
 const Writer = struct { replica: *Replica, locked: bool };

@@ -99,29 +99,46 @@ pub fn stopPairing(lib: *Library) void {
     lib.pairing = null;
 }
 
-/// Long: pairs the new device offering at `url` (a `pairing` device's, from
+/// Long: adds the new device offering at `url` (a `pairing` device's, from
 /// `cq_nearby`), given the code it shows, as another of this person's
-/// devices, or with nonzero `join`, a new member's: sends it the library's
-/// founder's key, and if this person's, this person's secret, which it takes only if the code is right. Returns
-/// its keys, as JSON: `person` (this person's, once paired; else a new
-/// member's, to be added by `cq_member`) and `device` (to name it by, with
-/// `cq_name`). Fails with
-/// `WrongCode`, or `Closed` once it stopped.
-export fn cq_pair(lib: *Library, url: [*:0]const u8, join: c_int, code: [*:0]const u8) ?[*:0]u8 {
-    return json(lib, pairWith, .{ std.mem.span(url), if (join != 0) pair.Kind.join else pair.Kind.pair, std.mem.span(code) });
+/// devices: sends it the library's founder's key and this person's secret,
+/// which it takes only if the code is right. Returns its keys, as JSON:
+/// `person` (this person's) and `device` (to name it by, with `cq_name`).
+/// Fails with `WrongCode`, or `Closed` once it stopped.
+export fn cq_pair_person(lib: *Library, url: [*:0]const u8, code: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, pairPerson, .{ std.mem.span(url), std.mem.span(code) });
 }
 
-fn pairWith(lib: *Library, arena: std.mem.Allocator, url: []const u8, kind: pair.Kind, code: []const u8) !PairedJson {
+fn pairPerson(lib: *Library, arena: std.mem.Allocator, url: []const u8, code: []const u8) !PairedJson {
+    const joined = try send(lib, arena, url, .pair, code);
+    // It acts as this person from now on, not as the one it had.
+    return .{
+        .person = try arena.dupe(u8, &std.fmt.bytesToHex(try lib.store.person(), .lower)),
+        .device = try arena.dupe(u8, &std.fmt.bytesToHex(joined.device, .lower)),
+    };
+}
+
+/// Long: as `cq_pair_person`, but adds the device as a new member's,
+/// sending it only the library's founder's key. Its `person` is the new
+/// member's, to add by `cq_member_add`.
+export fn cq_pair_member(lib: *Library, url: [*:0]const u8, code: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, pairMember, .{ std.mem.span(url), std.mem.span(code) });
+}
+
+fn pairMember(lib: *Library, arena: std.mem.Allocator, url: []const u8, code: []const u8) !PairedJson {
+    const joined = try send(lib, arena, url, .join, code);
+    return .{
+        .person = try arena.dupe(u8, &std.fmt.bytesToHex(joined.person, .lower)),
+        .device = try arena.dupe(u8, &std.fmt.bytesToHex(joined.device, .lower)),
+    };
+}
+
+/// Sends the device offering at `url` what pairing it as `kind` gives it.
+fn send(lib: *Library, arena: std.mem.Allocator, url: []const u8, kind: pair.Kind, code: []const u8) !pair.Joined {
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     const digits = std.mem.trim(u8, code, " \n");
-    const joined = try pair.send(lib.io(), arena, &client, url, kind, digits, .{ .person = lib.store.identity.person, .founder = try lib.store.founder(arena) });
-    // A paired device acts as this person from now on, not as the one it had.
-    const person = if (kind == .pair) try lib.store.person() else joined.person;
-    return .{
-        .person = try arena.dupe(u8, &std.fmt.bytesToHex(person, .lower)),
-        .device = try arena.dupe(u8, &std.fmt.bytesToHex(joined.device, .lower)),
-    };
+    return pair.send(lib.io(), arena, &client, url, kind, digits, .{ .person = lib.store.identity.person, .founder = try lib.store.founder(arena) });
 }
 
 /// The members, as a JSON array of objects with `key`, `name` (null if
@@ -145,15 +162,25 @@ fn members(lib: *Library, arena: std.mem.Allocator) ![]const MemberJson {
     return out;
 }
 
-/// Adds (nonzero `add`) or removes a member, by person key.
-export fn cq_member(lib: *Library, key: [*:0]const u8, add: c_int) c_int {
-    return status(lib, member, .{ std.mem.span(key), add != 0 });
+/// Adds a member, by person key.
+export fn cq_member_add(lib: *Library, key: [*:0]const u8) c_int {
+    return status(lib, addMember, .{std.mem.span(key)});
 }
 
-fn member(lib: *Library, _: std.mem.Allocator, key: []const u8, add: bool) !void {
+fn addMember(lib: *Library, _: std.mem.Allocator, key: []const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
-    const r = try lib.main();
-    const person = try store_.parseKey(std.mem.trim(u8, key, " \n"));
-    if (add) try r.addMember(lib.now(), person) else try r.removeMember(lib.now(), person);
+    try (try lib.main()).addMember(lib.now(), try store_.parseKey(std.mem.trim(u8, key, " \n")));
+}
+
+/// Removes a member, by person key, for good: they come back only as
+/// someone new.
+export fn cq_member_remove(lib: *Library, key: [*:0]const u8) c_int {
+    return status(lib, removeMember, .{std.mem.span(key)});
+}
+
+fn removeMember(lib: *Library, _: std.mem.Allocator, key: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    try (try lib.main()).removeMember(lib.now(), try store_.parseKey(std.mem.trim(u8, key, " \n")));
 }

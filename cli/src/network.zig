@@ -26,19 +26,35 @@ pub fn listNearby(p: *App) !void {
     for (try core.sync.addedAddresses(&r, p.arena)) |u| try p.out.print("{s}  added\n", .{u});
 }
 
-/// Adds the address of a device that can't be found nearby, or forgets one.
-pub fn setAddress(p: *App, target: []const u8, add: bool) !void {
+/// Adds the address of a device that can't be found nearby.
+pub fn addAddress(p: *App, target: []const u8) !void {
     var r = try p.open();
     defer r.close();
-    const u = try core.sync.setAdded(&r, p.arena, target, add);
-    try p.out.print("{s} {s}\n", .{ if (add) "added" else "forgot", u });
+    try p.out.print("added {s}\n", .{try core.sync.addAddress(&r, p.arena, target)});
+}
+
+/// Forgets an address added.
+pub fn forgetAddress(p: *App, target: []const u8) !void {
+    var r = try p.open();
+    defer r.close();
+    try p.out.print("forgot {s}\n", .{try core.sync.forgetAddress(&r, p.arena, target)});
 }
 
 /// `sync [URL]`: pulls from a device, or from every device found or added.
 pub fn sync(p: *App, c: Command) !void {
     if (c.rest.len > 1) return error.Usage;
     try c.args.only(&.{});
-    try syncAll(p, if (c.rest.len == 1) c.rest[0] else null);
+    var r = try p.open();
+    defer r.close();
+    const found = if (c.rest.len == 1) try core.sync.oneDevice(p.arena, c.rest[0]) else try core.sync.everyDevice(p.io, p.arena, &r, try serviceName(p));
+    try exchangeAll(p, &r, found);
+}
+
+/// Syncs with every device of this library found or added.
+pub fn syncEvery(p: *App) !void {
+    var r = try p.open();
+    defer r.close();
+    try exchangeAll(p, &r, try core.sync.everyDevice(p.io, p.arena, &r, try serviceName(p)));
 }
 
 /// `serve [--port PORT] [--media DIR] [--web]`: serves on `PORT`, or on
@@ -174,18 +190,14 @@ fn serviceName(p: *App) ![]const u8 {
     return p.store.serviceName(p.arena);
 }
 
-/// Syncs both ways with the device at `target`, or else with every device of
-/// this library found or added.
-pub fn syncAll(p: *App, target: ?[]const u8) !void {
-    var r = try p.open();
-    defer r.close();
+/// Syncs both ways with each of `found`, printing how it went.
+fn exchangeAll(p: *App, r: *Replica, found: core.sync.Devices) !void {
     var client: std.http.Client = .{ .allocator = p.gpa, .io = p.io };
     defer client.deinit();
-    const found = try core.sync.reachable(p.io, p.arena, &r, try serviceName(p), target);
     if (found.urls.len == 0) try p.out.print("no devices of this library found or added\n", .{});
     for (found.urls) |u| {
         const start = Io.Timestamp.now(p.io, .awake);
-        const exchanged = core.sync.exchange(p.arena, &client, &r, u, p.now()) catch |err| {
+        const exchanged = core.sync.exchange(p.arena, &client, r, u, p.now()) catch |err| {
             try p.out.print("{s}: {t}\n", .{ u, err });
             if (err == error.Removed) try p.out.print("this device was removed from the library; `library leave`, then pair again\n", .{});
             continue;

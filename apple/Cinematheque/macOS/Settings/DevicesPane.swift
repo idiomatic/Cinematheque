@@ -41,7 +41,7 @@ struct DevicesPane: View {
                 ForEach(nearby.filter(\.added)) { device in
                     LabeledContent {
                         RemoveButton(help: "Forget this address") {
-                            library.setDeviceAddress(device.url, false)
+                            library.forgetDeviceAddress(device.url)
                             Task { nearby = await library.nearby() }
                         }
                     } label: {
@@ -77,7 +77,7 @@ struct DevicesPane: View {
 
     private func addAddress() {
         guard validAddress else { return }
-        library.setDeviceAddress(address, true)
+        library.addDeviceAddress(address)
         address = ""
         Task { nearby = await library.nearby() }
     }

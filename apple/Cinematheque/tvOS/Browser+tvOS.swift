@@ -455,7 +455,7 @@ struct Poster: View {
             // placeholder, not in the library yet.
             .opacity(tile.unavailable || tile.isWanted ? 0.4 : 1)
             // A series' tile, on a list if any season is.
-            .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: series), watched: tile.watched, padding: 10) }
+            .overlay(alignment: .top) { CoverMarks(listed: series ? library.isAnySeasonListed(tile) : library.isListed(tile), watched: tile.watched, padding: 10) }
             .overlay(alignment: .bottom) {
                 if !tile.watched, tile.progress > 0 {
                     ProgressView(value: tile.progress).tint(.white).padding(12)
@@ -525,10 +525,10 @@ struct Poster: View {
             }
             // Unwatched forgets where you stopped, too.
             if !tile.watched {
-                Button("Mark as Watched", systemImage: "checkmark.circle") { library.markWatched(tile, true, wholeTitle: series) }
+                Button("Mark as Watched", systemImage: "checkmark.circle") { series ? library.markSeriesWatched(tile, true) : library.markWatched(tile, true) }
             }
             if tile.started {
-                Button("Mark as Unwatched", systemImage: "circle") { library.markWatched(tile, false, wholeTitle: series) }
+                Button("Mark as Unwatched", systemImage: "circle") { series ? library.markSeriesWatched(tile, false) : library.markWatched(tile, false) }
             }
     }
 }
@@ -579,7 +579,7 @@ struct SeasonsView: View {
                         // The whole series': a status that pressing toggles,
                         // as a season's is.
                         Button(series.watched ? "Watched" : "Unwatched", systemImage: series.watched ? "checkmark.circle.fill" : "circle") {
-                            library.markWatched(series, !series.watched, wholeTitle: true)
+                            library.markSeriesWatched(series, !series.watched)
                         }
                         .labelStyle(.iconOnly)
                     }

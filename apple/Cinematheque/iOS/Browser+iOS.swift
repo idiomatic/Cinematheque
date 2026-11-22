@@ -159,7 +159,7 @@ struct TileCover: View {
     var body: some View {
         CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, shaped: true)
             .opacity(tile.unavailable || tile.isWanted ? 0.4 : 1)
-            .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: false), watched: tile.watched, padding: 6) }
+            .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile), watched: tile.watched, padding: 6) }
             .overlay(alignment: .bottom) {
                 if !tile.watched, tile.progress > 0 {
                     ProgressView(value: tile.progress).tint(.white).padding(8)

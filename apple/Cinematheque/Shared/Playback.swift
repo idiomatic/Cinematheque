@@ -28,6 +28,11 @@ struct PlayRequest: Codable, Hashable {
 
     /// The first entry, the one `url` plays.
     var first: Entry { Entry(url: url, item: item, title: title, alternates: alternates, contenders: contenders) }
+
+    /// The same, from its first item's beginning (Start Over).
+    var fromBeginning: PlayRequest {
+        PlayRequest(url: url, item: item, start: 0, title: title, queue: queue, alternates: alternates, contenders: contenders)
+    }
 }
 
 /// What to play next, and the queue after it.
@@ -35,12 +40,11 @@ enum Playback {
     /// A movie's first item, resuming where this person left off; or a
     /// season's episode in progress (the latest, if more than one), else its
     /// next unwatched (or its first, if all are watched), with the rest of
-    /// the season queued after it; with `overFromStart`, from its beginning
-    /// (Start Over).
-    static func next(in detail: TitleDetail, season: Int?, quality: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
+    /// the season queued after it (`fromBeginning` for Start Over).
+    static func next(in detail: TitleDetail, season: Int?, quality: String? = nil) -> PlayRequest? {
         let items = items(detail, season: season)
         guard !items.isEmpty else { return nil }
-        return request(detail, items: items, from: nextIndex(items), quality: quality, overFromStart: overFromStart)
+        return request(detail, items: items, from: nextIndex(items), quality: quality)
     }
 
     /// Which of `items` Play plays, as the core marks it (`next`).
@@ -54,9 +58,9 @@ enum Playback {
         return detail.items.filter { $0.episode?.season == season }
     }
 
-    /// Plays `items[index]`, where this person left off unless watched or
-    /// `overFromStart`, then the rest in order.
-    static func request(_ detail: TitleDetail, items: [TitleDetail.Item], from index: Int, quality: String? = nil, overFromStart: Bool = false) -> PlayRequest? {
+    /// Plays `items[index]`, where this person left off unless watched, then
+    /// the rest in order.
+    static func request(_ detail: TitleDetail, items: [TitleDetail.Item], from index: Int, quality: String? = nil) -> PlayRequest? {
         let queue = items[index...].compactMap { item -> PlayRequest.Entry? in
             let ordered = copies(item, quality: quality, in: detail)
             let urls = ordered.copies.compactMap { URL(string: $0.url) }
@@ -65,7 +69,7 @@ enum Playback {
         }
         guard let first = queue.first else { return nil }
         let item = items[index]
-        return PlayRequest(url: first.url, item: first.item, start: item.watched || overFromStart ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()), alternates: first.alternates, contenders: first.contenders)
+        return PlayRequest(url: first.url, item: first.item, start: item.watched ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()), alternates: first.alternates, contenders: first.contenders)
     }
 
     /// An item's qualities in the order to play them: the chosen one, then

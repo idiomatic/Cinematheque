@@ -233,26 +233,17 @@ final class Library {
         removedBy = device
     }
 
-    /// Leaves the library of this person's own accord (the Apple TV's
-    /// Settings): removes this device from it, handing the library over to
-    /// `successor` first if this is the founder's only device, then syncs so
-    /// other devices hear of it, and forgets it all, for setup to pair it
-    /// anew. Unless no one else is in the library, a device must hear of it
-    /// before this one forgets, else they'd list it for good: so it syncs
+    /// Leaves the library of this person's own accord (Settings): removes
+    /// this device from it, handing the library over to `successor` first if
+    /// this is the founder's only device, then syncs so other devices hear
+    /// of it, and forgets it all, for setup to pair it anew. A device must
+    /// hear of it before this one forgets, else they'd list it for good: so it syncs
     /// first, to know one can be reached, and if the sync after removing
     /// fails anyway, leaving again (the removal written once) tries again.
     /// Returns why it couldn't, if it couldn't.
-    func leaveLibrary(successor: String?, alone: Bool) async -> String? {
+    func leaveLibrary(successor: String?) async -> String? {
         guard let handle else { return nil }
-        afterChange?.cancel()
-        // Once a refresh or quiet sync under way is done (it holds the
-        // writer), and reads off the main thread, starting none meanwhile.
-        leavingLibrary = true
-        defer { leavingLibrary = false }
-        while activity != nil || syncingQuietly || readingApart > 0 {
-            try? await Task.sleep(for: .milliseconds(250))
-        }
-        if !alone {
+        return await quietly {
             let unreachable = "None of the library's other devices could be reached, so they wouldn't hear this one left. Try again while one is on."
             guard await Self.reachesAny(handle) else { return unreachable }
             // On the main thread, as it writes on the main connection
@@ -260,7 +251,32 @@ final class Library {
             let removed: String? = cq_remove_self(handle.pointer, successor) == 0 ? nil : String(cString: cq_error())
             if let removed { return "Couldn't leave the library: \(Self.reason(removed))." }
             guard await Self.reachesAny(handle) else { return unreachable }
+            return forgetLibrary()
         }
+    }
+
+    /// Leaves a library no one else is in, ending it: there's no one to
+    /// tell, so this device only forgets it.
+    func endLibrary() async -> String? {
+        guard handle != nil else { return nil }
+        return await quietly { forgetLibrary() }
+    }
+
+    /// Runs `body` once a refresh or quiet sync under way is done (it holds
+    /// the writer), and reads off the main thread, starting none meanwhile.
+    private func quietly(_ body: () async -> String?) async -> String? {
+        afterChange?.cancel()
+        leavingLibrary = true
+        defer { leavingLibrary = false }
+        while activity != nil || syncingQuietly || readingApart > 0 {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        return await body()
+    }
+
+    /// Forgets the library and this device's identity; why it couldn't, if
+    /// it couldn't.
+    private func forgetLibrary() -> String? {
         guard forget() else { return "Couldn't leave the library: \(Self.reason(String(cString: cq_error())))." }
         removedBy = nil
         return nil
@@ -270,7 +286,7 @@ final class Library {
     /// whether any was reached.
     private nonisolated static func reachesAny(_ handle: Handle) async -> Bool {
         await Task.detached {
-            guard let text = cq_sync(handle.pointer, nil) else { return false }
+            guard let text = cq_sync(handle.pointer) else { return false }
             defer { cq_free(text) }
             struct Result: Decodable { let error: String? }
             let results = (try? JSONDecoder().decode([Result].self, from: Data(bytes: text, count: strlen(text)))) ?? []
@@ -320,7 +336,7 @@ final class Library {
     }
 
     /// Creates a library, founded by this person; joining one is by pairing.
-    func found() { check { cq_found($0) } }
+    func found() { checkAndReload { cq_found($0) } }
 
     // Calling the core.
 
@@ -425,7 +441,9 @@ final class Library {
         return failure
     }
 
-    func check(reload again: Bool = true, _ body: (OpaquePointer) -> Int32) {
+    /// Changes the library by `body`, reporting why it couldn't, if it
+    /// couldn't.
+    func check(_ body: (OpaquePointer) -> Int32) {
         guard let handle else { return }
         dirty = true
         if body(handle.pointer) != 0 {
@@ -434,7 +452,12 @@ final class Library {
         } else {
             report(.change, nil)
         }
-        if again { reload() }
+    }
+
+    /// As `check`, then reloads what changed.
+    func checkAndReload(_ body: (OpaquePointer) -> Int32) {
+        check(body)
+        reload()
     }
 
     func decode<T: Decodable>(_ type: T.Type, _ body: (OpaquePointer) -> UnsafeMutablePointer<CChar>?) -> T? {

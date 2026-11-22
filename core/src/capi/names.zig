@@ -16,22 +16,27 @@ const span = capi.span;
 const DeviceJson = capi.DeviceJson;
 const NearbyJson = capi.NearbyJson;
 
-/// Names this person (`which` "person") or this device ("device"), for every
-/// device to show in place of keys.
-export fn cq_set_name(lib: *Library, which: [*:0]const u8, name: [*:0]const u8) c_int {
-    return status(lib, setName, .{ std.mem.span(which), std.mem.span(name) });
+/// Names this person, for every device to show in place of their key.
+export fn cq_set_person_name(lib: *Library, name: [*:0]const u8) c_int {
+    return status(lib, setPersonName, .{std.mem.span(name)});
 }
 
-fn setName(lib: *Library, arena: std.mem.Allocator, which: []const u8, name: []const u8) !void {
+fn setPersonName(lib: *Library, arena: std.mem.Allocator, name: []const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
-    const r = try lib.main();
-    if (std.mem.eql(u8, which, "person"))
-        try library.setName(r, arena, lib.now(), try lib.store.person(), name, null)
-    else if (std.mem.eql(u8, which, "device"))
-        try library.setName(r, arena, lib.now(), try lib.store.device(), name, try lib.store.person())
-    else
-        return error.Usage;
+    try library.setName(try lib.main(), arena, lib.now(), try lib.store.person(), name, null);
+}
+
+/// Names this device, as its person's, for every device to show in place of
+/// its key.
+export fn cq_set_device_name(lib: *Library, name: [*:0]const u8) c_int {
+    return status(lib, setDeviceName, .{std.mem.span(name)});
+}
+
+fn setDeviceName(lib: *Library, arena: std.mem.Allocator, name: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    try library.setName(try lib.main(), arena, lib.now(), try lib.store.device(), name, try lib.store.person());
 }
 
 /// Names another device, `device`, as its person's, `person` (as one just
@@ -141,12 +146,21 @@ fn nearby(lib: *Library, arena: std.mem.Allocator) ![]const NearbyJson {
     return out.items;
 }
 
-/// Adds (nonzero `add`) or removes a device by address, such as one off the
-/// network, which syncing then reaches too; on this device only.
-export fn cq_device_address(lib: *Library, target: [*:0]const u8, add: c_int) c_int {
-    return status(lib, deviceAddress, .{ std.mem.span(target), add != 0 });
+/// Adds a device by address, such as one off the network, which syncing
+/// then reaches too; on this device only.
+export fn cq_device_address_add(lib: *Library, target: [*:0]const u8) c_int {
+    return status(lib, addAddress, .{std.mem.span(target)});
 }
 
-fn deviceAddress(lib: *Library, arena: std.mem.Allocator, target: []const u8, add: bool) !void {
-    _ = try sync.setAdded(try lib.main(), arena, target, add);
+fn addAddress(lib: *Library, arena: std.mem.Allocator, target: []const u8) !void {
+    _ = try sync.addAddress(try lib.main(), arena, target);
+}
+
+/// Forgets an address added; on this device only.
+export fn cq_device_address_forget(lib: *Library, target: [*:0]const u8) c_int {
+    return status(lib, forgetAddress, .{std.mem.span(target)});
+}
+
+fn forgetAddress(lib: *Library, arena: std.mem.Allocator, target: []const u8) !void {
+    _ = try sync.forgetAddress(try lib.main(), arena, target);
 }

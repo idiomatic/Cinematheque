@@ -96,14 +96,14 @@ enum TopShelfPublisher {
             + library.lists.map { ($0.shownName, Array(Shelf.list($0.id).tiles(in: library).filter { !$0.isWanted }.prefix(most))) }
             .filter { !$0.1.isEmpty }
         var missing = false
-        func content(fetching: Bool) async -> Content {
+        /// What it shows, each cover as `image` finds it.
+        func content(_ image: (Tile) async -> String?) async -> Content {
             var sections: [Content.Section] = []
             for (title, tiles) in rows {
                 var items: [Content.Item] = []
                 for tile in tiles {
                     guard let url = url(tile) else { continue }
-                    var image = cover(tile, in: directory)
-                    if image == nil, fetching, !Task.isCancelled { image = await fetch(tile, in: directory) }
+                    let image = await image(tile)
                     if image == nil { missing = true }
                     items.append(.init(id: tile.id, title: tile.seasonName.map { "\(tile.name) · \($0)" } ?? tile.name, image: image ?? placeholder(tile, in: directory), square: tile.season != nil, url: url.absoluteString, play: playURL(tile)?.absoluteString))
                 }
@@ -111,11 +111,16 @@ enum TopShelfPublisher {
             }
             return Content(sections: sections)
         }
-        write(await content(fetching: false), in: directory, started: started)
+        // The covers already here first, then those fetched.
+        write(await content { cover($0, in: directory) }, in: directory, started: started)
         // The covers not here yet; a newer publishing, begun as the library
         // changed, takes over, with those already fetched.
         guard missing, !Task.isCancelled else { return }
-        let fetched = await content(fetching: true)
+        missing = false
+        let fetched = await content { tile in
+            if let image = cover(tile, in: directory) { return image }
+            return Task.isCancelled ? nil : await fetch(tile, in: directory)
+        }
         if !Task.isCancelled { write(fetched, in: directory, started: started) }
     }
 

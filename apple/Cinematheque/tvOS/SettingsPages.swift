@@ -44,7 +44,7 @@ struct PeoplePage: View {
             titleVisibility: .visible,
             presenting: removing
         ) { member in
-            Button("Remove", role: .destructive) { library.setMember(member.key, false) }
+            Button("Remove", role: .destructive) { library.removeMember(member.key) }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text("They and their devices leave the library, and what they change from then on is refused. To come back, they join again as someone new; their watchlist and progress don't come back with them.")
@@ -309,13 +309,13 @@ struct AddDevicePage: View {
         pairing = device
         problem = nil
         Task {
-            let (joined, why) = await library.pair(device, code: code, join: join)
+            let (joined, why) = join ? await library.pairMember(device, code: code) : await library.pairPerson(device, code: code)
             pairing = nil
             guard let joined else {
                 problem = why ?? "Couldn't add it."
                 return
             }
-            library.welcome(joined, from: device, join: join)
+            if join { library.welcomeMember(joined, from: device) } else { library.welcome(joined, from: device) }
             dismiss()
         }
     }

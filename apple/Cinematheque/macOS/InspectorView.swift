@@ -91,7 +91,7 @@ struct InspectorView: View {
             // Before Resume, as a player's timeline starts at its leading edge.
             if next?.inProgress == true {
                 Button {
-                    if let request = Playback.next(in: detail, season: tile.season, quality: quality, overFromStart: true) { play(request) }
+                    if let request = Playback.next(in: detail, season: tile.season, quality: quality)?.fromBeginning { play(request) }
                 } label: {
                     Label("Start Over", systemImage: Playback.startOverSymbol)
                         .labelStyle(.titleAndIconOrIconOnly(labeled))
@@ -236,7 +236,7 @@ struct WantSheet: View {
     let list: UserList
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
-    @State private var series = false
+    @State private var kind = TitleKind.movie
     @State private var name = ""
     @State private var year = ""
     @State private var season = 1
@@ -246,14 +246,14 @@ struct WantSheet: View {
         Form {
             // Its title, in the form, as a sheet shows no navigation title.
             Section {
-                Picker("Kind", selection: $series) {
-                    Text("Movie").tag(false)
-                    Text("Series").tag(true)
+                Picker("Kind", selection: $kind) {
+                    Text("Movie").tag(TitleKind.movie)
+                    Text("Series").tag(TitleKind.series)
                 }
                 .pickerStyle(.segmented)
                 TextField("Name", text: $name)
                 TextField("Year", text: $year, prompt: Text("As its file will have it"))
-                if series {
+                if kind == .series {
                     Stepper("Season \(season)", value: $season, in: 0...999)
                 }
                 TextField("Note", text: $note, prompt: Text("Optional, as an article's address"))
@@ -270,7 +270,7 @@ struct WantSheet: View {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Add") {
-                    library.want(on: list.id, series: series, name: name, year: Int(year), season: series ? season : nil, note: note)
+                    library.want(on: list.id, kind: kind, name: name, year: Int(year), season: kind == .series ? season : nil, note: note)
                     dismiss()
                 }
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || (!year.isEmpty && Int(year) == nil))
@@ -323,7 +323,7 @@ struct SeriesInspectorView: View {
                             // The whole series': a status that pressing
                             // toggles, as a season's is.
                             Button(series.watched ? "Watched" : "Unwatched", systemImage: series.watched ? "checkmark.circle.fill" : "circle") {
-                                library.markWatched(series, !series.watched, wholeTitle: true)
+                                library.markSeriesWatched(series, !series.watched)
                             }
                             .buttonStyle(.borderless)
                             .foregroundStyle(.secondary)

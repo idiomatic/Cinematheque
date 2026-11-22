@@ -27,17 +27,17 @@ struct PairRow: View {
                 if pairing {
                     ProgressView().controlSize(.small)
                 }
-                CodeField(code: $code, shakes: shakes) { pair(join: false) }
+                CodeField(code: $code, shakes: shakes) { pairYours() }
                     .disabled(pairing)
                 // Whose it is, once its code is in: each pairs it.
                 Group {
                     // The default, drawn so only once it can act.
                     if code.count == CodeBoxes.length {
-                        Button("Yours") { pair(join: false) }.buttonStyle(.borderedProminent)
+                        Button("Yours") { pairYours() }.buttonStyle(.borderedProminent)
                     } else {
-                        Button("Yours") { pair(join: false) }
+                        Button("Yours") { pairYours() }
                     }
-                    Button("Someone New") { pair(join: true) }
+                    Button("Someone New") { pairSomeoneNew() }
                 }
                 .disabled(code.count != CodeBoxes.length || pairing)
             }
@@ -47,11 +47,17 @@ struct PairRow: View {
         }
     }
 
-    private func pair(join: Bool) {
+    /// Adds it as another of this person's devices.
+    private func pairYours() { pair(library.pairPerson, then: library.welcome) }
+
+    /// Adds it as a new member's.
+    private func pairSomeoneNew() { pair(library.pairMember, then: library.welcomeMember) }
+
+    private func pair(_ adding: @escaping (NearbyDevice, String) async -> (Paired?, String?), then welcome: @escaping (Paired, NearbyDevice) -> Void) {
         guard code.count == CodeBoxes.length, !pairing else { return }
         pairing = true
         Task {
-            let (joined, why) = await library.pair(device, code: code, join: join)
+            let (joined, why) = await adding(device, code)
             failure = why
             // A wrong code: shaken off, to type again. Paired, it stays
             // pairing (its buttons dimmed) until it leaves New Devices, as
@@ -64,7 +70,7 @@ struct PairRow: View {
             // Out of New Devices, and into Your Devices (or People).
             if let joined {
                 withAnimation {
-                    library.welcome(joined, from: device, join: join)
+                    welcome(joined, device)
                     paired(device)
                 }
             }

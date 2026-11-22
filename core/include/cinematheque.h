@@ -35,25 +35,30 @@ int cq_leave(cq_library *library);
 // (serving and advertising as name), with a code to show; and checking
 // whether it's paired (taking the library, and if added as a member's
 // device, the person's secret) or closed (too many wrong codes). On a
-// member's device, long, pairing the one offering at url (a pairing
-// device's) given its code, as this person's device or (join nonzero) a
-// new member's, which returns its keys (person, to add a new member by, and
-// device, to name it by with cq_name).
+// member's device, long, adding the one offering at url (a pairing
+// device's) given its code, as another of this person's devices
+// (cq_pair_person) or a new member's (cq_pair_member), which returns its
+// keys (person, to add a new member by, and device, to name it by with
+// cq_name).
 char *cq_pair_offer(cq_library *library, const char *name);
 char *cq_pair_check(cq_library *library);
 void cq_pair_stop(cq_library *library);
-char *cq_pair(cq_library *library, const char *url, int join, const char *code);
+char *cq_pair_person(cq_library *library, const char *url, const char *code);
+char *cq_pair_member(cq_library *library, const char *url, const char *code);
 char *cq_members(cq_library *library);
-int cq_member(cq_library *library, const char *person_key, int add);
+int cq_member_add(cq_library *library, const char *person_key);
+// For good: a person removed comes back only as someone new.
+int cq_member_remove(cq_library *library, const char *person_key);
 
 // Sources; quality and skip may be NULL, for the default or no
 // change.
 char *cq_repos(cq_library *library); // any thread
 int cq_repo_add(cq_library *library, const char *url, const char *quality, const char *skip);
 int cq_repo_set(cq_library *library, const char *source, const char *quality, const char *skip);
-// Whether a source's files take their quality from the first folder
-// within it (nonzero), else from its name or the files'.
-int cq_repo_quality_by_folder(cq_library *library, const char *source, int on);
+// Where a source's files take their quality from: the first folder within
+// it, or its name (else the files').
+int cq_repo_quality_by_folder(cq_library *library, const char *source);
+int cq_repo_quality_by_name(cq_library *library, const char *source);
 int cq_repo_remove(cq_library *library, const char *source);
 // Forgets an unavailable directory of a source, as if deleted.
 int cq_remove_unavailable(cq_library *library, const char *source, const char *dir);
@@ -87,13 +92,14 @@ int cq_download_next(cq_library *library, const char *title_key, const char *cho
 char *cq_download_sizes(cq_library *library, const char *key, const char *choices_json, const char *quality);
 char *cq_downloads(cq_library *library);
 char *cq_reconcile(cq_library *library);
-// Holds downloads back (nonzero) while a stream plays: none begins; 0
-// lets them go. Any thread.
-void cq_downloads_hold(cq_library *library, int on);
+// Holds downloads back while a stream plays: none begins; resuming lets
+// them go. Any thread.
+void cq_downloads_hold(cq_library *library);
+void cq_downloads_resume(cq_library *library);
 
 // Long: crawling every source and describing what's new (committing
-// as it goes, so reload when cq_data_version changes), syncing with a device (or,
-// if url is NULL, every device found or added), and reading an item's
+// as it goes, so reload when cq_data_version changes), syncing with every
+// device found or added (or with one, cq_sync_with), and reading an item's
 // metadata from its file.
 char *cq_crawl(cq_library *library);
 // As cq_crawl, listing every directory afresh, so files rewritten in place
@@ -106,7 +112,8 @@ char *cq_crawl_due(cq_library *library);
 // Sets that interval, for every device: 1, 3, 24 (the default), or 168
 // hours, or 0, only when asked (Refresh Library); cq_status gives it.
 int cq_crawl_every(cq_library *library, int hours);
-char *cq_sync(cq_library *library, const char *url);
+char *cq_sync(cq_library *library);
+char *cq_sync_with(cq_library *library, const char *url);
 // As cq_sync with every device, but with those the last such sync found
 // nearby (and those added), without looking again (two seconds); if none
 // has, it looks. For a change to reach other devices at once.
@@ -152,20 +159,25 @@ int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *
 // (every member sees it), "titles", and "wanted" (placeholders among the
 // titles, not in the library when listed: "key", "name", "note"); the
 // Watchlist's ID is "watchlist", whatever it's named. cq_list_share shares
-// a list of this person's with every member, or makes it theirs alone. cq_list_create returns a new list's ID
+// a list of this person's with every member; cq_list_stop_sharing makes it
+// theirs alone again. cq_list_create returns a new list's ID
 // as a JSON string; cq_list_want puts a placeholder on one (a JSON object:
 // "kind", "movie" or "series"; "name"; optionally "year", "season", and
 // "note"), returning its key, as its file will be keyed when it comes.
 int cq_set_progress(cq_library *library, const char *item_key, unsigned long long position_ms, unsigned long long duration_ms);
-int cq_set_watched(cq_library *library, const char *item_key, int watched);
+int cq_mark_watched(cq_library *library, const char *item_key);
+// Forgets where this person stopped too, so it plays from the beginning.
+int cq_mark_unwatched(cq_library *library, const char *item_key);
 int cq_remove_progress(cq_library *library, const char *item_key);
 char *cq_lists(cq_library *library);
 char *cq_list_create(cq_library *library, const char *name);
 int cq_list_rename(cq_library *library, const char *id, const char *name);
 int cq_list_remove(cq_library *library, const char *id);
-int cq_set_listed(cq_library *library, const char *id, const char *title_key, int on);
+int cq_list_add_title(cq_library *library, const char *id, const char *title_key);
+int cq_list_remove_title(cq_library *library, const char *id, const char *title_key);
 char *cq_list_want(cq_library *library, const char *id, const char *want_json);
-int cq_list_share(cq_library *library, const char *id, int on);
+int cq_list_share(cq_library *library, const char *id);
+int cq_list_stop_sharing(cq_library *library, const char *id);
 
 // Long, but returns once listening: serves this library to devices and
 // folders as sources (a JSON array of objects with "prefix", the path
@@ -175,21 +187,23 @@ int cq_list_share(cq_library *library, const char *id, int on);
 int cq_serve(cq_library *library, int port, const char *folders_json);
 void cq_stop_serving(cq_library *library);
 
-// Names, shown in place of keys: this person's ("person") or this device's
-// ("device"); this person's named devices; devices found nearby (long: it
+// Names, shown in place of keys: this person's or this device's; this
+// person's named devices; devices found nearby (long: it
 // listens for 2 seconds) and added by address, with their names, whether
-// they're of this library and their people members; and adding (nonzero
-// add) or removing a device by address, on this device only.
+// they're of this library and their people members; and adding a device
+// by address, or forgetting one, on this device only.
 int cq_name(cq_library *library, const char *device_key, const char *person_key, const char *name);
 int cq_remove_device(cq_library *library, const char *device_key);
 // Removes this device from the library, as it leaves: handing it over to
 // successor (a person's key; NULL for none) first, if this person founded
 // it; other devices take the removal once synced with. Then cq_leave.
 int cq_remove_self(cq_library *library, const char *successor);
-int cq_set_name(cq_library *library, const char *which, const char *name);
+int cq_set_person_name(cq_library *library, const char *name);
+int cq_set_device_name(cq_library *library, const char *name);
 char *cq_devices(cq_library *library);
 char *cq_nearby(cq_library *library);
-int cq_device_address(cq_library *library, const char *url, int add);
+int cq_device_address_add(cq_library *library, const char *url);
+int cq_device_address_forget(cq_library *library, const char *url);
 
 // What this build is: {"version", "mode", "zig"}, as /version serves it.
 // Any thread.

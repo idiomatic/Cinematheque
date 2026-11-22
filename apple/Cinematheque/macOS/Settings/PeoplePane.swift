@@ -36,7 +36,7 @@ struct PeoplePane: View {
         .formStyle(.grouped)
         // Hard to undo, so asked first.
         .alert(foundersOnly ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
-            Button(foundersOnly ? "Leave and End It" : "Leave", role: .destructive) { leave(successor: nil, alone: foundersOnly) }
+            Button(foundersOnly ? "Leave and End It" : "Leave", role: .destructive) { if foundersOnly { end() } else { leave(successor: nil) } }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(foundersOnly
@@ -46,7 +46,7 @@ struct PeoplePane: View {
         // The founder's only device leaving: someone takes over first.
         .confirmationDialog("Who takes over the library?", isPresented: $choosingSuccessor, titleVisibility: .visible) {
             ForEach(others) { member in
-                Button(member.name ?? "Someone Unnamed") { leave(successor: member.key, alone: false) }
+                Button(member.name ?? "Someone Unnamed") { leave(successor: member.key) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -60,11 +60,16 @@ struct PeoplePane: View {
         if foundersOnly, !others.isEmpty { choosingSuccessor = true } else { confirmingLeave = true }
     }
 
-    private func leave(successor: String?, alone: Bool) {
+    private func leave(successor: String?) { leaving { await library.leaveLibrary(successor: successor) } }
+
+    /// Leaves a library no one else is in, ending it.
+    private func end() { leaving { await library.endLibrary() } }
+
+    private func leaving(_ by: @escaping () async -> String?) {
         leaving = true
         problem = nil
         Task {
-            problem = await library.leaveLibrary(successor: successor, alone: alone)
+            problem = await by()
             leaving = false
             if problem == nil, !library.hasLibrary { dismiss() }
         }
@@ -106,7 +111,7 @@ private struct MemberRow: View {
             }
         }
         .confirmationDialog("Remove \(member.name ?? "Them")?", isPresented: $confirmingRemoval) {
-            Button("Remove", role: .destructive) { library.setMember(member.key, false) }
+            Button("Remove", role: .destructive) { library.removeMember(member.key) }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("They and their devices leave the library, and what they change from then on is refused. To come back, they join again as someone new; their watchlist and progress don't come back with them.")

@@ -1187,10 +1187,10 @@ struct CoverGrid: View {
                 } else {
                     // The whole series'; its seasons' lists are theirs.
                     if !series.watched {
-                        Button("Mark as Watched") { library.markWatched(series, true, wholeTitle: true) }
+                        Button("Mark as Watched") { library.markSeriesWatched(series, true) }
                     }
                     if series.started {
-                        Button("Mark as Unwatched") { library.markWatched(series, false, wholeTitle: true) }
+                        Button("Mark as Unwatched") { library.markSeriesWatched(series, false) }
                     }
                 }
             }
@@ -1275,7 +1275,7 @@ struct TileView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 3 : 1)
                 }
-                .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile, anySeason: isSeries), watched: tile.watched) }
+                .overlay(alignment: .top) { CoverMarks(listed: isSeries ? library.isAnySeasonListed(tile) : library.isListed(tile), watched: tile.watched) }
                 .overlay(alignment: .bottomTrailing) {
                     if !isSeries, library.downloadedTiles.contains(tile.id) {
                         DownloadBadge(symbol: "arrow.down.circle.fill", color: .blue, raised: !tile.watched && tile.progress > 0)

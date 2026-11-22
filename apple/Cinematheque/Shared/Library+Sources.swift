@@ -6,20 +6,21 @@ extension Library {
     // Managing.
 
     func addSource(_ url: String, quality: String?, skip: String?) {
-        check { cq_repo_add($0, url, quality, skip) }
+        checkAndReload { cq_repo_add($0, url, quality, skip) }
     }
 
     func setSource(_ id: String, quality: String?, skip: String?) {
-        check { cq_repo_set($0, id, quality, skip) }
+        checkAndReload { cq_repo_set($0, id, quality, skip) }
     }
 
     /// Whether a source's files take their quality from the first folder
     /// within it, by ID or URL; copies move at its next crawl.
-    func setQualityByFolder(_ source: String, _ on: Bool) { check { cq_repo_quality_by_folder($0, source, on ? 1 : 0) } }
+    func setQualityByFolder(_ source: String, _ on: Bool) { checkAndReload { on ? cq_repo_quality_by_folder($0, source) : cq_repo_quality_by_name($0, source) } }
 
-    func removeSource(_ id: String) { check { cq_repo_remove($0, id) } }
+    func removeSource(_ id: String) { checkAndReload { cq_repo_remove($0, id) } }
 
-    func setMember(_ key: String, _ add: Bool) { check { cq_member($0, key, add ? 1 : 0) } }
+    /// Removes a member, for good: they come back only as someone new.
+    func removeMember(_ key: String) { checkAndReload { cq_member_remove($0, key) } }
 
     /// Once a launch, if there's a library: serves it, syncs, names this
     /// device and person if they have no names yet (e.g., the computer's name
@@ -32,7 +33,7 @@ extension Library {
         // Syncing before writing anything: a device whose replica was lost
         // (as tvOS may purge one) learns its own writes back, and so where
         // its numbering left off, before it writes again.
-        let synced = await long("Catching up", results: noteReceived) { cq_sync($0, nil) }
+        let synced = await long("Catching up", results: noteReceived) { cq_sync($0) }
         // Told while catching up that it was removed, it left: nothing more
         // to refresh, and no library to look for videos for.
         guard hasLibrary else { return }
@@ -44,7 +45,7 @@ extension Library {
         if named { changed() }
         // Not asked for: sources another device crawled lately, whose
         // copies syncing brought, aren't crawled again.
-        let crawled = await crawlSources(due: true)
+        let crawled = await crawlSources { cq_crawl_due($0) }
         report(.refresh, synced ?? crawled)
         // The sources' servers' names, looked up now, so the first play's
         // copy racing finds them answered.
@@ -225,25 +226,29 @@ extension Library {
     /// devices have crawled and described arrives first, so crawling then
     /// finds little to do. Shown as looking for new videos throughout, as
     /// catching up goes on by itself anyway.
-    /// `full` lists every folder afresh, as a folder's time doesn't change
-    /// as a file in it is rewritten in place (retagged).
-    func refresh(full: Bool = false) async {
-        let synced = await long("Looking for new videos", results: noteReceived) { cq_sync($0, nil) }
-        let crawled = await crawlSources(full: full)
+    func refresh() async { await refresh { cq_crawl($0) } }
+
+    /// As `refresh`, listing every folder afresh, as a folder's time doesn't
+    /// change as a file in it is rewritten in place (retagged).
+    func refreshFully() async { await refresh { cq_crawl_full($0) } }
+
+    private func refresh(crawling crawl: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async {
+        let synced = await long("Looking for new videos", results: noteReceived) { cq_sync($0) }
+        let crawled = await crawlSources(crawl)
         report(.refresh, synced ?? crawled)
         #if os(macOS)
         reconcileSoon()
         #endif
     }
 
-    func crawl() async { report(.refresh, await crawlSources()) }
+    func crawl() async { report(.refresh, await crawlSources { cq_crawl($0) }) }
 
     /// How often refreshes not asked for (at launch) look for new videos,
     /// for every device: hours, or 0 for only on Refresh Library.
     var crawlEvery: Int { status?.crawl_every ?? 24 }
 
     func setCrawlEvery(_ hours: Int) {
-        check { cq_crawl_every($0, Int32(hours)) }
+        checkAndReload { cq_crawl_every($0, Int32(hours)) }
     }
 
     /// The choices of how often to look, and their names.
@@ -255,14 +260,13 @@ extension Library {
         (168, "Every Week"),
     ]
 
-    /// Crawls every source (`cq_crawl`), or if `due`, those no device
-    /// crawled lately (`cq_crawl_due`), or if `full`, every folder afresh
-    /// (`cq_crawl_full`), logging how long each took, and describing after,
-    /// to tell where a slow crawl goes; returns why it failed, if it did.
-    private func crawlSources(due: Bool = false, full: Bool = false) async -> String? {
+    /// Crawls by `crawl` (`cq_crawl`, `cq_crawl_due`, or `cq_crawl_full`),
+    /// logging how long each source took, and describing after, to tell
+    /// where a slow crawl goes; returns why it failed, if it did.
+    private func crawlSources(_ crawl: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async -> String? {
         let clock = ContinuousClock()
         let start = clock.now
-        return await long("Looking for new videos", results: { Self.logCrawl($0, took: clock.now - start) }) { due ? cq_crawl_due($0) : full ? cq_crawl_full($0) : cq_crawl($0) }
+        return await long("Looking for new videos", results: { Self.logCrawl($0, took: clock.now - start) }, crawl)
     }
 
     /// Crawling's steps and their times, in the system's log (Xcode's
@@ -297,7 +301,6 @@ extension Library {
         crawlLog.notice("Looked for new videos in \(took.logged, privacy: .public): \(sources.count) sources in \(crawling.logged, privacy: .public), then describing (and the rest) \((took - crawling).logged, privacy: .public)")
     }
 
-    func sync(_ url: String? = nil) async { report(.refresh, await long("Catching up", results: noteReceived) { cq_sync($0, url) }) }
 
 }
 
