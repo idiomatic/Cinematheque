@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 800" font-family="-apple-system, Helvetica, Arial, sans-serif">
+<title>Web: wide and narrow over the same pages (a sketch, not a mockup)</title>
+
+<style>
+  .cap { font-size: 20px; font-weight: 700; }
+  .title { font-size: 13px; font-weight: 600; }
+  .note { font-size: 12px; }
+  .dk { fill: #1c1c1e; stroke: #3a3a3c; stroke-width: 2; }
+  .lt { fill: #f5f5f7; stroke: #c7c7cc; stroke-width: 2; }
+  .hd { font-size: 9px; font-weight: 600; }
+  .lbl { font-size: 9px; text-anchor: middle; }
+  .act { font-size: 11px; font-weight: 600; }
+  .arrow { stroke: #0a84ff; stroke-width: 2; fill: none; marker-end: url(#head); }
+  .pink { stroke: #ff375f; stroke-width: 2; fill: none; marker-end: url(#headp); }
+  .back { stroke: #8e8e93; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; marker-end: url(#headg); }
+</style>
+<defs>
+  <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0a84ff"/></marker>
+  <marker id="headp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ff375f"/></marker>
+  <marker id="headg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8e8e93"/></marker>
+</defs>
+
+<rect width="1240" height="800" fill="#ffffff"/>
+<text x="20" y="30" class="cap" style="fill:#1d1d1f">Web: wide, the Mac's sidebar; narrow, the iPhone's tab bar; the same pages behind</text>
+<text x="20" y="50" class="note" style="fill:#8e8e93">Each page its own address: Back retraces them, and a title opens in a new tab or window (⌘-click, middle-click) or is bookmarked.</text>
+<path d="M20,70 L50,70" class="arrow"/>
+<text x="56" y="74" class="note" style="fill:#8e8e93">what you do</text>
+<path d="M150,70 L180,70" class="back"/>
+<text x="186" y="74" class="note" style="fill:#8e8e93">Back</text>
+<path d="M230,70 L260,70" class="pink"/>
+<text x="266" y="74" class="note" style="fill:#8e8e93">from outside, or into a new window or tab</text>
+<text x="540" y="74" class="note" style="fill:#ff375f">pink text, dashed pink outline: proposed</text>
+<rect x="20" y="110" width="580" height="320" rx="10" class="lt"/>
+<text x="20" y="102" class="title" style="fill:#1d1d1f">Wide: a section (#series), a series' seasons open</text>
+<rect x="20" y="110" width="130" height="320" rx="10" fill="#e8e8ed"/>
+<text x="36" y="137" class="hd" style="fill:#1d1d1f">Movies</text>
+<rect x="28" y="144" width="114" height="18" rx="5" fill="#d1d1d6"/>
+<text x="36" y="157" class="hd" style="fill:#1d1d1f">Series</text>
+<text x="36" y="177" class="hd" style="fill:#1d1d1f">Watching</text>
+<text x="36" y="197" class="hd" style="fill:#1d1d1f">Watched</text>
+<text x="36" y="217" class="hd" style="fill:#1d1d1f">Kept</text>
+<text x="30" y="242" class="hd" style="fill:#8e8e93">Lists</text>
+<text x="140" y="242" class="hd" style="fill:#8e8e93" text-anchor="end">⊕</text>
+<text x="36" y="260" class="hd" style="fill:#1d1d1f">A List</text>
+<text x="36" y="280" class="hd" style="fill:#1d1d1f">👥 A Shared List</text>
+<text x="166" y="134" class="title" style="fill:#1d1d1f">Series</text>
+<rect x="400" y="120" width="100" height="20" rx="6" fill="#fff" stroke="#c7c7cc"/>
+<text x="410" y="134" class="note" style="fill:#8e8e93">⌕ Search</text>
+<rect x="506" y="120" width="80" height="20" rx="6" fill="#e5e5ea"/>
+<text x="514" y="134" class="note" style="fill:#8e8e93">Title ⌄</text>
+<rect x="166" y="152" width="66" height="66" rx="3" fill="#5e5ce6" opacity="0.8"/>
+<rect x="246" y="152" width="66" height="66" rx="3" fill="#30b0c7" opacity="0.8"/>
+<rect x="244" y="150" width="70" height="70" rx="4" fill="none" stroke="#0a84ff" stroke-width="2.5"/>
+<rect x="326" y="152" width="66" height="66" rx="3" fill="#ff9f0a" opacity="0.8"/>
+<rect x="406" y="152" width="66" height="66" rx="3" fill="#5e5ce6" opacity="0.8"/>
+<rect x="486" y="152" width="66" height="66" rx="3" fill="#30b0c7" opacity="0.8"/>
+<path d="M156,234 L269.0,234 L279.0,224 L289.0,234 L562,234 L562,340 L156,340 Z" fill="#000" opacity="0.06"/>
+<text x="166" y="334" class="note" style="fill:#8e8e93">its seasons, on a band below its row, as on the Mac</text>
+<rect x="166" y="246" width="66" height="66" rx="3" fill="#5e5ce6" opacity="0.8"/>
+<rect x="246" y="246" width="66" height="66" rx="3" fill="#30b0c7" opacity="0.8"/>
+<rect x="326" y="246" width="66" height="66" rx="3" fill="#ff9f0a" opacity="0.8"/>
+<rect x="406" y="246" width="66" height="66" rx="3" fill="#5e5ce6" opacity="0.8"/>
+<rect x="486" y="246" width="66" height="66" rx="3" fill="#30b0c7" opacity="0.8"/>
+<rect x="166" y="346" width="66" height="66" rx="3" fill="#30b0c7" opacity="0.8"/>
+<rect x="246" y="346" width="66" height="66" rx="3" fill="#ff9f0a" opacity="0.8"/>
+<rect x="326" y="346" width="66" height="66" rx="3" fill="#5e5ce6" opacity="0.8"/>
+<rect x="406" y="346" width="66" height="66" rx="3" fill="#30b0c7" opacity="0.8"/>
+<rect x="486" y="346" width="66" height="66" rx="3" fill="#ff9f0a" opacity="0.8"/>
+<rect x="660" y="110" width="560" height="320" rx="10" class="lt"/>
+<text x="660" y="102" class="title" style="fill:#1d1d1f">Wide: a season's page (#title/…)</text>
+<rect x="660" y="110" width="130" height="320" rx="10" fill="#e8e8ed"/>
+<text x="676" y="137" class="hd" style="fill:#1d1d1f">Movies</text>
+<rect x="668" y="144" width="114" height="18" rx="5" fill="#d1d1d6"/>
+<text x="676" y="157" class="hd" style="fill:#1d1d1f">Series</text>
+<text x="676" y="177" class="hd" style="fill:#1d1d1f">Watching</text>
+<text x="676" y="197" class="hd" style="fill:#1d1d1f">Watched</text>
+<text x="676" y="217" class="hd" style="fill:#1d1d1f">Kept</text>
+<text x="670" y="242" class="hd" style="fill:#8e8e93">Lists</text>
+<text x="780" y="242" class="hd" style="fill:#8e8e93" text-anchor="end">⊕</text>
+<text x="676" y="260" class="hd" style="fill:#1d1d1f">A List</text>
+<text x="676" y="280" class="hd" style="fill:#1d1d1f">👥 A Shared List</text>
+<rect x="806" y="130" width="120" height="120" rx="6" fill="#30b0c7" opacity="0.8"/>
+<text x="940" y="146" class="title" style="fill:#1d1d1f">Series Name · Season 2</text>
+<rect x="940" y="160" width="70" height="20" rx="10.0" fill="#0a84ff"/>
+<text x="975.0" y="173.0" class="lbl" style="fill:#ffffff">Resume</text>
+<rect x="1016" y="160" width="70" height="20" rx="10.0" fill="#e5e5ea"/>
+<text x="1051.0" y="173.0" class="lbl" style="fill:#1d1d1f">Start Over</text>
+<rect x="1092" y="160" width="60" height="20" rx="10.0" fill="#e5e5ea"/>
+<text x="1122.0" y="173.0" class="lbl" style="fill:#1d1d1f">★ Lists</text>
+<rect x="940" y="192" width="50" height="18" rx="9.0" fill="#e5e5ea"/>
+<text x="965.0" y="204.0" class="lbl" style="fill:#1d1d1f">Keep</text>
+<rect x="996" y="192" width="70" height="18" rx="9.0" fill="#e5e5ea"/>
+<text x="1031.0" y="204.0" class="lbl" style="fill:#1d1d1f">Download</text>
+<rect x="940" y="220" width="240" height="196" rx="6" fill="#ffffff"/>
+<text x="948" y="234" class="hd" style="fill:#1d1d1f">Episodes</text>
+<line x1="948" x2="1172" y1="242" y2="242" stroke="#e5e5ea"/>
+<line x1="948" x2="1172" y1="260" y2="260" stroke="#e5e5ea"/>
+<line x1="948" x2="1172" y1="278" y2="278" stroke="#e5e5ea"/>
+<line x1="948" x2="1172" y1="296" y2="296" stroke="#e5e5ea"/>
+<line x1="948" x2="1172" y1="314" y2="314" stroke="#e5e5ea"/>
+<line x1="948" x2="1172" y1="332" y2="332" stroke="#e5e5ea"/>
+<line x1="948" x2="1172" y1="350" y2="350" stroke="#e5e5ea"/>
+<line x1="948" x2="1172" y1="368" y2="368" stroke="#e5e5ea"/>
+<line x1="948" x2="1172" y1="386" y2="386" stroke="#e5e5ea"/>
+<line x1="948" x2="1172" y1="404" y2="404" stroke="#e5e5ea"/>
+<rect x="660" y="480" width="560" height="150" rx="10" class="dk"/>
+<text x="660" y="472" class="title" style="fill:#1d1d1f">Playing: the browser's own controls; Back or Escape leaves</text>
+<rect x="662" y="482" width="556" height="146" rx="9" fill="#000"/>
+<rect x="80" y="480" width="180" height="300" rx="20" class="dk"/>
+<text x="80" y="472" class="title" style="fill:#1d1d1f">Narrow: Home</text>
+<text x="92" y="510" class="hd" style="fill:#ebebf5">Continue Watching</text>
+<clipPath id="row1"><rect x="88" y="514" width="171" height="68"/></clipPath>
+<g clip-path="url(#row1)">
+<rect x="92" y="518" width="40.0" height="60" rx="3" fill="#5e5ce6" opacity="0.8"/>
+<rect x="140.0" y="518" width="60.0" height="60" rx="3" fill="#30b0c7" opacity="0.8"/>
+<rect x="208.0" y="518" width="40.0" height="60" rx="3" fill="#ff9f0a" opacity="0.8"/>
+<rect x="256.0" y="518" width="40.0" height="60" rx="3" fill="#5e5ce6" opacity="0.8"/>
+</g>
+<text x="92" y="600" class="hd" style="fill:#ebebf5">A List</text>
+<text x="248" y="600" class="hd" style="fill:#ebebf5" text-anchor="end">See All ›</text>
+<clipPath id="row2"><rect x="88" y="604" width="171" height="68"/></clipPath>
+<g clip-path="url(#row2)">
+<rect x="92" y="608" width="60.0" height="60" rx="3" fill="#30b0c7" opacity="0.8"/>
+<rect x="160.0" y="608" width="40.0" height="60" rx="3" fill="#ff9f0a" opacity="0.8"/>
+<rect x="208.0" y="608" width="40.0" height="60" rx="3" fill="#5e5ce6" opacity="0.8"/>
+<rect x="256.0" y="608" width="60.0" height="60" rx="3" fill="#30b0c7" opacity="0.8"/>
+</g>
+<rect x="88" y="740" width="164" height="30" rx="15" fill="#2c2c2e"/>
+<text x="104" y="759" class="lbl" style="fill:#0a84ff">Home</text>
+<text x="137" y="759" class="lbl" style="fill:#ebebf5">Movies</text>
+<text x="170" y="759" class="lbl" style="fill:#ebebf5">Series</text>
+<text x="203" y="759" class="lbl" style="fill:#ebebf5">Lists</text>
+<text x="236" y="759" class="lbl" style="fill:#ebebf5">Search</text>
+<rect x="340" y="480" width="180" height="300" rx="20" class="dk"/>
+<text x="340" y="472" class="title" style="fill:#1d1d1f">Narrow: a title's page</text>
+<rect x="352" y="500" width="156" height="110" rx="6" fill="#30b0c7" opacity="0.8"/>
+<rect x="352" y="620" width="76" height="22" rx="11.0" fill="#e5e5ea"/>
+<text x="390.0" y="634.0" class="lbl" style="fill:#1d1d1f">Resume</text>
+<rect x="432" y="620" width="76" height="22" rx="11.0" fill="#3a3a3c"/>
+<text x="470.0" y="634.0" class="lbl" style="fill:#ebebf5">Start Over</text>
+<rect x="352" y="652" width="60" height="20" rx="10.0" fill="#3a3a3c"/>
+<text x="382.0" y="665.0" class="lbl" style="fill:#ebebf5">★ Lists</text>
+<circle cx="428" cy="662" r="10" fill="#3a3a3c"/>
+<text x="428" y="666" class="lbl" style="fill:#ebebf5">○</text>
+<rect x="446" y="652" width="50" height="20" rx="10.0" fill="#3a3a3c"/>
+<text x="471.0" y="665.0" class="lbl" style="fill:#ebebf5">Keep</text>
+<path d="M552,279 L620,279 L620,200 L660,200" class="arrow"/>
+<text x="560" y="272" class="act" style="fill:#0a84ff">a season</text>
+<path d="M600,150 L660,150" class="pink"/>
+<text x="608" y="168" class="act" style="fill:#ff375f">⌘-click</text>
+<path d="M1010,170 L1204,170 L1204,480" class="arrow"/>
+<text x="1150" y="470" class="act" style="fill:#0a84ff">Resume</text>
+<path d="M260,640 L340,640" class="arrow"/>
+<text x="270" y="632" class="act" style="fill:#0a84ff">a title</text>
+<path d="M520,700 L580,700 L580,560 L660,560" class="arrow"/>
+<text x="588" y="690" class="act" style="fill:#0a84ff">Resume</text>
+<path d="M660,400 L600,400" class="back"/>
+<text x="606" y="416" class="act" style="fill:#8e8e93">Back</text>
+<text x="20" y="452" class="note" style="fill:#8e8e93">Which layout: the window's width (a media query), not the device. Sort: beside search, each shelf its own.</text>
+</svg>
