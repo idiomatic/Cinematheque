@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Tools: the mock library's covers draw generated art, from tools/mock-art/ (its prompts recorded there), under their titles where there is some.
 * Core: the C interface takes arrays and structs, not JSON text: `cq_prioritize`, `cq_race`, and `cq_race_warm` take arrays of strings with a count; `cq_serve`, an array of `cq_folder`; `cq_download_sizes`, an array of `cq_download_choice`; and `cq_list_want`, a `cq_want`, its kind a `cq_title_kind`. Optional integers are -1 when absent.
 * `tools/mock-library.sh` makes a mock library for screenshots and demos, the same every run. It has movies and series named for the serials in Murderbot's feeds, as silent, tagged videos with covers. With `--data`, it also makes a library that has crawled it, with progress and lists.
 * Tools: youtube.sh is no longer part of Cinematheque, which ships no downloader; the README's Naming shows the dated names it reads, as a channel's archive has them.

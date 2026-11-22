@@ -1,6 +1,8 @@
 // Draws mock-library.sh's covers: for each line of stdin (an output PNG,
-// width, height, top and bottom colors as hex, a title, and a line under
-// it, tab-separated), a gradient with a pale disc and the title set large.
+// width, height, top and bottom colors as hex, a title, a line under it,
+// and an image of art or nothing, tab-separated), the art filling the
+// cover, darkened under the type, or else a gradient with a pale disc; and
+// the title set large.
 import CoreGraphics
 import CoreText
 import Foundation
@@ -30,6 +32,12 @@ func text(_ s: String, size: CGFloat, alpha: CGFloat = 1) -> NSAttributedString 
     ])
 }
 
+/// An image, from a file's path, or nil for none.
+func image(_ path: String) -> CGImage? {
+    guard !path.isEmpty, let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return nil }
+    return CGImageSourceCreateImageAtIndex(source, 0, nil)
+}
+
 /// Draws `s` in `box`, as large as fits with no word broken.
 func draw(_ s: String, in box: CGRect, largest: CGFloat, on context: CGContext) {
     var size = largest
@@ -50,15 +58,26 @@ func draw(_ s: String, in box: CGRect, largest: CGFloat, on context: CGContext) 
 
 while let line = readLine() {
     let f = line.split(separator: "\t", omittingEmptySubsequences: false)
-    guard f.count == 7, let w = Int(f[1]), let h = Int(f[2]) else { continue }
+    guard f.count == 8, let w = Int(f[1]), let h = Int(f[2]) else { continue }
     let width = CGFloat(w), height = CGFloat(h)
     let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
-    let gradient = CGGradient(colorsSpace: nil, colors: [color(f[3]), color(f[4])] as CFArray, locations: [0, 1])!
-    context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: height), end: .zero, options: [])
-    // A disc, a moon or a planet, low and to one side.
-    let r = min(width, height) * 0.42
-    context.setFillColor(color(f[3], alpha: 0.55))
-    context.fillEllipse(in: CGRect(x: width * 0.62 - r, y: height * 0.3 - r, width: 2 * r, height: 2 * r))
+    if let art = image(String(f[7])) {
+        // Filling the cover, cropped about its center, then darkened at the
+        // top under the title, and a little at the foot under its line.
+        let scale = max(width / CGFloat(art.width), height / CGFloat(art.height))
+        let size = CGSize(width: CGFloat(art.width) * scale, height: CGFloat(art.height) * scale)
+        context.interpolationQuality = .high
+        context.draw(art, in: CGRect(x: (width - size.width) / 2, y: (height - size.height) / 2, width: size.width, height: size.height))
+        let shade = CGGradient(colorsSpace: nil, colors: [CGColor(gray: 0, alpha: 0.7), CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0.5)] as CFArray, locations: [0, 0.5, 0.82, 1])!
+        context.drawLinearGradient(shade, start: CGPoint(x: 0, y: height), end: .zero, options: [])
+    } else {
+        let gradient = CGGradient(colorsSpace: nil, colors: [color(f[3]), color(f[4])] as CFArray, locations: [0, 1])!
+        context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: height), end: .zero, options: [])
+        // A disc, a moon or a planet, low and to one side.
+        let r = min(width, height) * 0.42
+        context.setFillColor(color(f[3], alpha: 0.55))
+        context.fillEllipse(in: CGRect(x: width * 0.62 - r, y: height * 0.3 - r, width: 2 * r, height: 2 * r))
+    }
     let margin = width * 0.08
     draw(String(f[5]).uppercased(), in: CGRect(x: margin, y: height * 0.35, width: width - 2 * margin, height: height * 0.57), largest: min(width, height) * 0.2, on: context)
     let under = text(String(f[6]).uppercased(), size: min(width, height) * 0.055, alpha: 0.85)

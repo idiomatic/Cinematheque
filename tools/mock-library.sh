@@ -59,14 +59,20 @@ pass=
 stamp() { TZ=UTC touch -t ${2//-/}1200 -- $1 }
 
 # A cover: its path (in DIRECTORY, or absolute), size, top and bottom
-# colors, title, the line under it, and its date.
+# colors, title, the line under it, and its date. Its art, if mock-art/
+# has an image named for the title (and a season's line: `worldhoppers-
+# season-1.jpg`), is drawn beneath the title; else the colors are.
 covers=()
 poster() {
     [[ $pass == cover ]] || return 0
-    local out=$1
+    local out=$1 name=$6
+    [[ $7 == Season* ]] && name+=" $7"
+    name=${(L)name//[^[:alnum:]]/-}
+    local art=$here/mock-art/$name.jpg
+    [[ -e $art ]] || art=
     [[ $out == /* ]] || out=$dir/$out
     mkdir -p -- ${out:h}
-    covers+=("$tmp/${#covers}.png"$'\t'$2$'\t'$3$'\t'$4$'\t'$5$'\t'$6$'\t'$7$'\t'$out$'\t'$8)
+    covers+=("$tmp/${#covers}.png"$'\t'$2$'\t'$3$'\t'$4$'\t'$5$'\t'$6$'\t'$7$'\t'$art$'\t'$out$'\t'$8)
 }
 # Shapes, as width and height.
 tall=(600 900) square=(900 900)
@@ -222,12 +228,12 @@ fi
 for c in $covers; do
     f=("${(@ps:\t:)c}")
     if [[ -e $f[1] ]]; then
-        ffmpeg -v error -nostdin -y -i $f[1] -frames:v 1 -q:v 3 -pix_fmt yuvj420p -fflags +bitexact -flags:v +bitexact $f[8]
+        ffmpeg -v error -nostdin -y -i $f[1] -frames:v 1 -q:v 3 -pix_fmt yuvj420p -fflags +bitexact -flags:v +bitexact $f[9]
     else
         ffmpeg -v error -nostdin -y -f lavfi -i "gradients=s=${f[2]}x${f[3]}:c0=0x${f[4]}:c1=0x${f[5]}:n=2:x0=0:y0=0:x1=0:y1=${f[3]}:speed=0" \
-            -frames:v 1 -q:v 3 -pix_fmt yuvj420p -fflags +bitexact -flags:v +bitexact $f[8]
+            -frames:v 1 -q:v 3 -pix_fmt yuvj420p -fflags +bitexact -flags:v +bitexact $f[9]
     fi
-    stamp $f[8] $f[9]
+    stamp $f[9] $f[10]
 done
 pass=video catalog
 echo "made a mock library in $dir"
