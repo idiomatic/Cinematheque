@@ -47,12 +47,10 @@ struct PlaysFullScreen: ViewModifier {
                     .allowsHitTesting(false)
                 }
             }
-            // The tab bar, above the page, goes as it fades.
-            .toolbar(black ? .hidden : .automatic, for: .tabBar)
             // Started on a change of the request, in a task of its own, not
-            // the view's: fading the page hides the tab bar, which re-hosts
-            // the page, and SwiftUI restarts a view's task when it does,
-            // which started every request twice.
+            // the view's: SwiftUI restarts a view's task as it re-hosts the
+            // page (as hiding a tab bar did), which started every request
+            // twice.
             // Not `initial`: that fires again as the page reappears (the
             // player dismissed), which, its request not yet cleared, started
             // it over.

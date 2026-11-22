@@ -16,9 +16,9 @@ enum Launch {
         try? Data((code + "\n").utf8).write(to: URL(filePath: path))
     }
 
-    /// `CINEMATHEQUE_TAB`: a shelf to start on (`movies`, `series`, ...;
-    /// tvOS), or in setup, a step (`join`), offering its code
-    /// (both platforms).
+    /// `CINEMATHEQUE_TAB`: a section's page to open (`movies`, `series`,
+    /// `lists`, `watched`, `search`, or `settings`; tvOS), or in setup, a
+    /// step (`join`), offering its code (both platforms).
     static var tab: String? { env["CINEMATHEQUE_TAB"] }
 
     /// `CINEMATHEQUE_SELECT`: a tile to select (macOS) or whose title's

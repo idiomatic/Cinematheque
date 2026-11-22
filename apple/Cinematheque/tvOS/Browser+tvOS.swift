@@ -1,17 +1,30 @@
 #if os(tvOS)
 import SwiftUI
 
-/// The tab bar: Home, Movies, Series, Lists, Watched, Settings, and
-/// Search, each shelf a navigation stack opening titles' pages: a movie's,
-/// or a season's; a series' tile, a grid of its seasons first.
+/// The home page, and one navigation stack of pages pushed from it: each
+/// section's, and titles' pages (a movie's, or a season's; a series' tile,
+/// a page of its seasons first). Back retraces them to the home page, and
+/// from it leaves the app.
 struct Browser: View {
-    /// A tab: a shelf, search, or settings.
-    enum Tab: Hashable {
-        case shelf(Shelf), search, settings
+    /// A section, a page pushed from the home page, in the order its button
+    /// has there.
+    enum Section: String, Hashable, CaseIterable {
+        case movies, series, lists, watched, search, settings
+
+        var title: String {
+            switch self {
+            case .movies: Shelf.movies.title
+            case .series: Shelf.series.title
+            case .lists: Shelf.lists.title
+            case .watched: Shelf.watched.title
+            case .search: "Search"
+            case .settings: "Settings"
+            }
+        }
     }
 
     @Environment(Library.self) private var library
-    @State private var tab: Tab = .shelf(.home)
+    @State private var path = NavigationPath()
     /// A link's title to open (the Top Shelf's), once the library has it;
     /// then the title itself, its page over the app.
     @State private var link: URL?
@@ -28,35 +41,14 @@ struct Browser: View {
     }
 
     var body: some View {
-        TabView(selection: $tab) {
-            ForEach(Shelf.allCases.filter { !Shelf.macOnly.contains($0) }) { shelf in
-                SwiftUI.Tab(shelf.title, systemImage: shelf.symbol, value: Tab.shelf(shelf)) {
-                    Stack {
-                        if shelf == .home {
-                            HomeView()
-                        } else if shelf == .lists {
-                            ListsView()
-                        } else if shelf == .series {
-                            // A cover per series, opening its seasons.
-                            PosterGrid(tiles: library.perTitle(shelf.tiles(in: library)), empty: shelf.empty, series: true)
-                        } else {
-                            PosterGrid(tiles: shelf.tiles(in: library), empty: shelf.empty)
-                        }
-                    }
+        NavigationStack(path: $path) {
+            HomeView()
+                .navigationDestination(for: Section.self) { SectionPage(section: $0) }
+                .navigationDestination(for: Tile.self) { tile in
+                    if tile.isSeries { SeasonView(tile: tile, detail: library.detail(tile.key)) } else { MovieView(tile: tile, detail: library.detail(tile.key)) }
                 }
-            }
-            // Symbols alone, so every tab fits; Settings before Search, as
-            // tvOS shows no tab after search's.
-            SwiftUI.Tab(value: Tab.settings) {
-                NavigationStack { SettingsView() }
-            } label: {
-                Image(systemName: "gearshape").accessibilityLabel("Settings")
-            }
-            SwiftUI.Tab(value: Tab.search, role: .search) {
-                Stack { SearchView() }
-            } label: {
-                Image(systemName: "magnifyingglass").accessibilityLabel("Search")
-            }
+                .navigationDestination(for: SeriesSeasons.self) { SeasonsView(key: $0.key, detail: library.detail($0.key)) }
+                .navigationDestination(for: ListPageID.self) { ListPage(id: $0.id) }
         }
         .overlay(alignment: .bottomTrailing) { Activity() }
         .task { TVPlayer.warmUp() }
@@ -64,16 +56,16 @@ struct Browser: View {
         .task(id: "\(link?.absoluteString ?? "") \(library.tiles.count)") {
             guard let url = link, let tile = TopShelfPublisher.tile(url, in: library) else { return }
             link = nil
-            // At once, not sliding in over the tab bar, which showed for
-            // the moment it took.
+            // At once, not sliding in over the app, which showed for the
+            // moment it took.
             var now = Transaction()
             now.disablesAnimations = true
             withTransaction(now) { opened = Opened(tile: tile, playing: TopShelfPublisher.plays(url)) }
         }
         // Presented over the app, as tvOS gives a screen it presents focus
         // (its page's first, Play or Resume): pushed on Home within the tab
-        // view, as the app came to the front, focus stayed in the tab bar,
-        // now and then. Back closes it, to where the app was.
+        // view the app had, as the app came to the front, focus stayed in
+        // the tab bar, now and then. Back closes it, to where the app was.
         .fullScreenCover(item: $opened) { opened in
             let tile = opened.tile
             Group {
@@ -97,11 +89,28 @@ struct Browser: View {
             if !Task.isCancelled { await TopShelfPublisher.publish(library) }
         }
         #if DEBUG
+        // A section's page (`CINEMATHEQUE_TAB`), then, once the title has
+        // arrived (a first launch's sync brings it), a season's page, or a
+        // series' seasons (`CINEMATHEQUE_SELECT`).
         .onAppear {
-            if let name = Launch.tab { tab = name == "search" ? .search : name == "settings" ? .settings : Shelf(rawValue: name).map(Tab.shelf) ?? tab }
+            if path.isEmpty, let section = Launch.tab.flatMap(Section.init(rawValue:)) { path.append(section) }
+        }
+        .task(id: library.tiles.isEmpty) {
+            guard !selected, let id = Launch.selection else { return }
+            if let tile = library.tiles.first(where: { $0.id == id }) {
+                selected = true
+                path.append(tile)
+            } else if let key = Launch.selectedTitle, library.tiles.contains(where: { $0.key == key }) {
+                selected = true
+                path.append(SeriesSeasons(key: key))
+            }
         }
         #endif
     }
+
+    #if DEBUG
+    @State private var selected = false
+    #endif
 }
 
 /// A series' seasons, as a page: what a series' tile opens.
@@ -109,38 +118,37 @@ struct SeriesSeasons: Hashable {
     let key: String
 }
 
-/// A tab's navigation stack, opening a movie's page, a season's, or a
-/// series' seasons.
-private struct Stack<Content: View>: View {
-    @ViewBuilder let content: Content
+/// A list's whole page, by the list's ID: what See All opens.
+struct ListPageID: Hashable {
+    let id: String
+}
+
+/// A section's page: its covers in a grid under its name (a series' each,
+/// opening its seasons), every list's row, search, or settings.
+private struct SectionPage: View {
+    let section: Browser.Section
     @Environment(Library.self) private var library
-    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack(path: $path) {
-            content
-                .navigationDestination(for: Tile.self) { tile in
-                    if tile.isSeries { SeasonView(tile: tile, detail: library.detail(tile.key)) } else { MovieView(tile: tile, detail: library.detail(tile.key)) }
-                }
-                .navigationDestination(for: SeriesSeasons.self) { SeasonsView(key: $0.key) }
+        switch section {
+        case .movies:
+            PosterGrid(tiles: Shelf.movies.tiles(in: library), empty: Shelf.movies.empty, heading: section.title)
+        case .series:
+            PosterGrid(tiles: library.perTitle(Shelf.series.tiles(in: library)), empty: Shelf.series.empty, heading: section.title, series: true)
+        case .lists:
+            ListsView()
+        case .watched:
+            PosterGrid(tiles: Shelf.watched.tiles(in: library), empty: Shelf.watched.empty, heading: section.title)
+        case .search:
+            SearchView()
+        case .settings:
+            SettingsView()
         }
-        #if DEBUG
-        // Once the title has arrived (a first launch's sync brings it): a
-        // season's page, or a series' seasons.
-        .task(id: library.tiles.isEmpty) {
-            guard path.isEmpty, let id = Launch.selection else { return }
-            if let tile = library.tiles.first(where: { $0.id == id }) {
-                path = NavigationPath([tile])
-            } else if let key = Launch.selectedTitle, library.tiles.contains(where: { $0.key == key }) {
-                path = NavigationPath([SeriesSeasons(key: key)])
-            }
-        }
-        #endif
     }
 }
 
-/// Rows of what to watch: in progress (movies partway, seasons begun), then
-/// each list.
+/// The home page: the sections' buttons, then rows of what to watch: in
+/// progress (movies partway, seasons begun), then each list.
 private struct HomeView: View {
     @Environment(Library.self) private var library
 
@@ -149,15 +157,39 @@ private struct HomeView: View {
         let lists = library.lists.map { ($0, Shelf.list($0.id).tiles(in: library)) }.filter { !$0.1.isEmpty }
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 50) {
+                Sections()
                 if going.isEmpty && lists.isEmpty {
                     ContentUnavailableView("Nothing in Progress", systemImage: "play.rectangle", description: Text(Shelf.home.empty))
                         .frame(maxWidth: .infinity)
                 }
                 if !going.isEmpty { Row(title: "Continue Watching", tiles: going) }
-                ForEach(lists, id: \.0.id) { list, tiles in Row(title: list.shownName, tiles: tiles, shared: list.isShared) }
+                ForEach(lists, id: \.0.id) { list, tiles in Row(title: list.shownName, tiles: tiles, list: list.id, shared: list.isShared) }
             }
             .padding(.vertical, 40)
         }
+        .scrollClipDisabled()
+    }
+}
+
+/// The sections' buttons, in a row at the top of the home page: names,
+/// but Search's and Settings' symbols, as their tabs had.
+private struct Sections: View {
+    var body: some View {
+        HStack(spacing: 30) {
+            ForEach(Browser.Section.allCases, id: \.self) { section in
+                NavigationLink(value: section) {
+                    switch section {
+                    case .search: Image(systemName: "magnifyingglass").accessibilityLabel(section.title)
+                    case .settings: Image(systemName: "gearshape").accessibilityLabel(section.title)
+                    default: Text(section.title)
+                    }
+                }
+            }
+        }
+        // Its whole width, so moving up from a row reaches it from any
+        // cover.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
     }
 }
 
@@ -173,6 +205,7 @@ private struct ListsView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 50) {
+                Text(Shelf.lists.title).font(.title3.weight(.semibold))
                 if library.lists.isEmpty {
                     ContentUnavailableView("No Lists", systemImage: "star", description: Text("Make a list to keep titles in, as a watchlist or favorites."))
                         .frame(maxWidth: .infinity)
@@ -204,7 +237,7 @@ private struct SeeAll: View {
     let count: Int
 
     var body: some View {
-        NavigationLink { ListPage(id: list) } label: {
+        NavigationLink(value: ListPageID(id: list)) {
             HStack(spacing: 8) {
                 Text("See All \(count)")
                 Image(systemName: "chevron.right")
@@ -276,20 +309,22 @@ private struct Row: View {
                 if let list { SeeAll(list: list, count: tiles.count) }
             }
             // As the row below: See All, small and at the left, takes focus
-            // moving down from the tab bar, as the heading's whole width
-            // does, not a cover more nearly beneath the tab.
+            // moving down from the sections' buttons, as the heading's whole
+            // width does, not a cover more nearly beneath the button.
             .frame(maxWidth: .infinity, alignment: .leading)
             .focusSection()
+            // A carousel, not a grid: every cover one height, each its own
+            // width, as its shape has it.
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 40) {
-                    ForEach(tiles) { Poster(tile: $0).frame(width: 240) }
+                    ForEach(tiles) { Poster(tile: $0, inRow: true) }
                 }
                 .padding(.vertical, 30)
             }
             .scrollClipDisabled()
             // The whole row's width takes focus moving into it, so moving
-            // down from the tab bar goes to the first row's nearest cover,
-            // not to one further down that's more nearly beneath the tab.
+            // down goes to the first row's nearest cover, not to one further
+            // down that's more nearly beneath the button.
             .focusSection()
         }
     }
@@ -355,6 +390,33 @@ private struct PosterName: View {
     }
 }
 
+/// A cover and what's under it (its name), stacked, as wide as the cover,
+/// so a long name is cut short rather than widening a row's lockup, whose
+/// cover takes the width its shape gives it.
+private struct UnderCover: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let first = subviews.first else { return .zero }
+        let cover = first.sizeThatFits(proposal)
+        let below = subviews.dropFirst().map { $0.sizeThatFits(ProposedViewSize(width: cover.width, height: nil)).height }
+        return CGSize(width: cover.width, height: below.reduce(cover.height) { $0 + spacing + $1 })
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let first = subviews.first else { return }
+        let cover = first.sizeThatFits(proposal)
+        first.place(at: bounds.origin, proposal: ProposedViewSize(cover))
+        var y = bounds.minY + cover.height
+        for subview in subviews.dropFirst() {
+            let width = ProposedViewSize(width: cover.width, height: nil)
+            y += spacing
+            subview.place(at: CGPoint(x: bounds.minX, y: y), proposal: width)
+            y += subview.sizeThatFits(width).height
+        }
+    }
+}
+
 /// A cover that opens its title (a movie's page, a season's, or a series'
 /// seasons), with this person's progress, and its name below: tvOS's
 /// lockup (a borderless button), the cover lifting as it's focused and its
@@ -365,7 +427,12 @@ struct Poster: View {
     var series = false
     /// Whether it's among its series' seasons, named only as the season.
     var amongSeasons = false
+    /// Whether it's in a row (a carousel), at the row's height.
+    var inRow = false
     @Environment(Library.self) private var library
+
+    /// A row's covers' height: a 2:3 cover's, as wide as a grid's.
+    static let rowHeight: CGFloat = 360
 
     /// A series' seasons, unless it has only one, which it opens itself.
     private var opensSeasons: Bool {
@@ -373,10 +440,11 @@ struct Poster: View {
     }
 
     /// The cover itself, with its marks, which lifts: a movie's filling the
-    /// box; a series' (a season's) in its own shape, square or 4:3.
+    /// box; a series' (a season's) in its own shape, square or 4:3, as is
+    /// every cover in a row.
     private var cover: some View {
         Group {
-            if tile.isSeries {
+            if tile.isSeries || inRow {
                 CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, shaped: true)
             } else {
                 CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name)
@@ -398,14 +466,24 @@ struct Poster: View {
             .hoverEffect(.highlight)
     }
 
-    /// The lockup: a movie's 2:3 box, so names line up along a row; a
-    /// series' cover at its foot, whole, in its own shape, rather than
-    /// cropped to fill it.
+    /// The lockup, its name as wide as its box: in a grid, a movie's 2:3
+    /// box, so names line up along a row, a series' cover at its foot,
+    /// whole, in its own shape, rather than cropped to fill it; among a
+    /// series' seasons, a square, a season's cover fit whole at its center;
+    /// in a row, the cover alone, at the row's height.
     private var lockup: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Color.clear
-                .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                .overlay(alignment: .bottom) { cover }
+        UnderCover(spacing: 14) {
+            if inRow {
+                cover.frame(height: Self.rowHeight)
+            } else if amongSeasons {
+                Color.clear
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay { cover }
+            } else {
+                Color.clear
+                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                    .overlay(alignment: .bottom) { cover }
+            }
             if tile.isWanted {
                 PosterName(name: tile.name, season: "Not in library")
             } else if amongSeasons {
@@ -467,27 +545,56 @@ private struct SearchView: View {
     }
 }
 
-/// A series' seasons, as a grid under its name (specials last), focus
-/// starting on the first not watched through: what its tile opens, each
-/// season opening its page.
+/// A series' seasons, as a page under its name: Play or Resume for the
+/// season to watch (the first not watched through), focused first, and
+/// the whole series' watched mark; then its seasons in square cells
+/// (specials last), each opening its page.
 struct SeasonsView: View {
     let key: String
     @Environment(Library.self) private var library
-    @FocusState private var focused: String?
+    @State private var detail: TitleDetail?
+    @State private var playing: PlayRequest?
+
+    /// With its details as they are, so Play is there to focus first.
+    init(key: String, detail: TitleDetail?) {
+        self.key = key
+        _detail = State(initialValue: detail)
+    }
 
     var body: some View {
         let seasons = Library.seasons(of: key, in: library.tiles)
+        let up = Library.nextSeason(seasons)
         ScrollView {
-            Text(seasons.first?.name ?? "")
-                .font(.title3.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 40)
+            VStack(alignment: .leading, spacing: 30) {
+                Text(seasons.first?.name ?? "")
+                    .font(.title3.weight(.semibold))
+                if let detail, let series = library.perTitle(seasons).first {
+                    HStack(spacing: 30) {
+                        // The season it plays, by name ("Resume Season 2"),
+                        // as Play alone says nothing of which.
+                        let verb = Playback.nextItem(detail, season: up?.season)?.inProgress == true ? "Resume" : "Play"
+                        Button([verb, up?.seasonName].compactMap { $0 }.joined(separator: " "), systemImage: "play.fill") {
+                            playing = Playback.next(in: detail, season: up?.season, quality: detail.quality(for: Playback.items(detail, season: up?.season), chosen: nil))
+                        }
+                        // The whole series': a status that pressing toggles,
+                        // as a season's is.
+                        Button(series.watched ? "Watched" : "Unwatched", systemImage: series.watched ? "checkmark.circle.fill" : "circle") {
+                            library.markWatched(series, !series.watched, wholeTitle: true)
+                        }
+                        .labelStyle(.iconOnly)
+                    }
+                    .focusSection()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 40)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 48, alignment: .top), count: 6), spacing: 60) {
-                ForEach(seasons) { Poster(tile: $0, amongSeasons: true).focused($focused, equals: $0.id) }
+                ForEach(seasons) { Poster(tile: $0, amongSeasons: true) }
             }
             .padding(.vertical, 40)
         }
-        .defaultFocus($focused, Library.nextSeason(seasons)?.id)
+        .task(id: library.revision) { detail = library.detail(key) }
+        .modifier(PlaysFullScreen(request: $playing))
     }
 }
 

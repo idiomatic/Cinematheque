@@ -1,7 +1,7 @@
 #if os(tvOS)
 import SwiftUI
 
-/// The Apple TV's settings, its tab bar's last: its name and its person's;
+/// The Apple TV's settings, a section's page: its name and its person's;
 /// the library's people, your devices, and its sources, each a page for
 /// adding and removing them, as the Mac's panes; Refresh Library; and
 /// Leave This Library…, which returns to setup, to pair again as another's
@@ -295,8 +295,6 @@ private struct IntervalPage: View {
             .scrollClipDisabled()
             .defaultFocus($focus, library.crawlEvery)
         }
-        // A page of its own, as the system's subpages are.
-        .toolbar(.hidden, for: .tabBar)
     }
 }
 
@@ -305,7 +303,7 @@ private struct IntervalPage: View {
 /// little below the middle of the left 55%, and low under it, 40% of the
 /// screen wide, what the focused row does; the list from there to 4% short
 /// of the right edge, in the system's row text size (`.headline`), under
-/// the tab bar.
+/// a subpage's title.
 struct SettingsPage<List: View>: View {
     /// A subpage's title, at the top in the middle, as the system's are
     /// (SwiftUI's navigation title sits lower and pushes the list down).
@@ -353,7 +351,7 @@ struct SettingsPage<List: View>: View {
                         .frame(width: width * Self.explanationWidth, height: pane.size.height * explanationHeight, alignment: .top)
                         .position(x: pane.size.width / 2, y: pane.size.height * (explanationTop + explanationHeight / 2))
                 }
-                // The whole height, behind the tab bar too, as the system's.
+                // The whole height, as the system's.
                 .ignoresSafeArea(edges: .vertical)
                 .frame(width: width * Self.left)
                 list

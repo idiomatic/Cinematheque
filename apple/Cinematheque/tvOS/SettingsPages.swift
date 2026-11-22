@@ -36,7 +36,6 @@ struct PeoplePage: View {
             }
             .scrollClipDisabled()
         }
-        .toolbar(.hidden, for: .tabBar)
         .navigationDestination(isPresented: $adding) { AddDevicePage(join: true) }
         // Hard to undo, so asked first.
         .confirmationDialog(
@@ -110,7 +109,6 @@ struct DevicesPage: View {
             }
             .scrollClipDisabled()
         }
-        .toolbar(.hidden, for: .tabBar)
         .navigationDestination(isPresented: $adding) { AddDevicePage(join: false) }
         .confirmationDialog(
             acting?.name ?? "",
@@ -184,7 +182,6 @@ struct SourcesPage: View {
             }
             .scrollClipDisabled()
         }
-        .toolbar(.hidden, for: .tabBar)
         // Removing a source can't be undone but by adding it again and
         // looking for its videos anew.
         .confirmationDialog(
@@ -286,7 +283,6 @@ struct AddDevicePage: View {
             }
             .scrollClipDisabled()
         }
-        .toolbar(.hidden, for: .tabBar)
         .modifier(Nearby(devices: $nearby))
         #if DEBUG
         // `CINEMATHEQUE_PAIR`: a code for the first device found.

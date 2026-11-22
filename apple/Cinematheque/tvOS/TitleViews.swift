@@ -128,9 +128,10 @@ struct SeasonView: View {
                 }
             ScrollView {
                 VStack(alignment: .leading, spacing: 30) {
-                    Text(shown.name).font(.title)
+                    // The seasons before and after it in the top corner,
+                    // beside the series' name.
                     HStack(spacing: 30) {
-                        Text(shown.seasonName ?? "").font(.title3)
+                        Text(shown.name).font(.title)
                         Spacer()
                         let back = index.flatMap { $0 > 0 ? seasons[$0 - 1] : nil }
                         let forward = index.flatMap { $0 + 1 < seasons.count ? seasons[$0 + 1] : nil }
@@ -146,8 +147,9 @@ struct SeasonView: View {
                             }
                     }
                     // Its whole width, so moving up from Play, at the
-                    // other end, reaches them, not the tab bar.
+                    // other end, reaches them.
                     .focusSection()
+                    Text(shown.seasonName ?? "").font(.title3)
                     if let detail {
                         let items = Playback.items(detail, season: shown.season)
                         Text(detail.facts(season: shown.season)).foregroundStyle(.secondary)

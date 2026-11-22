@@ -2,21 +2,18 @@ import Foundation
 
 /// The library's shelves, on every platform: what each holds, how it's
 /// searched, and how it's counted. Each platform shows them its own way
-/// (the Mac in a sidebar, the Apple TV in a tab bar).
+/// (the Mac in a sidebar, the Apple TV from a home page).
 enum Shelf: Identifiable, Hashable, RawRepresentable {
     /// Watching (`inProgress`, as it's stored) is the Mac's Home (which
     /// shows what's in progress elsewhere); Downloaded, what this Mac keeps,
     /// is the Mac's only too.
-    /// Lists is every list, the Apple TV's tab; the Mac shows each list on
-    /// its own, by ID.
+    /// Lists is every list, the Apple TV's section; the Mac shows each
+    /// list on its own, by ID.
     case home, movies, series, lists, inProgress, watched, downloaded
     case list(String)
 
     /// Every shelf but a list's.
     static let allCases: [Shelf] = [.home, .movies, .series, .lists, .inProgress, .watched, .downloaded]
-
-    /// The Mac's only.
-    static let macOnly: Set<Shelf> = [.inProgress, .downloaded]
 
     var id: Self { self }
 
