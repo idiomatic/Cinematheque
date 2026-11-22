@@ -318,8 +318,15 @@ nonisolated extension URL {
 /// One of this person's lists (a Watchlist, Favorites): movies' title keys
 /// and seasons' tiles (`<title key>#<season>`).
 nonisolated struct UserList: Codable, Identifiable, Hashable {
+    /// Its ID; another member's, `<owner>/<id>`.
     let id: String
     let name: String
+    /// Its owner's person key, and name, if another member's is set.
+    var owner: String?
+    var ownerName: String?
+    /// Only its owner changes it; every member sees it, if shared.
+    var mine: Bool?
+    var shared: Bool?
     let titles: [String]
     /// The placeholders among its titles: not in the library when put on
     /// it, by name, keyed as their files will be.
@@ -330,4 +337,18 @@ nonisolated struct UserList: Codable, Identifiable, Hashable {
         let name: String
         let note: String
     }
+
+    var isMine: Bool { mine ?? true }
+    var isShared: Bool { shared ?? false }
+
+    /// Its name as shown: another member's, as theirs, if they're named
+    /// (a shared list's marked by a symbol of people, wherever it's named).
+    var shownName: String {
+        if isMine { return name }
+        if let owner = ownerName, !owner.isEmpty { return "\(owner)’s \(name)" }
+        return name
+    }
+
+    /// The mark of a shared list, this person's or another's.
+    static let sharedSymbol = "person.2"
 }

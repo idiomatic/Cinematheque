@@ -59,7 +59,7 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
 
     @MainActor func name(in library: Library) -> String {
         guard case .list(let id) = self else { return title }
-        return library.lists.first { $0.id == id }?.name ?? title
+        return library.lists.first { $0.id == id }?.shownName ?? title
     }
 
     var symbol: String {
@@ -102,7 +102,7 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
             case .home, .inProgress: !tile.watched && tile.started
             case .movies: !tile.isSeries
             case .series: tile.isSeries
-            case .lists: library.listed.contains(tile.id)
+            case .lists: library.onAnyList.contains(tile.id)
             case .list(let id): library.lists.first { $0.id == id }?.titles.contains(tile.id) ?? false
             case .watched: tile.watched
             case .downloaded: downloaded.contains(tile.id)

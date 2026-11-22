@@ -427,6 +427,51 @@ test "a source's address is its own, and its device's alone to mark as downloads
     try testing.expectError(error.Missing, p.value(2, key, "managed"));
 }
 
+test "a shared list is every member's to see, and its owner's alone to change" {
+    const lists = @import("lists.zig");
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const arena = p.arena_state.allocator();
+    const a = &p.replicas[0];
+    const b = &p.replicas[1];
+    const id = try lists.create(testing.io, a, arena, 1000, "Date Night");
+    try lists.setListed(a, arena, 1001, id, "t/m/alien/1979", true);
+    _ = try lists.want(a, arena, 1002, id, false, "Dune: Part Three", 2026, null, "");
+    try lists.share(testing.io, a, arena, 1003, id, true);
+    _ = try p.sync(1, 0);
+
+    // b sees a's list, as a's, with its titles and placeholder.
+    var seen = try lists.lists(b, arena);
+    try testing.expectEqual(@as(usize, 2), seen.len);
+    try testing.expectEqualStrings("Date Night", seen[1].name);
+    try testing.expect(!seen[1].mine and seen[1].shared);
+    try testing.expectEqualStrings(&std.fmt.bytesToHex(a.personKey(), .lower), seen[1].owner);
+    try testing.expectEqualStrings(try std.fmt.allocPrint(arena, "{s}/{s}", .{ seen[1].owner, id }), seen[1].id);
+    try testing.expectEqual(@as(usize, 2), seen[1].titles.len);
+    try testing.expectEqual(@as(usize, 1), seen[1].wanted.len);
+    try testing.expectError(error.NotFound, lists.setListed(b, arena, 2000, id, "t/m/heat/1995", true));
+
+    // b writing to it anyway, as if it were its own: c takes none of it.
+    const key = try std.fmt.allocPrint(arena, "l/{s}/{s}", .{ std.fmt.bytesToHex(a.personKey(), .lower), id });
+    try b.write(2001, key, "t/m/heat/1995", "1");
+    try b.write(2002, key, "name", "Mine Now");
+    _ = try p.sync(2, 0);
+    const stats = try p.sync(2, 1);
+    try testing.expectEqual(@as(usize, 2), stats.refused);
+    seen = try lists.lists(&p.replicas[2], arena);
+    try testing.expectEqualStrings("Date Night", seen[1].name);
+    try testing.expectEqual(@as(usize, 2), seen[1].titles.len);
+
+    // Made private again, it's gone from b's lists, and a keeps its titles.
+    try lists.share(testing.io, a, arena, 3000, id, false);
+    _ = try p.sync(1, 0);
+    try testing.expectEqual(@as(usize, 1), (try lists.lists(b, arena)).len);
+    seen = try lists.lists(a, arena);
+    try testing.expect(seen[0].mine and !seen[0].shared);
+    try testing.expectEqual(@as(usize, 2), seen[0].titles.len);
+}
+
 test "fetched fields are verified by shared proof" {
     var p: Devices = undefined;
     try p.init();

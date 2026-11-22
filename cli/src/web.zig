@@ -337,6 +337,10 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     } else if (std.mem.eql(u8, name, "list-remove")) {
         const p = try std.json.parseFromSliceLeaky(struct { id: []const u8 }, arena, body, .{});
         try core.lists.remove(&r, arena, now(io), p.id);
+    } else if (std.mem.eql(u8, name, "list-share")) {
+        // Every member's to see, or this person's alone again.
+        const p = try std.json.parseFromSliceLeaky(struct { id: []const u8, on: bool }, arena, body, .{});
+        try core.lists.share(io, &r, arena, now(io), p.id, p.on);
     } else if (std.mem.eql(u8, name, "download") or std.mem.eql(u8, name, "download-remove") or std.mem.eql(u8, name, "download-next")) {
         // This device's downloads, which it fetches as it reconciles.
         if (!w.downloads) return error.NotFound;

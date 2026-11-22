@@ -45,8 +45,11 @@ fn removeProgress(lib: *Library, arena: std.mem.Allocator, item_key: []const u8)
     try library.removeProgress(r.replica, arena, lib.now(), item_key);
 }
 
-/// This person's lists, by name, as a JSON array of objects: `id`, `name`,
-/// `titles`, each a movie's title key or a season's tile
+/// This person's lists, then other members' shared ones, each by name, as
+/// a JSON array of objects: `id` (another member's, `<owner>/<id>`),
+/// `name`, `owner` (its person's key, in hex), `ownerName` (another
+/// member's name, if set), `mine` (only its owner changes it), `shared` (every member sees
+/// it), `titles`, each a movie's title key or a season's tile
 /// (`<title key>#<season>`), and `wanted`, the placeholders among them
 /// (`key`, `name` as typed, and `note`).
 export fn cq_lists(lib: *Library) ?[*:0]u8 {
@@ -73,7 +76,7 @@ export fn cq_list_rename(lib: *Library, id: [*:0]const u8, name: [*:0]const u8) 
 }
 
 fn renameList(lib: *Library, arena: std.mem.Allocator, id: []const u8, name: []const u8) !void {
-    const r = try privateWriter(lib);
+    const r = try listWriter(lib, arena, id);
     defer if (r.locked) lib.writer.unlock(lib.io());
     try lists.rename(r.replica, arena, lib.now(), id, name);
 }
@@ -84,7 +87,7 @@ export fn cq_list_remove(lib: *Library, id: [*:0]const u8) c_int {
 }
 
 fn removeList(lib: *Library, arena: std.mem.Allocator, id: []const u8) !void {
-    const r = try privateWriter(lib);
+    const r = try listWriter(lib, arena, id);
     defer if (r.locked) lib.writer.unlock(lib.io());
     try lists.remove(r.replica, arena, lib.now(), id);
 }
@@ -96,7 +99,7 @@ export fn cq_set_listed(lib: *Library, id: [*:0]const u8, title_key: [*:0]const 
 }
 
 fn setListed(lib: *Library, arena: std.mem.Allocator, id: []const u8, title_key: []const u8, on: bool) !void {
-    const r = try privateWriter(lib);
+    const r = try listWriter(lib, arena, id);
     defer if (r.locked) lib.writer.unlock(lib.io());
     try lists.setListed(r.replica, arena, lib.now(), id, title_key, on);
 }
@@ -112,14 +115,40 @@ export fn cq_list_want(lib: *Library, id: [*:0]const u8, want_json: [*:0]const u
 
 fn listWant(lib: *Library, arena: std.mem.Allocator, id: []const u8, want_json: []const u8) ![]const u8 {
     const w = try std.json.parseFromSliceLeaky(lists.WantJson, arena, want_json, .{});
-    const r = try privateWriter(lib);
+    const r = try listWriter(lib, arena, id);
     defer if (r.locked) lib.writer.unlock(lib.io());
     return lists.wantJson(r.replica, arena, lib.now(), id, w);
 }
 
+/// Shares a list of this person's with every member (nonzero `on`), or
+/// makes it theirs alone again.
+export fn cq_list_share(lib: *Library, id: [*:0]const u8, on: c_int) c_int {
+    return status(lib, shareList, .{ std.mem.span(id), on != 0 });
+}
+
+fn shareList(lib: *Library, arena: std.mem.Allocator, id: []const u8, on: bool) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    const r = try lib.main();
+    try r.refresh();
+    try lists.share(lib.io(), r, arena, lib.now(), id, on);
+}
+
+const Writer = struct { replica: *Replica, locked: bool };
+
+/// The main connection, for changing the list `id`: a shared one's changes
+/// are public, so take the writer lock; a private one's, as `privateWriter`.
+fn listWriter(lib: *Library, arena: std.mem.Allocator, id: []const u8) !Writer {
+    if (!try lists.isShared(try lib.main(), arena, id)) return privateWriter(lib);
+    if (!lib.writer.tryLock()) return error.Busy;
+    const r = try lib.main();
+    try r.refresh();
+    return .{ .replica = r, .locked = true };
+}
+
 /// The main connection, for private writes, which need the writer lock only
 /// for the device's first (whose private stream's certificate is public).
-fn privateWriter(lib: *Library) !struct { replica: *Replica, locked: bool } {
+fn privateWriter(lib: *Library) !Writer {
     const r = try lib.main();
     if (r.private_seq > 0) return .{ .replica = r, .locked = false };
     if (!lib.writer.tryLock()) return error.Busy;

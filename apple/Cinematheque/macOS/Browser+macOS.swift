@@ -170,10 +170,18 @@ struct Browser: View {
                         ListRow(list: list, renaming: $renaming)
                             .tag(Shelf.list(list.id))
                             .contextMenu {
-                                Button("Rename") { renaming = list.id }
-                                Button("Add Missing Title…") { wanting = list }
-                                Divider()
-                                Button("Delete List…") { library.deletingList = list }
+                                // Another member's is theirs to change.
+                                if list.isMine {
+                                    Button("Rename") { renaming = list.id }
+                                    Button("Add Missing Title…") { wanting = list }
+                                    if list.isShared {
+                                        Button("Stop Sharing") { library.shareList(list.id, false) }
+                                    } else {
+                                        Button("Share…") { library.sharingList = list }
+                                    }
+                                    Divider()
+                                    Button("Delete List…") { library.deletingList = list }
+                                }
                             }
                     }
                     // A row of its own, last: at the sidebar's foot, under
@@ -267,7 +275,7 @@ struct Browser: View {
     /// Makes a list, "New List" (numbered if that's taken), shows it, and
     /// edits its name in place.
     private func newList() {
-        let names = Set(library.lists.map(\.name))
+        let names = Set(library.myLists.map(\.name))
         let name = (1...).lazy.map { $0 == 1 ? "New List" : "New List \($0)" }.first { !names.contains($0) }!
         guard let id = library.createList(named: name) else { return }
         shelf = .list(id)
@@ -329,12 +337,15 @@ private struct ListRow: View {
                         if focused { began = true } else if began { keep() }
                     }
             } icon: {
-                Image(systemName: Shelf.list(list.id).symbol)
+                Image(systemName: symbol)
             }
         } else {
-            Label(list.name, systemImage: Shelf.list(list.id).symbol)
+            Label(list.shownName, systemImage: symbol)
         }
     }
+
+    /// A shared list's, this person's or another's, is of people.
+    private var symbol: String { list.isShared ? UserList.sharedSymbol : Shelf.list(list.id).symbol }
 
     /// The name typed, unless it's blank or the same, once.
     private func keep() {
@@ -1018,7 +1029,7 @@ struct CoverGrid: View {
     private func tileMenu(_ tile: Tile) -> some View {
         // A placeholder's: taken off its lists, as there's nothing else to it.
         if tile.isWanted {
-            Button("Remove from List") { library.unwant(tile.id) }
+            if library.isWantedByMe(tile.id) { Button("Remove from List") { library.unwant(tile.id) } }
         } else {
             titleMenu(tile)
         }

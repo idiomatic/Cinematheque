@@ -169,6 +169,9 @@ button.mark[aria-pressed="true"] { color: var(--text); }
 #want .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 #want .season[hidden] { display: none; }
 .list-heading h2 { margin: 0 6px 0 0; }
+/* A shared list's mark: two people, in the text's color, before its name. */
+.shared-mark { display: inline-block; width: 1.1em; margin-right: 0.35em; vertical-align: -0.05em; }
+.shared-mark svg { display: block; width: 100%; height: auto; }
 .dim { color: var(--dim); }
 /* The Lists menu, under its button where browsers anchor popovers: one
    list to a row, checked if the title's on it. */

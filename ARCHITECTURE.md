@@ -91,6 +91,7 @@ So a stream's batches are admitted whole if its certificate names a member. They
 * an operation of the wrong kind for its key, or a `members` count but 1 or an even one;
 * an operation dated more than a day ahead;
 * a source's `url` that its ID doesn't hash, or not from the device whose `url` is held; its `managed` but from that device;
+* a shared list's field (`l/<owner>/<id>`) not from one of its owner's devices, or not its `name`, a mode change, or a title;
 * a cutoff (`revoked`) of the founder's devices but from the founder's own, or the device itself, else not 8 bytes; and between cutoffs, the lower wins, so a removal can't be undone;
 * a certificate (`c/<stream key>`) but a device's own `user` one, or a `private` one naming its writer's person when the receiver holds none naming another, so no member can claim another's private stream and be sent its data.
 
@@ -194,7 +195,10 @@ The library ([library.zig](core/src/library.zig), [art.zig](core/src/art.zig)) w
 | `aliases` | `<title key>`: the title key it's an alias of, or empty | Review |
 | `n/<hex>` | `name`; for a device, `user` (its person's key, hex) | Naming |
 | `p/<person hex>/<item key>` | `position`, `duration` (ms; empty in the first 10 seconds), `watched` (`1`, `0`, or empty) | Playing, by hand (private) |
-| `p/<person hex>/watchlist` | `<title key>` or `<title key>#<season>`: `1`, or empty | The watchlist (private) |
+| `p/<person hex>/watchlist` | `<title key>` or `<title key>#<season>`: `1`, a placeholder (`w`, its name, its note, tab-separated), or empty | The watchlist (private) |
+| `p/<person hex>/lists` | `<list ID>`: its name, or empty once deleted | Lists (private) |
+| `p/<person hex>/list/<ID>` | as the watchlist's | A list's titles (private) |
+| `l/<owner hex>/<ID>` | `name`; `mode:<16 hex>`: `shared` or `private`, each written once, the latest current; titles, as the watchlist's | A list shared with every member, by its owner's devices |
 | `c/<stream hex>` | `user` or `private`: a certificate | Each device, first |
 | `members` | `<person hex>`: causal length | Adding and removing members |
 | `revoked` | `<stream hex>`: the last sequence number that stands, u64 | Removing a device, or a member |

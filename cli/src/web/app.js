@@ -12,7 +12,7 @@ const statusBar = document.getElementById("status");
 
 /// What the server last said: tiles; this person's lists, by name, each
 /// with its titles' keys; and every key on any list.
-let library = { tiles: [], lists: [], listed: new Set() };
+let library = { tiles: [], lists: [], mine: [], listed: new Set(), shown: new Set() };
 
 async function api(name, body) {
   const response = await fetch("api/" + name, body === undefined ? {} : {
@@ -56,7 +56,15 @@ addEventListener("pointermove", (e) => {
 async function reload() {
   const [got, kept] = await Promise.all([api("tiles"), api("downloads").catch(() => ({ enabled: false }))]);
   const lists = got.lists.map((l) => ({ ...l, titles: new Set(l.titles) }));
-  library = { tiles: got.tiles, lists, listed: new Set(lists.flatMap((l) => [...l.titles])) };
+  // This person's own, which they change, and mark titles as on a list;
+  // then other members' shared ones, shown, but theirs to change.
+  const mine = lists.filter((l) => l.mine);
+  library = {
+    tiles: got.tiles, lists, mine,
+    listed: new Set(mine.flatMap((l) => [...l.titles])),
+    // On any list shown, others' too, as the Lists shelf counts them.
+    shown: new Set(lists.flatMap((l) => [...l.titles])),
+  };
   noteDownloads(kept);
 }
 
@@ -143,19 +151,20 @@ function placeholders(l) {
 
 /// A placeholder's tile: dimmed, saying it's not in the library, its note
 /// an article's address to open, if it is one, and a button taking it off
-/// its lists.
+/// this person's lists, if it's on any.
 function wantedView(tile, underSeries) {
   const link = /^https?:\/\//.test(tile.wanted) ? tile.wanted : null;
+  const on = library.mine.filter((l) => (l.wanted || []).some((w) => w.key === tile.wantedKey));
   const a = el(link ? "a" : "div", { class: `tile wanted${tile.season == null ? "" : " season"}`, ...(link ? { href: link, target: "_blank", rel: "noopener" } : {}), title: tile.wanted || "Not in the library yet" },
     coverView(tile, [], underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "sub split" }, el("span", {}, "Not in library"),
-      el("button", { class: "mark", type: "button", title: "Remove from list", "aria-label": `Remove ${tile.name} from the list`, onclick: async (e) => {
+      on.length ? el("button", { class: "mark", type: "button", title: "Remove from list", "aria-label": `Remove ${tile.name} from the list`, onclick: async (e) => {
         e.preventDefault();
-        for (const l of library.lists) if ((l.wanted || []).some((w) => w.key === tile.wantedKey)) await api("listed", { list: l.id, key: tile.wantedKey, on: false });
+        for (const l of on) await api("listed", { list: l.id, key: tile.wantedKey, on: false });
         await reload();
         route();
-      } }, "✕")));
+      } }, "✕") : ""));
   a.tileId = idOf(tile);
   a.underSeries = underSeries;
   a.looks = looks(tile);
@@ -278,7 +287,7 @@ function seriesTileView(s) {
   const elapsed = seasons.reduce((n, t) => n + (t.elapsed || 0), 0);
   const runtime = seasons.reduce((n, t) => n + (t.runtime || 0), 0);
   const whole = { ...seasons[0], watched: seasons.every((t) => t.watched), progress: runtime ? elapsed / runtime : 0 };
-  const lists = library.lists.filter((l) => seasons.some((t) => l.titles.has(listKey(t))));
+  const lists = library.mine.filter((l) => seasons.some((t) => l.titles.has(listKey(t))));
   const caption = seasonsCaption(seasons);
   const year = s.year ? el("span", { class: "year" }, String(s.year)) : null;
   const label = caption
@@ -499,7 +508,7 @@ const shelves = {
     if (going.length) parts.push(el("h2", {}, "Continue Watching"), ...shelfGrid(ordered(going, { by: "watched" })));
     for (const l of library.lists) {
       const on = [...all.filter((t) => l.titles.has(listKey(t))), ...matching(placeholders(l))];
-      if (on.length) parts.push(el("h2", {}, l.name), ...shelfGrid(ordered(on, { by: "title" })));
+      if (on.length) parts.push(el("h2", {}, listLabel(l)), ...shelfGrid(ordered(on, { by: "title" })));
     }
     return parts.length ? parts : [empty("Nothing in progress or on your lists yet.")];
   },
@@ -519,12 +528,15 @@ const shelves = {
     const parts = [];
     for (const l of shownList ? [shownList] : library.lists) {
       const t = ordered(matching([...library.tiles.filter((t) => l.titles.has(listKey(t))), ...placeholders(l)]), order);
-      parts.push(el("div", { class: "list-heading" },
-        el("h2", {}, l.name),
+      // Another member's: theirs to change, so only its name.
+      parts.push(l.mine ? el("div", { class: "list-heading" },
+        el("h2", {}, listLabel(l)),
         el("button", { class: "mark", type: "button", title: "Add a missing title", "aria-label": `Add a title not in the library to ${l.name}`, onclick: () => askWanted(l) }, "＋"),
         el("button", { class: "mark", type: "button", title: "Rename list", "aria-label": `Rename ${l.name}`, onclick: () => renameList(l) }, "✎"),
-        el("button", { class: "mark", type: "button", title: "Delete list", "aria-label": `Delete ${l.name}`, onclick: () => deleteList(l) }, "✕")));
-      parts.push(...(t.length ? shelfGrid(t) : [el("p", { class: "dim" }, search.value.trim() ? "Nothing on it matches." : "Nothing on it yet: add titles from their pages.")]));
+        el("button", { class: "mark", type: "button", "aria-pressed": l.shared, title: l.shared ? "Shared with everyone in the library" : "Share with everyone in the library", "aria-label": l.shared ? `Stop sharing ${l.name}` : `Share ${l.name}`, onclick: () => shareList(l) }, l.shared ? "Shared" : "Share"),
+        el("button", { class: "mark", type: "button", title: "Delete list", "aria-label": `Delete ${l.name}`, onclick: () => deleteList(l) }, "✕"))
+        : el("div", { class: "list-heading" }, el("h2", {}, listLabel(l))));
+      parts.push(...(t.length ? shelfGrid(t) : [el("p", { class: "dim" }, search.value.trim() ? "Nothing on it matches." : l.mine ? "Nothing on it yet: add titles from their pages." : "Nothing on it yet.")]));
     }
     if (!library.lists.length) parts.push(empty("Make a list to keep titles in, as a watchlist or favorites, from the Lists menu."));
     return parts;
@@ -590,10 +602,10 @@ listsNav.addEventListener("beforetoggle", (e) => {
   if (e.newState !== "open") return;
   const here = decodeURIComponent(location.hash.slice(1));
   const item = (label, checked, onclick) =>
-    el("button", { type: "button", role: "menuitemradio", "aria-checked": checked, onclick: () => { listsNav.hidePopover(); onclick(); } }, (checked ? "✓ " : "\u2003") + label);
+    el("button", { type: "button", role: "menuitemradio", "aria-checked": checked, onclick: () => { listsNav.hidePopover(); onclick(); } }, checked ? "✓ " : "\u2003", label);
   listsNav.replaceChildren(
     item("All Lists", here === "lists", () => { location.hash = "#lists"; }),
-    ...library.lists.map((l) => item(l.name, here === `lists/${l.id}`, () => { location.hash = `#lists/${l.id}`; })),
+    ...library.lists.map((l) => item(listLabel(l), here === `lists/${l.id}`, () => { location.hash = `#lists/${l.id}`; })),
     el("hr"),
     item("New List…", false, async () => {
       const id = await newList();
@@ -601,9 +613,23 @@ listsNav.addEventListener("beforetoggle", (e) => {
     }));
 });
 
-/// The lists a tile's key is on.
+/// This person's lists a tile's key is on.
 function listsOf(key) {
-  return library.lists.filter((l) => l.titles.has(key));
+  return library.mine.filter((l) => l.titles.has(key));
+}
+
+/// A list's name as shown: another member's, as theirs, if they're named.
+function listName(l) {
+  return !l.mine && l.ownerName ? `${l.ownerName}’s ${l.name}` : l.name;
+}
+
+/// A list's name with, if it's shared (this person's or another's), a mark
+/// of two people before it, in the text's own color.
+function listLabel(l) {
+  if (!l.shared) return listName(l);
+  const mark = el("span", { class: "shared-mark", role: "img", "aria-label": "Shared", title: "Shared with everyone in the library" });
+  mark.innerHTML = '<svg viewBox="0 0 20 16" fill="currentColor" aria-hidden="true"><circle cx="7" cy="4.5" r="3.2"/><path d="M0.5 15.5c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6z"/><circle cx="14.5" cy="5.5" r="2.6" opacity=".55"/><path d="M13.2 10.1c.4-.1.9-.1 1.3-.1 2.9 0 5 2 5 5.5h-4.6c0-2.2-.6-4-1.7-5.4z" opacity=".55"/></svg>';
+  return [mark, listName(l)];
 }
 
 /// Asks for a new list's name, and makes it, returning its ID.
@@ -624,6 +650,15 @@ async function renameList(l) {
   route();
 }
 
+/// Shares a list with everyone in the library, confirmed first, as their
+/// devices keep what they receive; or makes it this person's alone again.
+async function shareList(l) {
+  if (!l.shared && !confirm(`Share “${l.name}” with everyone in the library? They’ll see its titles, and only you can change it. If you stop sharing it, their devices keep what they’ve already received.`)) return;
+  await api("list-share", { id: l.id, on: !l.shared });
+  await reload();
+  route();
+}
+
 async function deleteList(l) {
   if (!confirm(`Delete the list “${l.name}”? Its titles stay in the library. This can’t be undone.`)) return;
   await api("list-remove", { id: l.id });
@@ -639,7 +674,7 @@ async function deleteList(l) {
 function listsMenu(key) {
   const on = listsOf(key);
   const menu = el("div", { class: "menu", popover: "auto", id: "lists-menu" },
-    ...library.lists.map((l) => el("button", { type: "button", role: "menuitemcheckbox", "aria-checked": l.titles.has(key), onclick: async () => {
+    ...library.mine.map((l) => el("button", { type: "button", role: "menuitemcheckbox", "aria-checked": l.titles.has(key), onclick: async () => {
       await api("listed", { list: l.id, key, on: !l.titles.has(key) });
       await reload();
       route();
@@ -658,7 +693,7 @@ const onShelf = {
   home: (t) => (t.started && !t.watched) || library.listed.has(listKey(t)),
   movies: (t) => t.kind === "movie",
   series: (t) => t.kind === "series",
-  lists: (t) => (shownList ? shownList.titles : library.listed).has(listKey(t)),
+  lists: (t) => (shownList ? shownList.titles : library.shown).has(listKey(t)),
   "in-progress": (t) => t.started && !t.watched,
   watched: (t) => t.watched,
   kept: (t) => heldTile(t),

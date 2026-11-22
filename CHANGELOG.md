@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Lists can be shared with everyone in the library: Share… in a list's menu on the Mac (Share beside its name in the web client, on its page on the Apple TV). Others see it, read-only, marked with two people, and only its owner changes it; Stop Sharing makes it private again.
 * Lists can hold titles not in the library yet: on the Mac, a list's Add Missing Title… (in the web client, the ＋ beside its name) puts a movie or a series' season on it by name and year, with a note such as an article's address. It shows dimmed, "Not in library", and becomes the real title once a file named alike arrives.
 * In the web client, going back to a shelf, as from a title's page, puts it back as it was left, at once, where it was scrolled and its series still open, redrawing only the tiles that changed meanwhile (a season marked watched).
 * The web client's Series shelf shows a tile per series, as the Mac's does, opening its seasons in place on a band below its row; Group by Series, beside the order, turns it off. A dated series' seasons are named by their years.

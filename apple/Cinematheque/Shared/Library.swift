@@ -11,14 +11,22 @@ final class Library {
     var handle: Handle?
     private(set) var status: Status?
     private(set) var tiles: [Tile] = []
-    /// This person's lists, by name (`cq_lists`), and every title on any.
+    /// This person's lists, by name (`cq_lists`), then other members'
+    /// shared ones; every title on any of this person's, which a tile's
+    /// star marks; and every title on any list shown.
     var lists: [UserList] = []
     var listed: Set<String> = []
+    var onAnyList: Set<String> = []
+    /// This person's own lists, which they change.
+    var myLists: [UserList] { lists.filter(\.isMine) }
     /// A list's name asked for (a new one's, or another for one), and a
     /// list to delete once confirmed, wherever it was asked from (a
     /// context menu's gone by the time it's answered).
     var listPrompt: ListPrompt?
     var deletingList: UserList?
+    /// A list to share once confirmed, as other members' devices keep what
+    /// they receive.
+    var sharingList: UserList?
     private(set) var sources: [Source] = []
     private(set) var members: [Member] = []
     private(set) var devices: [Device] = []

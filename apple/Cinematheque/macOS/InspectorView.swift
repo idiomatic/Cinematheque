@@ -221,7 +221,7 @@ struct WantedInspectorView: View {
                     Text(wanted.note).textSelection(.enabled)
                 }
             }
-            Button("Remove from List") { library.unwant(wanted.key) }
+            if library.isWantedByMe(wanted.key) { Button("Remove from List") { library.unwant(wanted.key) } }
             Spacer()
         }
         .padding(16)

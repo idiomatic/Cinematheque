@@ -7,6 +7,7 @@ const Io = std.Io;
 const Ed25519 = std.crypto.sign.Ed25519;
 const Blake3 = std.crypto.hash.Blake3;
 const sqlite = @import("sqlite.zig");
+const lists = @import("lists.zig");
 const merkle = @import("merkle.zig");
 const Hlc = @import("hlc.zig").Hlc;
 const op_ = @import("op.zig");
@@ -536,6 +537,8 @@ pub const Replica = struct {
                 refused.set(i);
             } else if (op.key.len == 18 and std.mem.startsWith(u8, op.key, "r/") and !try replica.sourceFieldAllowed(device_key, op, ops)) {
                 refused.set(i);
+            } else if (std.mem.startsWith(u8, op.key, "l/") and !try replica.listFieldAllowed(device_key, op, ops)) {
+                refused.set(i);
             }
         }
     }
@@ -575,6 +578,16 @@ pub const Replica = struct {
         if (url) return true;
         for (ops) |o| if (std.mem.eql(u8, o.key, op.key) and std.mem.eql(u8, o.field, "url") and o.value.len > 0) return true;
         return false;
+    }
+
+    /// A shared list's field (`l/<owner>/<id>`) is one a list has, from
+    /// one of its owner's devices: no one else changes it.
+    fn listFieldAllowed(replica: *Replica, writer: Device, op: Op, ops: []const Op) !bool {
+        const parsed = lists.parsePublic(op.key) orelse return false;
+        if (!lists.validPublicField(op.field, op.value)) return false;
+        const owner = parseHex(parsed.owner) orelse return false;
+        const author = try replica.certifiedPerson(writer, ops) orelse return false;
+        return std.mem.eql(u8, &author, &owner);
     }
 
     fn validLength(length: u32) bool {
@@ -1275,7 +1288,7 @@ pub fn certMessage(library: op_.Library, device_key: Device, private: bool) [20 
     return out;
 }
 
-fn parseHex(hex: []const u8) ?Device {
+pub fn parseHex(hex: []const u8) ?Device {
     var out: Device = undefined;
     if (hex.len != 64) return null;
     _ = std.fmt.hexToBytes(&out, hex) catch return null;

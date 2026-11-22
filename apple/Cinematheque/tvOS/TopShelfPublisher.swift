@@ -57,7 +57,7 @@ enum TopShelfPublisher {
         let directory = container.appending(path: "TopShelf", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let rows = [("Continue Watching", Array(Shelf.home.tiles(in: library).prefix(most)))]
-            + library.lists.map { ($0.name, Array(Shelf.list($0.id).tiles(in: library).filter { !$0.isWanted }.prefix(most))) }
+            + library.lists.map { ($0.shownName, Array(Shelf.list($0.id).tiles(in: library).filter { !$0.isWanted }.prefix(most))) }
         var sections: [Content.Section] = []
         for (title, tiles) in rows where !tiles.isEmpty {
             var items: [Content.Item] = []

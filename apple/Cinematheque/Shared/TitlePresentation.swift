@@ -215,7 +215,7 @@ struct ListToggles: View {
     @Environment(Library.self) private var library
 
     var body: some View {
-        ForEach(library.lists) { list in
+        ForEach(library.myLists) { list in
             Toggle(list.name, isOn: Binding(get: { list.titles.contains(key) }, set: { library.setListed(key, on: list.id, $0) }))
         }
         Divider()
@@ -271,6 +271,14 @@ struct ListRequests: ViewModifier {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Its titles stay in the library. This can’t be undone.")
+            }
+            .confirmationDialog("Share “\(library.sharingList?.name ?? "")” with everyone in the library?", isPresented: Binding(get: { library.sharingList != nil }, set: { if !$0 { library.sharingList = nil } }), titleVisibility: .visible) {
+                Button("Share") {
+                    if let list = library.sharingList { library.shareList(list.id, true) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("They’ll see its titles, and only you can change it. If you stop sharing it, their devices keep what they’ve already received.")
             }
     }
 

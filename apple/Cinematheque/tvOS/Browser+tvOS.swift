@@ -127,7 +127,7 @@ private struct HomeView: View {
                         .frame(maxWidth: .infinity)
                 }
                 if !going.isEmpty { Row(title: "Continue Watching", tiles: going) }
-                ForEach(lists, id: \.0.id) { list, tiles in Row(title: list.name, tiles: tiles) }
+                ForEach(lists, id: \.0.id) { list, tiles in Row(title: list.shownName, tiles: tiles, shared: list.isShared) }
             }
             .padding(.vertical, 40)
         }
@@ -154,7 +154,7 @@ private struct ListsView: View {
                     let tiles = Shelf.list(list.id).tiles(in: library)
                     // A plain heading, as Home's rows have; the list's page,
                     // from its row's first tile, renames or deletes it.
-                    Row(title: list.name, tiles: tiles, list: list.id)
+                    Row(title: list.shownName, tiles: tiles, list: list.id, shared: list.isShared)
                 }
                 // Rare, so last.
                 Button("New List", systemImage: "plus") { library.listPrompt = .init(kind: .create(adding: [])) }
@@ -202,9 +202,15 @@ private struct ListPage: View {
         // scrolling away with them: a navigation title stayed at the top,
         // inset from them.
         PosterGrid(tiles: shelf.tiles(in: library), empty: shelf.empty, heading: shelf.name(in: library)) {
-            if let list {
+            // Another member's is theirs to change.
+            if let list, list.isMine {
                 HStack(spacing: 30) {
                     Button("Rename…") { library.listPrompt = .init(kind: .rename(list)) }
+                    if list.isShared {
+                        Button("Stop Sharing") { library.shareList(list.id, false) }
+                    } else {
+                        Button("Share…") { library.sharingList = list }
+                    }
                     Button("Delete List…", role: .destructive) { library.deletingList = list }
                 }
             }
@@ -227,13 +233,19 @@ private struct Row: View {
     /// A list's, whose page See All, small, beside the heading, opens, so a
     /// long row needn't be scrolled through to reach it.
     var list: String? = nil
+    /// A shared list's, its heading marked with people.
+    var shared = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             // Centered: See All's pill, not its smaller text, is what the
             // eye lines up, and on the heading's baseline it drooped.
             HStack(alignment: .center, spacing: 24) {
-                Text(title).font(.title3)
+                if shared {
+                    Label(title, systemImage: UserList.sharedSymbol).font(.title3)
+                } else {
+                    Text(title).font(.title3)
+                }
                 if let list { SeeAll(list: list, count: tiles.count) }
             }
             // As the row below: See All, small and at the left, takes focus
@@ -394,7 +406,7 @@ struct Poster: View {
         // go on lists) and marks; a series' tile's, the whole series'.
         .contextMenu {
             if tile.isWanted {
-                Button("Remove from List", systemImage: "minus.circle") { library.unwant(tile.id) }
+                if library.isWantedByMe(tile.id) { Button("Remove from List", systemImage: "minus.circle") { library.unwant(tile.id) } }
             } else {
                 titleMenu
             }

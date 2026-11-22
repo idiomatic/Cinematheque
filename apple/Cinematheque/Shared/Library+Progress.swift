@@ -42,13 +42,14 @@ extension Library {
         let read = decode([UserList].self) { cq_lists($0) } ?? []
         if read != lists {
             lists = read
-            listed = Set(read.flatMap(\.titles))
+            listed = Set(read.filter(\.isMine).flatMap(\.titles))
+            onAnyList = Set(read.flatMap(\.titles))
         }
     }
 
-    /// The lists `key` is on.
+    /// This person's lists `key` is on.
     func lists(holding key: String) -> [UserList] {
-        lists.filter { $0.titles.contains(key) }
+        myLists.filter { $0.titles.contains(key) }
     }
 
     /// Puts `key` on the list `id`, or takes it off.
@@ -81,9 +82,22 @@ extension Library {
         return nil
     }
 
-    /// Takes a placeholder off every list it's on.
+    /// Takes a placeholder off every list of this person's it's on.
     func unwant(_ key: String) {
-        for list in lists where list.wanted?.contains(where: { $0.key == key }) == true { setListed(key, on: list.id, false) }
+        for list in myLists where list.wanted?.contains(where: { $0.key == key }) == true { setListed(key, on: list.id, false) }
+    }
+
+    /// Whether a placeholder is on any of this person's lists, to take off.
+    func isWantedByMe(_ key: String) -> Bool {
+        myLists.contains { $0.wanted?.contains { $0.key == key } == true }
+    }
+
+    /// Shares a list of this person's with everyone in the library, or
+    /// makes it theirs alone again.
+    func shareList(_ id: String, _ on: Bool) {
+        check(reload: false) { cq_list_share($0, id, on ? 1 : 0) }
+        readLists()
+        changed()
     }
 
     /// Makes a list, returning its ID.

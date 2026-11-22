@@ -145,10 +145,14 @@ int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *
 
 // This person's private data: progress in items (e.g.,
 // "t/m/alien/1979/v/-"), and lists of titles (movies' title keys, seasons'
-// tiles, "<title key>#<season>"): cq_lists is them all, by name, each with
-// "id", "name", "titles", and "wanted" (placeholders among the titles, not
-// in the library when listed: "key", "name", "note"); the Watchlist's ID is
-// "watchlist", whatever it's named. cq_list_create returns a new list's ID
+// tiles, "<title key>#<season>"): cq_lists is them all, by name, then
+// other members' shared lists, each with "id" (another member's,
+// "<owner>/<id>"), "name", "owner" (its person's key, in hex), "ownerName"
+// (another member's name, if set), "mine" (only its owner changes it), "shared"
+// (every member sees it), "titles", and "wanted" (placeholders among the
+// titles, not in the library when listed: "key", "name", "note"); the
+// Watchlist's ID is "watchlist", whatever it's named. cq_list_share shares
+// a list of this person's with every member, or makes it theirs alone. cq_list_create returns a new list's ID
 // as a JSON string; cq_list_want puts a placeholder on one (a JSON object:
 // "kind", "movie" or "series"; "name"; optionally "year", "season", and
 // "note"), returning its key, as its file will be keyed when it comes.
@@ -161,6 +165,7 @@ int cq_list_rename(cq_library *library, const char *id, const char *name);
 int cq_list_remove(cq_library *library, const char *id);
 int cq_set_listed(cq_library *library, const char *id, const char *title_key, int on);
 char *cq_list_want(cq_library *library, const char *id, const char *want_json);
+int cq_list_share(cq_library *library, const char *id, int on);
 
 // Long, but returns once listening: serves this library to devices and
 // folders as sources (a JSON array of objects with "prefix", the path
