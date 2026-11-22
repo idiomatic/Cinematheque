@@ -92,10 +92,10 @@ extension Library {
     /// the order to try them, those whose servers answer first; off the
     /// main thread, for up to 1.5 seconds.
     func race(_ urls: [URL]) async -> [URL] {
-        guard urls.count > 1, let handle, let json = try? JSONEncoder().encode(urls.map(\.absoluteString)) else { return urls }
-        let text = String(decoding: json, as: UTF8.self)
+        guard urls.count > 1, let handle else { return urls }
+        let strings = urls.map(\.absoluteString)
         let ordered: [String]? = await Task.detached {
-            guard let out = cq_race(handle.pointer, text) else { return nil }
+            guard let out = withCStrings(strings, { cq_race(handle.pointer, $0, $1) }) else { return nil }
             defer { cq_free(out) }
             return try? JSONDecoder().decode([String].self, from: Data(bytes: out, count: strlen(out)))
         }.value

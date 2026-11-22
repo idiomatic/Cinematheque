@@ -1,7 +1,9 @@
 // Cinematheque's core, for apps in C and languages that call it (Swift).
 // Results are JSON strings, freed with cq_free; on failure, functions
-// return NULL or -1, and cq_error says why. See README.md beside this
-// file, which documents each function and result's form.
+// return NULL or -1, and cq_error says why. Arrays go in as a pointer and
+// a count; optional pointers may be NULL, and optional integers are -1
+// when absent. See README.md beside this file, which documents each
+// function and result's form.
 //
 // Functions belong to one thread, the app's main one, except the long ones
 // (cq_crawl, cq_sync, cq_describe) and those marked "any thread", which
@@ -12,11 +14,39 @@
 #ifndef CINEMATHEQUE_H
 #define CINEMATHEQUE_H
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct cq_library cq_library;
+
+// A title's kind, as its key has it (t/m/..., t/s/...).
+typedef enum { CQ_MOVIE = 'm', CQ_SERIES = 's' } cq_title_kind;
+
+// A folder to serve as a source: the path it's served at, and the folder.
+typedef struct {
+    const char *prefix;
+    const char *path;
+} cq_folder;
+
+// What a download's size is of: a key's own files, or a series' choice of
+// episodes (the next count, or all).
+typedef enum { CQ_DOWNLOAD_OWN = 0, CQ_DOWNLOAD_NEXT = 1, CQ_DOWNLOAD_ALL = 2 } cq_download_kind;
+typedef struct {
+    cq_download_kind kind;
+    unsigned int count; // CQ_DOWNLOAD_NEXT's, at least 1; else ignored
+} cq_download_choice;
+
+// A placeholder for a title not in the library yet.
+typedef struct {
+    cq_title_kind kind;
+    const char *name;
+    int year;         // -1: none
+    int season;       // a series'; -1: the first
+    const char *note; // NULL: none
+} cq_want;
 
 // Opens this device's data directory data_dir; if NULL, $CINEMATHEQUE_DATA, or
 // else the
@@ -62,13 +92,13 @@ int cq_repo_quality_named(cq_library *library, const char *source, const char *n
 int cq_repo_remove(cq_library *library, const char *source);
 // Forgets an unavailable directory of a source, as if deleted.
 int cq_remove_unavailable(cq_library *library, const char *source, const char *dir);
-// Looks up the names of the servers of urls_json (a JSON array of URLs),
-// so copy racing's first race finds them answered. Long; any thread.
-void cq_race_warm(cq_library *library, const char *urls_json);
-// Long (up to 1.5 s), any thread: copy racing. A JSON array of an item's
-// copies' URLs in, in the order to try them out: those whose servers answer
-// first. cq_race_lost notes a copy that didn't load.
-char *cq_race(cq_library *library, const char *urls_json);
+// Looks up the names of the servers of urls, so copy racing's first race
+// finds them answered. Long; any thread.
+void cq_race_warm(cq_library *library, const char *const *urls, size_t count);
+// Long (up to 1.5 s), any thread: copy racing. An item's copies' URLs in,
+// a JSON array of them out, in the order to try them: those whose servers
+// answer first. cq_race_lost notes a copy that didn't load.
+char *cq_race(cq_library *library, const char *const *urls, size_t count);
 void cq_race_lost(cq_library *library, const char *url);
 
 // Downloads, this device's: kept in dir, served at served_at (a source
@@ -85,11 +115,10 @@ int cq_downloads_configure(cq_library *library, const char *dir, const char *ser
 int cq_download(cq_library *library, const char *key, const char *quality);
 int cq_download_remove(cq_library *library, const char *key);
 int cq_download_next(cq_library *library, const char *title_key, const char *choice);
-// What downloading would come to, as JSON: per choice in choices_json (an
-// array of strings, each a series' choice as cq_download_next takes it, key
-// its title, or "" for key's own files in quality, NULL for the commonest),
-// its total size and what of it isn't here yet (needed), in bytes.
-char *cq_download_sizes(cq_library *library, const char *key, const char *choices_json, const char *quality);
+// What downloading would come to, as JSON: per choice, a series' (key its
+// title) or key's own files in quality (NULL for the commonest), its total
+// size and what of it isn't here yet (needed), in bytes.
+char *cq_download_sizes(cq_library *library, const char *key, const cq_download_choice *choices, size_t count, const char *quality);
 char *cq_downloads(cq_library *library);
 char *cq_reconcile(cq_library *library);
 // Holds downloads back while a stream plays: none begins; resuming lets
@@ -126,11 +155,10 @@ char *cq_served(cq_library *library);
 char *cq_received(cq_library *library);
 int cq_describe(cq_library *library, const char *item_key);
 
-// While a crawl describes, which titles to take first (a JSON array of
-// title keys, e.g., the tiles on screen); any thread. And a number that
-// changes when a long operation has committed changes, to know when to
-// reload.
-int cq_prioritize(cq_library *library, const char *title_keys_json);
+// While a crawl describes, which titles to take first (title keys, e.g.,
+// the tiles on screen); any thread. And a number that changes when a long
+// operation has committed changes, to know when to reload.
+int cq_prioritize(cq_library *library, const char *const *title_keys, size_t count);
 long long cq_data_version(cq_library *library);
 
 // How far the long operation running has come: a JSON object with
@@ -161,9 +189,8 @@ int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *
 // Watchlist's ID is "watchlist", whatever it's named. cq_list_share shares
 // a list of this person's with every member; cq_list_stop_sharing makes it
 // theirs alone again. cq_list_create returns a new list's ID
-// as a JSON string; cq_list_want puts a placeholder on one (a JSON object:
-// "kind", "movie" or "series"; "name"; optionally "year", "season", and
-// "note"), returning its key, as its file will be keyed when it comes.
+// as a JSON string; cq_list_want puts a placeholder on one, returning its
+// key, as its file will be keyed when it comes.
 int cq_set_progress(cq_library *library, const char *item_key, unsigned long long position_ms, unsigned long long duration_ms);
 int cq_mark_watched(cq_library *library, const char *item_key);
 // Forgets where this person stopped too, so it plays from the beginning.
@@ -175,16 +202,14 @@ int cq_list_rename(cq_library *library, const char *id, const char *name);
 int cq_list_remove(cq_library *library, const char *id);
 int cq_list_add_title(cq_library *library, const char *id, const char *title_key);
 int cq_list_remove_title(cq_library *library, const char *id, const char *title_key);
-char *cq_list_want(cq_library *library, const char *id, const char *want_json);
+char *cq_list_want(cq_library *library, const char *id, const cq_want *want);
 int cq_list_share(cq_library *library, const char *id);
 int cq_list_stop_sharing(cq_library *library, const char *id);
 
 // Long, but returns once listening: serves this library to devices and
-// folders as sources (a JSON array of objects with "prefix", the path
-// each is served at, and "path"), on the port given, else 8008, else any
-// free port, advertised by DNS-SD, until stopped or closed. Returns the
-// port, or -1.
-int cq_serve(cq_library *library, int port, const char *folders_json);
+// folders as sources, on the port given, else 8008, else any free port,
+// advertised by DNS-SD, until stopped or closed. Returns the port, or -1.
+int cq_serve(cq_library *library, int port, const cq_folder *folders, size_t count);
 void cq_stop_serving(cq_library *library);
 
 // Names, shown in place of keys: this person's or this device's; this

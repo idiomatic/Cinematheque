@@ -173,10 +173,19 @@ extension Library {
     /// empty for `key`'s own files in `quality`), what downloading would
     /// come to (`cq_download_sizes`).
     func downloadSizes(_ key: String, choices: [String], quality: String? = nil) -> [String: DownloadSize] {
-        guard let json = try? JSONEncoder().encode(choices) else { return [:] }
-        let text = String(decoding: json, as: UTF8.self)
-        let sizes = decode([DownloadSize].self) { cq_download_sizes($0, key, text, quality) } ?? []
+        let cChoices = choices.map(Self.downloadChoice)
+        let sizes = decode([DownloadSize].self) { cq_download_sizes($0, key, cChoices, cChoices.count, quality) } ?? []
         return Dictionary(sizes.map { ($0.choice, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// A choice as `cq_download_sizes` takes it: empty for the key's own
+    /// files, `all`, or a count, the next N (any other, as none, fails).
+    private static func downloadChoice(_ choice: String) -> cq_download_choice {
+        switch choice {
+        case "": cq_download_choice(kind: CQ_DOWNLOAD_OWN, count: 0)
+        case "all": cq_download_choice(kind: CQ_DOWNLOAD_ALL, count: 0)
+        default: cq_download_choice(kind: CQ_DOWNLOAD_NEXT, count: UInt32(choice) ?? 0)
+        }
     }
 
     /// The space available for downloads: what's free, less what they keep

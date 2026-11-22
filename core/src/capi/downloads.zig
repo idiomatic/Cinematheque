@@ -61,19 +61,38 @@ fn downloadNext(lib: *Library, arena: std.mem.Allocator, title_key: []const u8, 
     lib.fetching.recheck();
 }
 
+/// What a download size is of (`cq_download_kind`): `key`'s own files, or
+/// a series' choice of episodes (see `download.Choice`).
+const ChoiceKind = enum(c_int) { own = 0, next = 1, all = 2 };
+
+/// A choice to size (`cq_download_choice`): `count` is the next N's N.
+pub const SizeChoice = extern struct { kind: c_int, count: c_uint };
+
 /// What downloading would come to, as a JSON array, one object per choice
-/// in `choices_json` (an array of strings): `choice`, `size` (bytes, of all
-/// its files), and `needed` (of those, what isn't here yet). A choice is a
-/// series' (`key` its title's), as `cq_download_next` takes it, or empty
-/// for `key`'s own files (a title's, season's, or item's) in `quality`
-/// (null: the one most have).
-export fn cq_download_sizes(lib: *Library, key: [*:0]const u8, choices_json: [*:0]const u8, quality: ?[*:0]const u8) ?[*:0]u8 {
-    return json(lib, downloadSizes, .{ std.mem.span(key), std.mem.span(choices_json), span(quality) });
+/// of `count`: `choice` (as `cq_download_next` takes it, empty for `key`'s
+/// own), `size` (bytes, of all its files), and `needed` (of those, what
+/// isn't here yet). A choice is a series' (`key` its title's), or `key`'s
+/// own files (a title's, season's, or item's) in `quality` (null: the one
+/// most have).
+export fn cq_download_sizes(lib: *Library, key: [*:0]const u8, choices: ?[*]const SizeChoice, count: usize, quality: ?[*:0]const u8) ?[*:0]u8 {
+    return json(lib, downloadSizes, .{ std.mem.span(key), choices, count, span(quality) });
 }
 
-fn downloadSizes(lib: *Library, arena: std.mem.Allocator, key: []const u8, choices_json: []const u8, quality: ?[]const u8) ![]const download.SizeReport {
-    const choices = try std.json.parseFromSliceLeaky([]const []const u8, arena, choices_json, .{});
-    return download.sizes(try lib.main(), arena, key, choices, quality);
+fn downloadSizes(lib: *Library, arena: std.mem.Allocator, key: []const u8, choices: ?[*]const SizeChoice, count: usize, quality: ?[]const u8) ![]const download.SizeReport {
+    const given: []const SizeChoice = if (count == 0) &.{} else if (choices) |c| c[0..count] else return error.InvalidArgument;
+    const parsed = try arena.alloc(?download.Choice, given.len);
+    for (given, parsed) |c, *p| p.* = try choiceOf(c);
+    return download.sizesOf(try lib.main(), arena, key, parsed, quality);
+}
+
+/// A C choice as the core's: null for the key's own files.
+fn choiceOf(c: SizeChoice) !?download.Choice {
+    return switch (try capi.enumFrom(ChoiceKind, c.kind)) {
+        .own => null,
+        .all => .all,
+        // As `Choice.parse` reads a count.
+        .next => if (c.count == 0) error.InvalidArgument else .{ .next = @min(c.count, 1000) },
+    };
 }
 
 /// This device's downloads, as a JSON object (see `download.Report`).

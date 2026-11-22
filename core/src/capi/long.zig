@@ -162,15 +162,14 @@ fn crawlAndDescribe(lib: *Library, arena: std.mem.Allocator, r: *Replica, list: 
     return out;
 }
 
-/// Sets the titles to describe first, a JSON array of title keys (e.g., the
-/// tiles on screen); any thread.
-export fn cq_prioritize(lib: *Library, title_keys: [*:0]const u8) c_int {
-    return status(lib, prioritize, .{std.mem.span(title_keys)});
+/// Sets the titles to describe first, `count` title keys (e.g., the tiles
+/// on screen); any thread.
+export fn cq_prioritize(lib: *Library, title_keys: ?[*]const [*:0]const u8, count: usize) c_int {
+    return status(lib, prioritize, .{ title_keys, count });
 }
 
-fn prioritize(lib: *Library, arena: std.mem.Allocator, title_keys: []const u8) !void {
-    const keys = try std.json.parseFromSliceLeaky([]const []const u8, arena, title_keys, .{});
-    try lib.priority.set(lib.io(), keys);
+fn prioritize(lib: *Library, arena: std.mem.Allocator, title_keys: ?[*]const [*:0]const u8, count: usize) !void {
+    try lib.priority.set(lib.io(), try capi.spans(arena, title_keys, count));
 }
 
 /// A number that changes when another connection (a long operation) has

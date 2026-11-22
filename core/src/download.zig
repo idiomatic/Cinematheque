@@ -885,12 +885,21 @@ pub const Fetching = struct {
 pub const SizeReport = struct { choice: []const u8, size: u64, needed: u64 };
 
 pub fn sizes(replica: *Replica, arena: std.mem.Allocator, key: []const u8, choices: []const []const u8, quality: ?[]const u8) ![]const SizeReport {
+    const parsed = try arena.alloc(?Choice, choices.len);
+    for (choices, parsed) |c, *p| p.* = if (c.len == 0) null else Choice.parse(c) orelse return error.InvalidArgument;
+    const out = try sizesOf(replica, arena, key, parsed, quality);
+    for (choices, out) |c, *o| o.choice = c;
+    return out;
+}
+
+/// As `sizes`, of choices already read: null for `key`'s own files; each
+/// report's `choice` as `Choice.write` writes it (empty for null).
+pub fn sizesOf(replica: *Replica, arena: std.mem.Allocator, key: []const u8, choices: []const ?Choice, quality: ?[]const u8) ![]SizeReport {
     const out = try arena.alloc(SizeReport, choices.len);
     const here = try heldHere(replica, arena);
     for (choices, out) |c, *o| {
-        const choice = if (c.len == 0) null else Choice.parse(c) orelse return error.InvalidArgument;
-        const s = try sizeIn(replica, arena, here, key, choice, quality);
-        o.* = .{ .choice = c, .size = s.size, .needed = s.needed };
+        const s = try sizeIn(replica, arena, here, key, c, quality);
+        o.* = .{ .choice = if (c) |v| try v.write(arena) else "", .size = s.size, .needed = s.needed };
     }
     return out;
 }

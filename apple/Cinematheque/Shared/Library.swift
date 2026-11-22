@@ -485,3 +485,11 @@ final class Library {
         if let handle { cq_close(handle.pointer) }
     }
 }
+
+/// Calls `body` with `strings` as a C array of C strings and its count,
+/// each copied for the call and freed after it.
+nonisolated func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafePointer<CChar>?>?, Int) -> R) -> R {
+    let copies = strings.map { UnsafePointer(strdup($0)) }
+    defer { for c in copies { free(UnsafeMutablePointer(mutating: c)) } }
+    return copies.withUnsafeBufferPointer { body($0.baseAddress, $0.count) }
+}

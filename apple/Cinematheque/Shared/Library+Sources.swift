@@ -53,9 +53,9 @@ extension Library {
         report(.refresh, synced ?? crawled)
         // The sources' servers' names, looked up now, so the first play's
         // copy racing finds them answered.
-        if let handle, let json = try? JSONEncoder().encode(sources.map(\.url)) {
-            let text = String(decoding: json, as: UTF8.self)
-            Task.detached { cq_race_warm(handle.pointer, text) }
+        if let handle {
+            let urls = sources.map(\.url)
+            Task.detached { withCStrings(urls) { cq_race_warm(handle.pointer, $0, $1) } }
         }
         #if os(macOS)
         reconcileSoon()
@@ -173,14 +173,16 @@ extension Library {
         loadFolders()
         let defaults = UserDefaults.standard
         unavailableFolders = foldersNotThere
-        var mounts = folders.map { ["prefix": $0.prefix, "path": $0.path] }
+        var mounts = folders.map { ($0.prefix, $0.path) }
         #if os(macOS)
         if downloads == nil { reloadDownloads() }
         try? FileManager.default.createDirectory(atPath: downloadsDir, withIntermediateDirectories: true)
-        mounts.append(["prefix": Self.downloadsPrefix, "path": downloadsDir])
+        mounts.append((Self.downloadsPrefix, downloadsDir))
         #endif
-        let json = String(decoding: (try? JSONSerialization.data(withJSONObject: mounts)) ?? Data("[]".utf8), as: UTF8.self)
-        let port = cq_serve(handle.pointer, Int32(defaults.integer(forKey: "servingPort")), json)
+        let port = withCStrings(mounts.flatMap { [$0.0, $0.1] }) { strings, _ in
+            let cFolders = mounts.indices.map { cq_folder(prefix: strings![2 * $0], path: strings![2 * $0 + 1]) }
+            return cq_serve(handle.pointer, Int32(defaults.integer(forKey: "servingPort")), cFolders, cFolders.count)
+        }
         if port < 0 {
             servingPort = nil
             report(.serve, "Couldn't share the library with your other devices: \(Self.reason(String(cString: cq_error()))).")

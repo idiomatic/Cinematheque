@@ -83,15 +83,17 @@ extension Library {
     /// placeholder, keyed as its file will be (`cq_list_want`), so it's on
     /// the list as it comes.
     func want(on id: String, kind: TitleKind, name: String, year: Int?, season: Int?, note: String) {
-        struct Want: Encodable {
-            let kind: TitleKind
-            let name: String
-            let year: Int?
-            let season: Int?
-            let note: String
+        let cKind = switch kind {
+        case .movie: CQ_MOVIE
+        case .series: CQ_SERIES
         }
-        guard let data = try? JSONEncoder().encode(Want(kind: kind, name: name, year: year, season: season, note: note)) else { return }
-        _ = decode(String.self) { cq_list_want($0, id, String(decoding: data, as: UTF8.self)) }
+        _ = name.withCString { cName in
+            note.withCString { cNote in
+                // Absent integers are -1, as the core takes them.
+                var want = cq_want(kind: cKind, name: cName, year: Int32(year ?? -1), season: Int32(season ?? -1), note: cNote)
+                return decode(String.self) { cq_list_want($0, id, &want) }
+            }
+        }
         readLists()
         changed()
     }
@@ -144,8 +146,8 @@ extension Library {
 
     /// Which titles a crawl should describe first: those on screen.
     func prioritize(_ titleKeys: Set<String>) {
-        guard let handle, let json = try? JSONEncoder().encode(Array(titleKeys)) else { return }
-        _ = cq_prioritize(handle.pointer, String(decoding: json, as: UTF8.self))
+        guard let handle else { return }
+        _ = withCStrings(Array(titleKeys)) { cq_prioritize(handle.pointer, $0, $1) }
     }
 
 }

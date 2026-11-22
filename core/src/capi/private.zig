@@ -121,20 +121,25 @@ fn setListed(lib: *Library, arena: std.mem.Allocator, id: []const u8, title_key:
     try lists.setListed(r.replica, arena, lib.now(), id, title_key, on);
 }
 
+/// A placeholder's fields (`cq_want`): `kind` a `library.TitleKind`'s
+/// value; `year` and `season` -1 for none (a series' season then the
+/// first); `note` null for none.
+pub const Want = extern struct { kind: c_int, name: [*:0]const u8, year: c_int, season: c_int, note: ?[*:0]const u8 };
+
 /// Puts a title not in the library yet on the list `id`, as a placeholder,
-/// keyed as its file will be (see `lists.want`): `json` is an object with
-/// `kind` ("movie" or "series"), `name`, and optionally `year`, `season`
-/// (a series', else the first), and `note`. Returns its key as a JSON
+/// keyed as its file will be (see `lists.want`). Returns its key as a JSON
 /// string, as `cq_lists` will list it.
-export fn cq_list_want(lib: *Library, id: [*:0]const u8, want_json: [*:0]const u8) ?[*:0]u8 {
-    return json(lib, listWant, .{ std.mem.span(id), std.mem.span(want_json) });
+export fn cq_list_want(lib: *Library, id: [*:0]const u8, want: *const Want) ?[*:0]u8 {
+    return json(lib, listWant, .{ std.mem.span(id), want.* });
 }
 
-fn listWant(lib: *Library, arena: std.mem.Allocator, id: []const u8, want_json: []const u8) ![]const u8 {
-    const w = try std.json.parseFromSliceLeaky(lists.WantJson, arena, want_json, .{});
+fn listWant(lib: *Library, arena: std.mem.Allocator, id: []const u8, w: Want) ![]const u8 {
+    const kind = try capi.enumFrom(library.TitleKind, w.kind);
+    const year = try capi.optional(u16, w.year);
+    const season = try capi.optional(u16, w.season);
     const r = try listWriter(lib, arena, id);
     defer if (r.locked) lib.writer.unlock(lib.io());
-    return lists.wantJson(r.replica, arena, lib.now(), id, w);
+    return lists.want(r.replica, arena, lib.now(), id, kind, std.mem.span(w.name), year, season, span(w.note) orelse "");
 }
 
 /// Shares a list of this person's with every member.

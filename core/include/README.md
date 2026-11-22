@@ -6,7 +6,9 @@ The core's interface for apps in other languages: [cinematheque.h](cinematheque.
 
 * **The handle:** `cq_open` opens a device's data directory and returns a `cq_library *`, or NULL; `cq_close` stops serving and pairing and frees it. The directory may hold no library yet: `cq_status`'s `library` is null until `cq_found` creates one or pairing joins one.
 * **One function per action:** each does one thing, with no argument choosing among actions (adding or removing, sharing or not); a caller with a state in hand picks the function.
-* **Strings in** are NUL-terminated UTF-8, copied if kept, so the caller may free them once a call returns. Keys are lowercase hex (64 digits for a person's or a device's). Lists of strings go in as JSON arrays.
+* **Strings in** are NUL-terminated UTF-8, copied if kept, so the caller may free them once a call returns. Keys are lowercase hex (64 digits for a person's or a device's).
+* **Arrays and records in:** an array is a pointer and a count (`const char *const *urls, size_t count`; NULL with a count of 0 for none); a record is a struct in [cinematheque.h](cinematheque.h), passed by pointer; a kind is a C enum, and a value it doesn't name fails with `InvalidArgument`.
+* **Optional arguments:** a pointer (a string, a record's string) is NULL when absent; an integer is -1.
 * **Results** are JSON, every string valid UTF-8 (a name that isn't, from a Latin-1 file, gets U+FFFD for its bad bytes). Each `char *` returned is the caller's, freed with `cq_free` (which takes NULL). A result may be JSON `null`, as `cq_served`'s before any sync.
 * **Failure:** a function returning `char *` returns NULL, one returning `int` returns -1 (else 0, or a count or port as said), and `cq_error` says why: a Zig error's name, such as `Busy`, `NoLibrary`, or `WrongCode`. It's per thread, so read it on the thread that failed, before its next call. Functions returning `void` can't fail, or fail silently where nothing hangs on them (`cq_race_warm`, `cq_race_lost`).
 * **Threads:** functions belong to one thread, the app's main one, on the library's own connection, unless marked *any thread* or *long* below. A long one (crawling, syncing, describing, pairing, looking for devices, reconciling downloads) blocks until done, so call it off the main thread; each runs on a connection of its own. The main connection catches up with other connections' writes before it acts.
@@ -111,7 +113,7 @@ A new device offers to be added and shows a code; a member's device, given the c
 | `cq_sync_with(library, url)` | *Long.* As `cq_sync`, with the device at `url` alone |
 | `cq_sync_known(library)` | *Long.* As `cq_sync` with every device, but with those the last such sync found (and those added), without looking for them again, unless none has; for a change to reach other devices at once |
 | `cq_describe(library, item_key)` | *Long.* Reads an item's metadata (an episode's title, description, and duration) from its first copy, if an MP4 |
-| `cq_prioritize(library, title_keys_json)` | *Any thread.* The titles a crawl describes first, a JSON array of title keys (those on screen) |
+| `cq_prioritize(library, title_keys, count)` | *Any thread.* The titles a crawl describes first, by their keys (those on screen) |
 | `cq_data_version(library)` | A number that changes when another connection has committed; -1 with no library |
 | `cq_steps(library)` | *Any thread.* How far the long operation running has come: `{phase, done, total}`, `phase` `"crawling"`, `"describing"`, `"syncing"`, or null |
 
@@ -119,7 +121,7 @@ A new device offers to be added and shows a code; a member's device, given the c
 
 | Function | What it does |
 |---|---|
-| `cq_serve(library, port, folders_json)` | Serves the library to devices and folders as sources (a JSON array of `{prefix, path}`: the path each is served at, and the folder), on `port`, else 8008, else any free port, advertised by DNS-SD, on a task of its own until stopped or closed. Returns once listening, with the port; serving again restarts it |
+| `cq_serve(library, port, folders, count)` | Serves the library to devices and folders as sources (each a `cq_folder`, `{prefix, path}`: the path it's served at, and the folder), on `port`, else 8008, else any free port, advertised by DNS-SD, on a task of its own until stopped or closed. Returns once listening, with the port; serving again restarts it |
 | `cq_stop_serving(library)` | Stops serving |
 | `cq_served(library)` | The last sync served: `{device, name, operations, at}` (the device's key and name, operations sent, and when, in milliseconds since the epoch), or `null` |
 | `cq_received(library)` | The last push taken, in the same form (operations won); reload when it changes |
@@ -161,9 +163,9 @@ A **title**: `key`, `name`, `year`, `aliasOf` (the key it's an alias of, or null
 
 | Function | What it does |
 |---|---|
-| `cq_race(library, urls_json)` | *Long* (up to 1.5 seconds), *any thread.* Takes a JSON array of an item's copies' URLs, in the order a player would try them, and returns them in the order to try: those whose servers answer first; one that failed lately, last |
+| `cq_race(library, urls, count)` | *Long* (up to 1.5 seconds), *any thread.* Takes an item's copies' URLs, in the order a player would try them, and returns them, a JSON array, in the order to try: those whose servers answer first; one that failed lately, last |
 | `cq_race_lost(library, url)` | *Any thread.* Notes that a copy didn't load, so its server goes last for a while |
-| `cq_race_warm(library, urls_json)` | *Long, any thread.* Looks up the names of the servers of a JSON array of URLs (the sources'), so the first race finds them answered |
+| `cq_race_warm(library, urls, count)` | *Long, any thread.* Looks up the names of the servers of URLs (the sources'), so the first race finds them answered |
 
 ## Downloads
 
@@ -175,7 +177,7 @@ This device's own: kept in a folder, and served as a source of its own that no d
 | `cq_download(library, key, quality)` | Wants a title's, a season's (`<title key>/e/s01`), or an item's files kept, each item as of now, in `quality` (NULL or empty: the one most items have), until deleted |
 | `cq_download_next(library, title_key, choice)` | A series' choice of episodes: the next N after where this person is (`"3"`), the watched going as their space is needed; `"all"`, kept however watched; or `""` or `"0"`, none |
 | `cq_download_remove(library, key)` | Deletes a title's, season's, or item's files held here, and stops wanting them |
-| `cq_download_sizes(library, key, choices_json, quality)` | What downloading would come to, for each choice in a JSON array of strings (a series' choice for `key`, its title; or `""` for `key`'s own files in `quality`): an array of `{choice, size, needed}`, in bytes, `needed` what isn't here yet |
+| `cq_download_sizes(library, key, choices, count, quality)` | What downloading would come to, for each `cq_download_choice`: `CQ_DOWNLOAD_NEXT` with a `count` of at least 1, or `CQ_DOWNLOAD_ALL`, a series' choice for `key`, its title; or `CQ_DOWNLOAD_OWN`, `key`'s own files in `quality`. Returns an array of `{choice, size, needed}`, in bytes, `choice` as `cq_download_next` takes it (`""` for `key`'s own), `needed` what isn't here yet |
 | `cq_downloads(library)` | All of it: `{dir, source, held, wanted, next, ahead, free, floor, running, done_mb, total_mb, fetching}`: the folder and its source's ID (null if unset); `held`, each `{item, size, only}` (the only copy); `wanted`, `{key, quality}`; `next`, each series' `{title, choice}`; `ahead`, the items those choices come to now; free bytes (or null) and the floor kept free; whether reconciling runs, and its megabytes done of how many; and the file under way, `{item, done, size}`, or null |
 | `cq_reconcile(library)` | *Long,* on a connection of its own. Fetches, records, and deletes to match what's kept, then returns `{fetched, kept, deleted, failed, no_room, held, error, busy}` (`no_room`: files left to keep the floor free; `held`: files waiting while downloads are held). If one runs already, asks it to run again and returns at once with `busy` |
 | `cq_downloads_hold(library)` | *Any thread.* Holds new downloads back while a stream plays; one under way finishes |
@@ -197,6 +199,6 @@ This person's own, written on this device's private stream (see [AGENTS.md](../.
 | `cq_list_remove(library, id)` | Deletes a list, for good |
 | `cq_list_add_title(library, id, title_key)` | Puts a movie or season (keyed as `cq_lists` has them) on a list |
 | `cq_list_remove_title(library, id, title_key)` | Takes one off |
-| `cq_list_want(library, id, want_json)` | Puts a title not in the library yet on a list, as a placeholder: `want_json` is `{kind, name}` (`kind` `"movie"` or `"series"`; any other fails with `InvalidEnumTag`), with `year`, `season` (a series', else the first), and `note` optional. Returns its key, as a JSON string, keyed as its file will be |
+| `cq_list_want(library, id, want)` | Puts a title not in the library yet on a list, as a placeholder: `want` is a `cq_want`, its `kind` (`CQ_MOVIE` or `CQ_SERIES`) and `name`, with `year`, `season` (a series', else the first), and `note` optional. Returns its key, as a JSON string, keyed as its file will be |
 | `cq_list_share(library, id)` | Shares a list of this person's with every member |
 | `cq_list_stop_sharing(library, id)` | Makes it theirs alone again |

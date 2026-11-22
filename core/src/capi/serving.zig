@@ -20,16 +20,21 @@ pub const Serving = struct {
     host: Host,
 };
 
-const MountJson = struct { prefix: []const u8, path: []const u8 };
+/// A folder to serve as a source (`cq_folder`): the path it's served at,
+/// and where it is.
+pub const Folder = extern struct { prefix: [*:0]const u8, path: [*:0]const u8 };
 
 /// Long, but returns once listening: serves this library to devices (their
-/// syncs) and `folders_json`'s folders as sources (a JSON array of
-/// objects with `prefix`, the path they're served at, and `path`), on
-/// `port`, else 8008, else any free port; advertises it by DNS-SD; and
-/// keeps serving, on a thread of its own, until `cq_stop_serving` or
-/// `cq_close`. Serving again restarts it. Returns the port, or -1.
-export fn cq_serve(lib: *Library, port: c_int, folders_json: [*:0]const u8) c_int {
-    return startServing(lib, @intCast(std.math.clamp(port, 0, 65535)), std.mem.span(folders_json)) catch |err| {
+/// syncs) and `count` folders as sources, on `port`, else 8008, else any
+/// free port; advertises it by DNS-SD; and keeps serving, on a thread of
+/// its own, until `cq_stop_serving` or `cq_close`. Serving again restarts
+/// it. Returns the port, or -1.
+export fn cq_serve(lib: *Library, port: c_int, folders: ?[*]const Folder, count: usize) c_int {
+    const given: []const Folder = if (count == 0) &.{} else if (folders) |f| f[0..count] else {
+        capi.fail(error.InvalidArgument);
+        return -1;
+    };
+    return startServing(lib, @intCast(std.math.clamp(port, 0, 65535)), given) catch |err| {
         fail(err);
         return -1;
     };
@@ -40,17 +45,16 @@ export fn cq_stop_serving(lib: *Library) void {
     stopServing(lib);
 }
 
-fn startServing(lib: *Library, port: u16, folders_json: []const u8) !c_int {
+fn startServing(lib: *Library, port: u16, folders: []const Folder) !c_int {
     stopServing(lib);
     const s = try gpa.create(Serving);
     errdefer gpa.destroy(s);
     s.arena = .init(gpa);
     errdefer s.arena.deinit();
     const arena = s.arena.allocator();
-    // Copied, since they outlive the caller's string.
-    const folders = try std.json.parseFromSliceLeaky([]const MountJson, arena, folders_json, .{ .allocate = .alloc_always });
+    // Copied, since they outlive the caller's strings.
     const mounts = try arena.alloc(serve_.Mount, folders.len);
-    for (folders, mounts) |f, *m| m.* = .{ .prefix = f.prefix, .path = f.path, .index = false };
+    for (folders, mounts) |f, *m| m.* = .{ .prefix = try arena.dupe(u8, std.mem.span(f.prefix)), .path = try arena.dupe(u8, std.mem.span(f.path)), .index = false };
     s.sharing = .{
         .path = try lib.store.replicaPath(arena),
         .founder = try lib.store.founder(arena),

@@ -224,6 +224,26 @@ pub fn span(text: ?[*:0]const u8) ?[]const u8 {
     return if (text) |t| std.mem.span(t) else null;
 }
 
+/// A C array of `count` strings as slices (not copied); null for none.
+pub fn spans(arena: std.mem.Allocator, items: ?[*]const [*:0]const u8, count: usize) ![]const []const u8 {
+    if (count == 0) return &.{};
+    const p = items orelse return error.InvalidArgument;
+    const out = try arena.alloc([]const u8, count);
+    for (p[0..count], out) |t, *o| o.* = std.mem.span(t);
+    return out;
+}
+
+/// An optional integer from C, -1 for none; any other out of range fails.
+pub fn optional(comptime T: type, value: c_int) !?T {
+    if (value == -1) return null;
+    return std.math.cast(T, value) orelse error.InvalidArgument;
+}
+
+/// A C enum's value as the Zig enum it mirrors, failing for any other.
+pub fn enumFrom(comptime E: type, value: c_int) !E {
+    return std.enums.fromInt(E, value) orelse error.InvalidArgument;
+}
+
 pub const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
 pub const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
 pub const NearbyJson = struct { url: []const u8, device: ?[]const u8, host: ?[]const u8 = null, person: ?[]const u8, person_key: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };

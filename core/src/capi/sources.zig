@@ -52,29 +52,27 @@ fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
     return out;
 }
 
-/// Long (up to `race.timeout_ms`), on any thread: copy racing. Takes a JSON
-/// array of an item's copies' URLs, in the order a player would try them,
-/// and returns them in the order to try: those whose servers answer, at
-/// once and briefly, first; a server that didn't lately, last (see
-/// race.zig).
-export fn cq_race(lib: *Library, urls_json: [*:0]const u8) ?[*:0]u8 {
-    return json(lib, raceCopies, .{std.mem.span(urls_json)});
+/// Long (up to `race.timeout_ms`), on any thread: copy racing. Takes an
+/// item's copies' URLs, `count` of them, in the order a player would try
+/// them, and returns them as a JSON array in the order to try: those whose
+/// servers answer, at once and briefly, first; a server that didn't lately,
+/// last (see race.zig).
+export fn cq_race(lib: *Library, urls: ?[*]const [*:0]const u8, count: usize) ?[*:0]u8 {
+    return json(lib, raceCopies, .{ urls, count });
 }
 
-fn raceCopies(lib: *Library, arena: std.mem.Allocator, urls_json: []const u8) ![]const []const u8 {
-    const urls = try std.json.parseFromSliceLeaky([]const []const u8, arena, urls_json, .{ .allocate = .alloc_always });
-    return race.order(lib.io(), gpa, arena, &lib.racing, urls, lib.now());
+fn raceCopies(lib: *Library, arena: std.mem.Allocator, urls: ?[*]const [*:0]const u8, count: usize) ![]const []const u8 {
+    return race.order(lib.io(), gpa, arena, &lib.racing, try capi.spans(arena, urls, count), lib.now());
 }
 
-/// Long: looks up the names of the servers of `urls_json` (a JSON array of
-/// URLs, such as the sources'), so copy racing's first race finds them
-/// answered. Any thread.
-export fn cq_race_warm(lib: *Library, urls_json: [*:0]const u8) void {
+/// Long: looks up the names of the servers of `urls` (`count` of them, such
+/// as the sources'), so copy racing's first race finds them answered. Any
+/// thread.
+export fn cq_race_warm(lib: *Library, urls: ?[*]const [*:0]const u8, count: usize) void {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const urls = std.json.parseFromSliceLeaky([]const []const u8, arena, std.mem.span(urls_json), .{ .allocate = .alloc_always }) catch return;
-    race.warm(lib.io(), arena, urls) catch {};
+    race.warm(lib.io(), arena, capi.spans(arena, urls, count) catch return) catch {};
 }
 
 /// Notes that a copy didn't load, so its server is raced last for a while.
