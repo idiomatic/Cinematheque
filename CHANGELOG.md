@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* On the Apple TV, a spinner shows on the black while a video's made ready and the display switches to it, until the player shows its own.
 * On the Apple TV, a Top Shelf title selected opens over the app, at once, Back closing it, with Play or Resume focused, and Play/Pause on it plays it straight away; a movie partway through focuses Resume, not Start Over before it.
 * The Apple TV's Top Shelf shows its rows on a device, not only in the simulator: they're written to the shared container's caches, the only place a device lets an app write, at once, with covers filled in as they're fetched.
 * `tools/youtube.sh` takes the directory first (`tools/youtube.sh DIRECTORY [URL ...]`), and keeps the URLs it's given in the directory's `.yt-dlp-url`, so given none, it fetches every one again for new uploads.

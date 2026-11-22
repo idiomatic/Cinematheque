@@ -32,6 +32,21 @@ struct PlaysFullScreen: ViewModifier {
         content
             // Past the page's edges, over the backdrop it draws beyond them.
             .overlay { Color.black.opacity(black ? 1 : 0).padding(-400).ignoresSafeArea().allowsHitTesting(false) }
+            // While it's made ready and the display switches, until the
+            // player shows its own: a few seconds, which, black alone, read
+            // as stuck. The player's own kind, at the screen's center, where
+            // the player's comes, so they read as one (SwiftUI's was smaller,
+            // and centered on the page, below the tab bar).
+            .overlay {
+                if preparing && black {
+                    GeometryReader { space in
+                        let frame = space.frame(in: .global)
+                        let screen = UIScreen.main.bounds
+                        Spinner().position(x: screen.midX - frame.minX, y: screen.midY - frame.minY)
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
             // The tab bar, above the page, goes as it fades.
             .toolbar(black ? .hidden : .automatic, for: .tabBar)
             // Started on a change of the request, in a task of its own, not
@@ -51,12 +66,15 @@ struct PlaysFullScreen: ViewModifier {
     }
 
     @State private var starting: Task<Void, Never>?
+    /// From Play until the player's presented.
+    @State private var preparing = false
     /// From Play until the page is back from the player (or the start was
     /// given up).
     @State private var warming = false
 
     private func start(_ request: PlayRequest) async {
         warming = true
+        preparing = true
         // The fade first, with the main thread free to draw it: making the
         // session (the series' details, a player item an episode), done
         // during it, held the fade, which ended in black at once. None, if
@@ -78,7 +96,7 @@ struct PlaysFullScreen: ViewModifier {
             session.close()
             return abandon()
         }
-        TVPlayer.present(session, dismissed: { self.request = nil }) {
+        TVPlayer.present(session, presented: { preparing = false }, dismissed: { self.request = nil }) {
             reveal()
         }
     }
@@ -87,6 +105,7 @@ struct PlaysFullScreen: ViewModifier {
     /// fades back in.
     private func abandon() {
         warming = false
+        preparing = false
         withAnimation(.easeOut(duration: Platform.fade)) { black = false }
     }
 
@@ -99,6 +118,18 @@ struct PlaysFullScreen: ViewModifier {
             warming = false
         }
     }
+}
+
+/// UIKit's large spinner, in white, as AVKit's player shows.
+private struct Spinner: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIActivityIndicatorView {
+        let view = UIActivityIndicatorView(style: .large)
+        view.color = .white
+        view.startAnimating()
+        return view
+    }
+
+    func updateUIView(_ view: UIActivityIndicatorView, context: Context) {}
 }
 
 /// The system's player, full screen, over a session warmed up, its info
@@ -192,13 +223,15 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         controller.player = session.player
     }
 
-    /// Presents a player over whatever's frontmost, unanimated:
-    /// `dismissed` once it's off screen (the page beneath still black);
-    /// `gone` once the display has its own mode back, to fade the page in.
-    static func present(_ session: PlaybackSession, dismissed: @escaping () -> Void, gone: @escaping () -> Void) {
+    /// Presents a player over whatever's frontmost, unanimated: `presented`
+    /// once it is; `dismissed` once it's off screen (the page beneath still
+    /// black); `gone` once the display has its own mode back, to fade the
+    /// page in.
+    static func present(_ session: PlaybackSession, presented: @escaping () -> Void, dismissed: @escaping () -> Void, gone: @escaping () -> Void) {
         let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
         guard var top = window?.rootViewController else {
             session.close()
+            presented()
             dismissed()
             return gone()
         }
@@ -211,6 +244,7 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         Task {
             if let window { await player.matchDisplay(window) }
             top.present(player.controller, animated: false) {
+                presented()
                 player.attach()
                 Task { await player.start() }
             }
