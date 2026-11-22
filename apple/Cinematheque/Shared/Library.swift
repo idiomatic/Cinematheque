@@ -51,6 +51,13 @@ final class Library {
     enum Phase: String, Codable { case crawling, describing, syncing }
     /// Counts changes, so views showing details can refresh.
     var revision = 0
+    /// Counts items described from their files (an episode's title, say),
+    /// apart from `revision`, so describing a season's episodes one at a
+    /// time refreshes only views of details, not what follows progress and
+    /// copies (a season's download sizes, worked out on the main thread).
+    var described = 0
+    /// What views of a title's details follow: changes and descriptions.
+    var detailsRevision: [Int] { [revision, described] }
 
     var hasLibrary: Bool { status?.library != nil }
     var paired: Bool { status?.paired ?? false }

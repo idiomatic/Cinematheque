@@ -593,7 +593,7 @@ struct SeasonsView: View {
             }
             .padding(.vertical, 40)
         }
-        .task(id: library.revision) { detail = library.detail(key) }
+        .task(id: library.detailsRevision) { detail = library.detail(key) }
         .modifier(PlaysFullScreen(request: $playing))
     }
 }

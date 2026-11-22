@@ -165,7 +165,7 @@ extension Library {
     func describe(_ itemKey: String) async {
         guard let handle else { return }
         let ok = await Task.detached { cq_describe(handle.pointer, itemKey) == 0 }.value
-        if ok { revision += 1 }
+        if ok { described += 1 }
     }
 
     /// Reads a season's episodes' metadata (titles, descriptions,

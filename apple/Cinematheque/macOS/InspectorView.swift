@@ -31,7 +31,7 @@ struct InspectorView: View {
             }
             .padding(16)
         }
-        .task(id: library.revision) {
+        .task(id: library.detailsRevision) {
             detail = library.detail(tile.key)
             // At first, the best of what Play plays, so it needs no stand-in.
             if quality == nil { quality = detail.flatMap { d in Playback.nextItem(d, season: tile.season).flatMap { d.quality(for: [$0]) } ?? d.quality(for: Playback.items(d, season: tile.season)) } }
@@ -366,7 +366,7 @@ struct SeriesInspectorView: View {
             }
             .padding(16)
         }
-        .task(id: library.revision) { detail = library.detail(series.key) }
+        .task(id: library.detailsRevision) { detail = library.detail(series.key) }
     }
 }
 

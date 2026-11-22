@@ -55,13 +55,39 @@ pub const File = struct {
 /// most of them have, so a season comes alike.
 pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, quality: ?[]const u8) ![]File {
     const title_end = titleEnd(key) orelse return error.NotFound;
-    const d = try library.detail(replica, arena, key[0..title_end]) orelse return error.NotFound;
-    const below = if (title_end < key.len) key[title_end + 1 ..] else "";
-    // Copies come from anywhere but a device's downloads, which a player
-    // knows it has (and another can't be sure is awake).
-    var bases: std.StringHashMapUnmanaged([]const u8) = .empty;
-    for (try library.sources(replica, arena)) |rp| if (!rp.managed) try bases.put(arena, try arena.dupe(u8, &rp.id), rp.url);
+    const planner = try Planner.init(replica, arena, key[0..title_end]) orelse return error.NotFound;
+    return planner.files(arena, if (title_end < key.len) key[title_end + 1 ..] else "", quality);
+}
 
+/// One title's files to plan from, read once (its details, and the
+/// sources' URLs), so planning each of a series' episodes doesn't read the
+/// whole series again for each.
+pub const Planner = struct {
+    d: library.Detail,
+    bases: std.StringHashMapUnmanaged([]const u8),
+
+    /// The title `title` (its key), or null if there's none.
+    pub fn init(replica: *Replica, arena: std.mem.Allocator, title: []const u8) !?Planner {
+        const d = try library.detail(replica, arena, title) orelse return null;
+        // Copies come from anywhere but a device's downloads, which a
+        // player knows it has (and another can't be sure is awake).
+        var bases: std.StringHashMapUnmanaged([]const u8) = .empty;
+        for (try library.sources(replica, arena)) |rp| if (!rp.managed) try bases.put(arena, try arena.dupe(u8, &rp.id), rp.url);
+        return .{ .d = d, .bases = bases };
+    }
+
+    /// As `plan`, for `below` the title's key (empty for all of it).
+    pub fn files(planner: Planner, arena: std.mem.Allocator, below: []const u8, quality: ?[]const u8) ![]File {
+        return filesOf(arena, planner.d, planner.bases, below, quality);
+    }
+
+    /// As `ahead`.
+    pub fn ahead(planner: Planner, arena: std.mem.Allocator, choice: Choice) ![]const []const u8 {
+        return aheadIn(arena, planner.d, choice);
+    }
+};
+
+fn filesOf(arena: std.mem.Allocator, d: library.Detail, bases: std.StringHashMapUnmanaged([]const u8), below: []const u8, quality: ?[]const u8) ![]File {
     var items: std.ArrayList(library.Item) = .empty;
     const exact = hasItem(d, below);
     for (d.items.items) |item| if (covers(item.key, below, exact)) try items.append(arena, item);
@@ -535,22 +561,42 @@ pub const Size = struct { size: u64 = 0, needed: u64 = 0 };
 /// series' choice comes to now (each in the quality most of its files have,
 /// as reconciling fetches them).
 pub fn sizeOf(replica: *Replica, arena: std.mem.Allocator, key: []const u8, choice: ?Choice, quality: ?[]const u8) !Size {
+    return sizeIn(replica, arena, try heldHere(replica, arena), key, choice, quality);
+}
+
+/// The quality keys of the files this device's downloads hold.
+fn heldHere(replica: *Replica, arena: std.mem.Allocator) !std.StringHashMapUnmanaged(void) {
     var here: std.StringHashMapUnmanaged(void) = .empty;
     if (try settings(replica, arena)) |s| for (try held(replica, arena, s.source)) |h| try here.put(arena, h.key, {});
-    var keys: std.ArrayList([]const u8) = .empty;
-    if (choice) |c| {
-        for (try ahead(replica, arena, key, c)) |item| try keys.append(arena, try std.fmt.allocPrint(arena, "{s}/{s}", .{ key, item }));
-    } else try keys.append(arena, key);
+    return here;
+}
+
+/// As `sizeOf`, given what's held here.
+fn sizeIn(replica: *Replica, arena: std.mem.Allocator, here: std.StringHashMapUnmanaged(void), key: []const u8, choice: ?Choice, quality: ?[]const u8) !Size {
     var out: Size = .{};
-    for (keys.items) |k| {
-        const files = plan(replica, arena, k, if (choice == null) quality else null) catch |err| switch (err) {
+    const add = struct {
+        fn files(a: std.mem.Allocator, h: std.StringHashMapUnmanaged(void), total: *Size, list: []const File) !void {
+            for (list) |f| {
+                total.size +|= f.size;
+                if (!h.contains(try std.fmt.allocPrint(a, "{s}/r/{s}", .{ f.item, f.quality }))) total.needed +|= f.size;
+            }
+        }
+    };
+    const c = choice orelse {
+        const files = plan(replica, arena, key, quality) catch |err| switch (err) {
+            error.NotFound => return out,
+            else => |e| return e,
+        };
+        try add.files(arena, here, &out, files);
+        return out;
+    };
+    const planner = try Planner.init(replica, arena, key) orelse return out;
+    for (try planner.ahead(arena, c)) |item| {
+        const files = planner.files(arena, item, null) catch |err| switch (err) {
             error.NotFound => continue,
             else => |e| return e,
         };
-        for (files) |f| {
-            out.size +|= f.size;
-            if (!here.contains(try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ f.item, f.quality }))) out.needed +|= f.size;
-        }
+        try add.files(arena, here, &out, files);
     }
     return out;
 }
@@ -649,7 +695,10 @@ fn answered(io: Io, arena: std.mem.Allocator, client: *std.http.Client, replica:
 /// progress and the `n` unwatched after it, so the next is there before
 /// this one ends; else, none in progress, the first `n` unwatched.
 pub fn ahead(replica: *Replica, arena: std.mem.Allocator, title: []const u8, choice: Choice) ![]const []const u8 {
-    const d = try library.detail(replica, arena, title) orelse return &.{};
+    return aheadIn(arena, try library.detail(replica, arena, title) orelse return &.{}, choice);
+}
+
+fn aheadIn(arena: std.mem.Allocator, d: library.Detail, choice: Choice) ![]const []const u8 {
     const Episode = struct { item: library.Item, season: u32, number: u32 };
     var episodes: std.ArrayList(Episode) = .empty;
     for (d.items.items) |item| {
@@ -837,9 +886,10 @@ pub const SizeReport = struct { choice: []const u8, size: u64, needed: u64 };
 
 pub fn sizes(replica: *Replica, arena: std.mem.Allocator, key: []const u8, choices: []const []const u8, quality: ?[]const u8) ![]const SizeReport {
     const out = try arena.alloc(SizeReport, choices.len);
+    const here = try heldHere(replica, arena);
     for (choices, out) |c, *o| {
         const choice = if (c.len == 0) null else Choice.parse(c) orelse return error.InvalidArgument;
-        const s = try sizeOf(replica, arena, key, choice, quality);
+        const s = try sizeIn(replica, arena, here, key, choice, quality);
         o.* = .{ .choice = c, .size = s.size, .needed = s.needed };
     }
     return out;
@@ -955,15 +1005,17 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
             try files.append(arena, f);
         };
     }
-    for (try nexts(replica, arena)) |k| for (try ahead(replica, arena, k.title, k.choice)) |item| {
-        const full = try std.fmt.allocPrint(arena, "{s}/{s}", .{ k.title, item });
-        if (keys.contains(full)) continue;
-        const planned = plan(replica, arena, full, null) catch continue;
-        for (planned) |f| {
-            try keys.put(arena, f.item, {});
-            try files.append(arena, f);
+    for (try nexts(replica, arena)) |k| {
+        const planner = try Planner.init(replica, arena, k.title) orelse continue;
+        for (try planner.ahead(arena, k.choice)) |item| {
+            if (keys.contains(try std.fmt.allocPrint(arena, "{s}/{s}", .{ k.title, item }))) continue;
+            const planned = planner.files(arena, item, null) catch continue;
+            for (planned) |f| {
+                try keys.put(arena, f.item, {});
+                try files.append(arena, f);
+            }
         }
-    };
+    }
 
     // Done with and held elsewhere, oldest first: deleted as space is
     // needed.

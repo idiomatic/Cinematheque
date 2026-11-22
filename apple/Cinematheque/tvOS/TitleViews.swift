@@ -70,7 +70,7 @@ struct MovieView: View {
         .background { Backdrop(tile: tile) }
         // Play or Resume first, not Start Over before it.
         .defaultFocus($playFocused, true)
-        .task(id: library.revision) {
+        .task(id: library.detailsRevision) {
             detail = library.detail(tile.key)
             if playsAtOnce, let detail {
                 playsAtOnce = false
@@ -190,7 +190,7 @@ struct SeasonView: View {
         .padding(80)
         .background { Backdrop(tile: shown) }
         .defaultFocus($focus, .play)
-        .task(id: library.revision) {
+        .task(id: library.detailsRevision) {
             detail = library.detail(tile.key)
             if playsAtOnce, let detail {
                 playsAtOnce = false

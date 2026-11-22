@@ -94,7 +94,7 @@ struct TitlePage: View {
                 }
             }
         }
-        .task(id: library.revision) {
+        .task(id: library.detailsRevision) {
             detail = library.detail(tile.key)
             #if DEBUG
             if Launch.play != nil, playing == nil, let detail {
