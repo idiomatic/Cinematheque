@@ -12,7 +12,7 @@ cp zig-out/bin/cinematheque ~/bin/   # or anywhere on your PATH
 ./test.sh       # devices, a generated source, sync, and every command
 ```
 
-[build.zig](build.zig) builds the command-line app and, with `zig build gen`, the test source's generator.
+[build.zig](build.zig) builds the command-line app and, with `zig build gen`, the test source's generator. `cinematheque --version` prints its version, as [Version.xcconfig](../Version.xcconfig) sets it, then what it was built from (`git describe`), its optimizing, and its Zig.
 
 ## Getting started
 

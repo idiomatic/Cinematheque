@@ -79,14 +79,14 @@ struct CinemathequeApp: App {
     }
 
     #if os(macOS)
-    /// What the core was built from, and how (`cq_version`): "a9eea2d1b2c3,
-    /// safe".
+    /// What the core was built from, and how (`cq_version`):
+    /// "v0.1-3-ga9eea2d1b2c3, safe".
     private static var build: String {
-        struct Version: Decodable { let version: String; let mode: String }
+        struct Version: Decodable { let revision: String; let mode: String }
         guard let text = cq_version() else { return "" }
         defer { cq_free(text) }
         guard let v = try? JSONDecoder().decode(Version.self, from: Data(bytes: text, count: strlen(text))) else { return "" }
-        return "\(v.version), \(v.mode)"
+        return "\(v.revision), \(v.mode)"
     }
     #endif
 }

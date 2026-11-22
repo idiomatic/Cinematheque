@@ -1,0 +1,87 @@
+# Builds and tests every push and pull request: the core and the
+# command-line app on Linux and macOS, and the Apple app for macOS and the
+# tvOS and iOS simulators.
+name: Build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  zig:
+    name: Core and command-line app (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # xcode-27: macOS 27 on Apple silicon, as the project needs Xcode 27.
+        os: [ubuntu-24.04, xcode-27]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # All of history and tags, for the build's `git describe`.
+          fetch-depth: 0
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      # macOS has SQLite and DNS-SD; Linux needs SQLite, Avahi's DNS-SD
+      # compatibility library and its daemon (for test.sh's discovery),
+      # and zsh, which test.sh is written in.
+      - name: Install SQLite, Avahi, and zsh
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev libavahi-compat-libdnssd-dev avahi-daemon zsh
+          sudo systemctl start avahi-daemon
+      - name: Core's tests
+        working-directory: core
+        run: zig build test
+      - name: Command-line app, ReleaseSafe
+        working-directory: cli
+        run: |
+          zig build --release=safe
+          zig build test
+          zig-out/bin/cinematheque --version
+      - name: End to end (cli/test.sh)
+        run: cli/test.sh
+        # On macOS, Local Network privacy may keep a process the runner
+        # starts off the LAN, as it does a launch agent's (see
+        # DEVELOPMENT.md's Known issues), failing test.sh's discovery.
+        continue-on-error: ${{ runner.os == 'macOS' }}
+
+  apple:
+    name: Apple app (${{ matrix.destination }})
+    strategy:
+      fail-fast: false
+      matrix:
+        destination: [macOS, tvOS Simulator, iOS Simulator]
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      # The core's build phase looks for Zig where Homebrew puts it, as
+      # Xcode gives build phases a PATH of its own.
+      - name: Put Zig where the build phase finds it
+        run: sudo mkdir -p /usr/local/bin && sudo ln -sf "$(command -v zig)" /usr/local/bin/zig
+      - name: Check Xcode
+        run: |
+          xcodebuild -version
+          xcodebuild -version | awk '/^Xcode/ { split($2, v, "."); if (v[1] < 27) { print "::error::the project needs Xcode 27 or later"; exit 1 } }'
+      - name: Get the platform, if missing
+        if: matrix.destination != 'macOS'
+        run: |
+          platform=${{ startsWith(matrix.destination, 'tvOS') && 'tvOS' || 'iOS' }}
+          sdk=${{ startsWith(matrix.destination, 'tvOS') && 'appletvsimulator' || 'iphonesimulator' }}
+          xcodebuild -showsdks | grep -q "$sdk" || xcodebuild -downloadPlatform "$platform"
+      - name: Build
+        run: >
+          xcodebuild -project apple/Cinematheque.xcodeproj -scheme Cinematheque
+          -configuration Debug -destination 'generic/platform=${{ matrix.destination }}'
+          -derivedDataPath build/DerivedData build

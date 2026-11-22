@@ -268,7 +268,7 @@ fn run(init: std.process.Init) !void {
     }
     if (args.has("--version")) {
         const v = core.version.info;
-        return out.print("cinematheque {s} ({s}, Zig {s})\n", .{ v.version, v.mode, v.zig });
+        return out.print("cinematheque {s} ({s}, {s}, Zig {s})\n", .{ v.version, v.revision, v.mode, v.zig });
     }
     if (w.len == 0) usage(out, null);
     const action = find(&actions, w[0]);

@@ -6,6 +6,10 @@ Scripts that work alongside Cinematheque, outside the apps.
 
 [debt.py](debt.py) reports declarations nothing uses (exiting 1 if any), files over 1,600 lines, and the spec's length in words, as [DEVELOPMENT.md](../DEVELOPMENT.md#practice)'s Practice asks before each push.
 
+## Release notes
+
+[release-notes.sh](release-notes.sh) prints a version's section of [CHANGELOG.md](../CHANGELOG.md) (`tools/release-notes.sh 0.1`), failing if there's none, for the [release workflow](../.github/workflows/release.yml)'s notes.
+
 ## A mock library
 
 [mock-library.sh](mock-library.sh) makes a library folder for screenshots and demos, the same every run. Its titles are named for the serials Murderbot watches in Martha Wells's [Murderbot Diaries](https://murderbot.fandom.com/wiki/Category:Serials), and a few made-up movies in their spirit. Only the serials' names come from the books; every episode title, description, and genre is the script's own.

@@ -1,0 +1,5 @@
+# GitHub's Xcode 27 image (macOS 27, Apple silicon), newer than
+# actionlint's list of hosted runners' labels.
+self-hosted-runner:
+  labels:
+    - xcode-27

@@ -19,3 +19,6 @@ xcuserdata/
 
 # A developer's own signing settings
 apple/Local.xcconfig
+
+# Release artifacts, as the release workflow packages them
+dist/

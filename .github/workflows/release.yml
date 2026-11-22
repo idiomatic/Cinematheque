@@ -1,0 +1,174 @@
+# Makes a GitHub release of a tag `v` and the version (v0.1): the
+# command-line app for macOS and Linux, and the Mac app, with the
+# version's section of CHANGELOG.md as its notes. Run by pushing the tag,
+# or by hand for a tag already pushed.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to release (v0.1)
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    name: Check the tag and the notes
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - name: The tag matches Version.xcconfig
+        id: version
+        run: |
+          version=$(sed -n 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*\([^[:space:]]*\).*/\1/p' Version.xcconfig)
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::tag $TAG doesn't match Version.xcconfig's version, $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: The version's changelog section
+        run: tools/release-notes.sh "${{ steps.version.outputs.version }}" > notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: notes.md
+
+  cli-linux:
+    name: Command-line app (Linux, ${{ matrix.arch }})
+    needs: check
+    strategy:
+      matrix:
+        include:
+          # Native runners, as it links the system's SQLite and Avahi.
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - name: Install SQLite and Avahi
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev libavahi-compat-libdnssd-dev
+      # ReleaseSafe, never ReleaseFast (see AGENTS.md's Implementation).
+      - name: Build
+        working-directory: cli
+        run: |
+          zig build --release=safe
+          zig-out/bin/cinematheque --version
+      - name: Package
+        run: |
+          name=cinematheque-${{ needs.check.outputs.version }}-linux-${{ matrix.arch }}
+          mkdir -p dist/$name
+          cp cli/zig-out/bin/cinematheque LICENSE dist/$name/
+          tar -czf dist/$name.tar.gz -C dist $name
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-linux-${{ matrix.arch }}
+          path: dist/*.tar.gz
+
+  cli-macos:
+    name: Command-line app (macOS)
+    needs: check
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      # Each architecture for macOS 15, the apps' minimum (a native build
+      # would require the runner's), against the SDK's SQLite.
+      - name: Build and package
+        run: |
+          sdk=$(xcrun --sdk macosx --show-sdk-path)
+          for arch in aarch64 x86_64; do
+            name=cinematheque-${{ needs.check.outputs.version }}-macos-$arch
+            (cd cli && zig build --release=safe -Dtarget=$arch-macos.15.0 --sysroot "$sdk" --search-prefix /usr --prefix "../dist/$name")
+            cp LICENSE dist/$name/
+            mv dist/$name/bin/cinematheque dist/$name/
+            rmdir dist/$name/bin
+            tar -czf dist/$name.tar.gz -C dist $name
+          done
+          dist/cinematheque-${{ needs.check.outputs.version }}-macos-aarch64/cinematheque --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-macos
+          path: dist/*.tar.gz
+
+  mac-app:
+    name: Mac app
+    needs: check
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - name: Put Zig where the build phase finds it
+        run: sudo mkdir -p /usr/local/bin && sudo ln -sf "$(command -v zig)" /usr/local/bin/zig
+      # Release, universal, signed ad hoc (apple/Signing.xcconfig).
+      - name: Build
+        run: >
+          xcodebuild -project apple/Cinematheque.xcodeproj -scheme Cinematheque
+          -configuration Release -destination 'generic/platform=macOS'
+          -derivedDataPath build/DerivedData build
+      - name: Package
+        run: |
+          mkdir -p dist
+          app=build/DerivedData/Build/Products/Release/Cinematheque.app
+          codesign --verify --verbose "$app"
+          ditto -c -k --keepParent "$app" dist/Cinematheque-${{ needs.check.outputs.version }}-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-app
+          path: dist/*.zip
+
+  release:
+    name: GitHub release
+    needs: [check, cli-linux, cli-macos, mac-app]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Checksums
+        run: |
+          mkdir dist
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec mv {} dist/ \;
+          cd dist
+          for file in *; do sha256sum "$file" > "$file.sha256"; done
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$TAG" dist/*
+          --repo "${{ github.repository }}" --verify-tag
+          --title "Cinematheque ${{ needs.check.outputs.version }}"
+          --notes-file artifacts/notes/notes.md

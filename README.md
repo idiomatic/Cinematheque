@@ -17,6 +17,7 @@ Every device keeps its own copy of the catalog (the titles, their episodes and v
 ## Getting it
 
 * **On a Mac or an Apple TV,** build the app; [apple/README.md](apple/README.md) says how. It needs Xcode 27 or later.
+* **Releases** are on [GitHub](https://github.com/idiomatic/Cinematheque/releases): the command-line app for macOS and Linux, and the Mac app, each with what changed, from [CHANGELOG.md](CHANGELOG.md). Versions are numbered major.minor from 0.1 (a third number for fixes), each tagged `v` and its number (`v0.1`).
 * **On the command line,** on macOS or Linux, build the command-line app; [cli/README.md](cli/README.md) says how, and how to use it. It builds and shares a library; run in the background, it keeps the library available to your other devices and to browsers.
 
 ### Running a downloaded build

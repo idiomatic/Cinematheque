@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Versions, starting at 0.1, set once in Version.xcconfig for the apps and the command-line app alike: `/version` and `cinematheque --version` give the version, then what the build was built from (`revision`, as `git describe` gives it, stamped afresh by every build, where a rebuild after a commit had kept the commit before). Every push and pull request is built and tested on GitHub (Linux and macOS, and the Apple app for macOS, tvOS, and iOS), and a tag `v` and the version makes a GitHub release of the command-line app for macOS and Linux and the Mac app, with that version's changelog as its notes.
 * Tools: the mock library's covers draw generated art, from tools/mock-art/ (its prompts recorded there), under their titles where there is some.
 * Core: the C interface takes arrays and structs, not JSON text: `cq_prioritize`, `cq_race`, and `cq_race_warm` take arrays of strings with a count; `cq_serve`, an array of `cq_folder`; `cq_download_sizes`, an array of `cq_download_choice`; and `cq_list_want`, a `cq_want`, its kind a `cq_title_kind`. Optional integers are -1 when absent.
 * `tools/mock-library.sh` makes a mock library for screenshots and demos, the same every run. It has movies and series named for the serials in Murderbot's feeds, as silent, tagged videos with covers. With `--data`, it also makes a library that has crawled it, with progress and lists.
