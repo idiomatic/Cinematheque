@@ -28,7 +28,7 @@ One word for each thing, in the spec, the code, the command-line app, and the ap
 * [core](core/README.md): the Zig library, and a static library with a C interface ([cinematheque.h](core/include/cinematheque.h), a Swift module by its [module map](core/include/module.modulemap)) whose results are JSON with every string valid UTF-8 (a name that isn't, from a Latin-1 file, gets U+FFFD for its bad bytes, so no player refuses a whole result) (see [Core interface](#core-interface); documented in [core/include/README.md](core/include/README.md)).
 * [cli](cli/README.md): the command-line app, `cinematheque`, for macOS and Linux.
 * [apple](apple/README.md): the Apple players, in SwiftUI: one multiplatform app, `com.rbrian.cinematheque`, for macOS 15 or later and tvOS 18 or later, and as a prototype, iOS 18 or later on iPhone (see [Apple players](#apple-players)).
-* [tools](tools/README.md): scripts alongside the apps, such as fetching a YouTube channel into a folder that reads as a series.
+* [tools](tools/README.md): scripts alongside the apps, such as [debt.py](tools/debt.py)'s report of code debt.
 
 ## Core interface
 

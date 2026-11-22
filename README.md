@@ -91,6 +91,14 @@ TV Shows/Worldhoppers/Worldhoppers The Lost Signal.m4v
 
 A file without an episode number beside a series' episodes, named for the series (as `Worldhoppers The Lost Signal`), or in a `Specials` folder, is one of the series' specials.
 
+Dated videos, as a channel's archive has them, are a series of a season a year and an episode a day:
+
+```
+Channels/Feed Watch/Feed Watch 2024-03-12 The Wormhole Explained [youtube-ID].mp4
+```
+
+The ID tag (as yt-dlp's output template `%(channel)s/%(channel)s %(upload_date>%Y-%m-%d)s %(title).150B [youtube-%(id)s].%(ext)s` writes it) keeps two videos of one day apart; the words between the date and the tag are the video's title, for browsing the folder, and aren't read for a year or an episode code.
+
 Names aren't always consistent: a year off by one, a title spelled two ways, or a file copied twice. The command-line app's review lists what looks related, and an alias, recorded once, tells every device that two entries are the same title; see [cli/README.md](cli/README.md#titles).
 
 ### Quality
