@@ -119,7 +119,7 @@ struct CodeBoxes: View {
 /// The Mac's first run, as its welcome windows are (Xcode's, Keynote's): a
 /// small fixed window of the app's icon and name over two large choices;
 /// joining shows its code in the same window, as Setup Assistant moves
-/// between panes.
+/// between panes. The iPhone's, for now, is the same, filling its screen.
 private struct SetupForm: View {
     @Environment(Library.self) private var library
     /// Whether this Mac shows a code, to be added to a library.
@@ -129,10 +129,12 @@ private struct SetupForm: View {
         Group {
             if joining { joinStep } else { welcome }
         }
+        #if os(macOS)
         .frame(width: 520, height: 400)
         // As welcome windows have: no title, the title bar part of the window.
         .toolbar(removing: .title)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        #endif
         #if DEBUG
         // `CINEMATHEQUE_TAB` names a step, as on tvOS: `join`, to show a code.
         .onAppear { if Launch.tab == "join" { joining = true } }
@@ -141,9 +143,15 @@ private struct SetupForm: View {
 
     private var welcome: some View {
         VStack(spacing: 0) {
+            #if os(macOS)
             Image(nsImage: NSApplication.shared.applicationIconImage)
                 .resizable()
                 .frame(width: 96, height: 96)
+            #else
+            Image(systemName: "film.stack")
+                .font(.system(size: 64))
+                .foregroundStyle(.tint)
+            #endif
             Text("Welcome to Cinematheque")
                 .font(.largeTitle.weight(.semibold))
                 .padding(.top, 8)

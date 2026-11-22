@@ -63,6 +63,8 @@ extension Library {
     static var thisDevice: String {
         #if os(tvOS)
         "this Apple TV"
+        #elseif os(iOS)
+        "this iPhone"
         #else
         "this Mac"
         #endif

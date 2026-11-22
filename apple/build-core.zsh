@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Builds the core's static library for each architecture Xcode is building,
-# for the platform it's building for (macOS, tvOS, or tvOS's simulator), and
+# for the platform it's building for (macOS, tvOS, iOS, or their simulators), and
 # combines them, since Zig builds one target at a time. Each is linked into
 # one object exporting only the C interface (cq_*), so the compiler runtime
 # Zig bundles stays private and can't clash with Xcode's.
@@ -10,6 +10,8 @@ case $PLATFORM_NAME in
     macosx) os=macos; platform=macos; version=$MACOSX_DEPLOYMENT_TARGET; abi= ;;
     appletvos) os=tvos; platform=tvos; version=$TVOS_DEPLOYMENT_TARGET; abi= ;;
     appletvsimulator) os=tvos; platform=tvos-simulator; version=$TVOS_DEPLOYMENT_TARGET; abi=-simulator ;;
+    iphoneos) os=ios; platform=ios; version=$IPHONEOS_DEPLOYMENT_TARGET; abi= ;;
+    iphonesimulator) os=ios; platform=ios-simulator; version=$IPHONEOS_DEPLOYMENT_TARGET; abi=-simulator ;;
     *) print -u2 "error: no core for $PLATFORM_NAME"; exit 1 ;;
 esac
 out="$DERIVED_FILE_DIR/core"

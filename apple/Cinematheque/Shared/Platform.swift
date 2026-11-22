@@ -16,6 +16,11 @@ enum Platform {
         #if os(tvOS)
         Keys.restore()
         return Keys.dataDir.path
+        #elseif os(iOS)
+        // The app's own Application Support, which iOS keeps and backs up.
+        let dir = URL.applicationSupportDirectory.appending(path: "Cinematheque")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.path
         #else
         return nil
         #endif
@@ -66,7 +71,8 @@ enum Platform {
     }
 
     /// The person's name until one's set: the account's first name on a Mac;
-    /// none on an Apple TV, which has no account's name to offer.
+    /// none on an Apple TV or an iPhone, which have no account's name to
+    /// offer.
     static var personName: String? {
         #if os(macOS)
         NSFullUserName().split(separator: " ").first.map(String.init)
