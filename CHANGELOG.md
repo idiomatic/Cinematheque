@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* The Apple TV's Top Shelf shows its rows on a device, not only in the simulator: they're written to the shared container's caches, the only place a device lets an app write, at once, with covers filled in as they're fetched.
 * `tools/youtube.sh` takes the directory first (`tools/youtube.sh DIRECTORY [URL ...]`), and keeps the URLs it's given in the directory's `.yt-dlp-url`, so given none, it fetches every one again for new uploads.
 * Lists can be shared with everyone in the library: Share… in a list's menu on the Mac (Share beside its name in the web client, on its page on the Apple TV). Others see it, read-only, marked with two people, and only its owner changes it; Stop Sharing makes it private again.
 * Lists can hold titles not in the library yet: on the Mac, a list's Add Missing Title… (in the web client, the ＋ beside its name) puts a movie or a series' season on it by name and year, with a note such as an article's address. It shows dimmed, "Not in library", and becomes the real title once a file named alike arrives.

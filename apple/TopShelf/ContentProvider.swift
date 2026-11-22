@@ -5,6 +5,8 @@ import TVServices
 /// shape `Content` copies), each item opening its title's page.
 final class ContentProvider: TVTopShelfContentProvider {
     private static let group = "group.com.rbrian.cinematheque"
+    /// The group container's caches, where a tvOS device lets the app write.
+    private static let path = "Library/Caches/TopShelf"
 
     private struct Content: Decodable {
         struct Section: Decodable {
@@ -25,7 +27,7 @@ final class ContentProvider: TVTopShelfContentProvider {
 
     override func loadTopShelfContent() async -> (any TVTopShelfContent)? {
         guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.group) else { return nil }
-        let directory = container.appending(path: "TopShelf", directoryHint: .isDirectory)
+        let directory = container.appending(path: Self.path, directoryHint: .isDirectory)
         guard let data = try? Data(contentsOf: directory.appending(path: "content.json")),
               let content = try? JSONDecoder().decode(Content.self, from: data)
         else { return nil }

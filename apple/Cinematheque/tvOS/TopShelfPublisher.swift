@@ -1,6 +1,7 @@
 #if os(tvOS)
 import CryptoKit
 import ImageIO
+import OSLog
 import SwiftUI
 import TVServices
 import UniformTypeIdentifiers
@@ -11,6 +12,11 @@ import UniformTypeIdentifiers
 /// extension reads `TopShelf/ContentProvider.swift`'s copy of this shape.
 enum TopShelfPublisher {
     static let group = "group.com.rbrian.cinematheque"
+    /// Where in the group's container: its caches, the only place a tvOS
+    /// device lets an app write (the simulator lets it write anywhere).
+    /// The extension's `ContentProvider` reads the same.
+    static let path = "Library/Caches/TopShelf"
+    private static let log = Logger(subsystem: "com.rbrian.cinematheque", category: "topshelf")
     /// The most of each section the Top Shelf shows.
     private static let most = 12
 
@@ -50,33 +56,69 @@ enum TopShelfPublisher {
         return library.tiles.first { $0.id == id }
     }
 
-    /// Writes what Home shows, and its covers, telling tvOS only if it
-    /// changed.
-    static func publish(_ library: Library) async {
-        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else { return }
-        let directory = container.appending(path: "TopShelf", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    /// Bumped as what the Top Shelf shows is cleared, so a publishing
+    /// under way then doesn't write it back.
+    @MainActor private static var generation = 0
+
+    /// Writes what Home shows, telling tvOS only if it changed: at once,
+    /// with the covers already here (else placeholders), then again as the
+    /// rest arrive, each kept as it comes. Covers fetched one by one from
+    /// sources whose disks may be asleep took longer than the library
+    /// stayed unchanged while it synced and crawled, and publishing began
+    /// again each time, so nothing was ever written.
+    @MainActor static func publish(_ library: Library) async {
+        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
+            return log.error("No app group container: the Top Shelf can't be written")
+        }
+        let directory = container.appending(path: path, directoryHint: .isDirectory)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch {
+            return log.error("Top Shelf not written: \(error.localizedDescription, privacy: .public)")
+        }
+        let started = generation
         let rows = [("Continue Watching", Array(Shelf.home.tiles(in: library).prefix(most)))]
             + library.lists.map { ($0.shownName, Array(Shelf.list($0.id).tiles(in: library).filter { !$0.isWanted }.prefix(most))) }
-        var sections: [Content.Section] = []
-        for (title, tiles) in rows where !tiles.isEmpty {
-            var items: [Content.Item] = []
-            for tile in tiles {
-                guard let url = url(tile) else { continue }
-                items.append(.init(id: tile.id, title: tile.seasonName.map { "\(tile.name) · \($0)" } ?? tile.name, image: await cover(tile, in: directory), square: tile.season != nil, url: url.absoluteString))
+            .filter { !$0.1.isEmpty }
+        var missing = false
+        func content(fetching: Bool) async -> Content {
+            var sections: [Content.Section] = []
+            for (title, tiles) in rows {
+                var items: [Content.Item] = []
+                for tile in tiles {
+                    guard let url = url(tile) else { continue }
+                    var image = cover(tile, in: directory)
+                    if image == nil, fetching, !Task.isCancelled { image = await fetch(tile, in: directory) }
+                    if image == nil { missing = true }
+                    items.append(.init(id: tile.id, title: tile.seasonName.map { "\(tile.name) · \($0)" } ?? tile.name, image: image ?? placeholder(tile, in: directory), square: tile.season != nil, url: url.absoluteString))
+                }
+                sections.append(.init(title: title, items: items))
             }
-            sections.append(.init(title: title, items: items))
+            return Content(sections: sections)
         }
-        let content = Content(sections: sections)
-        // Not once the browser's gone, as on leaving the library, which
-        // cleared what the Top Shelf shows.
-        if Task.isCancelled { return }
+        write(await content(fetching: false), in: directory, started: started)
+        // The covers not here yet; a newer publishing, begun as the library
+        // changed, takes over, with those already fetched.
+        guard missing, !Task.isCancelled else { return }
+        let fetched = await content(fetching: true)
+        if !Task.isCancelled { write(fetched, in: directory, started: started) }
+    }
+
+    /// Writes what the Top Shelf shows, if it's changed and hasn't been
+    /// cleared since publishing began, and covers no longer listed go.
+    @MainActor private static func write(_ content: Content, in directory: URL, started: Int) {
+        guard generation == started else { return }
+        let sections = content.sections
         let file = directory.appending(path: "content.json")
         if let old = try? Data(contentsOf: file), (try? JSONDecoder().decode(Content.self, from: old)) == content { return }
         guard let data = try? JSONEncoder().encode(content) else { return }
-        try? data.write(to: file, options: .atomic)
+        do {
+            try data.write(to: file, options: .atomic)
+        } catch {
+            return log.error("Top Shelf not written: \(error.localizedDescription, privacy: .public)")
+        }
+        log.notice("Top Shelf written: \(sections.count, privacy: .public) rows of \(sections.map { String($0.items.count) }.joined(separator: ", "), privacy: .public) titles")
         TVTopShelfContentProvider.topShelfContentDidChange()
-        // Covers no longer listed go.
         let kept = Set(sections.flatMap(\.items).compactMap(\.image))
         for name in (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [] where name.hasSuffix(".jpg") && !kept.contains(name) {
             try? FileManager.default.removeItem(at: directory.appending(path: name))
@@ -85,22 +127,39 @@ enum TopShelfPublisher {
 
     /// Forgets what the Top Shelf shows, as a device leaving its library
     /// does, so it lists none of its titles.
-    static func clear() {
+    @MainActor static func clear() {
+        generation += 1
         guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else { return }
-        try? FileManager.default.removeItem(at: container.appending(path: "TopShelf", directoryHint: .isDirectory))
+        try? FileManager.default.removeItem(at: container.appending(path: path, directoryHint: .isDirectory))
         TVTopShelfContentProvider.topShelfContentDidChange()
     }
 
     /// A tile's cover as a JPEG in the directory, named for the cover, so
-    /// it's written once; or, without one (or until it loads), its
-    /// placeholder as the app draws it, rather than the Top Shelf's dots.
-    private static func cover(_ tile: Tile, in directory: URL) async -> String? {
-        if let cover = tile.cover {
-            let name = name("\(cover.url) \(cover.offset) \(cover.length) \(cover.stamp)")
-            let file = directory.appending(path: name)
-            if FileManager.default.fileExists(atPath: file.path) { return name }
-            if let image = await ArtCache.shared.image(cover, .tile), write(image, to: file) { return name }
-        }
+    /// it's written once: if it's here already, or in memory.
+    private static func cover(_ tile: Tile, in directory: URL) -> String? {
+        guard let cover = tile.cover else { return nil }
+        let name = coverName(cover)
+        let file = directory.appending(path: name)
+        if FileManager.default.fileExists(atPath: file.path) { return name }
+        if let image = ArtCache.shared.cached(cover, .tile), write(image, to: file) { return name }
+        return nil
+    }
+
+    /// A tile's cover, fetched (from the app's caches, or its source).
+    private static func fetch(_ tile: Tile, in directory: URL) async -> String? {
+        guard let cover = tile.cover else { return nil }
+        let name = coverName(cover)
+        guard let image = await ArtCache.shared.image(cover, .tile), write(image, to: directory.appending(path: name)) else { return nil }
+        return name
+    }
+
+    private static func coverName(_ cover: Cover) -> String {
+        name("\(cover.url) \(cover.offset) \(cover.length) \(cover.stamp)")
+    }
+
+    /// A tile's placeholder as the app draws it, rather than the Top
+    /// Shelf's dots, for a title without a cover, or until it's fetched.
+    @MainActor private static func placeholder(_ tile: Tile, in directory: URL) -> String? {
         let name = name("placeholder \(tile.name) \(tile.thumb ?? "") \(tile.season != nil)")
         let file = directory.appending(path: name)
         if FileManager.default.fileExists(atPath: file.path) { return name }
