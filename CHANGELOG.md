@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* `tools/mock-library.sh` makes a mock library for screenshots and demos, the same every run. It has movies and series named for the serials in Murderbot's feeds, as silent, tagged videos with covers. With `--data`, it also makes a library that has crawled it, with progress and lists.
 * Tools: youtube.sh is no longer part of Cinematheque, which ships no downloader; the README's Naming shows the dated names it reads, as a channel's archive has them.
 * README: running a downloaded build (checking its checksum, getting past macOS's first-run check, Linux's libraries, Local Network access); and a plan for showing the apps in the README, in DEVELOPMENT.md.
 * Mac: a season's inspector scrolls smoothly while its episodes are read from their files the first time. Download sizes no longer read the whole series again for each episode (about 7 times faster on a 115-episode series), and aren't worked out again as each episode is read.
