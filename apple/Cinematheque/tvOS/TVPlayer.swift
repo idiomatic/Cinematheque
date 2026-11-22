@@ -19,7 +19,14 @@ extension PlayRequest: Identifiable {
 struct PlaysFullScreen: ViewModifier {
     @Binding var request: PlayRequest?
     @Environment(Library.self) private var library
-    @State private var black = false
+    @State private var black: Bool
+
+    /// `startsBlack` for a page that plays as it opens (a Top Shelf item's
+    /// Play), so it isn't seen before the player.
+    init(request: Binding<PlayRequest?>, startsBlack: Bool = false) {
+        _request = request
+        _black = State(initialValue: startsBlack)
+    }
 
     func body(content: Content) -> some View {
         content
@@ -50,11 +57,14 @@ struct PlaysFullScreen: ViewModifier {
 
     private func start(_ request: PlayRequest) async {
         warming = true
-        withAnimation(.easeInOut(duration: Platform.fade)) { black = true }
         // The fade first, with the main thread free to draw it: making the
         // session (the series' details, a player item an episode), done
-        // during it, held the fade, which ended in black at once.
-        try? await Task.sleep(for: .seconds(Platform.fade))
+        // during it, held the fade, which ended in black at once. None, if
+        // it's black already.
+        if !black {
+            withAnimation(.easeInOut(duration: Platform.fade)) { black = true }
+            try? await Task.sleep(for: .seconds(Platform.fade))
+        }
         guard !Task.isCancelled else { return abandon() }
         let artwork = await TVPlayer.artwork(request, library)
         let session = TVPlayer.session(request, library, artwork: artwork)

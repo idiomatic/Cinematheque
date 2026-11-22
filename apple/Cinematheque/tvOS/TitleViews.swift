@@ -10,6 +10,17 @@ struct MovieView: View {
     @State private var playing: PlayRequest?
     /// The quality chosen in its picker, if one was.
     @State private var quality: String?
+    @FocusState private var playFocused: Bool
+
+    /// Playing what Play plays at once, once (a Top Shelf item's Play).
+    @State private var playsAtOnce: Bool
+
+    /// With its details as they are, so Play is there to focus first.
+    init(tile: Tile, detail: TitleDetail?, playing: Bool = false) {
+        self.tile = tile
+        _detail = State(initialValue: detail)
+        _playsAtOnce = State(initialValue: playing)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 80) {
@@ -31,6 +42,7 @@ struct MovieView: View {
                         Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality))
                         }
+                        .focused($playFocused)
                         // What Play plays in, beside it.
                         QualityPicker(detail: detail, items: detail.items, chosen: $quality)
                         // The marks, quieter than what plays: icons, named
@@ -56,13 +68,19 @@ struct MovieView: View {
         }
         .padding(80)
         .background { Backdrop(tile: tile) }
+        // Play or Resume first, not Start Over before it.
+        .defaultFocus($playFocused, true)
         .task(id: library.revision) {
             detail = library.detail(tile.key)
+            if playsAtOnce, let detail {
+                playsAtOnce = false
+                playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality))
+            }
             #if DEBUG
             if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality)) }
             #endif
         }
-        .modifier(PlaysFullScreen(request: $playing))
+        .modifier(PlaysFullScreen(request: $playing, startsBlack: playsAtOnce))
     }
 }
 
@@ -82,6 +100,17 @@ struct SeasonView: View {
 
     private enum Focus: Hashable {
         case play, back, forward
+    }
+
+    /// Playing what Play plays at once, once (a Top Shelf item's Play).
+    @State private var playsAtOnce: Bool
+
+    /// With its details as they are, so Play is there to focus first: come
+    /// a moment later, focus had gone to the seasons' buttons.
+    init(tile: Tile, detail: TitleDetail?, playing: Bool = false) {
+        self.tile = tile
+        _detail = State(initialValue: detail)
+        _playsAtOnce = State(initialValue: playing)
     }
 
     var body: some View {
@@ -161,13 +190,17 @@ struct SeasonView: View {
         .defaultFocus($focus, .play)
         .task(id: library.revision) {
             detail = library.detail(tile.key)
+            if playsAtOnce, let detail {
+                playsAtOnce = false
+                playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: Playback.items(detail, season: shown.season), chosen: quality))
+            }
             #if DEBUG
             if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: Playback.items(detail, season: shown.season), chosen: quality)) }
             #endif
         }
         // Its other episodes, described as they're shown.
         .task(id: shown.season) { await library.describeItems(of: tile.key, season: shown.season) }
-        .modifier(PlaysFullScreen(request: $playing))
+        .modifier(PlaysFullScreen(request: $playing, startsBlack: playsAtOnce))
     }
 }
 
@@ -247,4 +280,5 @@ private struct QualityPicker: View {
         }
     }
 }
+
 #endif

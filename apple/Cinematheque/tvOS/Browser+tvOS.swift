@@ -12,16 +12,26 @@ struct Browser: View {
 
     @Environment(Library.self) private var library
     @State private var tab: Tab = .shelf(.home)
-    /// A link's title to open on Home (the Top Shelf's), once the library
-    /// has it; then the title itself.
+    /// A link's title to open (the Top Shelf's), once the library has it;
+    /// then the title itself, its page over the app.
     @State private var link: URL?
-    @State private var opening: Tile?
+    @State private var opened: Opened?
+
+    /// A title opened by a link, and whether to play it at once (the Top
+    /// Shelf's Play/Pause, rather than its select); each opening its own,
+    /// as one of the title shown already, taken for the same, played
+    /// nothing.
+    struct Opened: Identifiable {
+        let tile: Tile
+        let playing: Bool
+        let id = UUID()
+    }
 
     var body: some View {
         TabView(selection: $tab) {
             ForEach(Shelf.allCases.filter { !Shelf.macOnly.contains($0) }) { shelf in
                 SwiftUI.Tab(shelf.title, systemImage: shelf.symbol, value: Tab.shelf(shelf)) {
-                    Stack(opening: shelf == .home ? $opening : nil) {
+                    Stack {
                         if shelf == .home {
                             HomeView()
                         } else if shelf == .lists {
@@ -54,8 +64,32 @@ struct Browser: View {
         .task(id: "\(link?.absoluteString ?? "") \(library.tiles.count)") {
             guard let url = link, let tile = TopShelfPublisher.tile(url, in: library) else { return }
             link = nil
-            tab = .shelf(.home)
-            opening = tile
+            // At once, not sliding in over the tab bar, which showed for
+            // the moment it took.
+            var now = Transaction()
+            now.disablesAnimations = true
+            withTransaction(now) { opened = Opened(tile: tile, playing: TopShelfPublisher.plays(url)) }
+        }
+        // Presented over the app, as tvOS gives a screen it presents focus
+        // (its page's first, Play or Resume): pushed on Home within the tab
+        // view, as the app came to the front, focus stayed in the tab bar,
+        // now and then. Back closes it, to where the app was.
+        .fullScreenCover(item: $opened) { opened in
+            let tile = opened.tile
+            Group {
+                if tile.isSeries {
+                    SeasonView(tile: tile, detail: library.detail(tile.key), playing: opened.playing)
+                } else {
+                    MovieView(tile: tile, detail: library.detail(tile.key), playing: opened.playing)
+                }
+            }
+            // A page of its own each time, not the one shown kept, its
+            // state too, as a cover shown already is.
+            .id(opened.id)
+            // Its own ground, under its backdrop, as the app's own is
+            // behind it now.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { Color.black.ignoresSafeArea() }
         }
         // What Home shows, for the Top Shelf, once changes settle.
         .task(id: library.revision) {
@@ -78,8 +112,6 @@ struct SeriesSeasons: Hashable {
 /// A tab's navigation stack, opening a movie's page, a season's, or a
 /// series' seasons.
 private struct Stack<Content: View>: View {
-    /// A title to open, as a link asks (Home's).
-    var opening: Binding<Tile?>? = nil
     @ViewBuilder let content: Content
     @Environment(Library.self) private var library
     @State private var path = NavigationPath()
@@ -88,14 +120,9 @@ private struct Stack<Content: View>: View {
         NavigationStack(path: $path) {
             content
                 .navigationDestination(for: Tile.self) { tile in
-                    if tile.isSeries { SeasonView(tile: tile) } else { MovieView(tile: tile) }
+                    if tile.isSeries { SeasonView(tile: tile, detail: library.detail(tile.key)) } else { MovieView(tile: tile, detail: library.detail(tile.key)) }
                 }
                 .navigationDestination(for: SeriesSeasons.self) { SeasonsView(key: $0.key) }
-        }
-        .onChange(of: opening?.wrappedValue) { _, tile in
-            guard let tile else { return }
-            path = NavigationPath([tile])
-            opening?.wrappedValue = nil
         }
         #if DEBUG
         // Once the title has arrived (a first launch's sync brings it): a

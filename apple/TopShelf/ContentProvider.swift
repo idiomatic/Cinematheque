@@ -20,6 +20,8 @@ final class ContentProvider: TVTopShelfContentProvider {
             let image: String?
             let square: Bool
             let url: String
+            /// The link that plays it at once; else, its page's.
+            let play: String?
         }
 
         let sections: [Section]
@@ -39,9 +41,10 @@ final class ContentProvider: TVTopShelfContentProvider {
                 if let image = item.image {
                     shelfItem.setImageURL(directory.appending(path: image), for: [.screenScale1x, .screenScale2x])
                 }
+                // Select shows its page; Play/Pause plays it at once.
                 if let url = URL(string: item.url) {
                     shelfItem.displayAction = TVTopShelfAction(url: url)
-                    shelfItem.playAction = TVTopShelfAction(url: url)
+                    shelfItem.playAction = TVTopShelfAction(url: item.play.flatMap(URL.init(string:)) ?? url)
                 }
                 return shelfItem
             })

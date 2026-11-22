@@ -33,7 +33,10 @@ enum TopShelfPublisher {
             let image: String?
             /// A movie's poster, or a season's square.
             let square: Bool
+            /// Its page's link (select), and the link that plays it at once
+            /// (Play/Pause).
             let url: String
+            var play: String?
         }
 
         let sections: [Section]
@@ -46,6 +49,18 @@ enum TopShelfPublisher {
         parts.host = "title"
         parts.queryItems = [URLQueryItem(name: "tile", value: tile.id)]
         return parts.url
+    }
+
+    /// The link that plays a tile at once (its Top Shelf item's Play/Pause).
+    static func playURL(_ tile: Tile) -> URL? {
+        guard var parts = url(tile).flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return nil }
+        parts.queryItems?.append(URLQueryItem(name: "play", value: "1"))
+        return parts.url
+    }
+
+    /// Whether a link plays its tile at once.
+    static func plays(_ url: URL) -> Bool {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "play" && $0.value == "1" } == true
     }
 
     /// The tile a link opens, if it's one of the library's.
@@ -90,7 +105,7 @@ enum TopShelfPublisher {
                     var image = cover(tile, in: directory)
                     if image == nil, fetching, !Task.isCancelled { image = await fetch(tile, in: directory) }
                     if image == nil { missing = true }
-                    items.append(.init(id: tile.id, title: tile.seasonName.map { "\(tile.name) · \($0)" } ?? tile.name, image: image ?? placeholder(tile, in: directory), square: tile.season != nil, url: url.absoluteString))
+                    items.append(.init(id: tile.id, title: tile.seasonName.map { "\(tile.name) · \($0)" } ?? tile.name, image: image ?? placeholder(tile, in: directory), square: tile.season != nil, url: url.absoluteString, play: playURL(tile)?.absoluteString))
                 }
                 sections.append(.init(title: title, items: items))
             }
