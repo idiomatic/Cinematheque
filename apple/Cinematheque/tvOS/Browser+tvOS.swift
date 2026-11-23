@@ -29,6 +29,9 @@ struct Browser: View {
     /// then the title itself, its page over the app.
     @State private var link: URL?
     @State private var opened: Opened?
+    /// What a tile's Play/Pause plays, over the whole stack, from where it
+    /// was pressed, with no page between.
+    @State private var playing: PlayRequest?
 
     /// A title opened by a link, and whether to play it at once (the Top
     /// Shelf's Play/Pause, rather than its select); each opening its own,
@@ -50,6 +53,8 @@ struct Browser: View {
                 .navigationDestination(for: SeriesSeasons.self) { SeasonsView(key: $0.key, detail: library.detail($0.key)) }
                 .navigationDestination(for: ListPageID.self) { ListPage(id: $0.id) }
         }
+        .environment(\.playNow, PlayNow { playing = $0 })
+        .modifier(PlaysFullScreen(request: $playing))
         .overlay(alignment: .bottomTrailing) { Activity() }
         .task { TVPlayer.warmUp() }
         .onOpenURL { link = $0 }
@@ -419,6 +424,7 @@ struct Poster: View {
     /// Whether it's in a row (a carousel), at the row's height.
     var inRow = false
     @Environment(Library.self) private var library
+    @Environment(\.playNow) private var playNow
 
     /// A row's covers' height: a 2:3 cover's, as wide as a grid's.
     static let rowHeight: CGFloat = 360
@@ -496,6 +502,11 @@ struct Poster: View {
             }
         }
         .buttonStyle(.borderless)
+        // Play/Pause plays it at once, as Apple's apps' tiles do: what its
+        // page's Play plays, a series' the season to watch.
+        .onPlayPauseCommand {
+            if let request = playRequest() { playNow(request) }
+        }
         // Pressed and held: a movie's or a season's lists (as only they
         // go on lists) and marks; a series' tile's, the whole series'.
         .contextMenu {
@@ -505,6 +516,14 @@ struct Poster: View {
                 titleMenu
             }
         }
+    }
+
+    /// What its page's Play plays: a movie's or a season's next item; for a
+    /// series' tile, the season to watch's (the first not watched through).
+    private func playRequest() -> PlayRequest? {
+        guard !tile.isWanted, let detail = library.detail(tile.key) else { return nil }
+        let season = opensSeasons ? Library.nextSeason(Library.seasons(of: tile.key, in: library.tiles))?.season : tile.season
+        return Playback.next(in: detail, season: season, quality: detail.quality(for: Playback.items(detail, season: season), chosen: nil))
     }
 
     @ViewBuilder
@@ -520,6 +539,19 @@ struct Poster: View {
                 Button("Mark as Unwatched", systemImage: "circle") { series ? library.markSeriesWatched(tile, false) : library.markWatched(tile, false) }
             }
     }
+}
+
+/// Plays a request over the whole navigation stack, as a tile's
+/// Play/Pause does: a type, as the environment can't compare a closure, so
+/// a closure kept there redrew whatever read it on every update.
+struct PlayNow {
+    let play: (PlayRequest) -> Void
+
+    func callAsFunction(_ request: PlayRequest) { play(request) }
+}
+
+extension EnvironmentValues {
+    @Entry var playNow = PlayNow { _ in }
 }
 
 private struct SearchView: View {
