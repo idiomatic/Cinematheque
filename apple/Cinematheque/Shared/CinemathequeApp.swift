@@ -53,6 +53,8 @@ struct CinemathequeApp: App {
             }
             CommandGroup(after: .newItem) {
                 NewListCommand()
+                ListCommands()
+                    .environment(library)
                 Divider()
                 // With ⌥ held, Refresh Library Fully, listing every folder
                 // afresh, as a folder's time doesn't change as a file in

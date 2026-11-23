@@ -13,6 +13,43 @@ extension FocusedValues {
     @Entry var showsSeries: Bool?
     /// Makes a list in the library window, as File › New List does.
     @Entry var newList: NewListAction?
+    /// The list the library window shows, if it's this person's, for the
+    /// File menu's list items.
+    @Entry var shownList: ShownList?
+}
+
+/// The list a window shows, of this person's, and what's done to it from
+/// the File menu, as its sidebar row's context menu does: so none of it is
+/// only in a context menu. Compared by the window and the list as shown.
+struct ShownList: Equatable {
+    let window: UUID
+    let list: UserList
+    let rename: () -> Void
+    let addMissing: () -> Void
+
+    static func == (a: ShownList, b: ShownList) -> Bool { a.window == b.window && a.list == b.list }
+}
+
+/// File's items for the list shown: Add Missing Title…, Rename List, Share
+/// List… or Stop Sharing List, and Delete List…; dimmed with none shown.
+struct ListCommands: View {
+    @FocusedValue(\.shownList) private var shown
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        Button("Add Missing Title…") { shown?.addMissing() }
+            .disabled(shown == nil)
+        Button("Rename List") { shown?.rename() }
+            .disabled(shown == nil)
+        if let list = shown?.list, list.isShared {
+            Button("Stop Sharing List") { library.stopSharingList(list.id) }
+        } else {
+            Button("Share List…") { library.sharingList = shown?.list }
+                .disabled(shown == nil)
+        }
+        Button("Delete List…") { library.deletingList = shown?.list }
+            .disabled(shown == nil)
+    }
 }
 
 /// Making a list in a window: compared by the window it's for, as
@@ -297,6 +334,7 @@ struct Browser: View {
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { _, height in gridHeight = height }
                 .focusedSceneValue(\.find, FindAction(window: window) { searchFocus() })
                 .focusedSceneValue(\.newList, NewListAction(window: window) { newList() })
+                .focusedSceneValue(\.shownList, shownList)
                 .focusedSceneValue(\.shelfOrder, $orders[shelf ?? .inProgress])
                 .focusedSceneValue(\.inspecting, $inspecting)
                 .focusedSceneValue(\.showsSeries, shelf == .series)
@@ -384,6 +422,13 @@ struct Browser: View {
             if let url = Launch.play.flatMap(URL.init(string:)) { playing = PlayRequest(url: url, item: Launch.item ?? "", start: 0) }
         }
         #endif
+    }
+
+    /// The list shown, if it's this person's, with what the File menu does
+    /// to it.
+    private var shownList: ShownList? {
+        guard case .list(let id) = shelf, let list = library.lists.first(where: { $0.id == id }), list.isMine else { return nil }
+        return ShownList(window: window, list: list, rename: { renaming = id }, addMissing: { wanting = list })
     }
 
     /// Makes a list, "New List" (numbered if that's taken), shows it, and
