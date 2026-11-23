@@ -95,7 +95,7 @@ extension Library {
             return Data(bytes: text, count: strlen(text))
         }.value
         if let data { noteReceived(data) }
-        reload()
+        reloadSoon()
         // What's watched, here or elsewhere, moves kept series along.
         #if os(macOS)
         reconcileSoon()
@@ -142,7 +142,7 @@ extension Library {
         if pushed.operations > 0 {
             received = Exchange(count: pushed.operations, device: pushed.name ?? String(pushed.device.prefix(8)), at: at)
         }
-        reload()
+        reloadSoon()
     }
 
 

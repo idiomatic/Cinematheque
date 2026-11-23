@@ -28,11 +28,11 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
     /// time: how many milliseconds have `elapsed` (watched items whole,
     /// those partway to their positions) of the `runtime`; and whether any
     /// item has progress.
-    let watched: Bool
-    let progress: Double
-    let elapsed: Int
+    var watched: Bool
+    var progress: Double
+    var elapsed: Int
     let runtime: Int
-    let started: Bool
+    var started: Bool
     /// How many items it holds: a season's episodes (an episode's versions
     /// and parts counting once), a movie's versions and parts.
     let items: Int

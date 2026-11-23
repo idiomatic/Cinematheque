@@ -20,12 +20,14 @@ extension Library {
     func markWatched(_ tile: Tile, _ watched: Bool) {
         guard let detail = detail(tile.key) else { return }
         setWatched(Playback.items(detail, season: tile.season), of: detail, watched)
+        showWatched(tile.key, season: tile.season, watched)
     }
 
     /// As `markWatched`, every season of the tile's series.
     func markSeriesWatched(_ tile: Tile, _ watched: Bool) {
         guard let detail = detail(tile.key) else { return }
         setWatched(detail.items, of: detail, watched)
+        showWatched(tile.key, season: nil, watched)
     }
 
     /// Forgets the titles this person has watched through (Watched's):
@@ -40,7 +42,7 @@ extension Library {
         }
         revision += 1
         changed()
-        reload()
+        reloadSoon()
     }
 
     /// Marks an item watched, or unwatched, forgetting where this person

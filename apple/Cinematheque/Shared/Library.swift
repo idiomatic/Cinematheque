@@ -117,6 +117,26 @@ final class Library {
         apply(read, sorted: read == unsortedTiles ? nil : Self.sorted(read), sources: decode([Source].self) { cq_repos($0) } ?? [], changed: changed)
     }
 
+    /// Shows a movie's or season's (or with no season, a whole series')
+    /// tiles marked as `watched` at once, as reading them back (off the main
+    /// thread) takes a moment on a large library: every item watched, or
+    /// none, and no position kept.
+    func showWatched(_ key: String, season: Int?, _ watched: Bool) {
+        for i in tiles.indices where tiles[i].key == key && (season == nil || tiles[i].season == season) {
+            tiles[i].watched = watched
+            tiles[i].progress = watched ? 1 : 0
+            tiles[i].elapsed = watched ? tiles[i].runtime : 0
+            tiles[i].started = false
+        }
+    }
+
+    /// Reloads off the main thread (`reloadApart`), after a change of this
+    /// person's or one a sync brought: the whole catalog read on the main
+    /// thread held the window a second on a large library.
+    func reloadSoon() {
+        Task { await reloadApart() }
+    }
+
     /// Reloads as `reload` does, but reads the tiles and sources, and
     /// decodes and sorts them, off the main thread, as a long operation's
     /// watcher does each second it commits: they're the whole catalog, so
@@ -126,7 +146,11 @@ final class Library {
         guard hasLibrary, let handle else { return }
         let version = cq_data_version(handle.pointer)
         guard dirty || version < 0 || version != loadedVersion else { return }
+        // The latest read started wins; a change from here on marks the
+        // library again, for a read after this one.
+        reloads += 1
         let pass = reloads
+        dirty = false
         callsApart += 1
         defer { callsApart -= 1 }
         let read: (tiles: [Tile], sorted: [Tile], sources: [Source])? = await Task.detached {
@@ -135,11 +159,13 @@ final class Library {
             else { return nil }
             return (tiles, Self.sorted(tiles), sources)
         }.value
-        // A failed read is left to the reload that ends the operation.
-        guard let read, pass == reloads, hasLibrary else { return }
-        dirty = false
+        // A failed read is left to the next reload.
+        guard let read else {
+            dirty = true
+            return
+        }
+        guard pass == reloads, hasLibrary else { return }
         loadedVersion = version
-        reloads += 1
         apply(read.tiles, sorted: read.tiles == unsortedTiles ? nil : read.sorted, sources: read.sources, changed: true)
     }
 
@@ -322,7 +348,7 @@ final class Library {
         dirty = true
         guard let failure = await apart({ body($0) == 0 ? nil : String(cString: cq_error()) }) else { return }
         reportChange(failure)
-        reload()
+        reloadSoon()
     }
 
     /// Forgets the library and this device's identity; why it couldn't, if
@@ -507,10 +533,10 @@ final class Library {
         report(.change, reason == "Busy" ? "Couldn't change the library while \(activity?.lowercased() ?? "it's busy"); try again when it's done." : "Couldn't change the library: \(Self.reason(reason)).")
     }
 
-    /// As `check`, then reloads what changed.
+    /// As `check`, then reloads what changed, off the main thread.
     func checkAndReload(_ body: (OpaquePointer) -> Int32) {
         check(body)
-        reload()
+        reloadSoon()
     }
 
     func decode<T: Decodable>(_ type: T.Type, _ body: (OpaquePointer) -> UnsafeMutablePointer<CChar>?) -> T? {

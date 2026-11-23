@@ -225,7 +225,7 @@ final class PlaybackSession {
             MainActor.assumeIsolated {
                 guard let self, let id, let entry = self.entries[id] else { return }
                 self.library.setWatched(entry.item, true)
-                self.library.reload()
+                self.library.reloadSoon()
                 if id == self.last { self.onFinished?() }
             }
         }
@@ -284,7 +284,7 @@ final class PlaybackSession {
         guard started, let playing = player.currentItem else { return }
         library.setProgress(item, position: player.currentTime().seconds, duration: playing.duration.seconds)
         // Tiles' progress bars and watched marks.
-        library.reload()
+        library.reloadSoon()
         // Pausing or leaving: other devices hear of it now.
         library.changed()
     }

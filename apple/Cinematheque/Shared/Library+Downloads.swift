@@ -294,7 +294,7 @@ extension Library {
             }.value
             watcher.cancel()
             reconciling = nil
-            reload()
+            reloadSoon()
             let result = data.flatMap { try? JSONDecoder().decode(Result.self, from: $0) }
             if let result, result.no_room > 0 {
                 let floor = (downloads?.floor ?? 0).formatted(.byteCount(style: .file))

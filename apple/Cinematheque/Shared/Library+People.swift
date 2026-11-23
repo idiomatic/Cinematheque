@@ -123,7 +123,7 @@ extension Library {
         if let name = device.deviceName {
             check { cq_name($0, paired.device, paired.person, name) }
         }
-        reload()
+        reloadSoon()
     }
 
     /// As `welcome`, for a new person's device: adds its person as a member

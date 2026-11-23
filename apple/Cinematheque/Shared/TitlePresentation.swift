@@ -139,7 +139,7 @@ extension Library {
     /// Marks items of a title watched, or not, and reloads tiles' marks.
     func setWatched(_ items: [TitleDetail.Item], of detail: TitleDetail, _ watched: Bool) {
         for item in items { setWatched("\(detail.key)/\(item.key)", watched) }
-        reload()
+        reloadSoon()
     }
 }
 
