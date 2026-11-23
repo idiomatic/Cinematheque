@@ -135,7 +135,7 @@ screen() {
 # status bar's too.
 if (( ${which[(Ie)iphone]} )); then
     tool side
-    simulator "iPhone 17" iOS iphonesimulator
+    simulator "Mockup iPhone 17" iOS iphonesimulator
     for a in $appearances; do
         xcrun simctl ui $id appearance $a
         screen $a $tmp/home.png ""
@@ -149,7 +149,7 @@ fi
 # The Apple TV's appearance the app's alone, as its simulator's can't be
 # set; at 1080p, as its 4K shot is four times the bytes.
 if (( ${which[(Ie)tv]} )); then
-    simulator "Apple TV 4K (3rd generation)" tvOS appletvsimulator
+    simulator "Mockup Apple TV 4K" tvOS appletvsimulator
     for a in $appearances; do
         screen $a $out/tv-$a.png "cinematheque://title?tile=${season/\#/%23}"
         sips -Z 1920 $out/tv-$a.png > /dev/null
@@ -295,7 +295,7 @@ if (( ${which[(Ie)video]} )); then
     kill $pids[-1]
 
     # The Apple TV, on Home, and the port it serves on, for the Mac.
-    simulator "Apple TV 4K (3rd generation)" tvOS appletvsimulator
+    simulator "Mockup Apple TV 4K" tvOS appletvsimulator
     xcrun simctl terminate $id $bundle 2> /dev/null || true
     tv=$(SIMCTL_CHILD_CINEMATHEQUE_DATA=$tmp/vb SIMCTL_CHILD_CINEMATHEQUE_APPEARANCE=dark xcrun simctl launch $id $bundle | awk '{print $NF}')
     tv_port=
