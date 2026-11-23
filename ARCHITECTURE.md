@@ -182,7 +182,7 @@ Any other `GET` or `HEAD`, on a device serving media, is served from the command
 
 ## Keys and fields
 
-The library ([library.zig](core/src/library.zig), [art.zig](core/src/art.zig)) writes these. Hex means lowercase hexadecimal of a 32-byte key.
+The library ([library.zig](core/src/library.zig), [review.zig](core/src/review.zig), [art.zig](core/src/art.zig)) writes these. Hex means lowercase hexadecimal of a 32-byte key.
 
 | Key | Fields | Written by |
 |---|---|---|

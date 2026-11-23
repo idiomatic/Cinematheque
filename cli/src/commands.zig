@@ -4,6 +4,7 @@ const std = @import("std");
 const Io = std.Io;
 const core = @import("core");
 const lib = core.library;
+const review = core.review;
 const main = @import("main.zig");
 const network = @import("network.zig");
 const App = main.App;
@@ -289,9 +290,9 @@ pub fn title(app: *App, c: Command) !void {
         var r = try app.open();
         defer r.close();
         const all = try lib.titles(&r, app.arena);
-        const matches = try lib.closeMatches(app.arena, all);
+        const matches = try review.closeMatches(app.arena, all);
         for (matches) |m| try out.print("{s}\t{s}\t{s}\n", .{ m.reason, m.a, m.b });
-        const dups = try lib.duplicates(&r, app.arena);
+        const dups = try review.duplicates(&r, app.arena);
         for (dups) |m| try out.print("{s}\t{s}\t{s}\n", .{ m.reason, m.a, m.b });
         try out.print("{d} close matches among {d} titles; {d} duplicate files\n", .{ matches.len, all.len, dups.len });
     } else if (c.is("download", 1, &.{ "--quality", "--to" })) {
@@ -358,16 +359,16 @@ pub fn alias(app: *App, c: Command) !void {
     if (c.is("list", 0, &.{})) {
         var r = try app.open();
         defer r.close();
-        for (try lib.aliases(&r, app.arena)) |a| try app.out.print("{s} -> {s}\n", .{ a.from, a.to });
+        for (try review.aliases(&r, app.arena)) |a| try app.out.print("{s} -> {s}\n", .{ a.from, a.to });
     } else if (c.is("add", 2, &.{})) {
         var r = try app.open();
         defer r.close();
-        try lib.addAlias(&r, app.now(), c.rest[0], c.rest[1]);
+        try review.addAlias(&r, app.now(), c.rest[0], c.rest[1]);
         try app.out.print("{s} -> {s}\n", .{ c.rest[0], c.rest[1] });
     } else if (c.is("remove", 1, &.{})) {
         var r = try app.open();
         defer r.close();
-        try lib.removeAlias(&r, app.now(), c.rest[0]);
+        try review.removeAlias(&r, app.now(), c.rest[0]);
         try app.out.print("removed alias of {s}\n", .{c.rest[0]});
     } else return error.Usage;
 }
