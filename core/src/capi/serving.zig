@@ -66,7 +66,7 @@ fn startServing(lib: *Library, port: u16, folders: []const Folder) !c_int {
     s.host = .{
         .io = lib.io(),
         .gpa = gpa,
-        .options = .{ .host = "0.0.0.0", .port = if (port == 0) 8008 else port, .fallback = true, .mounts = mounts, .handler = s.sharing.handler() },
+        .options = .{ .host = "::", .port = if (port == 0) 8008 else port, .fallback = true, .mounts = mounts, .handler = s.sharing.handler() },
         .name = try std.fmt.allocPrintSentinel(arena, "{s}", .{try lib.store.serviceName(arena)}, 0),
         .txt = try sync.advertisement(arena, try lib.main(), try lib.store.person(), try lib.store.device()),
     };

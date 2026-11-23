@@ -113,7 +113,7 @@ pub fn serve(p: *App, c: Command) !void {
     var host: core.host.Host = .{
         .io = p.io,
         .gpa = p.gpa,
-        .options = .{ .host = "0.0.0.0", .port = port orelse default_port, .fallback = port == null, .mounts = mounts.items, .handler = handler },
+        .options = .{ .host = "::", .port = port orelse default_port, .fallback = port == null, .mounts = mounts.items, .handler = handler },
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
         .txt = txt,
     };
@@ -178,7 +178,7 @@ pub fn offerPairing(p: *App) !void {
     var host: core.host.Host = .{
         .io = p.io,
         .gpa = p.gpa,
-        .options = .{ .host = "0.0.0.0", .port = 0, .handler = offer.handler() },
+        .options = .{ .host = "::", .port = 0, .handler = offer.handler() },
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
         .txt = try core.discover.txtRecord(p.arena, &.{
             .{ "pair", "new" },

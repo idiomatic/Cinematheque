@@ -49,7 +49,7 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8) !PairJso
     p.host = .{
         .io = lib.io(),
         .gpa = gpa,
-        .options = .{ .host = "0.0.0.0", .port = 0, .handler = p.offer.handler() },
+        .options = .{ .host = "::", .port = 0, .handler = p.offer.handler() },
         .name = try std.fmt.allocPrintSentinel(a, "{s}", .{try lib.store.serviceName(arena)}, 0),
         .txt = try discover.txtRecord(a, &.{
             .{ "pair", "new" },

@@ -161,36 +161,72 @@ extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
 /// Listens on `address` with `SO_REUSEADDR` alone, so a restarted server
 /// can take its port back at once, but no other process can share it. (Zig's
 /// `reuse_address` also sets `SO_REUSEPORT`, which lets two servers take the
-/// same port and split its connections.)
-fn listen(address: Io.net.Ip4Address) !Io.net.Server {
+/// same port and split its connections.) An IPv6 address takes IPv4 too
+/// (`IPV6_V6ONLY` off), its clients' addresses mapped into IPv6's, so `::`
+/// answers `localhost` however a browser looks it up (`::1` first, say).
+fn listen(address: Io.net.IpAddress) !Io.net.Server {
     const c = std.c;
-    const fd = socket(c.AF.INET, c.SOCK.STREAM, 0);
+    const six = address == .ip6;
+    const fd = socket(if (six) c.AF.INET6 else c.AF.INET, c.SOCK.STREAM, 0);
     if (fd < 0) return error.SystemResources;
     errdefer _ = c.close(fd);
     _ = c.fcntl(fd, c.F.SETFD, @as(c_int, c.FD_CLOEXEC));
     const one: c_int = 1;
     if (c.setsockopt(fd, c.SOL.SOCKET, c.SO.REUSEADDR, &one, @sizeOf(c_int)) != 0) return error.Unexpected;
-    var addr: c.sockaddr.in = .{ .port = std.mem.nativeToBig(u16, address.port), .addr = @bitCast(address.bytes) };
-    if (c.bind(fd, @ptrCast(&addr), @sizeOf(c.sockaddr.in)) != 0) return switch (c.errno(@as(c_int, -1))) {
+    if (six) {
+        const zero: c_int = 0;
+        if (c.setsockopt(fd, c.IPPROTO.IPV6, c.IPV6.V6ONLY, &zero, @sizeOf(c_int)) != 0) return error.Unexpected;
+    }
+    var four: c.sockaddr.in = undefined;
+    var sixes: c.sockaddr.in6 = undefined;
+    const addr: *c.sockaddr, var len: c.socklen_t = switch (address) {
+        .ip4 => |a| blk: {
+            four = .{ .port = std.mem.nativeToBig(u16, a.port), .addr = @bitCast(a.bytes) };
+            break :blk .{ @ptrCast(&four), @sizeOf(c.sockaddr.in) };
+        },
+        .ip6 => |a| blk: {
+            sixes = .{ .port = std.mem.nativeToBig(u16, a.port), .flowinfo = 0, .addr = a.bytes, .scope_id = 0 };
+            break :blk .{ @ptrCast(&sixes), @sizeOf(c.sockaddr.in6) };
+        },
+    };
+    if (c.bind(fd, addr, len) != 0) return switch (c.errno(@as(c_int, -1))) {
         .ADDRINUSE => error.AddressInUse,
         .ACCES => error.AccessDenied,
         else => error.Unexpected,
     };
     if (c.listen(fd, 128) != 0) return error.Unexpected;
-    var len: c.socklen_t = @sizeOf(c.sockaddr.in);
-    if (c.getsockname(fd, @ptrCast(&addr), &len) != 0) return error.Unexpected;
-    return .{
-        .socket = .{ .handle = fd, .address = .{ .ip4 = .{ .bytes = @bitCast(addr.addr), .port = std.mem.bigToNative(u16, addr.port) } } },
-        .options = {},
-    };
+    if (c.getsockname(fd, addr, &len) != 0) return error.Unexpected;
+    const bound: Io.net.IpAddress = if (six)
+        .{ .ip6 = .{ .bytes = sixes.addr, .port = std.mem.bigToNative(u16, sixes.port) } }
+    else
+        .{ .ip4 = .{ .bytes = @bitCast(four.addr), .port = std.mem.bigToNative(u16, four.port) } };
+    return .{ .socket = .{ .handle = fd, .address = bound }, .options = {} };
+}
+
+/// `address` at another port.
+fn atPort(address: Io.net.IpAddress, port: u16) Io.net.IpAddress {
+    var out = address;
+    out.setPort(port);
+    return out;
 }
 
 test "a port in use is refused, and a free one found" {
-    var first = try listen(.{ .bytes = .{ 127, 0, 0, 1 }, .port = 0 });
+    var first = try listen(.{ .ip4 = .{ .bytes = .{ 127, 0, 0, 1 }, .port = 0 } });
     defer _ = std.c.close(first.socket.handle);
     const port = first.socket.address.getPort();
     try std.testing.expect(port != 0);
-    try std.testing.expectError(error.AddressInUse, listen(.{ .bytes = .{ 127, 0, 0, 1 }, .port = port }));
+    try std.testing.expectError(error.AddressInUse, listen(.{ .ip4 = .{ .bytes = .{ 127, 0, 0, 1 }, .port = port } }));
+}
+
+test "listening on :: answers IPv4 and IPv6 alike" {
+    const io = std.testing.io;
+    var server = try listen(try Io.net.IpAddress.parse("::", 0));
+    defer _ = std.c.close(server.socket.handle);
+    const port = server.socket.address.getPort();
+    for ([_]Io.net.IpAddress{ .{ .ip4 = .loopback(port) }, try Io.net.IpAddress.parse("::1", port) }) |to| {
+        const stream = try to.connect(io, .{ .mode = .stream });
+        stream.close(io);
+    }
 }
 
 /// Serves until canceled (through `io`).
@@ -221,9 +257,9 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
     };
 
     const address = try Io.net.IpAddress.parse(options.host, options.port);
-    var listener = listen(address.ip4) catch |err| switch (err) {
+    var listener = listen(address) catch |err| switch (err) {
         error.AddressInUse => if (options.fallback)
-            try listen(.{ .bytes = address.ip4.bytes, .port = 0 })
+            try listen(atPort(address, 0))
         else
             return err,
         else => return err,
