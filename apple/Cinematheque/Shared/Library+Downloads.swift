@@ -62,11 +62,25 @@ extension Library {
         return name.hasSuffix(".local") ? name : name + ".local"
     }
 
+    /// Changes what this Mac keeps (its own, never synced), reading back
+    /// its downloads alone: the whole catalog read again, on the main
+    /// thread, held a pop-up's choice for a second on a large library.
+    private func changeKept(_ body: (OpaquePointer) -> Int32) {
+        guard let handle else { return }
+        reportChange(body(handle.pointer) != 0 ? String(cString: cq_error()) : nil)
+        reloadDownloads()
+    }
+
     func reloadDownloads() {
         let loaded = decode(Downloads.self) { cq_downloads($0) }
         guard loaded != downloads else { return }
         downloads = loaded
-        downloadedTiles = Self.tiles(of: (loaded?.held ?? []).map(\.item))
+        // Assigned only if it differs: every tile reads it, for its mark,
+        // and any assignment redraws them all (half a second, on a large
+        // library), as a series' choice or a download's progress changes
+        // what's kept without changing what's held.
+        let held = Self.tiles(of: (loaded?.held ?? []).map(\.item))
+        if held != downloadedTiles { downloadedTiles = held }
         if let d = downloads, let id = d.source, let dir = d.dir, let source = sources.first(where: { $0.id == id }) {
             Playback.downloads = .init(source: id, base: source.url, dir: dir)
         } else {
@@ -133,7 +147,7 @@ extension Library {
     /// Downloads a title, season (`<title>/e/s01`), or item, in the
     /// quality given (else the one most items have).
     func download(_ key: String, quality: String?) {
-        checkAndReload { cq_download($0, key, quality) }
+        changeKept { cq_download($0, key, quality) }
         reconcileSoon()
     }
 
@@ -199,7 +213,7 @@ extension Library {
     /// Chooses which of a series' episodes download as it's watched (see
     /// `Downloads.Next`); empty, none.
     func chooseDownloads(_ title: String, _ choice: String) {
-        checkAndReload { cq_download_next($0, title, choice) }
+        changeKept { cq_download_next($0, title, choice) }
         reconcileSoon()
     }
 

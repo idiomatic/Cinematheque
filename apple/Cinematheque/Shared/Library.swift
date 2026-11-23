@@ -502,7 +502,7 @@ final class Library {
 
     /// Reports why a change failed (the core's error), or with none,
     /// clears a change's problem.
-    private func reportChange(_ reason: String?) {
+    func reportChange(_ reason: String?) {
         guard let reason else { return report(.change, nil) }
         report(.change, reason == "Busy" ? "Couldn't change the library while \(activity?.lowercased() ?? "it's busy"); try again when it's done." : "Couldn't change the library: \(Self.reason(reason)).")
     }

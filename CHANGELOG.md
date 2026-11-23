@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Mac: choosing which of a series' episodes download, or downloading a title, no longer holds the Download pop-up for a second, as it read back only the downloads, not the whole catalog.
 * Apple TV: a Top Shelf item's Play, for a title with nothing to play, shows its page rather than leaving it black; a seed rewritten in the Keychain is updated in place, never deleted first.
 * Date Modified counts files' times, not when a device downloaded them.
 * iPhone: its setup names this iPhone, not this Mac.
