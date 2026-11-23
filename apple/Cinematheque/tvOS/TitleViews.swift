@@ -260,4 +260,82 @@ private struct Backdrop: View {
     }
 }
 
+/// A placeholder's page: a title not in the library yet, on a list by
+/// name, as the Mac's inspector shows one. Each of its fields changed in
+/// place (its name, year, season, and note on the full-screen keyboard,
+/// its kind by pressing), keyed afresh; and taken off the lists it's on.
+/// Another member's, on a list of theirs, is only shown.
+struct WantedPage: View {
+    @State private var key: String
+    @Environment(Library.self) private var library
+    @Environment(\.dismiss) private var dismiss
+    /// The field whose keyboard is up.
+    @State private var typing: Field?
+
+    enum Field { case name, year, season, note }
+
+    init(key: String) {
+        _key = State(initialValue: key)
+    }
+
+    var body: some View {
+        let fields = library.wanted(key).map(Wanting.init) ?? .init()
+        let mine = library.isWantedByMe(key)
+        SettingsPage(title: fields.name, explanation: "Not in the library yet. It takes this place on its list as it comes, if its file is named as this is.") {
+            Form {
+                Section {
+                    textRow("Name", fields.name, .name) { $0.name = $1 }
+                    Button { change { $0.kind = $0.kind == .movie ? .series : .movie } } label: {
+                        ValueLabel(title: "Kind", value: fields.kind == .series ? "Series" : "Movie")
+                    }
+                    textRow("Year", fields.year.map(String.init) ?? "", .year, keyboard: .numberPad) { $0.year = Int($1) }
+                    if fields.kind == .series {
+                        textRow("Season", String(fields.season ?? 1), .season, keyboard: .numberPad) { $0.season = Int($1) ?? $0.season }
+                    }
+                    textRow("Note", fields.note, .note) { $0.note = $1 }
+                }
+                .disabled(!mine)
+                .listRowInsets(SettingsView.rowInsets)
+                if mine {
+                    Section {
+                        Button("Remove from List", role: .destructive) {
+                            library.unwant(key)
+                            dismiss()
+                        }
+                    }
+                    .listRowInsets(SettingsView.rowInsets)
+                }
+            }
+            .scrollClipDisabled()
+        }
+        // Taken off (here, or by another device), back to the list.
+        .onChange(of: library.wanted(key) == nil) { _, gone in if gone { dismiss() } }
+    }
+
+    /// A field's row: pressed, the full-screen keyboard, holding it; saved
+    /// as it's submitted, and Back leaves it as it was.
+    private func textRow(_ title: String, _ value: String, _ field: Field, keyboard: UIKeyboardType = .default, _ set: @escaping (inout Wanting, String) -> Void) -> some View {
+        Button { typing = field } label: {
+            ValueLabel(title: title, opens: true, value: value.isEmpty ? "None" : value)
+        }
+        .background {
+            KeyboardField(title: title, text: value, keyboard: keyboard, typing: Binding(get: { typing == field }, set: { if !$0 { typing = nil } })) { text in
+                change { set(&$0, text.trimmingCharacters(in: .whitespaces)) }
+            }
+            .unseen()
+        }
+    }
+
+    /// Changes it as `edit` does, on every list of this person's it's on,
+    /// following its key as it's keyed afresh; one left without a name, or
+    /// unchanged, isn't.
+    private func change(_ edit: (inout Wanting) -> Void) {
+        guard let wanted = library.wanted(key) else { return }
+        var fields = Wanting(wanted)
+        edit(&fields)
+        guard fields.isComplete, fields != Wanting(wanted) else { return }
+        if let now = library.editWant(key, fields) { key = now }
+    }
+}
+
 #endif

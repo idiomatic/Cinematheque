@@ -232,7 +232,7 @@ struct Browser: View {
             // deleted) gives way.
             if shelf == nil { shelf = shown(lastShelf) ? lastShelf : .inProgress }
         }
-        .sheet(item: $wanting) { WantSheet(list: $0) }
+        .sheet(item: $wanting) { WantSheet.adding(to: $0, in: library) }
         .onChange(of: shelf) { if let shelf { lastShelf = shelf } }
         .onChange(of: library.lists) { if let shelf, !shown(shelf) { self.shelf = .inProgress } }
     }
@@ -353,7 +353,7 @@ struct Browser: View {
                         .id(tile.id)
                 } else if let key = selection, let wanted = library.wanted(key) {
                     // A placeholder, not in the library yet.
-                    WantedInspectorView(wanted: wanted)
+                    WantedInspectorView(wanted: wanted) { selection = $0 }
                         .id(key)
                 } else if let key = selection, let series = library.perTitle(library.tiles.filter { $0.key == key }).first {
                     // A series, selected by its key on the Series shelf.

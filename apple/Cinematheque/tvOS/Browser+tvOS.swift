@@ -52,6 +52,7 @@ struct Browser: View {
                 }
                 .navigationDestination(for: SeriesSeasons.self) { SeasonsView(key: $0.key, detail: library.detail($0.key)) }
                 .navigationDestination(for: ListPageID.self) { ListPage(id: $0.id) }
+                .navigationDestination(for: WantedPageID.self) { WantedPage(key: $0.key) }
         }
         .environment(\.playNow, PlayNow { playing = $0 })
         .modifier(PlaysFullScreen(request: $playing))
@@ -126,6 +127,11 @@ struct SeriesSeasons: Hashable {
 /// A list's whole page, by the list's ID: what its row's heading opens.
 struct ListPageID: Hashable {
     let id: String
+}
+
+/// A placeholder's page, by its key on its lists.
+struct WantedPageID: Hashable {
+    let key: String
 }
 
 /// A section's page: its covers in a grid under its name (a series' each,
@@ -496,8 +502,8 @@ struct Poster: View {
         // Typed, as destinations are found by the value's type.
         Group {
             if tile.isWanted {
-                // A placeholder: nothing to open, but its menu takes it off.
-                Button {} label: { lockup }
+                // A placeholder: its own page, to change it or take it off.
+                NavigationLink(value: WantedPageID(key: tile.id)) { lockup }
             } else if opensSeasons {
                 NavigationLink(value: SeriesSeasons(key: tile.key)) { lockup }
             } else {

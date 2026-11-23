@@ -455,7 +455,7 @@ test "a shared list is every member's to see, and its owner's alone to change" {
     const b = &p.replicas[1];
     const id = try lists.create(testing.io, a, arena, 1000, "Date Night");
     try lists.setListed(a, arena, 1001, id, "t/m/alien/1979", true);
-    _ = try lists.want(a, arena, 1002, id, .movie, "Dune: Part Three", 2026, null, "");
+    _ = try lists.want(a, arena, 1002, id, .{ .kind = .movie, .name = "Dune: Part Three", .year = 2026 });
     try lists.share(testing.io, a, arena, 1003, id);
     _ = try p.sync(1, 0);
 

@@ -84,20 +84,24 @@ extension Library {
     /// Puts a title not in the library yet on the list `id`, as a
     /// placeholder, keyed as its file will be (`cq_list_want`), so it's on
     /// the list as it comes.
-    func want(on id: String, kind: TitleKind, name: String, year: Int?, season: Int?, note: String) {
-        let cKind = switch kind {
-        case .movie: CQ_MOVIE
-        case .series: CQ_SERIES
-        }
-        _ = name.withCString { cName in
-            note.withCString { cNote in
-                // Absent integers are -1, as the core takes them.
-                var want = cq_want(kind: cKind, name: cName, year: Int32(year ?? -1), season: Int32(season ?? -1), note: cNote)
-                return decode(String.self) { cq_list_want($0, id, &want) }
-            }
+    func want(on id: String, _ wanting: Wanting) {
+        _ = wanting.withC { want in decode(String.self) { cq_list_want($0, id, &want) } }
+        readLists()
+        changed()
+    }
+
+    /// Changes the placeholder keyed `key` on every list of this person's
+    /// it's on (`cq_list_edit_want`): keyed afresh as its name and year
+    /// (and season) say, its old key taken off. Its key, as it's now.
+    @discardableResult
+    func editWant(_ key: String, _ wanting: Wanting) -> String? {
+        var now: String?
+        for list in myLists where list.wanted?.contains(where: { $0.key == key }) == true {
+            now = wanting.withC { want in decode(String.self) { cq_list_edit_want($0, list.id, key, &want) } } ?? now
         }
         readLists()
         changed()
+        return now
     }
 
     /// The placeholder keyed `key`, on whichever list, if any.
@@ -158,4 +162,16 @@ extension Library {
         _ = withCStrings(Array(titleKeys)) { cq_prioritize(handle.pointer, $0, $1) }
     }
 
+}
+
+extension Wanting {
+    /// `body` given it as the core takes it, absent integers -1.
+    func withC<T>(_ body: (inout cq_want) -> T) -> T {
+        name.withCString { cName in
+            note.withCString { cNote in
+                var want = cq_want(kind: kind == .series ? CQ_SERIES : CQ_MOVIE, name: cName, year: Int32(year ?? -1), season: Int32(kind == .series ? season ?? -1 : -1), note: cNote)
+                return body(&want)
+            }
+        }
+    }
 }

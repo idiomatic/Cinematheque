@@ -194,7 +194,8 @@ int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *
 // a list of this person's with every member; cq_list_stop_sharing makes it
 // theirs alone again. cq_list_create returns a new list's ID
 // as a JSON string; cq_list_want puts a placeholder on one, returning its
-// key, as its file will be keyed when it comes.
+// key, as its file will be keyed when it comes, and cq_list_edit_want
+// changes one (keyed afresh, the old key taken off in the same change).
 int cq_set_progress(cq_library *library, const char *item_key, unsigned long long position_ms, unsigned long long duration_ms);
 int cq_mark_watched(cq_library *library, const char *item_key);
 // Forgets where this person stopped too, so it plays from the beginning.
@@ -207,6 +208,7 @@ int cq_list_remove(cq_library *library, const char *id);
 int cq_list_add_title(cq_library *library, const char *id, const char *title_key);
 int cq_list_remove_title(cq_library *library, const char *id, const char *title_key);
 char *cq_list_want(cq_library *library, const char *id, const cq_want *want);
+char *cq_list_edit_want(cq_library *library, const char *id, const char *key, const cq_want *want);
 int cq_list_share(cq_library *library, const char *id);
 int cq_list_stop_sharing(cq_library *library, const char *id);
 

@@ -51,11 +51,9 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
     /// A placeholder's tile, from its key (`t/m/<name>/<year>`, or a
     /// season's, `t/s/<name>/<year>#<season>`) and its name as typed.
     init(wanted w: UserList.Wanted) {
-        let parts = w.key.split(separator: "#", maxSplits: 1)
-        let key = String(parts[0])
-        let segments = key.split(separator: "/")
-        self.init(key: key, name: w.name, year: segments.last.flatMap { Int($0) }, kind: key.hasPrefix("t/s/") ? .series : .movie,
-                  season: parts.count > 1 ? Int(parts[1]) : nil, cover: nil, thumb: nil, watched: false, progress: 0, elapsed: 0,
+        let fields = Wanting(w)
+        self.init(key: String(w.key.split(separator: "#", maxSplits: 1)[0]), name: w.name, year: fields.year, kind: fields.kind,
+                  season: fields.season, cover: nil, thumb: nil, watched: false, progress: 0, elapsed: 0,
                   runtime: 0, started: false, items: 0, order: .init(title: .max, released: nil, added: nil, modified: nil, watched: nil),
                   wanted: w.note)
     }
@@ -380,4 +378,33 @@ nonisolated struct UserList: Codable, Identifiable, Hashable {
 
     /// The mark of a shared list, this person's or another's.
     static let sharedSymbol = "person.2"
+}
+
+/// A placeholder's fields, as it's put on a list or changed: a movie, or a
+/// series' season, by its name and year as its file will be named, and a
+/// note (as an article's address).
+nonisolated struct Wanting: Equatable {
+    var kind: TitleKind = .movie
+    var name = ""
+    var year: Int?
+    /// A series' season; the first if none.
+    var season: Int?
+    var note = ""
+
+    init() {}
+
+    /// A placeholder's, from its key (`t/m/<name>/<year>`, or a season's,
+    /// `t/s/<name>/<year>#<season>`) and its name as typed.
+    init(_ w: UserList.Wanted) {
+        let parts = w.key.split(separator: "#", maxSplits: 1)
+        let key = String(parts[0])
+        kind = key.hasPrefix("t/s/") ? .series : .movie
+        name = w.name
+        year = key.split(separator: "/").last.flatMap { Int($0) }
+        season = parts.count > 1 ? Int(parts[1]) : nil
+        note = w.note
+    }
+
+    /// Whether it can be put on a list: a name, at least.
+    var isComplete: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
 }

@@ -134,12 +134,36 @@ export fn cq_list_want(lib: *Library, id: [*:0]const u8, want: *const Want) ?[*:
 }
 
 fn listWant(lib: *Library, arena: std.mem.Allocator, id: []const u8, w: Want) ![]const u8 {
-    const kind = try capi.enumFrom(library.TitleKind, w.kind);
-    const year = try capi.optional(u16, w.year);
-    const season = try capi.optional(u16, w.season);
+    const wanted = try wantOf(w);
     const r = try listWriter(lib, arena, id);
     defer if (r.locked) lib.writer.unlock(lib.io());
-    return lists.want(r.replica, arena, lib.now(), id, kind, std.mem.span(w.name), year, season, span(w.note) orelse "");
+    return lists.want(r.replica, arena, lib.now(), id, wanted);
+}
+
+/// Changes the placeholder keyed `key` on the list `id` (its name, year,
+/// season, or note), keyed afresh as its file will be, the old key taken
+/// off in the same change (see `lists.editWant`). Returns its key as a
+/// JSON string.
+export fn cq_list_edit_want(lib: *Library, id: [*:0]const u8, key: [*:0]const u8, want: *const Want) ?[*:0]u8 {
+    return json(lib, listEditWant, .{ std.mem.span(id), std.mem.span(key), want.* });
+}
+
+fn listEditWant(lib: *Library, arena: std.mem.Allocator, id: []const u8, key: []const u8, w: Want) ![]const u8 {
+    const wanted = try wantOf(w);
+    const r = try listWriter(lib, arena, id);
+    defer if (r.locked) lib.writer.unlock(lib.io());
+    return lists.editWant(r.replica, arena, lib.now(), id, key, wanted);
+}
+
+/// A C placeholder as the core's.
+fn wantOf(w: Want) !lists.WantJson {
+    return .{
+        .kind = try capi.enumFrom(library.TitleKind, w.kind),
+        .name = std.mem.span(w.name),
+        .year = try capi.optional(u16, w.year),
+        .season = try capi.optional(u16, w.season),
+        .note = span(w.note) orelse "",
+    };
 }
 
 /// Shares a list of this person's with every member.

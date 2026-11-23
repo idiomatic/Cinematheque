@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Lists: a title not in the library yet can be changed (its name, year, season, or note), keyed afresh as its file will be: by Edit… in the Mac's inspector, the ✎ on its tile in the web client, and on the Apple TV, a page of its own, opened by pressing it, with Remove from List (`cq_list_edit_want`).
 * CI: a push or pull request changing only documentation (Markdown, docs/, the license) isn't built.
 * Web client: its script tightened (reloading and showing again, a new list shown, a list's row, a shelf's tiles, and episodes' and versions' rows each written once), under the 1,600 lines a file may run to.
 * Mac: a shelf is filtered and sorted once a redraw, not four times, and its counts aren't sorted at all; a list's shelf looks its titles up once.

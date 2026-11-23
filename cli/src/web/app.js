@@ -85,18 +85,14 @@ async function reload() {
 // Tiles.
 
 /// A tile's key on a list: a movie's title key, or `<key>#<season>`.
-function listKey(tile) {
-  return tile.season == null ? tile.key : `${tile.key}#${tile.season}`;
-}
+function listKey(tile) { return tile.season == null ? tile.key : `${tile.key}#${tile.season}`; }
 
 function coverURL(cover) {
   const q = new URLSearchParams({ url: cover.url, offset: cover.offset, length: cover.length, stamp: cover.stamp });
   return "api/cover?" + q;
 }
 
-function thumbURL(hash) {
-  return "api/thumb?" + new URLSearchParams({ hash });
-}
+function thumbURL(hash) { return "api/thumb?" + new URLSearchParams({ hash }); }
 
 function el(tag, attributes = {}, ...children) {
   const e = document.createElement(tag);
@@ -173,11 +169,16 @@ function wantedView(tile, underSeries) {
     coverView(tile, underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "sub split" }, el("span", {}, "Not in library"),
-      on.length ? el("button", { class: "mark", type: "button", title: "Remove from list", "aria-label": `Remove ${tile.name} from the list`, onclick: async (e) => {
-        e.preventDefault();
-        for (const l of on) await api("listed", { list: l.id, key: tile.wantedKey, on: false });
-        await refresh();
-      } }, "✕") : ""));
+      on.length ? el("span", {},
+        el("button", { class: "mark", type: "button", title: "Edit", "aria-label": `Edit ${tile.name}`, onclick: (e) => {
+          e.preventDefault();
+          askWanted(on, tile);
+        } }, "✎"),
+        el("button", { class: "mark", type: "button", title: "Remove from list", "aria-label": `Remove ${tile.name} from the list`, onclick: async (e) => {
+          e.preventDefault();
+          for (const l of on) await api("listed", { list: l.id, key: tile.wantedKey, on: false });
+          await refresh();
+        } }, "✕")) : ""));
   a.tileId = idOf(tile);
   a.underSeries = underSeries;
   a.looks = looks(tile);
@@ -628,7 +629,7 @@ const shelves = {
     // Another member's: theirs to change, so only its name.
     const heading = l.mine ? el("div", { class: "list-heading" },
       el("h2", {}, listLabel(l)),
-      el("button", { class: "mark", type: "button", title: "Add a missing title", "aria-label": `Add a title not in the library to ${l.name}`, onclick: () => askWanted(l) }, "＋"),
+      el("button", { class: "mark", type: "button", title: "Add a missing title", "aria-label": `Add a title not in the library to ${l.name}`, onclick: () => askWanted([l]) }, "＋"),
       el("button", { class: "mark", type: "button", title: "Rename list", "aria-label": `Rename ${l.name}`, onclick: () => renameList(l) }, "✎"),
       el("button", { class: "mark", type: "button", "aria-pressed": isShared(l), title: isShared(l) ? "Shared with everyone in the library" : "Share with everyone in the library", "aria-label": isShared(l) ? `Stop sharing ${l.name}` : `Share ${l.name}`, onclick: () => shareList(l) }, isShared(l) ? "Shared" : "Share"),
       el("button", { class: "mark", type: "button", title: "Delete list", "aria-label": `Delete ${l.name}`, onclick: () => deleteList(l) }, "✕"))
@@ -661,32 +662,39 @@ const shelves = {
   },
 };
 
-function empty(text) {
-  return el("p", { class: "empty" }, text);
-}
+function empty(text) { return el("p", { class: "empty" }, text); }
 
 // Lists.
 
 /// Asks for a title not in the library yet, to put on a list by name: a
 /// movie, or a series' season, with its year as its file will be named (so
-/// it's matched as it comes), and a note, as an article's address.
-function askWanted(l) {
+/// it's matched as it comes), and a note, as an article's address. Given a
+/// placeholder's tile (`editing`), changes it instead, on each of `lists`.
+function askWanted(lists, editing = null) {
   const dialog = document.getElementById("want");
   const form = dialog.querySelector("form");
   form.reset();
-  dialog.querySelector(".list-name").textContent = l.name;
+  const f = form.elements;
+  dialog.querySelector("h2").textContent = editing ? `Edit ${editing.name}` : `Add a missing title to ${lists[0].name}`;
+  form.querySelector("[type=submit]").textContent = editing ? "Save" : "Add";
+  if (editing) {
+    f.kind.value = editing.kind;
+    f.name.value = editing.name;
+    f.year.value = editing.year ?? "";
+    f.season.value = editing.season ?? 1;
+    f.note.value = editing.wanted || "";
+  }
   const seasonRow = form.querySelector(".season");
-  const kind = () => form.elements.kind.value;
-  seasonRow.hidden = true;
+  const kind = () => f.kind.value;
+  seasonRow.hidden = kind() !== "series";
   form.onchange = () => { seasonRow.hidden = kind() !== "series"; };
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const f = form.elements;
     const want = { kind: kind(), name: f.name.value.trim(), note: f.note.value.trim() };
     if (f.year.value) want.year = Number(f.year.value);
     if (want.kind === "series") want.season = Number(f.season.value || 1);
     try {
-      await api("list-want", { list: l.id, want });
+      for (const l of lists) await api(editing ? "list-want-edit" : "list-want", editing ? { list: l.id, key: editing.wantedKey, want } : { list: l.id, want });
       dialog.close();
       await refresh();
     } catch (err) {
@@ -703,9 +711,7 @@ let shownList = null;
 document.getElementById("new-list").addEventListener("click", showNewList);
 
 /// This person's lists a tile's key is on.
-function listsOf(key) {
-  return library.mine.filter((l) => l.titles.has(key));
-}
+function listsOf(key) { return library.mine.filter((l) => l.titles.has(key)); }
 
 /// A list's name as shown: another member's, as theirs, if they're named.
 function listName(l) {
@@ -1071,9 +1077,7 @@ function bytes(n) {
 }
 
 /// What keeping may take: free space, less what the server keeps free.
-function available() {
-  return downloads.free == null ? null : Math.max(0, downloads.free - downloads.floor);
-}
+function available() { return downloads.free == null ? null : Math.max(0, downloads.free - downloads.floor); }
 
 function sizeNote(size) {
   const room = available();
@@ -1257,9 +1261,7 @@ const fade = 500;
 const replay = 4000;
 let session = null;
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 /// Takes the sound from where it is to `to` over `ms`.
 function ramp(to, ms) {

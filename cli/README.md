@@ -197,7 +197,7 @@ It's embedded in the app: plain HTML, CSS, and JavaScript, no framework. What it
   * the apps' tile and title JSON (shared with the C interface, in `views.zig`);
   * covers (a source's byte range, fetched by the server, since sources answer other sites' scripts nothing, and cached for good), and placeholders (ThumbHashes drawn as small BMPs);
   * copy racing (`race`, `lost`), and describing an episode (`describe`);
-  * this person's writes (`progress`, `watched`, `listed`, `list-create`, `list-rename`, `list-remove`, `list-share`, and `list-want`, a title not in the library yet put on a list);
+  * this person's writes (`progress`, `watched`, `listed`, `list-create`, `list-rename`, `list-remove`, `list-share`, and `list-want` and `list-want-edit`, a title not in the library yet put on a list, or changed);
   * this device's downloads: `downloads` (the core's report, as `cq_downloads` gives it, with whether there are any and this device's name), `download-sizes`, and `download`, `download-remove`, and `download-next`, which ask reconciling to run;
   * a copy's file to save (`file`, streamed from its source as it comes, with its name, passing a `Range` on, under the core's download deadlines).
 

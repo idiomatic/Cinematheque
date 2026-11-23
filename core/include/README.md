@@ -201,5 +201,6 @@ This person's own, written on this device's private stream (see [AGENTS.md](../.
 | `cq_list_add_title(library, id, title_key)` | Puts a movie or season (keyed as `cq_lists` has them) on a list |
 | `cq_list_remove_title(library, id, title_key)` | Takes one off |
 | `cq_list_want(library, id, want)` | Puts a title not in the library yet on a list, as a placeholder: `want` is a `cq_want`, its `kind` (`CQ_MOVIE` or `CQ_SERIES`) and `name`, with `year`, `season` (a series', else the first), and `note` optional. Returns its key, as a JSON string, keyed as its file will be |
+| `cq_list_edit_want(library, id, key, want)` | Changes the placeholder keyed `key` on a list, as `want` gives it anew: keyed afresh, its old key taken off in the same change. Returns its key, as a JSON string |
 | `cq_list_share(library, id)` | Shares a list of this person's with every member |
 | `cq_list_stop_sharing(library, id)` | Makes it theirs alone again |
