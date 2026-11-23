@@ -241,6 +241,8 @@ struct Browser: View {
     @State private var window = UUID()
     @State private var selection: Tile.ID?
     @State private var inspecting = true
+    /// The inspector's width as the person last left it (see `Inspecting`).
+    @AppStorage("inspectorWidth") private var inspectorWidth: Double = 360
     /// Whether the sidebar shows: here, not the split view's own, which
     /// the inspector coming and going (`Inspecting`) makes anew.
     @State private var columns: NavigationSplitViewVisibility = .all
@@ -384,7 +386,7 @@ struct Browser: View {
         // Attached only while shown: hidden, its collapsed divider still
         // took the window's last points, over the grid's scroll bar, and
         // dragging the bar opened it.
-        .modifier(Inspecting(shown: $inspecting) {
+        .modifier(Inspecting(shown: $inspecting, width: $inspectorWidth) {
             Group {
                 if let tile = library.tiles.first(where: { $0.id == selection }) {
                     InspectorView(tile: tile)
@@ -401,7 +403,6 @@ struct Browser: View {
                     ContentUnavailableView("Choose a Title", systemImage: "film")
                 }
             }
-            .inspectorColumnWidth(min: 300, ideal: 360, max: 520)
             // At the end of its section, the window's far right, where the
             // grid's is while it's hidden.
             .toolbar {
@@ -1571,11 +1572,26 @@ struct StatusBar: View {
 /// left to grab.
 private struct Inspecting<Inspector: View>: ViewModifier {
     @Binding var shown: Bool
+    /// Its width, as the person last left it, given back as its ideal
+    /// whenever it's attached, as SwiftUI keeps one dragged only till then.
+    @Binding var width: Double
     @ViewBuilder let inspector: () -> Inspector
 
     func body(content: Content) -> some View {
         if shown {
-            content.inspector(isPresented: $shown) { inspector() }
+            // Its width set here: set on the content's own views, SwiftUI
+            // ignored it, opening it at its default width.
+            content.inspector(isPresented: $shown) {
+                inspector()
+                    // Measured filling the column, as what's in it may be
+                    // narrower (Choose a Title is at most 400 points).
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onGeometryChange(for: Double.self) { $0.size.width } action: { new in
+                        let rounded = new.rounded() // A write a point, not a frame.
+                        if rounded >= 300, rounded <= 520, rounded != width { width = rounded }
+                    }
+                    .inspectorColumnWidth(min: 300, ideal: width, max: 520)
+            }
         } else {
             content
         }
