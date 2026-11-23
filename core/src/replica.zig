@@ -615,11 +615,15 @@ pub const Replica = struct {
     }
 
     /// Whether the stream `id` holds a batch over any of `first`'s `count`
-    /// numbers but this one (the same range and root).
+    /// numbers but this one (the same range and root). As batches held
+    /// don't overlap, only the nearest at or before `first` can reach it,
+    /// so it's two lookups, not a scan of every batch before.
     fn overlaps(replica: *Replica, id: i64, first: u64, count: usize, root: Hash) !bool {
         const s = try replica.db.prepare(
-            \\SELECT 1 FROM batches WHERE device = ?1 AND first < ?2 + ?3 AND first + count > ?2
-            \\  AND NOT (first = ?2 AND count = ?3 AND root = ?4) LIMIT 1
+            \\SELECT 1 FROM (SELECT first, count, root FROM batches WHERE device = ?1 AND first <= ?2 ORDER BY first DESC LIMIT 1)
+            \\  WHERE first + count > ?2 AND NOT (first = ?2 AND count = ?3 AND root = ?4)
+            \\UNION ALL
+            \\SELECT 1 FROM (SELECT 1 FROM batches WHERE device = ?1 AND first > ?2 AND first < ?2 + ?3 LIMIT 1)
         );
         defer s.finalize();
         try s.bindInt(1, id);
@@ -1036,11 +1040,10 @@ pub const Replica = struct {
         _ = try s.step();
     }
 
-    /// Accepts a batch from another device with those of its operations being
-    /// sent. `leaves` holds the batch's leaves, except where `ops` fall,
-    /// which are rebuilt from the operations themselves; then the root must
-    /// match the device's signature before anything is applied.
-    pub fn receiveBatch(replica: *Replica, batch: Batch, leaves: []Hash, ops: []const Op, stats: *Stats) !void {
+    /// A batch's root, once it matches its device's signature. `leaves`
+    /// holds the batch's leaves, except where `ops` fall, which are rebuilt
+    /// from the operations themselves.
+    pub fn checkBatch(replica: *Replica, batch: Batch, leaves: []Hash, ops: []const Op) !Hash {
         for (ops) |op| {
             if (!std.mem.eql(u8, &op.library, &replica.library)) return error.WrongLibrary;
             if (!std.mem.eql(u8, &op.device, &batch.device) or op.seq < batch.first or op.seq >= batch.first + leaves.len) return error.NoBatch;
@@ -1049,6 +1052,12 @@ pub const Replica = struct {
         }
         const root = merkle.root(leaves);
         if (replica.verify) try verifyBatch(replica.library, batch.device, batch.first, leaves.len, root, batch.sig);
+        return root;
+    }
+
+    /// Applies a checked batch (its `root`, as `checkBatch` gave it), or
+    /// `error.Unauthorized` if its device isn't admitted (yet).
+    pub fn admitBatch(replica: *Replica, batch: Batch, leaves: []const Hash, ops: []const Op, root: Hash, stats: *Stats) !void {
         const admitted = try replica.admission(batch.device, ops);
         if (admitted == .none) return error.Unauthorized;
         var bad: std.StaticBitSet(merkle.max_leaves) = .empty;

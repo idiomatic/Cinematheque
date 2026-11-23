@@ -21,6 +21,9 @@ const Stats = replica.Stats;
 const VersionVector = replica.VersionVector;
 const max_batch_bytes = replica.max_batch_bytes;
 const max_pending_bytes = replica.max_pending_bytes;
+/// The least a batch held back costs of `max_pending_bytes`, so a response
+/// of strangers' one-write batches can't hold millions (each checked).
+const min_pending_bytes = 4096;
 const max_seq = replica.max_seq;
 const max_value_len = replica.max_value_len;
 const max_vector_entries = replica.max_vector_entries;
@@ -247,7 +250,7 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
 
     // Batches whose devices aren't yet known to act for members wait for
     // the rest of the response, which may hold their invitations.
-    const Pending = struct { batch: Batch, leaves: []Hash, ops: []Op };
+    const Pending = struct { batch: Batch, leaves: []Hash, ops: []Op, root: Hash };
     var pending_state = std.heap.ArenaAllocator.init(dst.gpa);
     defer pending_state.deinit();
     const pa = pending_state.allocator();
@@ -295,10 +298,12 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
                     try ops.append(dst.gpa, op);
                     stats.wire_bytes += 1 + op.wireLen();
                 }
-                dst.receiveBatch(batch, leaves.items, ops.items, &stats) catch |err| switch (err) {
+                const root = try dst.checkBatch(batch, leaves.items, ops.items);
+                dst.admitBatch(batch, leaves.items, ops.items, root, &stats) catch |err| switch (err) {
                     error.Unauthorized => {
-                        // Its text, leaves, and operations, all held to the end.
-                        pending_bytes += max_batch_bytes - budget + 32 * count + @sizeOf(Op) * ops.items.len;
+                        // Its text, leaves, and operations, all held to the
+                        // end, already checked.
+                        pending_bytes += @max(min_pending_bytes, max_batch_bytes - budget + 32 * count + @sizeOf(Op) * ops.items.len);
                         if (pending_bytes > max_pending_bytes) return error.Malformed;
                         const copied = try pa.dupe(Op, ops.items);
                         for (copied) |*op| {
@@ -306,7 +311,7 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
                             op.field = try pa.dupe(u8, op.field);
                             op.value = try pa.dupe(u8, op.value);
                         }
-                        try pending.append(pa, .{ .batch = batch, .leaves = try pa.dupe(Hash, leaves.items), .ops = copied });
+                        try pending.append(pa, .{ .batch = batch, .leaves = try pa.dupe(Hash, leaves.items), .ops = copied, .root = root });
                     },
                     else => |e| return e,
                 };
@@ -349,7 +354,7 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
         var i: usize = 0;
         while (i < pending.items.len) {
             const p = pending.items[i];
-            if (dst.receiveBatch(p.batch, p.leaves, p.ops, &stats)) {
+            if (dst.admitBatch(p.batch, p.leaves, p.ops, p.root, &stats)) {
                 _ = pending.swapRemove(i);
                 stats.deferred += 1;
                 progress = true;

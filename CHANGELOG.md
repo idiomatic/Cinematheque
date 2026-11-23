@@ -4,6 +4,8 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Security: a sync's answer is sealed under a key salted afresh, so a request replayed by an eavesdropper is never answered under the same key and nonces, which leaked private progress; a sync's sealed request must arrive within 30 seconds and the rest a mebibyte a minute, and the replica opens only once it checks out, so no one holds connections without being a member's; a stranger's batches held back each cost at least 4 KiB and are checked once, so a fake device can't keep a sync checking signatures for minutes.
+* Sync: a refused push or repair fails the sync, rather than passing for none.
 * Downloads: deleting a title or season while an earlier file downloads stops its own files too; they came anyway, and stayed.
 * Security: a cutoff (`revoked`) past any sequence number a stream could reach is refused; a member's device could write one that crashed every device that synced with it.
 * README: a drawing of how it works, the catalog syncing among devices and videos playing straight from where they're kept.

@@ -195,8 +195,7 @@ test "sync URLs" {
     try std.testing.expectEqualStrings("http://hal:8008/sync", try syncUrl(arena, "http://hal:8008/sync"));
 }
 
-/// A push's content type, which a device too old to take pushes doesn't
-/// know, and so refuses as a request whose signature doesn't verify.
+/// A push's content type: a request, then the frames it pushes.
 pub const push_type = "application/x-cinematheque-push";
 /// A repair's: a request for fields a removal dropped, in the push's form,
 /// then the fields (see `replica.writeFields`), gzipped.
@@ -204,6 +203,8 @@ pub const repair_type = "application/x-cinematheque-repair";
 const device_header = "x-cinematheque-device";
 const certificate_header = "x-cinematheque-certificate";
 const signature_header = "x-cinematheque-signature";
+/// A response's salt (see `seal.salted`), if its request asked for one.
+const salt_header = "x-cinematheque-salt";
 
 /// What a device signs, refusing a removed device, so the device can trust
 /// the news: the library, the device refused, and its request's time.
@@ -252,6 +253,10 @@ pub const Request = struct {
     /// A repair's field list's digest, else zeros.
     digest: [32]u8,
     vector: replica_.VersionVector,
+    /// Whether it asks for its response's key salted (`seal.salted`), as
+    /// every device does now; older ones' requests end at the vector, and
+    /// older devices answering ignore what follows it.
+    salted: bool,
 };
 
 /// What a request's signature covers: its domain, the library, and the
@@ -270,6 +275,7 @@ pub fn writeRequest(arena: std.mem.Allocator, dst: *Replica, time_ms: u64, recip
     try out.writer.writeAll(&recipient);
     try out.writer.writeAll(&digest);
     try replica_.writeVector(&out.writer, try dst.versionVector(arena));
+    try out.writer.writeByte(1);
     const sig = try dst.key_pair.sign(try requestMessage(arena, dst.library, out.written()), null);
     try out.writer.writeAll(&sig.toBytes());
     return out.written();
@@ -288,6 +294,7 @@ pub fn readRequest(arena: std.mem.Allocator, library: [16]u8, body: []const u8, 
     try r.readSliceAll(&request.recipient);
     try r.readSliceAll(&request.digest);
     request.vector = try replica_.readVector(arena, &r);
+    request.salted = if (r.takeByte()) |b| b & 1 != 0 else |_| false;
     const key = Ed25519.PublicKey.fromBytes(request.device) catch return error.BadSignature;
     Ed25519.Signature.fromBytes(body[body.len - 64 ..][0..64].*).verify(try requestMessage(arena, library, signed), key) catch return error.BadSignature;
     const person = replica_.verifyCertificate(library, request.device, false, request.certificate) orelse return error.BadCertificate;
@@ -308,12 +315,18 @@ pub fn fieldsDigest(arena: std.mem.Allocator, fields: []const replica_.Field) ![
 fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request, _: Io.net.IpAddress) anyerror!bool {
     if (!std.mem.eql(u8, request.head.target, path)) return false;
     const sharing: *Sharing = @ptrCast(@alignCast(context.?));
+    // Who this device is, from its seeds alone: no replica is opened for
+    // anyone not yet shown to be a member's device.
+    const library = replica_.libraryId(sharing.founder);
+    const own = try Ed25519.KeyPair.generateDeterministic(sharing.identity.device);
+    const person = try Ed25519.KeyPair.generateDeterministic(sharing.identity.person);
+    const device_hex = std.fmt.bytesToHex(own.public_key.toBytes(), .lower);
+    var certificate: [96]u8 = undefined;
+    certificate[0..32].* = person.public_key.toBytes();
+    certificate[32..].* = (try person.sign(&replica_.certMessage(library, own.public_key.toBytes(), false), null)).toBytes();
+    const certificate_hex = std.fmt.bytesToHex(certificate, .lower);
     // Which device this is, for a request to be for it alone.
     if (request.head.method == .GET or request.head.method == .HEAD) {
-        var r = try Replica.open(gpa, io, sharing.path, sharing.founder, sharing.identity);
-        defer r.close();
-        const device_hex = std.fmt.bytesToHex(r.device(), .lower);
-        const certificate_hex = std.fmt.bytesToHex(try r.certificate(false), .lower);
         try request.respond("", .{ .extra_headers = &.{
             .{ .name = device_header, .value = &device_hex },
             .{ .name = certificate_header, .value = &certificate_hex },
@@ -330,36 +343,35 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     var body_buf: [64 * 1024]u8 = undefined;
     // A client may ask to be told to go on (curl does, for a large body).
     const body = try request.readerExpectContinue(&body_buf);
-    var src = try Replica.open(gpa, io, sharing.path, sharing.founder, sharing.identity);
-    defer src.close();
     // Sealed (see `seal.zig`): the asking device's key for this request,
     // then the request, its length before it, opened and checked before
-    // the rest (a push's frames, a repair's fields) is read.
-    var ephemeral: [32]u8 = undefined;
-    try body.readSliceAll(&ephemeral);
-    const sealed_len = try body.takeInt(u32, .little);
-    if (sealed_len > 2 << 20) {
-        try request.respond("Malformed", .{ .status = .bad_request });
-        return true;
-    }
-    const sealed_head = try arena.alloc(u8, sealed_len);
-    try body.readSliceAll(sealed_head);
-    const keys = seal.respond(src.library, src.key_pair, ephemeral) catch null;
+    // the rest (a push's frames, a repair's fields) is read. Within the
+    // time a request's head has, so no one holds a connection by sending
+    // it a byte at a time.
+    const ephemeral, const sealed_head = deadline.within(io, serve_.head_ms, readSealedHead, .{ body, arena }) catch |err| switch (err) {
+        error.Canceled => return error.Canceled,
+        error.Malformed => {
+            try request.respond("Malformed", .{ .status = .bad_request });
+            return true;
+        },
+        else => return err,
+    };
+    const keys = seal.respond(library, own, ephemeral) catch null;
     const head = if (keys) |k| seal.open(arena, k.request, .head, sealed_head) catch null else null;
     if (head == null) {
         try request.respond("BadSeal", .{ .status = .bad_request });
         return true;
     }
     const now: u64 = @intCast(Io.Timestamp.now(io, .real).toMilliseconds());
-    const checked = readRequest(arena, src.library, head.?, now, src.device()) catch |err| {
+    const checked = readRequest(arena, library, head.?, now, own.public_key.toBytes()) catch |err| {
         try request.respond(@errorName(err), .{ .status = .bad_request });
         return true;
     };
     const reader = checked[1];
+    var src = try Replica.open(gpa, io, sharing.path, sharing.founder, sharing.identity);
+    defer src.close();
     // A removed device is told so, signed, so it can leave and pair afresh.
     if (try src.revoked(checked[0].device) != null) {
-        const device_hex = std.fmt.bytesToHex(src.device(), .lower);
-        const certificate_hex = std.fmt.bytesToHex(try src.certificate(false), .lower);
         const sig = try src.key_pair.sign(&removedMessage(src.library, checked[0].device, checked[0].time_ms), null);
         const signature_hex = std.fmt.bytesToHex(sig.toBytes(), .lower);
         try request.respond("removed\n", .{ .status = .forbidden, .extra_headers = &.{
@@ -376,7 +388,10 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     const window = try arena.alloc(u8, flate.max_window_len);
 
     // The rest, sealed, gzipped.
-    const rest: ?[]u8 = if (pushed or repairing) seal.open(arena, keys.?.request, .body, try body.allocRemaining(arena, .limited(max_body_bytes))) catch null else &.{};
+    const rest: ?[]u8 = if (pushed or repairing) seal.open(arena, keys.?.request, .body, readRest(io, body, arena) catch |err| switch (err) {
+        error.Canceled => return error.Canceled,
+        else => return err,
+    }) catch null else &.{};
     if (rest == null) {
         try request.respond("BadSeal", .{ .status = .bad_request });
         return true;
@@ -409,30 +424,87 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         var gz = try flate.Compress.init(&out.writer, try arena.alloc(u8, flate.max_window_len), .gzip, .fastest);
         _ = try replica_.writeRepair(&src, arena, fields, reader, &gz.writer);
         try gz.finish();
-        try request.respond(try seal.seal(arena, keys.?.response, .response, out.written()), .{ .extra_headers = &.{
+        var answer: Answer = .init(io, keys.?, checked[0]);
+        try request.respond(try seal.seal(arena, answer.key, .response, out.written()), .{ .extra_headers = answer.headers(&.{
             .{ .name = "content-type", .value = "application/octet-stream" },
-        } });
+        }) });
         return true;
     }
 
     // Who's answering, for the device to push to: its key and certificate.
-    const device_hex = std.fmt.bytesToHex(src.device(), .lower);
-    const certificate_hex = std.fmt.bytesToHex(try src.certificate(false), .lower);
     var out: Io.Writer.Allocating = try .initCapacity(arena, 64 * 1024);
     var gz = try flate.Compress.init(&out.writer, window, .gzip, .fastest);
     const sent = try replica_.writeSync(&src, arena, checked[0].vector, reader, head.?[head.?.len - 64 ..][0..64].*, &gz.writer);
     try gz.finish();
-    try request.respond(try seal.seal(arena, keys.?.response, .response, out.written()), .{ .extra_headers = &.{
+    var answer: Answer = .init(io, keys.?, checked[0]);
+    try request.respond(try seal.seal(arena, answer.key, .response, out.written()), .{ .extra_headers = answer.headers(&.{
         .{ .name = "content-type", .value = "application/octet-stream" },
         .{ .name = device_header, .value = &device_hex },
         .{ .name = certificate_header, .value = &certificate_hex },
-    } });
+    }) });
     if (sharing.served) |f| f(sharing.context, checked[0].device, sent);
     return true;
 }
 
+/// A request's sealed head (see `respond`): the asking device's key for it,
+/// and the head as sealed.
+fn readSealedHead(body: *Io.Reader, arena: std.mem.Allocator) !struct { [32]u8, []u8 } {
+    var ephemeral: [32]u8 = undefined;
+    try body.readSliceAll(&ephemeral);
+    const sealed_len = try body.takeInt(u32, .little);
+    if (sealed_len > 2 << 20) return error.Malformed;
+    const sealed_head = try arena.alloc(u8, sealed_len);
+    try body.readSliceAll(sealed_head);
+    return .{ ephemeral, sealed_head };
+}
+
+/// How much of a body must come each minute, as a download's must.
+const rest_step = 1 << 20;
+
+/// The rest of a body, read whole (up to `max_body_bytes`), each mebibyte
+/// within a minute, so a sender holds a connection only so long as bytes
+/// come.
+fn readRest(io: Io, body: *Io.Reader, arena: std.mem.Allocator) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    while (try deadline.within(io, 60 * 1000, readStep, .{ body, arena, &out }) == rest_step) {
+        if (out.items.len > max_body_bytes) return error.StreamTooLong;
+    }
+    return out.items;
+}
+
+/// Reads up to `rest_step` more of a body; fewer at its end.
+fn readStep(body: *Io.Reader, arena: std.mem.Allocator, out: *std.ArrayList(u8)) !usize {
+    try out.ensureUnusedCapacity(arena, rest_step);
+    const n = try body.readSliceShort(out.unusedCapacitySlice()[0..rest_step]);
+    out.items.len += n;
+    return n;
+}
+
+/// A sealed response's key, salted afresh if its request asked, and its
+/// headers, with the salt's if so.
+const Answer = struct {
+    key: seal.Key,
+    salt: ?[64]u8,
+    all: [4]http.Header = undefined,
+
+    fn init(io: Io, keys: seal.Keys, request: Request) Answer {
+        if (!request.salted) return .{ .key = keys.response, .salt = null };
+        var salt: [32]u8 = undefined;
+        io.random(&salt);
+        return .{ .key = seal.salted(keys.response, salt), .salt = std.fmt.bytesToHex(salt, .lower) };
+    }
+
+    /// `others` (at most 3), then the salt's, if any.
+    fn headers(answer: *Answer, others: []const http.Header) []const http.Header {
+        @memcpy(answer.all[0..others.len], others);
+        const salt = if (answer.salt) |*s| s else return answer.all[0..others.len];
+        answer.all[others.len] = .{ .name = salt_header, .value = salt };
+        return answer.all[0 .. others.len + 1];
+    }
+};
+
 /// What came of a sync with a device: what was pulled, and how many
-/// operations were pushed (none to a device too old to take pushes).
+/// operations were pushed.
 pub const Exchanged = struct {
     stats: replica_.Stats,
     sent: usize = 0,
@@ -442,7 +514,7 @@ pub const Exchanged = struct {
 
 /// Syncs both ways with the other device at `url` (e.g.,
 /// `http://perihelion.local:8008/sync`): pulls what `dst` lacks, then pushes
-/// what the other device does, if it's a member's device that takes pushes.
+/// what the other device does, if it's a member's device.
 pub fn exchange(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64) !Exchanged {
     // Within ten minutes, so a device that answers a byte at a time holds
     // up no sync with the others for longer.
@@ -461,15 +533,8 @@ fn exchangeNow(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, ur
     const person = pulled.person orelse return out;
     if (!try dst.isMemberPerson(person)) return out;
     // Fields a removal dropped, from a device that may hold what stands.
-    out.repaired = repairFrom(arena, client, dst, url, now_ms, recipient) catch |err| switch (err) {
-        error.Refused => 0,
-        else => |e| return e,
-    };
-    out.sent = push(arena, client, dst, url, now_ms, recipient, theirs.items, person) catch |err| switch (err) {
-        // A device too old to take pushes, which still pulls from this one.
-        error.Refused => 0,
-        else => |e| return e,
-    };
+    out.repaired = try repairFrom(arena, client, dst, url, now_ms, recipient);
+    out.sent = try push(arena, client, dst, url, now_ms, recipient, theirs.items, person);
     return out;
 }
 
@@ -546,8 +611,6 @@ fn removed(dst: *Replica, other: Named, time_ms: u64) !bool {
     return true;
 }
 
-/// Pulls from the other device at `url`, collecting its vector into `theirs`, and
-/// the person its certificate names, if it sent one that verifies.
 /// A request's body as sent, sealed for `recipient`: a key for it alone,
 /// then the request (`head`), its length before it, then `rest`, if any.
 fn sealed(arena: std.mem.Allocator, io: Io, library: [16]u8, recipient: [32]u8, head: []const u8, rest: ?[]const u8) !struct { []u8, seal.Keys } {
@@ -561,12 +624,22 @@ fn sealed(arena: std.mem.Allocator, io: Io, library: [16]u8, recipient: [32]u8, 
     return .{ out.written(), keys };
 }
 
-/// A response's body, opened, read whole.
+/// A response's body, opened (salted as its answer says; an older device
+/// salts none), read whole.
 fn opened(arena: std.mem.Allocator, response: *http.Client.Response, keys: seal.Keys) ![]u8 {
+    var key = keys.response;
+    var headers = response.head.iterateHeaders();
+    while (headers.next()) |h| if (std.ascii.eqlIgnoreCase(h.name, salt_header)) {
+        var salt: [32]u8 = undefined;
+        if ((std.fmt.hexToBytes(&salt, h.value) catch return error.BadSeal).len != 32) return error.BadSeal;
+        key = seal.salted(keys.response, salt);
+    };
     var transfer: [64 * 1024]u8 = undefined;
-    return seal.open(arena, keys.response, .response, try response.reader(&transfer).allocRemaining(arena, .limited(max_body_bytes)));
+    return seal.open(arena, key, .response, try response.reader(&transfer).allocRemaining(arena, .limited(max_body_bytes)));
 }
 
+/// Pulls from the other device at `url`, collecting its vector into `theirs`, and
+/// the person its certificate names, if it sent one that verifies.
 fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64, recipient: [32]u8, theirs: *std.ArrayList(replica_.Entry)) !Pulled {
     const head = try writeRequest(arena, dst, now_ms, recipient, @splat(0));
     const body, const keys = try sealed(arena, client.io, dst.library, recipient, head, null);
@@ -622,11 +695,11 @@ fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []co
     try sending.writer.writeAll(body);
     try sending.end();
     try request.connection.?.flush();
-    const response = try request.receiveHead(&.{});
+    var response = try request.receiveHead(&.{});
     return switch (response.head.status) {
         .no_content => sent,
         .forbidden => error.NotAMember,
-        .bad_request => error.Refused,
+        .bad_request => refusal(arena, &response),
         else => error.BadStatus,
     };
 }
@@ -657,7 +730,7 @@ fn repairFrom(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url
     switch (response.head.status) {
         .ok => {},
         .forbidden => return error.NotAMember,
-        .bad_request => return error.Refused,
+        .bad_request => return refusal(arena, &response),
         else => return error.BadStatus,
     }
     var whole: Io.Reader = .fixed(try opened(arena, &response, keys));
@@ -685,6 +758,75 @@ test "requests are checked" {
     try std.testing.expectError(error.BadSignature, readRequest(arena, @splat(9), body, 1_000_000, hal));
     body[40] ^= 1;
     try std.testing.expectError(error.BadSignature, readRequest(arena, r.library, body, 1_000_000, hal));
+    try std.testing.expect(checked[0].salted);
+}
+
+test "an older device's request, ending at its vector, asks for no salt" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(2)));
+    defer r.close();
+    const hal: [32]u8 = @splat(3);
+    const body = try writeRequest(arena, &r, 1_000_000, hal, @splat(0));
+    // As one wrote it: without the last byte before the signature.
+    const signed = body[0 .. body.len - 64 - 1];
+    const sig = try r.key_pair.sign(try requestMessage(arena, r.library, signed), null);
+    const old = try std.mem.concat(arena, u8, &.{ signed, &sig.toBytes() });
+    const checked = try readRequest(arena, r.library, old, 1_000_000, hal);
+    try std.testing.expect(!checked[0].salted);
+}
+
+test "a request replayed is answered under a new key each time" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const dir = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    const person_seed: [32]u8 = @splat(7);
+    const founder = (try Ed25519.KeyPair.generateDeterministic(person_seed)).public_key.toBytes();
+    const a_identity: replica_.Identity = .{ .device = @splat(1), .person = person_seed };
+    const a_path = try std.fmt.allocPrintSentinel(arena, "{s}/a.db", .{dir}, 0);
+    var a = try Replica.open(gpa, io, a_path, founder, a_identity);
+    defer a.close();
+    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), founder, .{ .device = @splat(2), .person = person_seed });
+    defer b.close();
+    try a.write(1000, "t/00001", "name", "Alien");
+
+    var sharing: Sharing = .{ .path = a_path, .founder = founder, .identity = a_identity };
+    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .handler = sharing.handler() } };
+    try server.start();
+    defer server.stop();
+    const url = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/sync", .{server.port});
+    var client: http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    const now: u64 = @intCast(Io.Timestamp.now(io, .real).toMilliseconds());
+
+    const head = try writeRequest(arena, &b, now, a.device(), @splat(0));
+    const body, const keys = try sealed(arena, io, b.library, a.device(), head, null);
+    var salts: [2][]const u8 = undefined;
+    for (&salts) |*salt| {
+        var request = try client.request(.POST, try std.Uri.parse(url), .{});
+        defer request.deinit();
+        request.transfer_encoding = .{ .content_length = body.len };
+        var sending = try request.sendBodyUnflushed(&.{});
+        try sending.writer.writeAll(body);
+        try sending.end();
+        try request.connection.?.flush();
+        var response = try request.receiveHead(&.{});
+        try std.testing.expectEqual(http.Status.ok, response.head.status);
+        var headers = response.head.iterateHeaders();
+        salt.* = while (headers.next()) |h| {
+            if (std.ascii.eqlIgnoreCase(h.name, salt_header)) break try arena.dupe(u8, h.value);
+        } else return error.TestUnexpectedResult;
+        // Opened with its own salt's key.
+        _ = try opened(arena, &response, keys);
+    }
+    try std.testing.expect(!std.mem.eql(u8, salts[0], salts[1]));
 }
 
 test "a request as sent shows nothing of it to anyone listening" {

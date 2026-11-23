@@ -50,6 +50,18 @@ pub fn respond(library: [16]u8, own: Ed25519.KeyPair, ephemeral: [32]u8) !Keys {
     return derive(library, ephemeral, own.public_key.toBytes(), shared);
 }
 
+/// A response's key, made afresh by the answering device's random `salt`
+/// (sent beside it), so a request replayed is answered under a new key,
+/// not with another plaintext under the first's keys and nonces.
+pub fn salted(key: Key, salt: [32]u8) Key {
+    var out: Key = undefined;
+    var h = Blake3.init(.{ .key = key });
+    h.update("cinematheque response");
+    h.update(&salt);
+    h.final(&out);
+    return out;
+}
+
 /// What's sealed under one key, each part its own run of nonces.
 pub const Part = enum(u8) { head = 1, body = 2, response = 3 };
 
@@ -119,6 +131,9 @@ test "sealed one way, opened the other, by the right device alone" {
     const ephemeral, const mine = try initiate(io, library, hal.public_key.toBytes());
     const theirs = try respond(library, hal, ephemeral);
     try std.testing.expectEqual(mine, theirs);
+    // Each salt, its own response key.
+    try std.testing.expect(!std.mem.eql(u8, &salted(mine.response, @splat(1)), &salted(mine.response, @splat(2))));
+    try std.testing.expect(!std.mem.eql(u8, &salted(mine.response, @splat(1)), &mine.response));
     // Another device can't derive them.
     const not = try respond(library, skynet, ephemeral);
     try std.testing.expect(!std.mem.eql(u8, &not.request, &mine.request));

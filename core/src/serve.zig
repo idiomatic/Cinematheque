@@ -67,7 +67,7 @@ const max_per_host = 32;
 /// How long a request's head may take to arrive, so a connection that says
 /// nothing (or a byte at a time) doesn't hold its place for good. A
 /// response's body, as long as a stream runs, has no such limit.
-const head_ms = 30 * 1000;
+pub const head_ms = 30 * 1000;
 
 const Connections = struct {
     open: std.atomic.Value(usize) = .init(0),
@@ -279,15 +279,10 @@ fn handle(ctx: *const Context, stream: Io.net.Stream, slot: usize) Io.Cancelable
         // record's, is no request's, so it's closed at once and the browser
         // falls back to plain HTTP, rather than waiting out `head_ms` for a
         // request that never comes (twice, a minute, in Safari).
-        const first = deadline.within(io, head_ms, peekFirst, .{&reader.interface}) catch |err| switch (err) {
+        var request = deadline.within(io, head_ms, receiveHead, .{ &reader.interface, &server }) catch |err| switch (err) {
             error.Canceled => return error.Canceled,
             else => return,
-        };
-        if (first == tls_handshake) return;
-        var request = deadline.within(io, head_ms, receiveHead, .{&server}) catch |err| switch (err) {
-            error.Canceled => return error.Canceled,
-            else => return,
-        };
+        } orelse return;
         respond(ctx, &request, stream.socket.address) catch |err| {
             if (err == error.Canceled) return error.Canceled;
             return;
@@ -299,12 +294,11 @@ fn handle(ctx: *const Context, stream: Io.net.Stream, slot: usize) Io.Cancelable
 /// A TLS record's type, for a handshake: how a secure connection begins.
 const tls_handshake = 0x16;
 
-fn peekFirst(in: *Io.Reader) Io.Reader.Error!u8 {
-    return in.peekByte();
-}
-
-fn receiveHead(server: *http.Server) http.Server.ReceiveHeadError!http.Server.Request {
-    return server.receiveHead();
+/// The next request's head, or null for a secure connection; its first
+/// byte and the rest within one deadline.
+fn receiveHead(in: *Io.Reader, server: *http.Server) (Io.Reader.Error || http.Server.ReceiveHeadError)!?http.Server.Request {
+    if (try in.peekByte() == tls_handshake) return null;
+    return try server.receiveHead();
 }
 
 fn header(request: *const http.Server.Request, name: []const u8) ?[]const u8 {
