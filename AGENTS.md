@@ -194,7 +194,8 @@ Their details, as built, are in [apple/README.md](apple/README.md#in-detail).
 * **Shelves:** a tab bar of Home (Continue Watching, then a row per list, each with See All, how many it holds, to the list's page; Settings from its corner), Movies, Series (a cover per series, in rows of one height, each cover its own shape, each full row scaled to fill the width, a justified layout, so a square cover beside portrait ones wastes no space; opening a page of its seasons, the series' whole name its heading, in square cells, each cover fit whole), Lists (every list's row, New List in the navigation bar; a list's page renaming, sharing, and deleting it from its menu, if it's this person's own), and Search. Rows are carousels, every cover one height, each its own width by its shape; grids give every cell the column's width.
 * **Pages:** a movie's or a season's, its cover in its own shape, Play or Resume, Start Over (partway), the quality, the Lists menu and watched mark, then versions or episodes; a season's neighbors (‹ ›) in the navigation bar, moving in place.
 * **Playing:** full screen, in AVKit's player, fading in from black as its sound rises, its close button lowering the curtain first.
-* **Not yet:** setup is the Mac's welcome form, filling the screen; Settings only refreshes; nothing adds sources, pairs devices, or downloads.
+* **Settings:** a sheet from Home's corner, as iOS's own apps' settings are, a grouped list, each kind of thing a page pushed on it: names (this iPhone's and yours, typed in place); People and Your Devices (pressing one asks what to do, as swiping does: removing someone, confirmed first, or renaming or removing a device), each with its page for adding, the devices offering nearby listed with their models, one chosen taking its code on the number pad; sharing while open; Sources (each a page of its address, opened in Safari, its quality and names to skip, its unavailable folders' videos removed, and removing it, confirmed first; Add Server… a sheet); Refresh Library, Look for New Videos, and Show Sync Activity; devices by address, under Advanced; and Leave This Library…, as the Apple TV's. A Mac's folders stay on the Mac.
+* **Not yet:** setup is the Mac's welcome form, filling the screen; nothing downloads.
 
 ## Apple TV player
 
@@ -225,12 +226,12 @@ Their details, as built, are in [apple/README.md](apple/README.md#in-detail).
   * `CINEMATHEQUE_DATA` (iOS and tvOS; the Mac's core reads it in any build): a data directory to run on, as a simulator's on one of the Mac's (a copy, as it's written to), its own left alone, and on tvOS, its Keychain's seeds neither read nor written.
   * `CINEMATHEQUE_CODE_FILE`: a file each pairing code offered is written to, for a test to send from another device.
   * `CINEMATHEQUE_SELECT`: a tile (e.g., `t/s/firefly/-#1`), selected on macOS, its page opened on tvOS and iOS; or a series' seasons, by its key.
-  * `CINEMATHEQUE_TAB`: on iOS, a tab (`home`, `movies`, `series`, `lists`, or `search`); on tvOS, a section's page (`movies`, `series`, `lists`, `watched`, `search`, or `settings`), opened from Home; on both, in setup, a step, `join`, offering its code.
+  * `CINEMATHEQUE_TAB`: on iOS, a tab (`home`, `movies`, `series`, `lists`, or `search`), or `settings`, Home's sheet; on tvOS, a section's page (`movies`, `series`, `lists`, `watched`, `search`, or `settings`), opened from Home; on both, in setup, a step, `join`, offering its code.
   * `CINEMATHEQUE_DOWNLOAD_FLOOR`: the free space downloads keep, in bytes, for a VM's small disk; any build, read by the core.
   * `CINEMATHEQUE_LEAVE` (tvOS, on Settings, once a launch): `ask` presses Leave This Library…, `confirm` confirms it too, the first other member taking over if asked.
-  * `CINEMATHEQUE_PAGE` (tvOS, once a launch): on Settings, a page (`people`, `devices`, `sources`, or the page for adding, `add-someone` or `add-device`); on the Lists page, a list's (`list:<id>`).
-  * `CINEMATHEQUE_PAIR` (tvOS, once a launch, on a page for adding): a code to enter for the first new device found.
-  * `CINEMATHEQUE_SERVER` (tvOS, once a launch, on Sources): an address to add.
+  * `CINEMATHEQUE_PAGE` (tvOS and iOS, once a launch): on Settings, a page (`people`, `devices`, `sources`, on iOS the first source's, `source`, or the page for adding, `add-someone` or `add-device`); on the Lists page, a list's (`list:<id>`).
+  * `CINEMATHEQUE_PAIR` (tvOS and iOS, once a launch, on a page for adding): a code to enter for the first new device found.
+  * `CINEMATHEQUE_SERVER` (tvOS and iOS, once a launch, on Sources): an address to add.
   * `CINEMATHEQUE_APPEARANCE`: `dark` or `light`, the app's whatever the system's (the tvOS simulator's can't be set).
   * `CINEMATHEQUE_PLAY` (once a launch): a URL to play on macOS, with `CINEMATHEQUE_ITEM`, its item key, for its progress; any value on tvOS and iOS, to play the opened title.
 

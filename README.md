@@ -23,7 +23,7 @@ Early, at version 0.1: expect rough edges, and changes between versions.
 | --- | --- |
 | **Mac** (macOS 15+) | Released, not yet notarized: browsing, playing, lists, downloads, and Settings for sources, people, and devices |
 | **Apple TV** (tvOS 18+) | Browsing, playing, lists, and Settings for people, devices, and servers; not released yet, so build it with Xcode |
-| **iPhone** (iOS 18+) | A prototype: browsing, playing, and lists; nothing adds sources, pairs devices, or downloads yet |
+| **iPhone** (iOS 18+) | A prototype: browsing, playing, lists, and Settings (people, devices, and servers); setting up is a stopgap, and nothing downloads yet |
 | **Web client** | In the command-line app (`serve`): setup, browsing, playing, and settings, for a browser on the server's own computer (or every browser, with `--permissive`) |
 | **Command-line app** | Released, for macOS and Linux |
 | **Linux and Windows players** | Planned |

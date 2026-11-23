@@ -4,7 +4,8 @@ import SwiftUI
 /// The iPhone's tab bar, within thumbs' reach: Home, Movies, Series, Lists,
 /// and Search, each a navigation stack opening titles' pages: a movie's, or
 /// a season's; a series' tile, its seasons first. Settings is from Home's
-/// corner. A prototype: browsing, the title pages, and playing.
+/// corner (see Settings+iOS.swift). A prototype: browsing, the title
+/// pages, playing, and settings.
 struct Browser: View {
     @Environment(Library.self) private var library
     @State private var tab = "home"
@@ -28,7 +29,8 @@ struct Browser: View {
             }
         }
         #if DEBUG
-        .onAppear { if let name = Launch.tab { tab = name } }
+        // Settings is Home's sheet, not a tab.
+        .onAppear { if let name = Launch.tab, name != "settings" { tab = name } }
         #endif
     }
 }
@@ -120,6 +122,9 @@ private struct HomeView: View {
             Button("Settings", systemImage: "gearshape") { settings = true }
         }
         .sheet(isPresented: $settings) { SettingsSheet() }
+        #if DEBUG
+        .onAppear { if Launch.tab == "settings" { settings = true } }
+        #endif
     }
 }
 
@@ -448,27 +453,4 @@ private struct SearchView: View {
     }
 }
 
-/// Settings, from Home's corner: for now, refreshing the library.
-private struct SettingsSheet: View {
-    @Environment(Library.self) private var library
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Button("Refresh Library") { Task { await library.refresh() } }
-                        .disabled(library.activity != nil)
-                    if let activity = library.activity { Text(activity + "…").foregroundStyle(.secondary) }
-                } footer: {
-                    Text("Looks for new videos on every source, after catching up with your other devices.")
-                }
-            }
-            .navigationTitle("Settings")
-            .toolbar {
-                Button("Done") { dismiss() }
-            }
-        }
-    }
-}
 #endif
