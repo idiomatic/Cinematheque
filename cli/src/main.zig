@@ -6,6 +6,9 @@ const core = @import("core");
 const commands = @import("commands.zig");
 const network = @import("network.zig");
 
+/// Which app this is, as `/version` says (see the core's version.zig).
+pub const app_name = "command-line app";
+
 /// What every command acts with: this device's data directory, and where
 /// to print.
 pub const App = struct {

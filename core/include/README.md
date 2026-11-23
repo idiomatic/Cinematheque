@@ -47,7 +47,7 @@ Others are the system's or the network's (`ConnectionRefused`, `ConnectionTimedO
 |---|---|
 | `cq_open(data_dir)` | Opens `data_dir`; if NULL, `$CINEMATHEQUE_DATA`, else the default (see [AGENTS.md](../../AGENTS.md#identity-and-membership)) |
 | `cq_close(library)` | Stops serving and pairing, and frees the handle |
-| `cq_version()` | *Any thread.* What the build is, as `/version` serves it: `{"version", "revision", "mode", "zig"}` (its version, as its builder gives it, the Apple app [Version.xcconfig](../../apple/Version.xcconfig)'s; what it was built from, as `git describe --tags` gives it; its optimizing; and Zig's version) |
+| `cq_version()` | *Any thread.* What the build is, as `/version` serves it: `{"app", "version", "revision", "mode", "zig"}` (which app: `macOS app`, `tvOS app`, or `iOS app` for the Apple app's core; its version, as its builder gives it, the Apple app [Version.xcconfig](../../apple/Version.xcconfig)'s; what it was built from, as `git describe --tags` gives it; its optimizing; and Zig's version) |
 | `cq_error()` | Why the last call on this thread failed (not freed) |
 | `cq_free(text)` | Frees a result |
 
