@@ -608,10 +608,8 @@ struct SeasonsView: View {
                         }
                         // The whole series': a status that pressing toggles,
                         // as a season's is.
-                        Button(series.watched ? "Watched" : "Unwatched", systemImage: series.watched ? "checkmark.circle.fill" : "circle") {
-                            library.markSeriesWatched(series, !series.watched)
-                        }
-                        .labelStyle(.iconOnly)
+                        WatchedToggle(watched: series.watched) { library.markSeriesWatched(series, !series.watched) }
+                            .labelStyle(.iconOnly)
                     }
                     .focusSection()
                 }

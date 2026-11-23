@@ -353,9 +353,7 @@ struct SeriesInspectorView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
-                    Button(series.watched ? "Watched" : "Unwatched", systemImage: series.watched ? "checkmark.circle.fill" : "circle") {
-                        library.markSeriesWatched(series, !series.watched)
-                    }
+                    WatchedToggle(watched: series.watched) { library.markSeriesWatched(series, !series.watched) }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
@@ -393,14 +391,20 @@ struct SeriesInspectorView: View {
                         .padding(.bottom, 6)
                     ForEach(seasons) { season in
                         Button { select(season.id) } label: {
-                            HStack {
-                                Image(systemName: season.watched ? "checkmark.circle.fill" : season.started ? "circle.lefthalf.filled" : "circle")
-                                    .foregroundStyle(.secondary)
-                                Text(season.seasonName ?? "")
-                                Spacer()
-                                Text("\(season.items) \(season.items == 1 ? "episode" : "episodes")")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            // Marked as its tile is: watched at its line's
+                            // end, partway by a thin bar.
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(season.seasonName ?? "")
+                                    Spacer()
+                                    if season.watched { WatchedMark() }
+                                    Text("\(season.items) \(season.items == 1 ? "episode" : "episodes")")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if season.started, !season.watched {
+                                    ProgressView(value: season.progress).controlSize(.mini)
+                                }
                             }
                             .padding(.vertical, 6)
                             .contentShape(Rectangle())
@@ -428,20 +432,18 @@ private struct ItemRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Button(action: play) {
-                Image(systemName: item.watched ? "checkmark.circle.fill" : "play.circle")
+                Image(systemName: "play.circle")
                     .font(.title3)
             }
-            // Tinted with the accent color, as a borderless button is; a
-            // watched one quieter.
             .buttonStyle(.borderless)
-            .tint(item.watched ? .secondary : nil)
-            .help(item.watched ? "Watched; play again" : "Play")
+            .help("Play")
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     StandIn(text: item.name, item: item, quality: quality, detail: detail)
                         .lineLimit(item.season == nil ? nil : 1)
                     Spacer()
                     DownloadMark(key: "\(detail.key)/\(item.key)")
+                    if item.watched { WatchedMark() }
                     if let runtime = item.runtime {
                         Text(runtime).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }

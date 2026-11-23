@@ -49,12 +49,6 @@ extension TitleDetail.Item {
 
     /// Begun but not finished.
     var inProgress: Bool { !watched && position > 0 }
-
-
-    /// A symbol of how far this person has watched it.
-    var progressSymbol: String {
-        watched ? "checkmark.circle.fill" : (inProgress ? "circle.lefthalf.filled" : "circle")
-    }
 }
 
 enum Runtime {
@@ -155,11 +149,67 @@ struct Marks: View {
     var body: some View {
         let watched = !items.isEmpty && items.allSatisfy(\.watched)
         ListsMenu(key: Library.listKey(detail.key, season: season))
-        // A status that pressing toggles: it shows whether it's watched.
-        Button(watched ? "Watched" : "Unwatched", systemImage: watched ? "checkmark.circle.fill" : "circle") {
-            library.setWatched(items, of: detail, !watched)
+        WatchedToggle(watched: watched) { library.setWatched(items, of: detail, !watched) }
+    }
+}
+
+/// Watched, as every player marks it, on tiles and items' rows alike, at
+/// the end of a name's line: green, not the accent color, which is white
+/// on tvOS.
+struct WatchedMark: View {
+    var body: some View {
+        Image(systemName: "checkmark.circle.fill")
+            .foregroundStyle(.green)
+            .accessibilityLabel("Watched")
+            .help("Watched")
+    }
+}
+
+/// A status that pressing toggles: whether a title (or a whole series) is
+/// watched, its check the watched mark's.
+struct WatchedToggle: View {
+    let watched: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            Label {
+                Text(watched ? "Watched" : "Unwatched")
+            } icon: {
+                Image(systemName: watched ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(watched ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+            }
         }
         .help(watched ? "Mark as unwatched" : "Mark as watched")
+    }
+}
+
+/// An item's row on the Apple TV and the iPhone, where the whole row plays
+/// it, as the Mac's inspector and the web client lay theirs out: its name,
+/// the watched mark and its runtime at the line's end, and partway, a thin
+/// bar under it.
+struct ItemLine: View {
+    let item: TitleDetail.Item
+    var name: String? = nil
+
+    var body: some View {
+        LabeledContent {
+            HStack {
+                if item.watched { WatchedMark() }
+                if let runtime = item.runtime { Text(runtime) }
+            }
+        } label: {
+            Label {
+                VStack(alignment: .leading) {
+                    Text(name ?? item.name)
+                    if item.inProgress, item.duration > 0 {
+                        ProgressView(value: Double(item.position), total: Double(item.duration))
+                    }
+                }
+            } icon: {
+                Image(systemName: "play.circle")
+            }
+        }
     }
 }
 
@@ -203,8 +253,7 @@ struct TileMarks: View {
         HStack(spacing: 3) {
             if downloaded { mark("arrow.down.circle.fill", .blue, "Downloaded") }
             if listed { mark("star.fill", .yellow, "On a list") }
-            // Green, not the accent color, which is white on tvOS.
-            if watched { mark("checkmark.circle.fill", .green, "Watched") }
+            if watched { WatchedMark() }
         }
     }
 

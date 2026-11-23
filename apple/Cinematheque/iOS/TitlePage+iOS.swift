@@ -66,13 +66,9 @@ struct TitlePage: View {
                                 Button {
                                     playing = Playback.request(detail, items: shown.isSeries ? items : [item], from: shown.isSeries ? index : 0, quality: detail.quality(for: items, chosen: quality))
                                 } label: {
-                                    LabeledContent {
-                                        if let runtime = item.runtime { Text(runtime) }
-                                    } label: {
-                                        Label(item.name, systemImage: item.progressSymbol)
-                                    }
-                                    .padding(.vertical, 10)
-                                    .contentShape(.rect)
+                                    ItemLine(item: item)
+                                        .padding(.vertical, 10)
+                                        .contentShape(.rect)
                                 }
                                 .buttonStyle(.plain)
                                 Divider()

@@ -294,8 +294,11 @@ function marksView(tile, lists) {
   if (!lists.length && !tile.watched) return null;
   return el("span", { class: "marks" },
     lists.length ? el("span", { class: "mark-star", title: "On " + lists.map((l) => l.name).join(", ") }, "★") : null,
-    tile.watched ? el("span", { class: "mark-watched", title: "Watched" }, "✓") : null);
+    tile.watched ? watchedMark() : null);
 }
+
+/// Watched, as tiles and items' rows mark it: a check on a green circle.
+const watchedMark = () => el("span", { class: "mark-watched", title: "Watched" }, "✓");
 
 /// "Season 3", "Specials", or a dated series' season's year alone, "2026"
 /// (a season of 1000 or more, as the core reads it), as the apps name them.
@@ -925,7 +928,7 @@ async function titlePage(key, season) {
     el("button", { class: "mark", type: "button", "aria-pressed": allWatched, onclick: async () => {
       for (const i of items) await api("watched", { item: `${key}/${i.key}`, watched: !allWatched });
       await refresh();
-    } }, allWatched ? "✓ Watched" : "○ Unwatched"),
+    } }, allWatched ? [watchedMark(), " Watched"] : "○ Unwatched"),
   );
   if (!quality) problem("None of its copies plays in a browser (MKV and ISO files don't).");
 
@@ -967,10 +970,10 @@ async function titlePage(key, season) {
     body.push(el("div", { class: "heading" }, el("h2", {}, "Versions")));
   }
   // An episode with its length, progress, and description; a version, its name.
-  if (isSeries || items.length > 1) body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", { class: isSeries && item.watched ? "watched" : null },
+  if (isSeries || items.length > 1) body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", {},
     el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
     el("span", { class: "title" }, itemTitle(detail, item)),
-    el("span", { class: "time" }, isSeries && item.fields.duration ? formatTime(Number(item.fields.duration)) : ""),
+    el("span", { class: "time" }, item.watched ? watchedMark() : null, isSeries && item.fields.duration ? formatTime(Number(item.fields.duration)) : ""),
     itemControls(detail, [item], quality),
     isSeries ? progressRow(detail, item) : null,
     isSeries && item.fields.description ? el("span", { class: "desc" }, item.fields.description) : null,

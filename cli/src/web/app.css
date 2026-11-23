@@ -248,7 +248,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   display: grid; place-items: center;
 }
 .episodes .title { font-weight: 500; }
-.episodes .watched .title::after { content: " ✓"; color: var(--dim); }
+.episodes .mark-watched { margin-right: 8px; vertical-align: 1px; }
 .episodes .time { color: var(--dim); font-size: 13px; }
 .episodes .desc { grid-column: 2 / 5; color: var(--dim); font-size: 13px; }
 .episodes .progress { grid-column: 2 / 5; margin: 0; }

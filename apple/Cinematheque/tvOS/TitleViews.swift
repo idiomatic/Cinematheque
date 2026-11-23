@@ -56,9 +56,11 @@ struct MovieView: View {
                     if detail.items.count > 1 {
                         VStack(alignment: .leading, spacing: 16) {
                             Text("Versions").font(.headline)
-                            ForEach(Array(detail.items.enumerated()), id: \.element.id) { index, item in
-                                Button(item.label, systemImage: item.watched ? "checkmark.circle.fill" : "play.circle") {
+                            ForEach(detail.items) { item in
+                                Button {
                                     playing = Playback.request(detail, items: [item], from: 0, quality: detail.quality(for: [item], chosen: quality))
+                                } label: {
+                                    ItemLine(item: item, name: item.label)
                                 }
                             }
                         }
@@ -181,7 +183,7 @@ struct SeasonView: View {
                                 Button {
                                     playing = Playback.request(detail, items: items, from: index, quality: detail.quality(for: items, chosen: quality))
                                 } label: {
-                                    Episode(item: item)
+                                    ItemLine(item: item)
                                 }
                             }
                         }
@@ -231,20 +233,6 @@ private struct Neighbor: View {
             }
         }
         .disabled(season == nil)
-    }
-}
-
-/// An episode's row: its number and title, its runtime, and this person's
-/// progress in it.
-private struct Episode: View {
-    let item: TitleDetail.Item
-
-    var body: some View {
-        LabeledContent {
-            if let runtime = item.runtime { Text(runtime) }
-        } label: {
-            Label(item.name, systemImage: item.progressSymbol)
-        }
     }
 }
 
