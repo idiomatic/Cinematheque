@@ -226,6 +226,7 @@ Their details, as built, are in [apple/README.md](apple/README.md#in-detail).
   * `CINEMATHEQUE_PAGE` (tvOS, once a launch): on Settings, a page (`people`, `devices`, `sources`, or the page for adding, `add-someone` or `add-device`); on the Lists page, a list's (`list:<id>`).
   * `CINEMATHEQUE_PAIR` (tvOS, once a launch, on a page for adding): a code to enter for the first new device found.
   * `CINEMATHEQUE_SERVER` (tvOS, once a launch, on Sources): an address to add.
+  * `CINEMATHEQUE_APPEARANCE`: `dark` or `light`, the app's whatever the system's (the tvOS simulator's can't be set).
   * `CINEMATHEQUE_PLAY` (once a launch): a URL to play on macOS, with `CINEMATHEQUE_ITEM`, its item key, for its progress; any value on tvOS and iOS, to play the opened title.
 
 ## Implementation
@@ -236,7 +237,7 @@ Their details, as built, are in [apple/README.md](apple/README.md#in-detail).
 * **CI** ([.github/workflows](.github/workflows)): on every push and pull request, the core's tests, the command-line app ReleaseSafe and [cli/test.sh](cli/test.sh) on Linux and macOS (allowed to fail on macOS, whose Local Network privacy may keep the runner's processes off the LAN), and the Apple app for macOS and the tvOS and iOS simulators. On a tag `v*`, once it matches the version, a GitHub release, its notes the version's changelog section ([tools/release-notes.sh](tools/release-notes.sh)): the command-line app for macOS and Linux, each on aarch64 and x86_64, as `.tar.gz` with SHA-256 checksums, and the Mac app, Release, signed ad hoc, zipped.
 * SwiftUI for Apple players.
 * SQLite for each device's replica.
-* Tests: the core's unit tests (`zig build test`; `zig build` compiles the C interface too), [cli/test.sh](cli/test.sh) (two devices and more, end to end), screenshots of the macOS player in a macOS VM (terrarium's `macos-27.2-quiet`), and of the Apple TV player in the tvOS simulator (an Apple TV 4K, 3rd generation).
+* Tests: the core's unit tests (`zig build test`; `zig build` compiles the C interface too), [cli/test.sh](cli/test.sh) (two devices and more, end to end), screenshots of the macOS player in a macOS VM (terrarium's `macos-27.2-quiet`), and of the Apple TV player in the tvOS simulator (an Apple TV 4K, 3rd generation); the README's, of every player on the mock library, by [tools/screenshots.sh](tools/screenshots.sh).
 
 ## Scale
 

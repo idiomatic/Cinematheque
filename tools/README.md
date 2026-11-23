@@ -40,3 +40,15 @@ M=~/Library/Application\ Support/Cinematheque-mock
 ```
 
 A debug build runs on a copy of its data, `SIMCTL_CHILD_CINEMATHEQUE_DATA=/tmp/cq-data xcrun simctl launch booted com.rbrian.cinematheque`, or a copy in the app's own data directory (`Library/Application Support/Cinematheque` in `xcrun simctl get_app_container booted com.rbrian.cinematheque data` on iOS; `Library/Caches/Cinematheque` on tvOS) runs on it at every launch.
+
+## Screenshots
+
+[screenshots.sh](screenshots.sh) takes the README's pictures of every player, in dark and light appearance, into [docs/screenshots](../docs/screenshots): `tools/screenshots.sh`, or some of `mac`, `tv`, `iphone`, and `web`. It makes a fresh mock library (above), serves it on port 8649 (so a developer's 8642 is left alone), and builds the apps, Debug, for their launch options ([AGENTS.md](../AGENTS.md#debugging)).
+
+* **The iPhone** (an iPhone 17 simulator): Home, the Series tab, and that season's page, side by side by [side.swift](screenshots/side.swift), each with the iPhone's rounded corners, as one tall screen stood far taller than the others in the README's row; its status bar at 9:41.
+* **The Apple TV** (an Apple TV 4K, 3rd generation, simulator, scaled to 1080p): a season's page, opened by its Top Shelf link, as a person's press opens it, Resume focused (pushed by `CINEMATHEQUE_SELECT` at launch, focus went to Start Over).
+* **The web client:** Movies, 960×720 points, rendered by [web.swift](screenshots/web.swift) in WebKit once every cover on screen has loaded, in a clear window on screen, as WebKit runs no animation frames off screen.
+* **The Mac,** in a terrarium VM (`macos-27.2-quiet`, 4 GB; the command is `$TERRARIUM`, else `terrarium`): the Series shelf, a band open, the inspector on that season. It answers the Local Network prompt whenever it comes, shooting again if it was up, sizes the window by dragging it as a person would (SwiftUI sizes it again after the app could), and crops the shot to the window, its corners clear, by [frame.swift](screenshots/frame.swift), finding it by [windows.swift](screenshots/windows.swift) in the guest (`screencapture` can't there, without Screen Recording permission). A 1× display, as terrarium gives macOS guests.
+
+A shot is taken once the screen holds still for three frames in a row, not after a fixed wait. Each PNG is squeezed by `pngquant` (to a palette, about a quarter the bytes, alike at a README's sizes), then `oxipng`, each if it's installed (`brew install pngquant`).
+

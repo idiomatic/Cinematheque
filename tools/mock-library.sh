@@ -46,9 +46,13 @@ tmp=$(mktemp -d)
 serve_pid=
 cleanup() {
     [[ -z $serve_pid ]] || kill $serve_pid 2> /dev/null || true
+    serve_pid=
     rm -rf -- $tmp
 }
+# On a failure too: zsh skips the EXIT trap when `set -e` stops it within
+# a function.
 trap cleanup EXIT
+trap 'cleanup; exit 1' ZERR
 
 # The catalog is read twice: once for its covers (pass=cover), drawn all
 # at once, then for its videos (pass=video).

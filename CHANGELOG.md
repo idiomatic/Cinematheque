@@ -4,6 +4,8 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* README: screenshots of the Mac, the Apple TV, the iPhone, and the web client, in dark and light, taken by `tools/screenshots.sh` on the mock library; debug builds take `CINEMATHEQUE_APPEARANCE`.
+* Apple TV: a title opened from the Top Shelf reads in light appearance, on the system's background, not black.
 * `Version.xcconfig` moved into `apple/`; the core takes its version from whoever builds it (`-Dversion`), depending on nothing of `apple/`.
 * Debug builds of the Apple app build the core unoptimized, several times faster; Release builds stay ReleaseSafe.
 * Debug builds on iOS and tvOS honor `CINEMATHEQUE_DATA`, running a simulator on a library of the Mac's, such as the mock one.

@@ -16,6 +16,15 @@ Every device keeps its own copy of the catalog (the titles, their episodes and v
 
 ## Getting it
 
+<table><tr>
+<td align="center"><a href="docs/screenshots/mac-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/mac-light.png"><img src="docs/screenshots/mac-dark.png" alt="The Mac app: the Series shelf, a series’ seasons open below it, and the inspector on a season partway through" height="120"></picture></a><br><sub>Mac</sub></td>
+<td align="center"><a href="docs/screenshots/tv-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/tv-light.png"><img src="docs/screenshots/tv-dark.png" alt="The Apple TV app: a season’s page, Resume focused, over its blurred cover" height="120"></picture></a><br><sub>Apple TV</sub></td>
+<td align="center"><a href="docs/screenshots/iphone-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/iphone-light.png"><img src="docs/screenshots/iphone-dark.png" alt="The iPhone app, a prototype: Home’s rows, the Series tab, and a season’s page" height="120"></picture></a><br><sub>iPhone (a prototype)</sub></td>
+<td align="center"><a href="docs/screenshots/web-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/web-light.png"><img src="docs/screenshots/web-dark.png" alt="The web client: the Movies shelf, with its sidebar" height="120"></picture></a><br><sub>Web</sub></td>
+</tr></table>
+
+On a [mock library](tools/README.md#a-mock-library) (see [Screenshots](tools/README.md#screenshots)).
+
 * **On a Mac or an Apple TV,** build the app; [apple/README.md](apple/README.md) says how. It needs Xcode 27 or later.
 * **Releases** are on [GitHub](https://github.com/idiomatic/Cinematheque/releases): the command-line app for macOS and Linux, and the Mac app, each with what changed, from [CHANGELOG.md](CHANGELOG.md). Versions are numbered major.minor from 0.1 (a third number for fixes), each tagged `v` and its number (`v0.1`).
 * **On the command line,** on macOS or Linux, build the command-line app; [cli/README.md](cli/README.md) says how, and how to use it. It builds and shares a library; run in the background, it keeps the library available to your other devices and to browsers.

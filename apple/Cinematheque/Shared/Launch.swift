@@ -1,5 +1,8 @@
 #if DEBUG
-import Foundation
+#if os(macOS)
+import AppKit
+#endif
+import SwiftUI
 
 /// Debug builds' launch options, for driving the app unattended (in a VM,
 /// by `open --env`; in the tvOS simulator, by `simctl launch` with each
@@ -83,5 +86,24 @@ enum Launch {
     /// `CINEMATHEQUE_ITEM`: the item the URL played is a copy of, for its
     /// progress (macOS).
     static var item: String? { env["CINEMATHEQUE_ITEM"] }
+
+    /// `CINEMATHEQUE_APPEARANCE`: `dark` or `light`, the app's whatever
+    /// the system's, for screenshots in each (the tvOS simulator's can't
+    /// be set from outside).
+    static var colorScheme: ColorScheme? {
+        switch env["CINEMATHEQUE_APPEARANCE"] {
+        case "dark": .dark
+        case "light": .light
+        default: nil
+        }
+    }
+
+    #if os(macOS)
+    /// The app's appearance, as `colorScheme` names it, for AppKit's menus
+    /// and windows alike.
+    static var appearance: NSAppearance? {
+        colorScheme.flatMap { NSAppearance(named: $0 == .dark ? .darkAqua : .aqua) }
+    }
+    #endif
 }
 #endif

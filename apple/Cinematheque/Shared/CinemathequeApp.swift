@@ -16,6 +16,9 @@ struct CinemathequeApp: App {
         if UserDefaults.standard.object(forKey: "NSScrollAnimationEnabled") == nil {
             UserDefaults.standard.set(false, forKey: "NSScrollAnimationEnabled")
         }
+        #if DEBUG
+        if let appearance = Launch.appearance { NSApplication.shared.appearance = appearance }
+        #endif
         #endif
         let dataDir = Platform.prepareDataDir()
         _library = State(initialValue: Library(dataDir: dataDir))
@@ -25,6 +28,9 @@ struct CinemathequeApp: App {
         WindowGroup("Cinematheque") {
             RootView()
                 .environment(library)
+                #if DEBUG && !os(macOS)
+                .preferredColorScheme(Launch.colorScheme)
+                #endif
         }
         #if os(macOS)
         // Sized by what it shows: the welcome window fixed, the library's

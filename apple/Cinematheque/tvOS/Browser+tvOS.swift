@@ -81,7 +81,7 @@ struct Browser: View {
             // Its own ground, under its backdrop, as the app's own is
             // behind it now.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background { Color.black.ignoresSafeArea() }
+            .background { Rectangle().fill(.background).ignoresSafeArea() }
         }
         // What Home shows, for the Top Shelf, once changes settle.
         .task(id: library.revision) {
