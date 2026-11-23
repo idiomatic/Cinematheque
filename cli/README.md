@@ -102,9 +102,9 @@ Progress is private: it's written on this device's private stream, and travels o
 
 ### Devices, syncing, and serving
 
-* `serve` answers other devices' syncs (`/sync`) until stopped, and prints a line once listening (with `--web`, the web client's address). It listens on `--port`, else on 8008, or any free port if 8008 is taken, and advertises the port it got by DNS-SD, with the library, the person, and the names of this device and person.
+* `serve` answers other devices' syncs (`/sync`) until stopped, and prints a line once listening, with the web client's address. It listens on `--port`, else on 8008, or any free port if 8008 is taken, and advertises the port it got by DNS-SD, with the library, the person, and the names of this device and person.
   * `--media DIR` serves a directory of videos at `/media/`, making this device a source too (added as `http://<host>:8008/media/`): byte ranges, listings as JSON or HTML, and an `INDEX` of every file and directory, built at start and again on a request once it's a minute old.
-  * `--web` serves a web client at the root (see [In a browser](#in-a-browser)).
+  * The web client is served at the root (see [In a browser](#in-a-browser)), unless `--no-web`; `--permissive` lets every browser that reaches the port act as this device, not only one on this computer.
   * `--downloads DIR` keeps this device's downloads in DIR, as the Mac app keeps its own, served at `/downloads/` for other devices to play from; the web client chooses what's kept.
 * `sync [URL]` syncs both ways with one device, or with every device of this library found nearby or added: it pulls what this device lacks, then pushes what the other lacks. Each prints a line: operations pulled, how many were new, lost (older than what's held), known, rejected (from a device not yet admitted), and refused (past a cutoff); then batches and size, how many were pushed, and time. A device that can't be reached prints its error, and the rest go on. Since it pushes too, a device behind a NAT keeps a server it can reach in step both ways, and `serve` on the server takes pushes as it answers pulls.
 * `refresh` syncs with every device, then crawls every source no device crawled within the library's interval: every day unless `library set --crawl` says 1, 3, or 168 hours, or `manually`, give or take a 24th of it. The catalog others have described arrives first, so the crawl finds little to do, and a NAS's disks spin up for crawling no more than chosen, not at every refresh. `--jitter SECONDS` first waits a random time up to that, so devices on timers don't refresh together. `crawl` crawls every source, however lately.
@@ -112,8 +112,9 @@ Progress is private: it's written on this device's private stream, and travels o
 
 ### In a browser
 
-`serve --web` serves a web client at the root (`http://<host>:8008/`):
+`serve` serves a web client at the root (`http://<host>:8008/`). On a device with no library yet, it starts anyway, and the web client sets one up: Create a Library, or Join a Library, showing a code for a member's device to add it by (as `person pair` offers, at `/pair` on the same port, advertised as a new device). So one command, `serve --media DIR`, then a browser on the same computer, makes a working library with no other device: create it, add the served folder as a source, and Refresh Library.
 
+* Settings, as the Mac's panes have them: names; people (removing them, and adding someone new by the code their device shows); this person's devices (renaming, removing, and adding them by their codes, from those offering nearby, listed as they're found, one after another until Done, or by the address one prints); sources (adding a server's address, or the folder `--media` serves, but no other folder, so a browser can't share one of this computer's; removing one, or an unavailable folder's videos); how often sources are looked through, and Refresh Library (or Fully); devices added by address; and Leave This Library, removing this device and syncing that before forgetting, as the apps do (asking who takes it over if this person founded it and has no other device).
 * Movies, Series, Watching, Watched, and your lists in a sidebar, with search, as the Mac app has them; in a narrow window, a tab bar of Home, Movies, Series, Lists, and Search, as an iPhone's.
 * Each title's page, with its seasons and episodes (read from their files as a season's shown, as the apps do).
 * A player that resumes where you left off and goes on to the next episode. Videos play straight from their sources (the server picks the copy whose server answers first). Browsers play MP4, M4V, and MOV files, not MKV or ISO.
@@ -121,7 +122,7 @@ Progress is private: it's written on this device's private stream, and travels o
 * Download, bringing an episode or movie to the browser's own computer through the server, so it works when the browser can't reach the sources.
 * With `--downloads DIR`, Keep, having the server keep a title (as the Mac app downloads to the Mac), so other devices play it from the server.
 
-A browser has no keys, so it acts as this device's person: what you watch there, and the lists, are theirs, and reach their other devices a few seconds after your changes stop, as the server syncs with them. Anyone who can reach the port can use it, as they can the media it serves, so it's off unless `--web` is given.
+A browser has no keys, so it acts as this device's person: what you watch there, and the lists, are theirs, and reach their other devices a few seconds after your changes stop, as the server syncs with them. So only a browser on the server's own computer may (by its loopback address: `localhost`, or an SSH tunnel's end, `ssh -L 8008:localhost:8008 hal`); any other is told to open it there, unless `serve --permissive`, for a network where everyone reaching the port may act as this device's person. (A proxy on the same computer passing others' requests on would be taken for it, so put none in front of it.)
 
 On macOS, Local Network privacy decides whether the app may reach other devices (a NAS, for covers, copy racing, and syncing), and macOS asks it of the app that started it. So start it from one allowed it in System Settings › Privacy & Security › Local Network, as Terminal can be. Some apps' built-in terminals (OpenCode's, say) run it under a helper of their own, which isn't allowed even when the app is; started there, every connection to another device fails at once (`HostUnreachable`).
 
@@ -216,7 +217,7 @@ It's embedded in the app: plain HTML, CSS, and JavaScript, no framework. What it
 
 What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 
-* The command-line app can't name people or devices; the apps do, and the names reach it by sync.
+* Its commands can't name people or devices; the web client's Settings and the apps do, and the names reach it by sync.
 * There's no Windows build yet.
 
 ## Sources
@@ -224,6 +225,9 @@ What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 * [main.zig](src/main.zig): the command line. `Args` parses words and options (an option not among the flags takes the next word as its value) and expands the `ls` and `show` shortcuts. `Command.is` matches a verb, its arity, and the options it allows. The nouns and actions are tables of functions; `help` prints a noun's or action's part of [usage.txt](src/usage.txt), which it embeds. It opens the data directory and the `App` every command acts with (the store, the output, and the clock), and turns `error.Usage` into help and status 2.
 * [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `device`, `source`, `title`, `alias`, `progress`); sending pairing codes (`pairWith`, which finds the one device offering nearby); and `crawl` and `refresh`, which crawl sources and then describe them.
 * [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync`, which syncs with the device given, or with every device found by DNS-SD and in `local` (`address:URL`), as `syncEvery` does for `refresh`, through `exchangeAll`; the listing and adding of addresses behind `device`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
+* [web.zig](src/web.zig): the web client's server: its files, embedded; which browser acts as this device (`local`, by its loopback address, or any with `--permissive`); syncs answered as this device is now (`snapshot`); and the API for browsing, playing, lists, and downloads.
+* [setup.zig](src/setup.zig): setup (creating a library, or offering to join one at `/pair` on the same port, and advertising afresh as it changes) and settings' API, and `keepRefreshed`, which runs Refresh Library on a task of its own.
+* [web/](src/web): the page, as classic scripts sharing one scope: [settings.js](src/web/settings.js) (setup, why a browser elsewhere can't act as this device, and Settings), [app.js](src/web/app.js) (shelves, title pages, downloads, and playing), and [route.js](src/web/route.js) (each page's address, and starting the app, past setup).
 * [usage.txt](src/usage.txt): the commands and the help.
 * [test.sh](test.sh): the end-to-end test. Devices on one computer, each with its own data directory, found a library and serve a generated source as media. They crawl, pair (to join, and as another of a person's devices) at the ports their offers print, and sync until their digests match; the test checks that a removed member is refused and that progress travels only between the person's devices.
 * [test/gen.zig](test/gen.zig): the test source's generator (`gen DIR [DIVISOR]`): a media tree at the library's full scale, or a fraction of it, named as Plex and Jellyfin expect, of sparse files that take no disk space.

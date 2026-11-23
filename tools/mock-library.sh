@@ -258,7 +258,7 @@ echo "made a mock library in $dir"
 [[ -x $cq ]] || (cd $here/../cli && zig build --release=safe)
 d=(--data $data)
 $cq $d library create
-$cq $d serve --port $port --media $dir --web > $tmp/serve.log 2>&1 &
+$cq $d serve --port $port --media $dir > $tmp/serve.log 2>&1 &
 serve_pid=$!
 for _ in {1..100}; do grep -q '^serving' $tmp/serve.log && break; sleep 0.1; done
 grep -q '^serving' $tmp/serve.log || { cat $tmp/serve.log >&2; exit 1 }
@@ -287,4 +287,4 @@ kill $serve_pid
 wait $serve_pid 2> /dev/null || true
 serve_pid=
 echo "made a library of it in $data; serve it again with:"
-echo "  $cq --data $data serve --port $port --media $dir --web"
+echo "  $cq --data $data serve --port $port --media $dir"

@@ -350,3 +350,53 @@ button.warn { color: #ff9f0a; }
   .page { grid-template-columns: 1fr; }
   .page .art { width: 200px; }
 }
+
+/* Settings, its own line at the sidebar's foot, apart from the shelves. */
+#sidebar .sidebar-end { margin-top: 18px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent); }
+
+/* Setup, and why a browser elsewhere can't act as this device: the page
+   alone, centered, as the apps' welcome is, without the shelves. */
+body.outside { display: block; }
+body.outside #sidebar, body.outside header, body.outside #tabs, body.outside #status { display: none; }
+.welcome { max-width: 460px; margin: 12vh auto; padding: 0 20px; display: grid; gap: 14px; text-align: center; }
+.welcome .brand { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 22px; font-weight: 600; margin-bottom: 12px; }
+.welcome .brand svg { width: 44px; height: 44px; }
+.welcome h1 { font-size: 20px; margin: 0; }
+.welcome p { margin: 0; }
+.welcome code { font-size: 13px; white-space: nowrap; }
+.welcome .choice { display: grid; gap: 2px; padding: 14px 18px; text-align: left; border-radius: 12px; }
+.welcome .choice span { color: var(--dim); font-size: 13px; }
+/* A code, a digit to a box, in two groups of three. */
+.code { display: flex; justify-content: center; gap: 18px; margin: 8px 0; }
+.code div { display: flex; gap: 6px; }
+.code span {
+  display: grid; place-items: center; width: 40px; height: 52px; border-radius: 8px;
+  background: var(--raised); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+
+/* Settings: sections of rows, each its name, a note at its end, and what's
+   done to it. */
+.settings { max-width: 720px; padding-bottom: 48px; }
+.settings section { margin: 28px 0; }
+.settings h2 { font-size: 17px; margin: 0 0 4px; }
+.settings section > p.dim { margin: 0 0 10px; font-size: 13px; }
+.settings .row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+}
+.settings .row .name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.settings .row .dim { font-size: 13px; white-space: nowrap; }
+.settings .row input:not(.code-input) { flex: 0 1 260px; }
+.settings .line { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.settings .line input { flex: 1 1 260px; }
+/* Adding a device: a tinted sheet below its button's place, Cancel at its
+   foot. */
+.settings .pairing { margin-top: 10px; padding: 4px 14px 14px; border-radius: 10px; background: var(--raised); }
+.settings .pairing > p.dim { margin: 10px 0 4px; font-size: 13px; }
+.settings .pairing p:empty { display: none; }
+.settings [hidden] { display: none; }
+.settings .code-input { width: 6.5em; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; }
+.settings .source .row:not(:first-child) { padding-left: 18px; font-size: 13px; }
+.settings input, .settings select { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); background: Canvas; color: inherit; }
+.settings p.note { margin: 8px 0 0; font-size: 13px; }
+.settings p.note:empty { display: none; }

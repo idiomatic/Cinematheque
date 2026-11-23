@@ -1,35 +1,67 @@
-//! The web client, served at the root by `serve --web`: a page (and its
-//! script and style, embedded) that browses the library and plays from its
-//! sources, and the JSON it asks for under `/api/`. A browser has no keys of
-//! its own, so it acts as this device's person: its progress, watched marks,
-//! and lists are theirs. Anyone who can reach the port can use it, as
-//! they can the media it serves.
+//! The web client, served at the root by `serve` (unless `--no-web`): a
+//! page (and its script and style, embedded) that sets up a library,
+//! browses it, plays from its sources, and changes its settings, and the
+//! JSON it asks for under `/api/`. A browser has no keys of its own, so it
+//! acts as this device's person: its progress, watched marks, and lists
+//! are theirs. Only a browser on this computer may (one at `localhost`, or
+//! through an SSH tunnel), unless `serve --permissive` lets every browser
+//! that reaches the port; others are told so.
 
 const std = @import("std");
 const Io = std.Io;
 const http = std.http;
 const core = @import("core");
 const Replica = core.replica.Replica;
+const setup = @import("setup.zig");
 
 const files = [_]struct { path: []const u8, type: []const u8, body: []const u8 }{
     .{ .path = "/", .type = "text/html; charset=utf-8", .body = @embedFile("web/index.html") },
     .{ .path = "/app.js", .type = "text/javascript; charset=utf-8", .body = @embedFile("web/app.js") },
+    .{ .path = "/settings.js", .type = "text/javascript; charset=utf-8", .body = @embedFile("web/settings.js") },
+    .{ .path = "/route.js", .type = "text/javascript; charset=utf-8", .body = @embedFile("web/route.js") },
     .{ .path = "/app.css", .type = "text/css; charset=utf-8", .body = @embedFile("web/app.css") },
 };
 
 pub const Web = struct {
+    /// This device's data directory, whose identity and library change as
+    /// one's created, joined, or left (with `state` held, and `seen` around
+    /// each change, so a snapshot sees it whole).
+    store: core.store.Store,
+    /// The library, by its founder, if this device has one yet.
+    founder: ?[32]u8,
+    /// Held through setup's changes (a library created, joined, or left,
+    /// and advertising); taken before `writer`, never after.
+    state: Io.Mutex = .init,
+    /// Held only to read or change `founder` and `store`'s identity, with
+    /// nothing else taken meanwhile, so any task may take a snapshot.
+    seen: Io.Mutex = .init,
+    /// What lasts as long as serving: the store's own (opened again as the
+    /// device leaves) and what it advertises.
+    long: std.mem.Allocator,
     path: [:0]const u8,
-    founder: [32]u8,
-    identity: core.replica.Identity,
-    /// Answers first (another device's sync), before the web client does.
-    next: core.serve.Handler,
+    /// Whether every browser that reaches the port acts as this device's
+    /// person, not only one on this computer (`serve --permissive`).
+    permissive: bool = false,
+    /// What serves, to advertise afresh as the library or names change.
+    host: ?*core.host.Host = null,
+    /// The folder `serve --media` shares, and its address, which settings
+    /// may add as a source (no other folder, so a browser can't share one).
+    media: ?struct { dir: []const u8, url: []const u8 } = null,
+    /// Where `serve --downloads` keeps them, configured once there's a
+    /// library, and the port it serves on.
+    downloads_dir: ?[]const u8 = null,
+    /// This device's offer to be added, as a new device, while setup shows
+    /// its code (`offering`), answered at `/pair` on this port; with `state`
+    /// held. Kept, not freed, once done, as an answer may still be using it.
+    offer: core.pair.Offer = undefined,
+    offering: bool = false,
+    /// Refresh Library, run on a task of its own (`setup.keepRefreshed`).
+    refreshing: setup.Refreshing = .{},
     /// Held around this device's own writes (progress, lists), one
     /// connection writing as the device at a time.
     writer: Io.Mutex = .init,
     /// Servers whose copies didn't answer lately, for copy racing.
     racing: core.race.Memory = .{},
-    /// The DNS-SD name this device advertises, so syncing skips it.
-    own: []const u8,
     /// When a browser last changed something of this person's (in
     /// milliseconds), if it hasn't been synced since; else 0.
     changed: std.atomic.Value(i64) = .init(0),
@@ -53,6 +85,16 @@ pub const Web = struct {
         return .{ .context = w, .function = respond };
     }
 
+    /// Who this device is, and its library, as of now.
+    pub const Snapshot = struct { founder: [32]u8, identity: core.replica.Identity, own: []const u8 };
+
+    /// This device's library and identity, or `error.NoLibrary`.
+    pub fn snapshot(w: *Web, io: Io, arena: std.mem.Allocator) !Snapshot {
+        try w.seen.lock(io);
+        defer w.seen.unlock(io);
+        return .{ .founder = w.founder orelse return error.NoLibrary, .identity = w.store.identity, .own = try w.store.serviceName(arena) };
+    }
+
     /// While serving: a second after a browser's change, once changes stop,
     /// syncs with every device found nearby or added, so the person's other
     /// devices have it at once, as the apps' changes reach them, rather than
@@ -70,14 +112,14 @@ pub const Web = struct {
         }
     }
 
-    fn syncAll(w: *Web, io: Io, gpa: std.mem.Allocator) !void {
+    pub fn syncAll(w: *Web, io: Io, gpa: std.mem.Allocator) !void {
         var arena_state = std.heap.ArenaAllocator.init(gpa);
         defer arena_state.deinit();
         const arena = arena_state.allocator();
         var r = try open(w, io, gpa);
         defer r.close();
         // Found before writing, so looking holds up no page's writes.
-        const found = try core.sync.everyDevice(io, arena, &r, w.own);
+        const found = try core.sync.everyDevice(io, arena, &r, (try w.snapshot(io, arena)).own);
         var client: http.Client = .{ .allocator = gpa, .io = io };
         defer client.deinit();
         // The writer taken for one device at a time, so a page's writes
@@ -104,6 +146,8 @@ pub const Web = struct {
             const t = now(io);
             if (!w.reconcile_again.swap(false, .acq_rel) and t -| last < reconcile_every_ms) continue;
             last = t;
+            // Nothing to keep until there's a library.
+            if (w.founder == null) continue;
             w.reconciling.store(true, .release);
             defer w.reconciling.store(false, .release);
             w.reconcile(io, gpa) catch |err| switch (err) {
@@ -132,9 +176,26 @@ pub const Web = struct {
 
 fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request, peer: Io.net.IpAddress) anyerror!bool {
     const w: *Web = @ptrCast(@alignCast(context.?));
-    if (try w.next.function(w.next.context, io, gpa, request, peer)) return true;
     const target = request.head.target;
     const path = target[0 .. std.mem.indexOfScalar(u8, target, '?') orelse target.len];
+    // Another device's sync, answered as this device is now, once it has a
+    // library.
+    if (std.mem.eql(u8, path, core.sync.path)) {
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const now_is = w.snapshot(io, arena_state.allocator()) catch |err| switch (err) {
+            error.NoLibrary => return false,
+            else => |e| return e,
+        };
+        var sharing: core.sync.Sharing = .{ .path = w.path, .founder = now_is.founder, .identity = now_is.identity };
+        const h = sharing.handler();
+        return h.function(h.context, io, gpa, request, peer);
+    }
+    // A member's device adding this one, while it offers to be added.
+    if (std.mem.eql(u8, path, core.pair.path) and w.offering) {
+        const h = w.offer.handler();
+        return h.function(h.context, io, gpa, request, peer);
+    }
     const page = for (files) |f| {
         if (std.mem.eql(u8, path, f.path) or (std.mem.eql(u8, f.path, "/") and std.mem.eql(u8, path, "/index.html"))) break f;
     } else null;
@@ -157,13 +218,24 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    api(w, io, gpa, arena, request, path["/api/".len..], query(target)) catch |err| {
+    const name = path["/api/".len..];
+    // Where it stands, which any browser may ask, to be told what it may do.
+    const attempt = if (std.mem.eql(u8, name, "status"))
+        setup.status(w, io, gpa, arena, request, w.permissive or local(peer))
+    else if (!w.permissive and !local(peer))
+        error.NotLocal
+    else if (setup.handles(name))
+        setup.api(w, io, gpa, arena, request, name)
+    else
+        api(w, io, gpa, arena, request, name, query(target));
+    attempt catch |err| {
         // An answer begun can't tell of a failure in its body: the
         // connection's dropped, its length unmet, so the browser knows.
         if (err == error.CutShort) return err;
         const status: http.Status = switch (err) {
             error.NoSuchTitle, error.NotFound => .not_found,
-            error.Forbidden => .forbidden,
+            error.Forbidden, error.NotLocal => .forbidden,
+            error.NoLibrary, error.LibraryExists, error.Busy => .conflict,
             error.BadRequest, error.InvalidArgument, error.SyntaxError, error.UnexpectedEndOfInput, error.InvalidCharacter, error.Overflow => .bad_request,
             else => .internal_server_error,
         };
@@ -179,7 +251,31 @@ const guarded = [_]http.Header{
     .{ .name = "x-content-type-options", .value = "nosniff" },
 };
 
-fn header(request: *http.Server.Request, name: []const u8) ?[]const u8 {
+/// Whether a request comes from this computer: its loopback address, as a
+/// browser on it reaches it by `localhost`, or an SSH tunnel's end does.
+/// (A proxy on this computer passing others' requests on would be taken for
+/// it, so serve none.)
+fn local(peer: Io.net.IpAddress) bool {
+    return switch (peer) {
+        .ip4 => |a| a.bytes[0] == 127,
+        .ip6 => |a| std.mem.eql(u8, &a.bytes, &loopback6) or
+            (std.mem.eql(u8, a.bytes[0..12], &mapped4) and a.bytes[12] == 127),
+    };
+}
+
+/// `::1`, and the prefix of an IPv4 address mapped into IPv6.
+const loopback6 = [16]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+const mapped4 = [12]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
+
+test "only this computer's own addresses are local" {
+    try std.testing.expect(local(.{ .ip4 = .loopback(8008) }));
+    try std.testing.expect(local(try Io.net.IpAddress.parse("::1", 8008)));
+    try std.testing.expect(local(try Io.net.IpAddress.parse("::ffff:127.0.0.1", 8008)));
+    try std.testing.expect(!local(try Io.net.IpAddress.parse("192.168.1.20", 8008)));
+    try std.testing.expect(!local(try Io.net.IpAddress.parse("fe80::1", 8008)));
+}
+
+pub fn header(request: *http.Server.Request, name: []const u8) ?[]const u8 {
     var it = request.iterateHeaders();
     while (it.next()) |h| if (std.ascii.eqlIgnoreCase(h.name, name)) return h.value;
     return null;
@@ -250,11 +346,15 @@ fn param(arena: std.mem.Allocator, q: []const u8, name: []const u8) !?[]const u8
     return null;
 }
 
-fn open(w: *Web, io: Io, gpa: std.mem.Allocator) !Replica {
-    return Replica.open(gpa, io, w.path, w.founder, w.identity);
+pub fn open(w: *Web, io: Io, gpa: std.mem.Allocator) !Replica {
+    // Enough for its service name, which `snapshot` gives too.
+    var buffer: [256]u8 = undefined;
+    var fixed = std.heap.FixedBufferAllocator.init(&buffer);
+    const now_is = try w.snapshot(io, fixed.allocator());
+    return Replica.open(gpa, io, w.path, now_is.founder, now_is.identity);
 }
 
-fn now(io: Io) u64 {
+pub fn now(io: Io) u64 {
     return @intCast(Io.Timestamp.now(io, .real).toMilliseconds());
 }
 
@@ -398,7 +498,7 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     return sendJson(arena, request, true);
 }
 
-fn sendJson(arena: std.mem.Allocator, request: *http.Server.Request, value: anytype) !void {
+pub fn sendJson(arena: std.mem.Allocator, request: *http.Server.Request, value: anytype) !void {
     const text = try core.json.valueAlloc(arena, value);
     try request.respond(text, .{ .extra_headers = &([_]http.Header{
         .{ .name = "content-type", .value = "application/json" },

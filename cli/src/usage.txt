@@ -112,16 +112,21 @@ device list prints it.
                                files rewritten in place (retagged)
   sync [URL]                   pull from a device, or from every device
                                found or added
-  serve [--port PORT] [--media DIR] [--web] [--downloads DIR]
+  serve [--port PORT] [--media DIR] [--downloads DIR] [--no-web]
+        [--permissive]
                                answer other devices' syncs, and serve
                                media (at /media/), on the port given, else
                                on 8008 or, if that's taken, any free port;
-                               with --web, a web client at the root, which
-                               browses and plays as this person, and saves
-                               files to the browser's computer; with
-                               --downloads, this device keeps downloads in
-                               DIR (served at /downloads/), which the web
-                               client chooses, as the Mac app's are
+                               and a web client at the root (unless
+                               --no-web), which sets up a library if
+                               there's none, browses and plays as this
+                               person, changes settings, and saves files
+                               to the browser's computer, for a browser on
+                               this computer alone (--permissive: every
+                               browser that reaches it); with --downloads,
+                               this device keeps downloads in DIR (served
+                               at /downloads/), which the web client
+                               chooses, as the Mac app's are
   refresh [--jitter SECONDS]   sync, then crawl the sources no device
                                crawled within the library's interval
                                (library set --crawl), first waiting a

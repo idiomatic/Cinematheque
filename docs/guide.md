@@ -40,47 +40,28 @@ The details behind the [README](../README.md), for when you want them.
 
 ## In a browser
 
-The command-line app can serve a web client, so any computer on your network browses and plays the library in a browser, with nothing installed. It runs on a computer that stays on: a home server, a NAS that runs Linux, or a Mac.
+The command-line app serves a web client, so you set up, browse, and play the library in a browser, with nothing installed. It runs on a computer that stays on: a home server, a NAS that runs Linux, or a Mac.
 
 1. **Get the command-line app** onto that computer (see [Getting it](../README.md#getting-it)).
-2. **Give it a library,** one of two ways:
-   * **Join yours.** On it, offer to be added; it prints a code and waits:
+2. **Serve it,** with a folder of videos (`--media`), and if you like, a folder to keep downloads in for your other devices (`--downloads`):
 
-     ```sh
-     cinematheque person pair
-     ```
+   ```sh
+   cinematheque serve --media /srv/videos --downloads /srv/kept
+   ```
 
-     On one of your devices already in the library, enter the code, adding it as yours:
+3. **Open it in a browser on that computer:** `http://localhost:8008/`. From another computer, reach it through an SSH tunnel, which counts as that computer's own: `ssh -L 8008:localhost:8008 hal`, then open `http://localhost:8008/` there.
+4. **Give it a library,** one of two ways:
+   * **Create a Library,** if you have none yet.
+   * **Join a Library,** to add it to one you have: it shows a code. On one of your devices already in the library, enter the code, adding it as yours (the browser acts as this device's person, so add it from a device of whoever watches there):
      * **A Mac:** in Settings › Devices › New Devices, then choose Yours.
      * **An Apple TV:** in Settings › Your Devices › Add a Device.
      * **The command-line app:** `cinematheque person pair CODE`.
-
-     The browser will act as this device's person, so add it from a device of whoever watches there.
-   * **Or, with no library yet, start one** on it:
-
-     ```sh
-     cinematheque library create
-     ```
-3. **Serve the web client.** Optionally, also serve a folder of videos from it (`--media`), and keep downloads there for your other devices (`--downloads`):
-
-   ```sh
-   cinematheque serve --web --media /srv/videos --downloads /srv/kept
-   ```
-
-   Once listening, it prints the web client's address.
-4. **Add its folder as a source,** if you served one, from another terminal on it:
-
-   ```sh
-   cinematheque source add http://hal.local:8008/media/
-   cinematheque crawl
-   ```
-
-5. **Open it** in a browser on your network: `http://hal.local:8008/`, by the computer's `.local` name or its IP address.
+5. **Add its folder as a source:** in Settings › Sources, choose Add This Server's Folder, then Refresh Library.
 6. **Keep it running** in the background, as [cli/README.md](../cli/README.md#in-the-background) says, so it's there whenever someone opens it.
 
 What to know:
 
-* **Anyone who can reach the port** can use it, as that person, so it's off unless you give `--web`. It answers only by an IP address, a `.local` or single-word name, or `localhost`, so another website can't use it from your browser.
+* **Only a browser on that computer** acts as it (or one through an SSH tunnel to it), as anyone who could reach the port could otherwise act as you; any other is told so. On a network where everyone may, start it with `--permissive`. `--no-web` turns the web client off. It answers only by an IP address, a `.local` or single-word name, or `localhost`, so another website can't use it from your browser.
 * **What plays:** browsers play MP4, M4V, and MOV files, not MKV or ISO.
 * **Download** brings a movie or an episode to the browser's own computer.
 * **Keep** (with `--downloads`) has the server keep a title, as the Mac downloads one, so your other devices play it from there.

@@ -163,7 +163,7 @@ fi
 if (( ${which[(Ie)web]} )); then
     tool web
     cp -R $tmp/data $tmp/web-data
-    $cq --data $tmp/web-data serve --port $web_port --web > $tmp/web.log 2>&1 &
+    $cq --data $tmp/web-data serve --port $web_port > $tmp/web.log 2>&1 &
     pids+=($!)
     sleep 1
     for a in $appearances; do

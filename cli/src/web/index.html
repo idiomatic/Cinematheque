@@ -23,6 +23,7 @@
   </nav>
   <div class="lists-heading"><span>Lists</span><button type="button" id="new-list" class="add" title="New list" aria-label="New list">⊕</button></div>
   <nav id="sidebar-lists" aria-label="Lists"></nav>
+  <nav class="sidebar-end" aria-label="Settings"><a href="#settings" data-shelf="settings">Settings</a></nav>
 </aside>
 <header>
   <h1 id="shelf-title"></h1>
@@ -74,6 +75,10 @@
   <video id="video" playsinline controls></video>
   <div id="curtain"></div>
 </div>
+<!-- Classic scripts, sharing one scope: setup and settings, the app, then
+     routing, which starts it. -->
+<script src="settings.js"></script>
 <script src="app.js"></script>
+<script src="route.js"></script>
 </body>
 </html>

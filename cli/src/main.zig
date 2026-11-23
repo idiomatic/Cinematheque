@@ -38,7 +38,7 @@ pub const Args = struct {
     /// list` and `title show`.
     shortcut: bool = false,
 
-    const flags = [_][]const u8{ "--leave", "--watched", "--unwatched", "--help", "--web", "--version", "--full" };
+    const flags = [_][]const u8{ "--leave", "--watched", "--unwatched", "--help", "--no-web", "--permissive", "--version", "--full" };
 
     fn parse(arena: std.mem.Allocator, argv: []const []const u8) !Args {
         var words: std.ArrayList([]const u8) = .empty;

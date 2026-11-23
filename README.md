@@ -24,7 +24,7 @@ Early, at version 0.1: expect rough edges, and changes between versions.
 | **Mac** (macOS 15+) | Released, not yet notarized: browsing, playing, lists, downloads, and Settings for sources, people, and devices |
 | **Apple TV** (tvOS 18+) | Browsing, playing, lists, and Settings for people, devices, and servers; not released yet, so build it with Xcode |
 | **iPhone** (iOS 18+) | A prototype: browsing, playing, and lists; nothing adds sources, pairs devices, or downloads yet |
-| **Web client** | In the command-line app (`serve --web`), for any browser on your network |
+| **Web client** | In the command-line app (`serve`): setup, browsing, playing, and settings, for a browser on the server's own computer (or every browser, with `--permissive`) |
 | **Command-line app** | Released, for macOS and Linux |
 | **Linux and Windows players** | Planned |
 
@@ -93,16 +93,18 @@ The Mac's Settings manage sources, people, and devices, so a household needs no 
 
 ### In a browser, quickly
 
-On a computer that stays on (a Linux server, a NAS that runs Linux, or a Mac), the command-line app starts a library, shares a folder of videos, and offers both to every browser on your network:
+On a computer that stays on (a Linux server, a NAS that runs Linux, or a Mac), one command shares a folder of videos, with a web client to set it all up:
 
 ```sh
-cinematheque library create
-cinematheque serve --web --media /srv/videos &
-cinematheque source add http://hal.local:8008/media/
-cinematheque crawl
+cinematheque serve --media /srv/videos
 ```
 
-Then open `http://hal.local:8008/` in a browser, by the computer's `.local` name or its address. Anyone who can reach the port can use it, so the web client is off unless you give `--web`. To serve a library you already have instead, pair the computer as one of your devices (`cinematheque person pair`) rather than creating one; the [guide](docs/guide.md#in-a-browser) has that, keeping it running, and what browsers play.
+Then, in a browser on that computer, open `http://localhost:8008/`:
+
+1. Choose **Create a Library** (or **Join a Library**, to add the computer to one you have, by the code it shows).
+2. In Settings, choose **Add This Server's Folder**, then **Refresh Library**.
+
+A browser elsewhere on the network can't act as the server, as anyone reaching the port could: reach it through an SSH tunnel (`ssh -L 8008:localhost:8008 hal`), or, where everyone on the network may, start it with `--permissive`. The [guide](docs/guide.md#in-a-browser) has more: keeping it running, and what browsers play.
 
 ## Preparing a source
 

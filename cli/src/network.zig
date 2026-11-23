@@ -7,6 +7,7 @@ const core = @import("core");
 const main = @import("main.zig");
 const App = main.App;
 const web = @import("web.zig");
+const setup = @import("setup.zig");
 const Command = main.Command;
 const Replica = core.replica.Replica;
 
@@ -57,12 +58,16 @@ pub fn syncEvery(p: *App) !void {
     try exchangeAll(p, &r, try core.sync.everyDevice(p.io, p.arena, &r, try serviceName(p)));
 }
 
-/// `serve [--port PORT] [--media DIR] [--web]`: serves on `PORT`, or on
-/// `default_port` if none, falling back to any free port if that's taken,
-/// and advertises the port it got; with `--web`, the web client too.
+/// `serve [--port PORT] [--media DIR] [--downloads DIR] [--no-web]
+/// [--permissive]`: serves on `PORT`, or on `default_port` if none, falling
+/// back to any free port if that's taken, and advertises the port it got;
+/// the web client too, unless `--no-web`, which sets up a library if this
+/// device has none yet.
 pub fn serve(p: *App, c: Command) !void {
     if (c.rest.len > 0) return error.Usage;
-    try c.args.only(&.{ "--port", "--media", "--web", "--downloads" });
+    try c.args.only(&.{ "--port", "--media", "--no-web", "--downloads", "--permissive" });
+    const browsing = !c.args.has("--no-web");
+    if (!browsing and c.args.has("--permissive")) return error.Usage;
     const port = try c.args.port();
     const media = c.args.get("--media");
     // This device's downloads, kept there (made first, so its path is whole).
@@ -70,18 +75,35 @@ pub fn serve(p: *App, c: Command) !void {
         try Io.Dir.cwd().createDirPath(p.io, d);
         break :blk try Io.Dir.cwd().realPathFileAlloc(p.io, d, p.arena);
     } else null;
+    // With the web client, a library can be made or joined from it.
+    const founder: ?[32]u8 = p.store.founder(p.arena) catch |err| switch (err) {
+        error.NoLibrary => if (browsing) null else return err,
+        else => |e| return e,
+    };
+    const name = try advertisedName(p);
     var sharing: core.sync.Sharing = .{
         .path = try p.store.replicaPath(p.arena),
-        .founder = try p.store.founder(p.arena),
+        .founder = founder orelse undefined,
         .identity = p.store.identity,
     };
-    // The web client answers after syncs, before the media.
-    var browsers: web.Web = .{ .path = sharing.path, .founder = sharing.founder, .identity = sharing.identity, .next = sharing.handler(), .own = try serviceName(p), .host_name = try advertisedName(p) };
-    const handler = if (c.args.has("--web")) browsers.handler() else sharing.handler();
-    var r = try p.open();
-    const library_hex = std.fmt.bytesToHex(r.library, .lower);
-    const txt = try core.sync.advertisement(p.arena, &r, try p.store.person(), try p.store.device());
-    r.close();
+    var long = std.heap.ArenaAllocator.init(p.gpa);
+    defer long.deinit();
+    // The web client answers syncs itself, as this device is when asked,
+    // before the media.
+    var browsers: web.Web = .{
+        .store = p.store,
+        .founder = founder,
+        .long = long.allocator(),
+        .path = sharing.path,
+        .permissive = c.args.has("--permissive"),
+        .host_name = name,
+    };
+    const handler = if (browsing) browsers.handler() else sharing.handler();
+    const txt = if (founder != null) blk: {
+        var r = try p.open();
+        defer r.close();
+        break :blk try core.sync.advertisement(p.arena, &r, try p.store.person(), try p.store.device());
+    } else try core.discover.txtRecord(p.arena, &.{.{ "name", name }});
     // The media directory, if any, at `/media/`, leaving the root to the
     // web client; and downloads at `/downloads/`, listed live, as they
     // change.
@@ -96,18 +118,31 @@ pub fn serve(p: *App, c: Command) !void {
         .txt = txt,
     };
     try host.start();
-    if (downloads) |d| try keepDownloadsIn(p, d, host.port);
-    browsers.downloads = downloads != null;
-    var syncing: ?Io.Future(Io.Cancelable!void) = if (c.args.has("--web")) try p.io.concurrent(web.Web.keepInSync, .{ &browsers, p.io, p.gpa }) else null;
+    browsers.host = &host;
+    // Settings may add it as a source: it, and no other folder.
+    if (media) |m| browsers.media = .{ .dir = m, .url = try std.fmt.allocPrint(p.arena, "http://{s}.local:{d}/{s}/", .{ name, host.port, media_prefix }) };
+    if (downloads) |d| {
+        browsers.downloads_dir = d;
+        // Else once there's a library.
+        if (founder != null) try keepDownloadsIn(p, d, host.port);
+        browsers.downloads = founder != null;
+    }
+    var syncing: ?Io.Future(Io.Cancelable!void) = if (browsing) try p.io.concurrent(web.Web.keepInSync, .{ &browsers, p.io, p.gpa }) else null;
     defer if (syncing) |*f| f.cancel(p.io) catch {};
+    var refreshing: ?Io.Future(Io.Cancelable!void) = if (browsing) try p.io.concurrent(setup.keepRefreshed, .{ &browsers, p.io, p.gpa }) else null;
+    defer if (refreshing) |*f| f.cancel(p.io) catch {};
     var fetching: ?Io.Future(Io.Cancelable!void) = if (downloads != null) try p.io.concurrent(web.Web.keepDownloads, .{ &browsers, p.io, p.gpa }) else null;
     defer if (fetching) |*f| f.cancel(p.io) catch {};
-    try p.out.print("serving library {s} on port {d}{s}{s}, as {s}\n", .{ &library_hex, host.port, if (media != null) " with media from " else "", media orelse "", host.name });
+    const with_media = if (media != null) " with media from " else "";
+    if (founder) |f| {
+        try p.out.print("serving library {s} on port {d}{s}{s}, as {s}\n", .{ &std.fmt.bytesToHex(core.replica.libraryId(f), .lower), host.port, with_media, media orelse "", host.name });
+    } else try p.out.print("serving on port {d}{s}{s}, as {s}, with no library yet\n", .{ host.port, with_media, media orelse "", host.name });
     if (downloads) |d| try p.out.print("keeping downloads in {s}\n", .{d});
-    if (c.args.has("--web")) {
+    if (browsing) {
         // As other computers on the network reach it: `firefly.local`.
-        const name = try advertisedName(p);
         try p.out.print("web client at http://{s}.local:{d}/\n", .{ name, host.port });
+        if (founder == null) try p.out.print("to create a library, or join one, open http://localhost:{d}/ on this computer\n", .{host.port});
+        if (!browsers.permissive) try p.out.print("only a browser on this computer acts as this device (--permissive lets every browser)\n", .{});
     }
     try p.out.flush();
     try host.wait();

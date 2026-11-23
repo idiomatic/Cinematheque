@@ -23,6 +23,9 @@ pub const Host = struct {
     ready: Io.Event = .unset,
     failure: ?anyerror = null,
     advertisement: ?discover.Advertisement = null,
+    /// Held around the advertisement, as it's made again while serving
+    /// (`readvertise`) and released as serving ends.
+    advertising: Io.Mutex = .init,
     stopping: std.atomic.Value(bool) = .init(false),
 
     /// Starts serving on a task of its own, and returns once it listens, or
@@ -51,18 +54,35 @@ pub const Host = struct {
         _ = h.future.cancel(h.io) catch {};
     }
 
-    fn onListen(context: ?*anyopaque, port: u16) void {
-        const h: *Host = @ptrCast(@alignCast(context.?));
-        h.port = port;
-        if (h.name.len > 0) h.advertisement = discover.advertise(h.name, port, h.txt) catch |err| blk: {
+    /// Advertises it afresh, as `name` with `txt` (both kept until it next
+    /// does, or stops), as a device's name or library changes while it
+    /// serves (one made, joined, or left).
+    pub fn readvertise(h: *Host, name: [:0]const u8, txt: []const u8) void {
+        h.advertising.lockUncancelable(h.io);
+        defer h.advertising.unlock(h.io);
+        if (h.advertisement) |a| a.deinit();
+        h.name = name;
+        h.txt = txt;
+        h.advertisement = discover.advertise(name, h.port, txt) catch |err| blk: {
             std.log.warn("not advertised: {t}", .{err});
             break :blk null;
         };
+    }
+
+    fn onListen(context: ?*anyopaque, port: u16) void {
+        const h: *Host = @ptrCast(@alignCast(context.?));
+        h.port = port;
+        if (h.name.len > 0) h.readvertise(h.name, h.txt);
         h.ready.set(h.io);
     }
 
     fn run(h: *Host) anyerror!void {
-        defer if (h.advertisement) |a| a.deinit();
+        defer {
+            h.advertising.lockUncancelable(h.io);
+            if (h.advertisement) |a| a.deinit();
+            h.advertisement = null;
+            h.advertising.unlock(h.io);
+        }
         var options = h.options;
         options.on_listen = onListen;
         options.on_listen_context = h;
