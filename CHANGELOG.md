@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Sync: a device that takes connections but never answers (an app stopped in a debugger) is given up on in 10 seconds, not 10 minutes, so syncing with the others, and a person's changes, don't wait on it.
 * Web client: a download through the server that fails partway drops the connection, rather than writing an error into the file; a cover's fetch has a minute; describing an episode and syncing after a change hold the writer only to write, so saving progress doesn't wait on the network.
 * Downloads: whether another source holds a download alike is asked within a minute; a crawl stops at 4 million entries as it finds them, not once a level's done.
 * Apple TV: Add a Device and Add Someone are one page given what to do, not told by a flag.

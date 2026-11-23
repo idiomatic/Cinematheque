@@ -554,10 +554,32 @@ fn refusal(arena: std.mem.Allocator, response: *http.Client.Response) anyerror {
     return error.Refused;
 }
 
+/// How long a device has to say which it is, which it does at once: one
+/// that doesn't (stopped in a debugger, say, its socket still taking
+/// connections) costs seconds, not the 10 minutes a whole sync may take.
+const hello_ms = 10 * 1000;
+
+/// How long a response's head may take, as the other device builds every
+/// frame before it answers (a first sync of a large library a while).
+const answer_ms = 2 * 60 * 1000;
+
+/// A response's head, within `answer_ms`.
+fn responseHead(request: *http.Client.Request) !http.Client.Response {
+    return deadline.within(request.client.io, answer_ms, receiveHead, .{request});
+}
+
+fn receiveHead(request: *http.Client.Request) !http.Client.Response {
+    return request.receiveHead(&.{});
+}
+
 /// Which device answers at `url`: its device key, for requests to be for
 /// it alone. A device that doesn't say (an older build's) can't be synced
 /// with.
 fn hello(client: *http.Client, url: []const u8) ![32]u8 {
+    return deadline.within(client.io, hello_ms, helloNow, .{ client, url });
+}
+
+fn helloNow(client: *http.Client, url: []const u8) ![32]u8 {
     var request = try client.request(.GET, try std.Uri.parse(url), .{ .redirect_behavior = .not_allowed });
     defer request.deinit();
     try request.sendBodiless();
@@ -650,7 +672,7 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
     try sending.writer.writeAll(body);
     try sending.end();
     try request.connection.?.flush();
-    var response = try request.receiveHead(&.{});
+    var response = try responseHead(&request);
     const other = Named.of(response.head);
     switch (response.head.status) {
         .ok => {},
@@ -695,7 +717,7 @@ fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []co
     try sending.writer.writeAll(body);
     try sending.end();
     try request.connection.?.flush();
-    var response = try request.receiveHead(&.{});
+    var response = try responseHead(&request);
     return switch (response.head.status) {
         .no_content => sent,
         .forbidden => error.NotAMember,
@@ -726,7 +748,7 @@ fn repairFrom(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url
     try sending.writer.writeAll(body);
     try sending.end();
     try request.connection.?.flush();
-    var response = try request.receiveHead(&.{});
+    var response = try responseHead(&request);
     switch (response.head.status) {
         .ok => {},
         .forbidden => return error.NotAMember,
@@ -845,6 +867,27 @@ test "a request as sent shows nothing of it to anyone listening" {
     const keys = try seal.respond(r.library, hal, body[0..32].*);
     const n = std.mem.readInt(u32, body[32..36], .little);
     try std.testing.expectEqualSlices(u8, head, try seal.open(arena, keys.request, .head, body[36..][0..n]));
+}
+
+test "a device that takes the connection but never answers is given up on in seconds" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(2)));
+    defer r.close();
+    // As an app stopped in a debugger: listening, never answering.
+    var address = try Io.net.IpAddress.parse("127.0.0.1", 0);
+    var silent = try address.listen(io, .{});
+    defer silent.deinit(io);
+    const url = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/sync", .{silent.socket.address.getPort()});
+    var client: http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    const start = Io.Timestamp.now(io, .awake);
+    try std.testing.expectError(error.Timeout, exchange(arena, &client, &r, url, 1000));
+    try std.testing.expect(start.durationTo(Io.Timestamp.now(io, .awake)).toMilliseconds() < hello_ms + 2000);
 }
 
 test "a removed device is told so, believably, and can tell" {
