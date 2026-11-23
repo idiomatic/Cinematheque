@@ -332,6 +332,8 @@ struct SettingsPage<List: View>: View {
     private var explanationTop: CGFloat { (size.isAccessibilitySize ? 500 : 850) / 1080 }
     private var explanationHeight: CGFloat { (size.isAccessibilitySize ? 520 : 180) / 1080 }
     private static var titleCenter: CGFloat { 90.5 / 1080 }
+    /// The list's height to spare, while it's shorter than the screen.
+    @State private var spare: CGFloat = 0
 
     var body: some View {
         GeometryReader { screen in
@@ -361,6 +363,11 @@ struct SettingsPage<List: View>: View {
                 .frame(width: width * Self.left)
                 list
                     .formStyle(.grouped)
+                    // Centered on the screen's height while it fits, as
+                    // the system's, from its top once it scrolls: its
+                    // spare height split above and below it.
+                    .background { SpareHeight(spare: $spare) }
+                    .contentMargins(.vertical, spare / 2, for: .scrollContent)
                     .font(.headline)
                     .environment(\.defaultMinListRowHeight, size.isAccessibilitySize ? 3 * line : 66)
                     .frame(width: width * Self.listWidth)
@@ -438,6 +445,66 @@ struct KeyboardField: UIViewRepresentable {
 
         func textFieldDidEndEditing(_ field: UITextField) {
             parent.typing = false
+        }
+    }
+}
+
+/// How much shorter a form's content is than the form, read from the
+/// UIKit scroll view under it: a form keeps no scroll anchor, and a list
+/// that doesn't scroll never calls `onScrollGeometryChange`'s action, so
+/// SwiftUI can't tell. Behind the form, so the scroll view it finds is the
+/// one around its frame (the form's runs the screen's height, past the
+/// safe area this keeps to).
+private struct SpareHeight: UIViewRepresentable {
+    @Binding var spare: CGFloat
+
+    func makeUIView(context: Context) -> Probe { Probe { spare = $0 } }
+    func updateUIView(_ view: Probe, context: Context) {}
+
+    final class Probe: UIView {
+        private let report: (CGFloat) -> Void
+        private var observations: [NSKeyValueObservation] = []
+
+        init(report: @escaping (CGFloat) -> Void) {
+            self.report = report
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+        }
+        required init?(coder: NSCoder) { nil }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard observations.isEmpty, let scroll = formScrollView() else { return }
+            // UIKit's properties change on the main thread, so they're
+            // observed there.
+            observations = [
+                scroll.observe(\.contentSize, options: .initial) { [weak self] view, _ in MainActor.assumeIsolated { self?.measure(view) } },
+                scroll.observe(\.bounds) { [weak self] view, _ in MainActor.assumeIsolated { self?.measure(view) } },
+            ]
+        }
+
+        /// Reports the spare height, after the layout that changed it.
+        private func measure(_ view: UIScrollView) {
+            // Within the safe area, not the margins this sets.
+            let spare = max(0, view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom - view.contentSize.height)
+            DispatchQueue.main.async { [weak self] in self?.report(spare) }
+        }
+
+        /// The innermost scroll view around this one, among its ancestors'
+        /// descendants.
+        private func formScrollView() -> UIScrollView? {
+            guard let window else { return nil }
+            let mine = convert(bounds, to: window)
+            var ancestor = superview
+            while let view = ancestor {
+                if let found = Self.scrollViews(in: view).filter({ $0.convert($0.bounds, to: window).contains(mine) }).min(by: { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height }) { return found }
+                ancestor = view.superview
+            }
+            return nil
+        }
+
+        private static func scrollViews(in view: UIView) -> [UIScrollView] {
+            view.subviews.flatMap { ($0 as? UIScrollView).map { [$0] } ?? scrollViews(in: $0) }
         }
     }
 }
