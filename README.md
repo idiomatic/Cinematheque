@@ -4,6 +4,8 @@ Cinematheque is a video library for your household. It catalogs the movies and T
 
 > **Status:** early, at version 0.1 (see [Status](#status)).
 
+<p align="center"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/hero-light.png"><img src="docs/screenshots/hero-dark.png" alt="The Mac app's Series shelf, the inspector on a season partway through, and in front of it, the Apple TV app's Home" width="820"></picture></p>
+
 <table><tr>
 <td align="center"><a href="docs/screenshots/mac-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/mac-light.png"><img src="docs/screenshots/mac-dark.png" alt="The Mac app: the Series shelf, a series’ seasons open below it, and the inspector on a season partway through" height="120"></picture></a><br><sub>Mac</sub></td>
 <td align="center"><a href="docs/screenshots/tv-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/tv-light.png"><img src="docs/screenshots/tv-dark.png" alt="The Apple TV app: a season’s page, Resume focused, over its blurred cover" height="120"></picture></a><br><sub>Apple TV</sub></td>
@@ -30,7 +32,9 @@ Planned beyond them: metadata from outside your files, a transcoder, and a list'
 
 ## How it works
 
-Every device keeps its own copy of the catalog, and of what you've watched, but not the videos. So each one browses offline, and catches up with the others when it can reach them.
+Every device keeps its own copy of the catalog, and of what you've watched, but not the videos. So each one browses offline, and catches up with the others when it can reach them. Stop a movie on the Mac, and the Apple TV resumes it where you left off:
+
+<p align="center"><img src="docs/screenshots/loop.webp" alt="A movie played on the Mac, skipped ahead, and stopped; then on the Apple TV, it resumes from there" width="640"></p>
 
 <p align="center"><img src="docs/how-it-works.svg" alt="The catalog syncs directly among an Apple TV, a Mac or Linux computer, and an iPhone, with no server in the middle; each plays videos straight from a NAS, and from folders the Mac or Linux computer shares" width="640"></p>
 

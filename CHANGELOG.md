@@ -6,6 +6,7 @@ All notable changes to Cinematheque are recorded here.
 
 * Apple TV and iPhone: resuming seeks exactly, as the Mac's does, rather than to the keyframe before, which in a file with sparse keyframes was minutes early.
 * README: a Status section, player by player, and a quickstart for serving the library to browsers.
+* README: a hero picture of the Mac and the Apple TV together, and a looping recording of a movie stopped on the Mac and resumed on the Apple TV, both made by `tools/screenshots.sh` (the loop with `video`); the mock library's movies play a scene of their art.
 * Apps and web client: the star and the download mark are drawn one way everywhere too: the Lists button's star yellow when on a list, as tiles', the Mac's rows' download arrow blue, as its tiles', and the Mac's series inspector's seasons marked as their tiles.
 * Apps and web client: watched is marked one way everywhere, a green check at the end of a row's line as on tiles, on episodes', versions', and seasons' rows alike, and partway a thin bar; the Apple TV's and the iPhone's half-filled circles, the Mac's grey check in place of Play, and the web client's dim check after the name are gone.
 * README: the Mac's screenshots at Retina resolution, as the others are, from a terrarium VM's Retina display.

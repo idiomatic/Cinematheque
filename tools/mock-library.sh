@@ -2,7 +2,8 @@
 # Makes a mock library in DIRECTORY, for screenshots and demos: movies and
 # series of the serials in Martha Wells's Murderbot Diaries (their names
 # alone; every other word here is this script's own), each a silent video
-# of one color, tagged as the core reads MP4s, with covers. With --data,
+# of one still (a movie's, its art, so playing one looks like a scene),
+# tagged as the core reads MP4s, with covers. With --data,
 # also a data directory whose library has crawled it, with progress and
 # lists. The same every run. See README.md.
 set -eu
@@ -81,18 +82,26 @@ poster() {
 # Shapes, as width and height.
 tall=(600 900) square=(900 900)
 
-# A silent video, a still of one color for its whole length (a 1-second
-# frame rate keeps a movie's under a megabyte): its path, minutes, color,
-# date, and a cover to embed (or -), then its tags as ffmpeg's -metadata.
+# A silent video, one still for its whole length (a 1-second frame rate
+# keeps a movie's to a megabyte or so): `scene`, a 720p band of art, if
+# set, else one color. Its path, minutes, color, date, and a cover to
+# embed (or -), then its tags as ffmpeg's -metadata.
+scene=
 video() {
     [[ $pass == video ]] || return 0
     local out=$dir/$1 minutes=$2 color=$3 date=$4 embed=$5
     shift 5
-    local tags=() pic=()
+    local tags=() pic=() still=(-f lavfi -i "color=c=0x${color}:s=320x180:r=1:d=$(( minutes * 60 ))") band=()
     while (( $# )); do tags+=(-metadata "$1=$2"); shift 2; done
     [[ $embed == - ]] || pic=(-i $embed -map 0:v -map 1:v -c:v:1 copy -disposition:v:1 attached_pic)
+    if [[ -n $scene ]]; then
+        still=(-loop 1 -framerate 1 -t $(( minutes * 60 )) -i $scene)
+        # A constant quantizer, as x264's rate control otherwise adds
+        # detail to a still frame after frame, ten times the bytes.
+        band=(-filter:v:0 "scale=1280:-2,crop=1280:720:0:(ih-720)*0.45" -qp 26)
+    fi
     mkdir -p -- ${out:h}
-    ffmpeg -v error -nostdin -y -f lavfi -i "color=c=0x${color}:s=320x180:r=1:d=$(( minutes * 60 ))" $pic \
+    ffmpeg -v error -nostdin -y $still $pic $band \
         -an -c:v:0 libx264 -tune stillimage -pix_fmt yuv420p -threads 1 -g 600 \
         -map_metadata -1 -fflags +bitexact -flags:v +bitexact $tags $out
     stamp $out $date
@@ -105,7 +114,8 @@ video() {
 # unless the name gives another.
 embed=-
 movie() {
-    local name=$1
+    local name=$1 scene=$here/mock-art/${(L)2//[^[:alnum:]]/-}.jpg
+    [[ -e $scene ]] || scene=
     [[ $name == */* ]] || name="${name%%)*})/$name"
     [[ $name == *[0-9]p* ]] || name+=" 1080p"
     video Movies/$name.mp4 $4 $5 $3 $embed title $2 date $3 genre $6 description $7 synopsis $7
