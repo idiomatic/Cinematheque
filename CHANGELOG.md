@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Mac: the inspector keeps the width you give it: the marks (Lists, watched) moved to the end of the title's line, Start Over shows its symbol alone, the season's Download pop-up shrinks with it, and a movie's Download falls back to its symbol and size, so no title widens it and reflows the grid.
 * Apple TV: a list's heading on Home and Lists is its link, "Favorites 3 ›", its count grey, in place of a See All beside it, so moving up and down through rows no longer drifts focus rightward.
 * README: for people using Cinematheque, the screenshots first, then getting it (releases before building), getting started, and the rest, in short bullets, their details in a guide ([docs/guide.md](docs/guide.md)); building, versions, and the tools in an index for developers.
 * Apple TV: Play/Pause on a tile plays it at once, without opening its page; a series' plays the season to watch.

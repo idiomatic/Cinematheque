@@ -21,7 +21,7 @@ struct InspectorView: View {
                     .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
                     .frame(maxHeight: 340)
                     .frame(maxWidth: .infinity)
-                heading
+                heading(detail)
                 if let detail {
                     controls(detail)
                     metadata(detail)
@@ -58,11 +58,26 @@ struct InspectorView: View {
         return n == 1 ? "Delete the only copy?" : "Delete \(n) only copies?"
     }
 
-    private var heading: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(tile.name).font(.title2.weight(.semibold))
-            Text([tile.seasonName, tile.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
+    /// Its name, and its marks (lists, watched) at the line's end, as a
+    /// tile's are, quieter than Play: there, beside Play, their words set
+    /// the inspector's least width, which grew beyond the person's say.
+    private func heading(_ detail: TitleDetail?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tile.name).font(.title2.weight(.semibold))
+                Text([tile.seasonName, tile.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            if let detail {
+                HStack(spacing: 10) {
+                    Marks(detail: detail, items: Playback.items(detail, season: tile.season), season: tile.season)
+                }
+                .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
+                .labelStyle(.iconOnly)
+                .fixedSize()
+            }
         }
     }
 
@@ -73,12 +88,7 @@ struct InspectorView: View {
         VStack(alignment: .leading, spacing: 10) {
             // The quality first, so choosing it changes only what's below.
             qualityPicker(items)
-            // Play filling its row, the marks beside it, quieter: labeled
-            // where they fit, else icons alone.
-            ViewThatFits(in: .horizontal) {
-                playRow(detail, next: next, items: items, labeled: true)
-                playRow(detail, next: next, items: items, labeled: false)
-            }
+            playRow(detail, next: next)
             if tile.season == nil, let item = items.first, item.inProgress, item.duration > 0 {
                 progress(item, key: "\(detail.key)/\(item.key)")
             }
@@ -86,15 +96,16 @@ struct InspectorView: View {
         }
     }
 
-    private func playRow(_ detail: TitleDetail, next: TitleDetail.Item?, items: [TitleDetail.Item], labeled: Bool) -> some View {
+    /// Play filling its row, Start Over (its symbol, named as help) before
+    /// it, as a player's timeline starts at its leading edge.
+    private func playRow(_ detail: TitleDetail, next: TitleDetail.Item?) -> some View {
         HStack(spacing: 12) {
-            // Before Resume, as a player's timeline starts at its leading edge.
             if next?.inProgress == true {
                 Button {
                     if let request = Playback.next(in: detail, season: tile.season, quality: quality)?.fromBeginning { play(request) }
                 } label: {
                     Label("Start Over", systemImage: Playback.startOverSymbol)
-                        .labelStyle(.titleAndIconOrIconOnly(labeled))
+                        .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
@@ -109,13 +120,6 @@ struct InspectorView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(next == nil)
-            HStack {
-                Marks(detail: detail, items: items, season: tile.season)
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .labelStyle(.titleAndIconOrIconOnly(labeled))
-            .fixedSize()
         }
     }
 
@@ -302,10 +306,23 @@ struct SeriesInspectorView: View {
                     .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
                     .frame(maxHeight: 340)
                     .frame(maxWidth: .infinity)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(series.name).font(.title2.weight(.semibold))
-                    Text([Library.seasonsCaption(seasons), series.year.map(String.init)].filter { $0?.isEmpty == false }.compactMap { $0 }.joined(separator: " · "))
-                        .foregroundStyle(.secondary)
+                // The whole series' watched mark at its name's line's end, as
+                // a season's marks are: a status that pressing toggles.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(series.name).font(.title2.weight(.semibold))
+                        Text([Library.seasonsCaption(seasons), series.year.map(String.init)].filter { $0?.isEmpty == false }.compactMap { $0 }.joined(separator: " · "))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Button(series.watched ? "Watched" : "Unwatched", systemImage: series.watched ? "checkmark.circle.fill" : "circle") {
+                        library.markSeriesWatched(series, !series.watched)
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help(series.watched ? "Mark the series as unwatched" : "Mark the series as watched")
+                    .fixedSize()
                 }
                 if let detail {
                     let next = Playback.nextItem(detail, season: up?.season)
@@ -320,15 +337,6 @@ struct SeriesInspectorView: View {
                             .buttonStyle(.borderedProminent)
                             .controlSize(.large)
                             .disabled(next == nil)
-                            // The whole series': a status that pressing
-                            // toggles, as a season's is.
-                            Button(series.watched ? "Watched" : "Unwatched", systemImage: series.watched ? "checkmark.circle.fill" : "circle") {
-                                library.markSeriesWatched(series, !series.watched)
-                            }
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(.secondary)
-                            .help(series.watched ? "Mark the series as unwatched" : "Mark the series as watched")
-                            .fixedSize()
                         }
                         if let name = up?.seasonName {
                             Text("Up next: \(name)").font(.caption).foregroundStyle(.secondary)
@@ -511,19 +519,18 @@ private struct DownloadControls: View {
             // The quality it comes in, dimmed, if not the one picked, as the
             // rows say it.
             let standIn = target.items.first.flatMap { Playback.standIn($0, for: quality, in: detail) }.map { " (\($0.short))" } ?? ""
-            Button { library.download(key, quality: quality) } label: {
-                Label {
-                    Text(what) + Text(standIn).foregroundStyle(.secondary) + Text(size.map { " \(Self.bytes($0.size))" } ?? "")
-                } icon: {
-                    Image(systemName: "arrow.down.circle")
+            let bytes = size.map { " \(Self.bytes($0.size))" } ?? ""
+            // Its words where they fit, else its symbol and size, the words
+            // as help: a button's title doesn't shrink, so a long one set
+            // the inspector's least width.
+            ViewThatFits(in: .horizontal) {
+                downloadButton(key: key, items: target.items, held: held, coming: coming, size: size, help: fitHelp(size)) {
+                    Text(what) + Text(standIn).foregroundStyle(.secondary) + Text(bytes)
+                }
+                downloadButton(key: key, items: target.items, held: held, coming: coming, size: size, help: [what + standIn + bytes, fitHelp(size)].filter { !$0.isEmpty }.joined(separator: ": ")) {
+                    Text(bytes.trimmingCharacters(in: .whitespaces))
                 }
             }
-                .foregroundStyle(fits(size) ? AnyShapeStyle(.foreground) : AnyShapeStyle(.orange))
-                .buttonStyle(.bordered)
-                .disabled(held || coming)
-                .help(fitHelp(size))
-                // Under a heading, as Show in Finder's places are.
-                .contextMenu { if !held && !coming { DownloadSection(key: key, items: target.items) } }
             DownloadGauge(value: library.downloadProgress(keys, of: size))
                 .opacity(coming ? 1 : 0)
             Spacer()
@@ -536,6 +543,21 @@ private struct DownloadControls: View {
             .disabled(!held && !coming)
             .help(Self.deleteHelp(library, key, coming: coming))
         }
+    }
+
+    /// A movie's Download button, `title` beside its symbol, `help` its help:
+    /// orange if what isn't here yet wouldn't fit; another quality by
+    /// Control-click.
+    private func downloadButton(key: String, items: [TitleDetail.Item], held: Bool, coming: Bool, size: Library.DownloadSize?, help: String, title: () -> Text) -> some View {
+        Button { library.download(key, quality: quality) } label: {
+            Label { title() } icon: { Image(systemName: "arrow.down.circle") }
+        }
+        .foregroundStyle(fits(size) ? AnyShapeStyle(.foreground) : AnyShapeStyle(.orange))
+        .buttonStyle(.bordered)
+        .disabled(held || coming)
+        .help(help)
+        // Under a heading, as Show in Finder's places are.
+        .contextMenu { if !held && !coming { DownloadSection(key: key, items: items) } }
     }
 
     /// The movie's trash button's help: what it does, warning of an only
@@ -575,7 +597,11 @@ private struct DownloadControls: View {
                         .selectionDisabled()
                 }
             }
-            .fixedSize()
+            // Narrower than its longest choice, if the inspector is: as
+            // wide as that choice, it set the inspector's least width, which
+            // grew with sizes and warnings, beyond the person's say.
+            .frame(minWidth: 90)
+            .layoutPriority(1)
             .help("Episodes to download as you watch")
             DownloadGauge(value: library.downloadProgress(keys, of: requested))
                 .opacity(pending ? 1 : 0)
@@ -723,18 +749,6 @@ struct DownloadSection: View {
     private static func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
 }
 
-/// Labeled, or icons alone.
-private struct TitleAndIconOrIconOnly: LabelStyle {
-    let labeled: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        if labeled { Label(configuration) } else { Label(configuration).labelStyle(.iconOnly) }
-    }
-}
-
-extension LabelStyle where Self == TitleAndIconOrIconOnly {
-    static func titleAndIconOrIconOnly(_ labeled: Bool) -> TitleAndIconOrIconOnly { .init(labeled: labeled) }
-}
 /// Where a title's files are: its download, then each quality's sources,
 /// a folder on this Mac (shown in Finder) or a server (its folder's
 /// listing, in the browser), so none needs finding by hand.
