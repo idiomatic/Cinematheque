@@ -204,6 +204,9 @@ struct Browser: View {
     @State private var window = UUID()
     @State private var selection: Tile.ID?
     @State private var inspecting = true
+    /// Whether the sidebar shows: here, not the split view's own, which
+    /// the inspector coming and going (`Inspecting`) makes anew.
+    @State private var columns: NavigationSplitViewVisibility = .all
     /// Each shelf's scroll position, to return to.
     @State private var positions = ScrollMemory()
     @State private var nearBottom = false
@@ -235,7 +238,7 @@ struct Browser: View {
     }
 
     private var browser: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             List(selection: $shelf) {
                 ForEach(Self.shelves) { shelf in
                     Label(shelf.title, systemImage: shelf.symbol)
@@ -409,10 +412,24 @@ struct Browser: View {
 
 /// Each shelf's topmost title in view, to return to: a movie's tile or a
 /// series' seasons, by title key (not an offset, which a change in the
-/// grid's width would move). Not observed, so scrolling doesn't redraw the
-/// view that holds it.
+/// grid's width would move); and a search's, and the series whose band was
+/// closed, so the grid made anew (as the inspector comes and goes) is as it
+/// was. Not observed, so scrolling doesn't redraw the view that holds it.
 final class ScrollMemory {
     var tops: [Shelf: String] = [:]
+    var searched: [Shelf: (search: String, top: String)] = [:]
+    var closed: [Shelf: String] = [:]
+
+    /// The topmost title to return to on `shelf`, as `search` shows it.
+    func top(_ shelf: Shelf, search: String) -> String? {
+        if search.isEmpty { return tops[shelf] }
+        guard let s = searched[shelf], s.search == search else { return nil }
+        return s.top
+    }
+
+    func note(_ top: String?, _ shelf: Shelf, search: String) {
+        if search.isEmpty { tops[shelf] = top } else { searched[shelf] = top.map { (search, $0) } }
+    }
 }
 
 /// A list in the sidebar: its name, or, while it's being renamed, a field
@@ -864,10 +881,14 @@ struct CoverGrid: View {
         .task {
             // The series of a season selected on another shelf, open.
             // A season's, or one selected by its key.
-            if bySeries, let key = library.tiles.first(where: { $0.id == selection })?.key ?? selection, library.tiles.contains(where: { $0.key == key && $0.isSeries }) { pointed = key }
+            if bySeries, let key = library.tiles.first(where: { $0.id == selection })?.key ?? selection, library.tiles.contains(where: { $0.key == key && $0.isSeries }) {
+                pointed = key
+                // Unless it was closed, its tile selected.
+                collapsed = positions.closed[shelf] == key
+            }
             // After the first layout, which ignores scrolling.
             await Task.yield()
-            if search.isEmpty, let top = positions.tops[shelf] { scroll(to: top) }
+            if let top = positions.top(shelf, search: search) { scroll(to: top) }
             restored = true
         }
         // A new search starts at the top, which its results may not reach,
@@ -882,8 +903,7 @@ struct CoverGrid: View {
             library.prioritize(Set(rows.flatMap { row in row.tiles.map(\.key) }))
             let top = rows.first?.key
             anchor.top = top
-            // The shelf's whole grid, not a search's results.
-            if restored, search.isEmpty { positions.tops[shelf] = top }
+            if restored { positions.note(top, shelf, search: search) }
         }
         .overlay {
             if tiles.isEmpty {
@@ -973,6 +993,7 @@ struct CoverGrid: View {
             bandEnter = enter
             // The band fading in (another's out), the series after it moving
             // off it; then scrolling, as a scroll with them came before them.
+            positions.closed[shelf] = nil
             withAnimation(bandMotion) {
                 pointed = series.key
                 collapsed = false
@@ -998,6 +1019,7 @@ struct CoverGrid: View {
         if let open = shownOpen {
             selection = open
             current = open
+            positions.closed[shelf] = open
         }
         // Fading where it is, its row not moving.
         leaving(0) { withAnimation(bandMotion) { collapsed = true } }

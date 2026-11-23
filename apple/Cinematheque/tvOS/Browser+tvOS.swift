@@ -526,7 +526,7 @@ struct Poster: View {
     private func playRequest() -> PlayRequest? {
         guard !tile.isWanted, let detail = library.detail(tile.key) else { return nil }
         let season = opensSeasons ? Library.nextSeason(Library.seasons(of: tile.key, in: library.tiles))?.season : tile.season
-        return Playback.next(in: detail, season: season, quality: detail.quality(for: Playback.items(detail, season: season), chosen: nil))
+        return Playback.next(in: detail, season: season)
     }
 
     @ViewBuilder
@@ -598,7 +598,7 @@ struct SeasonsView: View {
                         // as Play alone says nothing of which.
                         let verb = Playback.nextItem(detail, season: up?.season)?.inProgress == true ? "Resume" : "Play"
                         Button([verb, up?.seasonName].compactMap { $0 }.joined(separator: " "), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: up?.season, quality: detail.quality(for: Playback.items(detail, season: up?.season), chosen: nil))
+                            playing = Playback.next(in: detail, season: up?.season)
                         }
                         // The whole series': a status that pressing toggles,
                         // as a season's is.

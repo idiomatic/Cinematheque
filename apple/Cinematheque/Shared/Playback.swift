@@ -40,11 +40,13 @@ enum Playback {
     /// A movie's first item, resuming where this person left off; or a
     /// season's episode in progress (the latest, if more than one), else its
     /// next unwatched (or its first, if all are watched), with the rest of
-    /// the season queued after it (`fromBeginning` for Start Over).
+    /// the season queued after it (`fromBeginning` for Start Over). In the
+    /// `quality` chosen, if its items have it, else the one Play plays, so
+    /// every way of playing them (a tile's, a series') plays the same.
     static func next(in detail: TitleDetail, season: Int?, quality: String? = nil) -> PlayRequest? {
         let items = items(detail, season: season)
         guard !items.isEmpty else { return nil }
-        return request(detail, items: items, from: nextIndex(items), quality: quality)
+        return request(detail, items: items, from: nextIndex(items), quality: detail.quality(for: items, chosen: quality))
     }
 
     /// Which of `items` Play plays, as the core marks it (`next`).

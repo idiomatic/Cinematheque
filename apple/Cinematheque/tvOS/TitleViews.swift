@@ -36,11 +36,11 @@ struct MovieView: View {
                     HStack(spacing: 30) {
                         if Playback.nextItem(detail, season: nil)?.inProgress == true {
                             Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality))?.fromBeginning
+                                playing = Playback.next(in: detail, season: nil, quality: quality)?.fromBeginning
                             }
                         }
                         Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality))
+                            playing = Playback.next(in: detail, season: nil, quality: quality)
                         }
                         .focused($playFocused)
                         // What Play plays in, beside it.
@@ -74,10 +74,10 @@ struct MovieView: View {
             detail = library.detail(tile.key)
             if playsAtOnce, let detail {
                 playsAtOnce = false
-                playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality))
+                playing = Playback.next(in: detail, season: nil, quality: quality)
             }
             #if DEBUG
-            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, quality: detail.quality(for: detail.items, chosen: quality)) }
+            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, quality: quality) }
             #endif
         }
         .modifier(PlaysFullScreen(request: $playing, startsBlack: playsAtOnce))
@@ -156,11 +156,11 @@ struct SeasonView: View {
                         HStack(spacing: 30) {
                             if Playback.nextItem(detail, season: shown.season)?.inProgress == true {
                                 Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                    playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: items, chosen: quality))?.fromBeginning
+                                    playing = Playback.next(in: detail, season: shown.season, quality: quality)?.fromBeginning
                                 }
                             }
                             Button(Playback.playLabel(Playback.nextItem(detail, season: shown.season)), systemImage: "play.fill") {
-                                playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: items, chosen: quality))
+                                playing = Playback.next(in: detail, season: shown.season, quality: quality)
                             }
                             .focused($focus, equals: .play)
                             QualityPicker(detail: detail, items: items, chosen: $quality)
@@ -194,10 +194,10 @@ struct SeasonView: View {
             detail = library.detail(tile.key)
             if playsAtOnce, let detail {
                 playsAtOnce = false
-                playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: Playback.items(detail, season: shown.season), chosen: quality))
+                playing = Playback.next(in: detail, season: shown.season, quality: quality)
             }
             #if DEBUG
-            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: Playback.items(detail, season: shown.season), chosen: quality)) }
+            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: shown.season, quality: quality) }
             #endif
         }
         // Its other episodes, described as they're shown.

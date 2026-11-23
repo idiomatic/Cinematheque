@@ -35,14 +35,14 @@ struct TitlePage: View {
                     Text(detail.facts(season: shown.season)).font(.subheadline).foregroundStyle(.secondary)
                     HStack {
                         Button {
-                            playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: items, chosen: quality))
+                            playing = Playback.next(in: detail, season: shown.season, quality: quality)
                         } label: {
                             Label(Playback.playLabel(next), systemImage: "play.fill").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
                         if next?.inProgress == true {
                             Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: items, chosen: quality))?.fromBeginning
+                                playing = Playback.next(in: detail, season: shown.season, quality: quality)?.fromBeginning
                             }
                             .labelStyle(.iconOnly)
                             .buttonStyle(.bordered)
@@ -98,7 +98,7 @@ struct TitlePage: View {
             detail = library.detail(tile.key)
             #if DEBUG
             if Launch.play != nil, playing == nil, let detail {
-                playing = Playback.next(in: detail, season: shown.season, quality: detail.quality(for: Playback.items(detail, season: shown.season), chosen: quality))
+                playing = Playback.next(in: detail, season: shown.season, quality: quality)
             }
             #endif
         }
