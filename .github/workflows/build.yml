@@ -1,11 +1,20 @@
 # Builds and tests every push and pull request: the core and the
 # command-line app on Linux and macOS, and the Apple app for macOS and the
-# tvOS and iOS simulators.
+# tvOS and iOS simulators. One that changes only documentation (Markdown,
+# docs/, the license) isn't built, as nothing built reads it.
 name: Build
 
 on:
   push:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - LICENSE
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - LICENSE
 
 permissions:
   contents: read
