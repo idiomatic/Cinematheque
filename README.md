@@ -2,7 +2,7 @@
 
 Cinematheque is a video library for your household. It catalogs the movies and TV shows on your own disks and NAS, and plays them on your devices straight from where they're kept. There's nothing to subscribe to or buy, and no account: the catalog is shared directly among your devices, and with the family and friends you invite.
 
-> **Status:** early. Today there are players for the Mac and the Apple TV, an iPhone player as a prototype, and a command-line app for macOS and Linux. More players, metadata from beyond your files, and a transcoder are planned (see [DEVELOPMENT.md](DEVELOPMENT.md)).
+> **Status:** early, at version 0.1 (see [Status](#status)).
 
 <table><tr>
 <td align="center"><a href="docs/screenshots/mac-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/mac-light.png"><img src="docs/screenshots/mac-dark.png" alt="The Mac app: the Series shelf, a series’ seasons open below it, and the inspector on a season partway through" height="120"></picture></a><br><sub>Mac</sub></td>
@@ -12,6 +12,21 @@ Cinematheque is a video library for your household. It catalogs the movies and T
 </tr></table>
 
 <sub>Shown on a made-up library.</sub>
+
+## Status
+
+Early, at version 0.1: expect rough edges, and changes between versions.
+
+| | State |
+| --- | --- |
+| **Mac** (macOS 15+) | Released, not yet notarized: browsing, playing, lists, downloads, and Settings for sources, people, and devices |
+| **Apple TV** (tvOS 18+) | Browsing, playing, lists, and Settings for people, devices, and servers; not released yet, so build it with Xcode |
+| **iPhone** (iOS 18+) | A prototype: browsing, playing, and lists; nothing adds sources, pairs devices, or downloads yet |
+| **Web client** | In the command-line app (`serve --web`), for any browser on your network |
+| **Command-line app** | Released, for macOS and Linux |
+| **Linux and Windows players** | Planned |
+
+Planned beyond them: metadata from outside your files, a transcoder, and a list's own order; see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## How it works
 
@@ -71,6 +86,19 @@ When either app first reaches your network, macOS asks to let it find devices on
 2. Add a source, a folder or server of your videos (below). The library fills in as it looks through it.
 
 The Mac's Settings manage sources, people, and devices, so a household needs no command line. On a Mac, the app and the command-line app share one library, so either can manage it.
+
+### In a browser, quickly
+
+On a computer that stays on (a Linux server, a NAS that runs Linux, or a Mac), the command-line app starts a library, shares a folder of videos, and offers both to every browser on your network:
+
+```sh
+cinematheque library create
+cinematheque serve --web --media /srv/videos &
+cinematheque source add http://hal.local:8008/media/
+cinematheque crawl
+```
+
+Then open `http://hal.local:8008/` in a browser, by the computer's `.local` name or its address. Anyone who can reach the port can use it, so the web client is off unless you give `--web`. To serve a library you already have instead, pair the computer as one of your devices (`cinematheque person pair`) rather than creating one; the [guide](docs/guide.md#in-a-browser) has that, keeping it running, and what browsers play.
 
 ## Preparing a source
 
