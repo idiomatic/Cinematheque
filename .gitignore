@@ -12,8 +12,7 @@ xcuserdata/
 *.egress/
 
 # Agents' notes and locks
-.coordination/locks/
-.coordination/sessions/
+.coordination/
 
 .DS_Store
 

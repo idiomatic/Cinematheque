@@ -2,7 +2,7 @@
 
 Local-first video libraries. Players on Apple devices, macOS, Linux, and Windows browse shared libraries and play each video from any source that holds it. There is no central server: each library's titles, metadata, and people's data replicate among devices, so every device works offline and catches up when it reconnects.
 
-This file specifies what's built. How operations are written, merged, and synced, the keys and fields the library writes, and the measurements behind the design are in [ARCHITECTURE.md](ARCHITECTURE.md); plans and open questions in [DEVELOPMENT.md](DEVELOPMENT.md); outside specifications are indexed in [docs/specifications](docs/specifications/README.md). Agents working on it at once coordinate as [.coordination](.coordination/README.md) says.
+This file specifies what's built. How operations are written, merged, and synced, the keys and fields the library writes, and the measurements behind the design are in [ARCHITECTURE.md](ARCHITECTURE.md); plans and open questions in [DEVELOPMENT.md](DEVELOPMENT.md); outside specifications are indexed in [docs/specifications](docs/specifications/README.md). Agents working on it at once coordinate as `.coordination/README.md` says, kept out of Git.
 
 ## Lexicon
 
