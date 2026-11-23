@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Downloads: deleting a title or season while an earlier file downloads stops its own files too; they came anyway, and stayed.
 * Security: a cutoff (`revoked`) past any sequence number a stream could reach is refused; a member's device could write one that crashed every device that synced with it.
 * README: a drawing of how it works, the catalog syncing among devices and videos playing straight from where they're kept.
 * Mac: a source's sheet sets the names it skips, under Advanced; and a folder's shows its path, with Show in Finder and Choose…, where it showed its web address, choosing another folder (its videos moved to a new drive, say) keeping the same source.

@@ -398,6 +398,20 @@ fn rangeStart(value: []const u8) ?u64 {
     return std.fmt.parseInt(u64, std.mem.trim(u8, spec[0..dash], " "), 10) catch null;
 }
 
+test "a change to what's kept, as one file comes, is seen by each file planned before it" {
+    var f: Fetching = .{};
+    const planned = f.mark();
+    try std.testing.expect(!f.changedSince(planned));
+    // A deletion as the first file comes: it asks, and goes on.
+    f.recheck();
+    var seen = planned;
+    try std.testing.expect(f.changedSince(seen));
+    seen = f.mark();
+    try std.testing.expect(!f.changedSince(seen));
+    // The next file, planned before the deletion, is asked too.
+    try std.testing.expect(f.changedSince(planned));
+}
+
 test "a Content-Range's start" {
     try std.testing.expectEqual(@as(?u64, 100), rangeStart("bytes 100-199/300"));
     try std.testing.expectEqual(@as(?u64, 0), rangeStart("bytes 0-9/*"));
@@ -836,15 +850,27 @@ pub const Fetching = struct {
     len: usize = 0,
     done: u64 = 0,
     size: u64 = 0,
-    /// Set as what's kept changes (something deleted, or a series' choice
-    /// of episodes), so the file under way is asked again whether it's
-    /// still wanted, and stops if not.
-    changed: std.atomic.Value(bool) = .init(false),
+    /// Counts changes to what's kept (something deleted, or a series'
+    /// choice of episodes), so each file planned before one is asked again
+    /// whether it's still wanted: the one under way, which stops if not,
+    /// and each after it, which isn't started. A count, not a flag one
+    /// file's asking clears, which left the files after it unasked.
+    changes: std.atomic.Value(u32) = .init(0),
 
-    /// Asks the file under way, if any, whether it's still wanted. Any
+    /// Asks the files planned so far whether they're still wanted. Any
     /// thread.
     pub fn recheck(f: *Fetching) void {
-        f.changed.store(true, .release);
+        _ = f.changes.fetchAdd(1, .acq_rel);
+    }
+
+    /// The changes so far, to tell later ones by (`changedSince`).
+    fn mark(f: *const Fetching) u32 {
+        return f.changes.load(.acquire);
+    }
+
+    /// Whether what's kept changed since `seen` (a `mark`).
+    fn changedSince(f: *const Fetching, seen: u32) bool {
+        return f.mark() != seen;
     }
 
     /// Notes `item` under way (null: none), with `done` bytes; one whose key
@@ -1002,6 +1028,8 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
     for (finished) |d| try keys.put(arena, d.held.item, {});
 
     // What's kept: wanted, and kept series' next episodes.
+    // Before reading what's wanted, so a change as it's read counts too.
+    const planned_at = if (counter) |c| if (c.fetching) |f| f.mark() else 0 else 0;
     var files: std.ArrayList(File) = .empty;
     for (try wants(replica, arena)) |w| {
         if (keys.contains(w.key)) continue;
@@ -1067,24 +1095,27 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
             };
         }
         const under_way = if (counter) |c| c.fetching else null;
+        // What's kept changed since this was planned: whether it still is.
+        if (under_way) |u| if (u.changedSince(planned_at) and !try stillWanted(replica, arena, f.item)) continue;
         var noted: struct {
             f: *Fetching,
             io: Io,
             replica: *Replica,
             arena: std.mem.Allocator,
             item: []const u8,
+            seen: u32,
             fn report(context: *anyopaque, done: u64, _: u64) bool {
                 const n: *@This() = @ptrCast(@alignCast(context));
                 n.f.progress(n.io, done);
                 // What's kept changed meanwhile: whether this still is.
-                if (!n.f.changed.swap(false, .acq_rel)) return true;
+                if (!n.f.changedSince(n.seen)) return true;
+                n.seen = n.f.mark();
                 return stillWanted(n.replica, n.arena, n.item) catch true;
             }
         } = undefined;
         if (under_way) |u| {
-            u.changed.store(false, .release);
             u.note(io, f.item, f.size);
-            noted = .{ .f = u, .io = io, .replica = replica, .arena = arena, .item = f.item };
+            noted = .{ .f = u, .io = io, .replica = replica, .arena = arena, .item = f.item, .seen = u.mark() };
         }
         defer if (under_way) |u| u.note(io, null, 0);
         var file = f;
