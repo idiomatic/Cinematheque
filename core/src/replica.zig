@@ -543,11 +543,13 @@ pub const Replica = struct {
         }
     }
 
-    /// A cutoff (`revoked`) is 8 bytes, and of the founder's streams, the
-    /// founder's own devices', or the stream's own, alone: no one else may
-    /// remove the founder's device, whose leaving would forget the founder.
+    /// A cutoff (`revoked`) is 8 bytes, a sequence number a stream can
+    /// reach (past it, no device could store it), and of the founder's
+    /// streams, the founder's own devices', or the stream's own, alone: no
+    /// one else may remove the founder's device, whose leaving would forget
+    /// the founder.
     fn removalAllowed(replica: *Replica, writer: Device, op: Op, ops: []const Op) !bool {
-        if (op.value.len != 8) return false;
+        if (op.value.len != 8 or std.mem.readInt(u64, op.value[0..8], .little) > max_seq) return false;
         const stream = parseHex(op.field) orelse return false;
         if (std.mem.eql(u8, &stream, &writer)) return true;
         const c = try replica.certified(stream, ops) orelse return true;
@@ -766,7 +768,9 @@ pub const Replica = struct {
         _ = std.fmt.hexToBytes(&stream, stream_hex) catch return;
         // As another connection may have learned of it.
         const id = try replica.deviceId(stream);
-        const through = std.mem.readInt(u64, value[0..8], .little);
+        // A cutoff past any sequence number (which only its own writer
+        // holds, as others refuse it) cuts nothing off.
+        const through = std.math.cast(i64, std.mem.readInt(u64, value[0..8], .little)) orelse return;
         inline for (.{
             "INSERT OR IGNORE INTO repair SELECT key, field FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'",
             "DELETE FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'",
@@ -774,7 +778,7 @@ pub const Replica = struct {
             const s = try replica.db.prepare(sql);
             defer s.finalize();
             try s.bindInt(1, id);
-            try s.bindInt(2, @intCast(through));
+            try s.bindInt(2, through);
             _ = try s.step();
         }
         replica.repairing = try replica.repairsPending() > 0;

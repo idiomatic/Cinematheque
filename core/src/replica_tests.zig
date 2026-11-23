@@ -273,6 +273,24 @@ test "a count no removal could outrank, and one of the wrong kind, are refused" 
     try testing.expect(!try p.replicas[0].isMember("members", &hex));
 }
 
+test "a cutoff past any sequence number is refused, not taken" {
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const b = &p.replicas[1];
+
+    // b cuts its own stream off past where any stream could reach: no
+    // device may take it (converting it would stop the device taking it).
+    var past: [8]u8 = undefined;
+    std.mem.writeInt(u64, &past, std.math.maxInt(u64), .little);
+    try b.writeOp(.lww, 1000, "revoked", &std.fmt.bytesToHex(b.device(), .lower), &past);
+    try b.write(2000, "t/00001", "name", "Still");
+    const stats = try p.sync(0, 1);
+    try testing.expectEqual(@as(usize, 1), stats.refused);
+    try testing.expectEqual(@as(?u64, null), try p.replicas[0].revoked(b.device()));
+    try testing.expectEqualStrings("Still", try p.value(0, "t/00001", "name"));
+}
+
 test "an operation dated over a day ahead is refused, and a clock can't wrap" {
     var p: Devices = undefined;
     try p.init();
