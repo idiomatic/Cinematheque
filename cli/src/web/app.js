@@ -58,6 +58,12 @@ addEventListener("pointermove", (e) => {
   if (e.clientY > innerHeight - 60 && statusBar.classList.contains("faded")) wake();
 });
 
+/// Reads the library again, then shows the page again with it.
+async function refresh() {
+  await reload();
+  route();
+}
+
 async function reload() {
   const [got, kept] = await Promise.all([api("tiles"), api("downloads").catch(() => ({ enabled: false }))]);
   const lists = got.lists.map((l) => ({ ...l, titles: new Set(l.titles) }));
@@ -170,8 +176,7 @@ function wantedView(tile, underSeries) {
       on.length ? el("button", { class: "mark", type: "button", title: "Remove from list", "aria-label": `Remove ${tile.name} from the list`, onclick: async (e) => {
         e.preventDefault();
         for (const l of on) await api("listed", { list: l.id, key: tile.wantedKey, on: false });
-        await reload();
-        route();
+        await refresh();
       } }, "✕") : ""));
   a.tileId = idOf(tile);
   a.underSeries = underSeries;
@@ -345,9 +350,8 @@ function seriesTileView(s) {
     : [el("div", { class: "name-year" }, el("span", { class: "name-row" }, el("span", { class: "name" }, s.name), marks), year)];
   const single = seasons.length === 1;
   const unavailable = seasons.every((t) => t.unavailable) ? " unavailable" : "";
-  const a = single
-    ? el("a", { class: `tile season series-tile${unavailable}`, href: "#title/" + encodeURIComponent(s.key) + "/" + seasons[0].season }, coverView(whole), ...label)
-    : el("a", { class: `tile season series-tile${unavailable}`, href: "#series", role: "button", "aria-expanded": "false", "data-series": s.key }, coverView(whole), ...label);
+  const a = el("a", { class: `tile season series-tile${unavailable}`, ...(single ? { href: "#title/" + encodeURIComponent(s.key) + "/" + seasons[0].season }
+    : { href: "#series", role: "button", "aria-expanded": "false", "data-series": s.key }) }, coverView(whole), ...label);
   // What it was drawn from, to draw it again if that changes (see `patch`).
   a.series = s;
   a.looks = seasons.map(looks).join();
@@ -435,16 +439,19 @@ function matching(tiles) {
 /// and whether the other way round, as this browser last chose, else what's
 /// being watched the latest first, and the rest by title, as the apps do.
 function orderOf(shelf) {
-  const all = JSON.parse(localStorage.getItem("orders") || "{}");
+  const all = orders();
   // Watching was In Progress.
   const chosen = all[shelf] || (shelf === "watching" ? all["in-progress"] : null);
   return chosen || { by: shelf === "watching" || shelf === "watched" ? "watched" : "title", reversed: false };
 }
 
 function chooseOrder(shelf, order) {
-  const all = JSON.parse(localStorage.getItem("orders") || "{}");
-  all[shelf] = order;
-  localStorage.setItem("orders", JSON.stringify(all));
+  localStorage.setItem("orders", JSON.stringify({ ...orders(), [shelf]: order }));
+}
+
+/// Each shelf's order, as this browser chose it.
+function orders() {
+  return JSON.parse(localStorage.getItem("orders") || "{}");
 }
 
 /// Tiles in an order, as the core places them (each place counting from
@@ -567,9 +574,23 @@ function carousel(name, tiles, href) {
   fill(el("div", { class: "carousel" }, []), tiles, (t) => tileView(t))];
 }
 
+/// A list's row, if anything on it matches; else, with `always`, its
+/// heading, saying so.
+function listRow(l, always = false) {
+  const on = onList(l);
+  if (on.length) return carousel(listLabel(l), ordered(on, orderOf(`lists/${l.id}`)), `#lists/${l.id}`);
+  return !always ? [] : [el("div", { class: "row-heading" }, el("h2", {}, listLabel(l)), el("a", { class: "see-all", href: `#lists/${l.id}` }, "See All ›")),
+    el("p", { class: "dim" }, query() ? "Nothing on it matches." : "Nothing on it yet.")];
+}
+
 /// A list's titles, and its placeholders, matching the search.
 function onList(l) {
   return matching([...library.tiles.filter((t) => l.titles.has(listKey(t))), ...placeholders(l)]);
+}
+
+/// A shelf's tiles (`onShelf`'s), matching the search, in its order.
+function onShelfOrdered(shelf) {
+  return ordered(matching(library.tiles.filter(onShelf[shelf])), orderOf(shelf));
 }
 
 const shelves = {
@@ -580,33 +601,22 @@ const shelves = {
     const parts = [el("nav", { class: "shelf-links", "aria-label": "More shelves" },
       el("a", { href: "#watched" }, "Watched"), downloads.enabled ? el("a", { href: "#kept" }, "Kept") : null)];
     if (going.length) parts.push(...carousel("Continue Watching", ordered(going, { by: "watched" }), "#watching"));
-    for (const l of library.lists) {
-      const on = onList(l);
-      if (on.length) parts.push(...carousel(listLabel(l), ordered(on, orderOf(`lists/${l.id}`)), `#lists/${l.id}`));
-    }
+    for (const l of library.lists) parts.push(...listRow(l));
     return parts.length > 1 ? parts : [...parts, empty("Nothing in progress or on your lists yet.")];
   },
   movies: () => {
-    const t = ordered(matching(library.tiles.filter((t) => t.kind === "movie")), orderOf("movies"));
+    const t = onShelfOrdered("movies");
     return t.length ? [grid(t)] : [empty("No movies.")];
   },
   series: () => {
-    const t = ordered(matching(library.tiles.filter((t) => t.kind === "series")), orderOf("series"));
+    const t = onShelfOrdered("series");
     if (!t.length) return [empty("No series.")];
     return groupsSeries() ? [seriesTiles(t)] : seriesGrid(t);
   },
   // Every list as a row, its See All going to its page, then a new one.
   lists: () => {
-    const parts = [el("div", { class: "new-list" }, el("button", { type: "button", title: "New list", onclick: async () => {
-      const id = await newList();
-      if (id) location.hash = `#lists/${id}`;
-    } }, "⊕ New List"))];
-    for (const l of library.lists) {
-      const on = onList(l);
-      if (on.length) parts.push(...carousel(listLabel(l), ordered(on, orderOf(`lists/${l.id}`)), `#lists/${l.id}`));
-      else parts.push(el("div", { class: "row-heading" }, el("h2", {}, listLabel(l)), el("a", { class: "see-all", href: `#lists/${l.id}` }, "See All ›")),
-        el("p", { class: "dim" }, query() ? "Nothing on it matches." : "Nothing on it yet."));
-    }
+    const parts = [el("div", { class: "new-list" }, el("button", { type: "button", title: "New list", onclick: showNewList }, "⊕ New List"))];
+    for (const l of library.lists) parts.push(...listRow(l, true));
     if (!library.lists.length) parts.push(empty("Make a list to keep titles in, as a watchlist or favorites."));
     return parts;
   },
@@ -627,13 +637,13 @@ const shelves = {
   },
   // Played, split in two, as the Mac's sidebar has it.
   watching: () => {
-    const t = ordered(matching(library.tiles.filter(onShelf.watching)), orderOf("watching"));
+    const t = onShelfOrdered("watching");
     return t.length ? shelfGrid(t) : [empty("What you're watching shows here.")];
   },
   // The tab bar's: movies, then a tile per series, as the Apple TV's.
   search: () => {
     if (!query()) return [empty("Search for a movie or series by name.")];
-    const t = ordered(matching(library.tiles), orderOf("search"));
+    const t = onShelfOrdered("search");
     if (!t.length) return [empty("Nothing matches.")];
     const movies = t.filter((x) => x.kind === "movie");
     const series = t.filter((x) => x.kind === "series");
@@ -641,12 +651,12 @@ const shelves = {
     return [el("h2", {}, "Movies"), grid(movies), el("h2", {}, "Series"), seriesTiles(series)];
   },
   watched: () => {
-    const t = ordered(matching(library.tiles.filter(onShelf.watched)), orderOf("watched"));
+    const t = onShelfOrdered("watched");
     return t.length ? shelfGrid(t) : [empty("What you've watched shows here.")];
   },
   // What the server keeps, as the Mac's Downloaded shelf has what it does.
   kept: () => {
-    const t = ordered(matching(library.tiles.filter(onShelf.kept)), orderOf("kept"));
+    const t = onShelfOrdered("kept");
     return t.length ? shelfGrid(t) : [empty("What you keep on the server shows here.")];
   },
 };
@@ -678,8 +688,7 @@ function askWanted(l) {
     try {
       await api("list-want", { list: l.id, want });
       dialog.close();
-      await reload();
-      route();
+      await refresh();
     } catch (err) {
       problem(err.message);
     }
@@ -691,10 +700,7 @@ function askWanted(l) {
 let shownList = null;
 
 /// The sidebar's ⊕, at the Lists heading's right: a new list, shown.
-document.getElementById("new-list").addEventListener("click", async () => {
-  const id = await newList();
-  if (id) location.hash = `#lists/${id}`;
-});
+document.getElementById("new-list").addEventListener("click", showNewList);
 
 /// This person's lists a tile's key is on.
 function listsOf(key) {
@@ -706,10 +712,10 @@ function listName(l) {
   return !l.mine && l.ownerName ? `${l.ownerName}’s ${l.name}` : l.name;
 }
 
-/// A list's name with, if it's shared (this person's or another's), a mark
 /// Whether every member sees a list (its `mode`), not its owner alone.
 function isShared(l) { return l.mode === "shared"; }
 
+/// A list's name with, if it's shared (this person's or another's), a mark
 /// of two people before it, in the text's own color.
 function listLabel(l) {
   if (!isShared(l)) return listName(l);
@@ -718,13 +724,18 @@ function listLabel(l) {
   return [mark, listName(l)];
 }
 
+/// Makes a new list, as asked, and shows it.
+async function showNewList() {
+  const id = await newList();
+  if (id) location.hash = `#lists/${id}`;
+}
+
 /// Asks for a new list's name, and makes it, returning its ID.
 async function newList() {
   const name = prompt("New list’s name:", "")?.trim();
   if (!name) return null;
   const id = await api("list-create", { name });
-  await reload();
-  route();
+  await refresh();
   return id;
 }
 
@@ -732,8 +743,7 @@ async function renameList(l) {
   const name = prompt(`Rename “${l.name}” to:`, l.name)?.trim();
   if (!name || name === l.name) return;
   await api("list-rename", { id: l.id, name });
-  await reload();
-  route();
+  await refresh();
 }
 
 /// Shares a list with everyone in the library, confirmed first, as their
@@ -741,8 +751,7 @@ async function renameList(l) {
 async function shareList(l) {
   if (!isShared(l) && !confirm(`Share “${l.name}” with everyone in the library? They’ll see its titles, and only you can change it. If you stop sharing it, their devices keep what they’ve already received.`)) return;
   await api("list-share", { id: l.id, on: !isShared(l) });
-  await reload();
-  route();
+  await refresh();
 }
 
 async function deleteList(l) {
@@ -762,12 +771,11 @@ function listsMenu(key) {
   const menu = el("div", { class: "menu", popover: "auto", id: "lists-menu", role: "menu", "aria-label": "Lists" },
     ...library.mine.map((l) => el("button", { type: "button", role: "menuitemcheckbox", "aria-checked": l.titles.has(key), onclick: async () => {
       await api("listed", { list: l.id, key, on: !l.titles.has(key) });
-      await reload();
-      route();
+      await refresh();
     } }, (l.titles.has(key) ? "✓ " : "\u2003") + l.name)),
     el("button", { type: "button", role: "menuitem", onclick: async () => {
       const id = await newList();
-      if (id) { await api("listed", { list: id, key, on: true }); await reload(); route(); }
+      if (id) { await api("listed", { list: id, key, on: true }); await refresh(); }
     } }, "\u2003New List…"));
   // The same name whatever it's on, so nothing beside it moves; its
   // chevron says it opens a menu, as a pull-down button's does.
@@ -910,7 +918,7 @@ async function titlePage(key, season) {
     ...listsMenu(isSeries ? `${key}#${season}` : key),
     el("button", { class: "mark", type: "button", "aria-pressed": allWatched, onclick: async () => {
       for (const i of items) await api("watched", { item: `${key}/${i.key}`, watched: !allWatched });
-      await reload(); route();
+      await refresh();
     } }, allWatched ? "✓ Watched" : "○ Unwatched"),
   );
   if (!quality) problem("None of its copies plays in a browser (MKV and ISO files don't).");
@@ -949,23 +957,18 @@ async function titlePage(key, season) {
       onchange: (e) => { location.hash = `#title/${encodeURIComponent(key)}/${e.target.value}`; },
     }, seasons.map((s) => el("option", { value: s, selected: s === season }, seasonName(s)))) : null;
     body.push(el("div", { class: "heading" }, el("h2", {}, "Episodes"), seasonPicker));
-    body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", { class: item.watched ? "watched" : null },
-      el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
-      el("span", { class: "title" }, itemTitle(detail, item)),
-      el("span", { class: "time" }, item.fields.duration ? formatTime(Number(item.fields.duration)) : ""),
-      itemControls(detail, [item], quality),
-      progressRow(detail, item),
-      item.fields.description ? el("span", { class: "desc" }, item.fields.description) : null,
-    ))));
   } else if (items.length > 1) {
     body.push(el("div", { class: "heading" }, el("h2", {}, "Versions")));
-    body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", {},
-      el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
-      el("span", { class: "title" }, itemTitle(detail, item)),
-      el("span", { class: "time" }, ""),
-      itemControls(detail, [item], quality),
-    ))));
   }
+  // An episode with its length, progress, and description; a version, its name.
+  if (isSeries || items.length > 1) body.push(el("ul", { class: "episodes" }, items.map((item, n) => el("li", { class: isSeries && item.watched ? "watched" : null },
+    el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
+    el("span", { class: "title" }, itemTitle(detail, item)),
+    el("span", { class: "time" }, isSeries && item.fields.duration ? formatTime(Number(item.fields.duration)) : ""),
+    itemControls(detail, [item], quality),
+    isSeries ? progressRow(detail, item) : null,
+    isSeries && item.fields.description ? el("span", { class: "desc" }, item.fields.description) : null,
+  ))));
   describe(detail, items);
   return [el("div", { class: "page" }, art, el("div", {}, body))];
 }
@@ -1109,7 +1112,6 @@ async function keepSizes(detail, items, season, quality) {
 /// and keeping it on the server (a movie's Keep, or a season's choice of
 /// episodes, as the Mac's Download has them).
 function keepRow(detail, items, season, quality, sizes) {
-  const row = el("div", { class: "downloads" });
   const parts = [];
   const target = season == null ? keepTarget(detail, items) : null;
   if (target && target.items.length === 1) parts.push(downloadButton(target.items[0], quality));
@@ -1117,9 +1119,7 @@ function keepRow(detail, items, season, quality, sizes) {
     if (season != null) parts.push(seasonChoice(detail, sizes));
     else if (target) parts.push(keepControls(target.items.map((i) => `${detail.key}/${i.key}`), target.key, quality, sizes?.[0]));
   }
-  if (!parts.length) return null;
-  row.append(...parts);
-  return row;
+  return parts.length ? el("div", { class: "downloads" }, parts) : null;
 }
 
 /// Keeping on the server, one button taking each turn in place, as the
@@ -1212,8 +1212,7 @@ function seasonChoice(detail, sizes) {
 /// it on the server.
 function itemControls(detail, items, quality) {
   const keys = items.map((i) => `${detail.key}/${i.key}`);
-  const download = downloadButton(items[0], quality);
-  return el("span", { class: "item-downloads" }, download, downloads.enabled ? keepControls(keys, keys[0], quality, null, true) : null);
+  return el("span", { class: "item-downloads" }, downloadButton(items[0], quality), downloads.enabled ? keepControls(keys, keys[0], quality, null, true) : null);
 }
 
 /// Downloading an item's file to this computer: from the chosen quality's
@@ -1332,15 +1331,10 @@ async function start(me, fromStart) {
 
 function load(url, at) {
   return new Promise((resolve, reject) => {
-    const done = (ok) => {
-      video.removeEventListener("canplay", onReady);
-      video.removeEventListener("error", onError);
-      ok ? resolve() : reject(new Error("didn't load"));
-    };
-    const onReady = () => done(true);
-    const onError = () => done(false);
-    video.addEventListener("canplay", onReady);
-    video.addEventListener("error", onError);
+    // Whichever comes first ends both.
+    const ends = new AbortController();
+    video.addEventListener("canplay", () => { ends.abort(); resolve(); }, { signal: ends.signal });
+    video.addEventListener("error", () => { ends.abort(); reject(new Error("didn't load")); }, { signal: ends.signal });
     video.src = url;
     if (at > 0) video.addEventListener("loadedmetadata", () => { video.currentTime = at; }, { once: true });
   });
@@ -1560,15 +1554,14 @@ function orderKey() {
 /// opened from.
 function markShown() {
   const at = shownShelf === "title" ? lastShelf : shownHash;
-  for (const a of document.querySelectorAll("#sidebar [data-shelf]")) {
-    if (a.dataset.shelf === at) a.setAttribute("aria-current", "page");
-    else a.removeAttribute("aria-current");
-  }
+  markCurrent("#sidebar [data-shelf]", (a) => a.dataset.shelf === at);
   const tab = !at ? null : at.startsWith("lists") ? "lists" : ["watching", "watched", "kept"].includes(at) ? "home" : at;
-  for (const a of document.querySelectorAll("#tabs [data-tab]")) {
-    if (a.dataset.tab === tab) a.setAttribute("aria-current", "page");
-    else a.removeAttribute("aria-current");
-  }
+  markCurrent("#tabs [data-tab]", (a) => a.dataset.tab === tab);
+}
+
+/// Marks the one of `selector`'s links that `current` picks as the page.
+function markCurrent(selector, current) {
+  for (const a of document.querySelectorAll(selector)) current(a) ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current");
 }
 
 // Across the width, search applies or doesn't, and Home's shown or not.

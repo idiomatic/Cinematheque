@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Web client: its script tightened (reloading and showing again, a new list shown, a list's row, a shelf's tiles, and episodes' and versions' rows each written once), under the 1,600 lines a file may run to.
 * Mac: a shelf is filtered and sorted once a redraw, not four times, and its counts aren't sorted at all; a list's shelf looks its titles up once.
 * Apple apps: marking watched, pausing or finishing playback, a sync or a push bringing changes, and a download finishing no longer freeze the window for a second on a large library: the catalog is read back off the main thread, and a tile marked watched shows so at once.
 * Mac: choosing which of a series' episodes download, or downloading a title, no longer holds the Download pop-up for a second, as it read back only the downloads, not the whole catalog.
