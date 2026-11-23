@@ -173,10 +173,10 @@ if (( ${which[(Ie)mac]} )); then
     build 'platform=macOS,arch=arm64'
     (cd $tmp/dd/Build/Products/Debug && ditto -c -k --keepParent Cinematheque.app $tmp/app.zip)
     tar -czf $tmp/mock.tgz -C $tmp media data
-    # 4 GB, as more pushes the host into swap.
-    vm=$($terrarium start macos-27.2-quiet --ephemeral --memory 4096 --by screenshots)
+    # 4 GB, as more pushes the host into swap; Retina, 1440×900 points.
+    vm=$($terrarium start macos-27.2-quiet --ephemeral --memory 4096 --retina --by screenshots)
     $terrarium wait $vm > /dev/null
-    $terrarium resize $vm 1440x900 > /dev/null 2>&1 || true
+    $terrarium resize $vm 2880x1800 > /dev/null 2>&1 || true
     for f in app.zip mock.tgz windows; do $terrarium put $vm $tmp/$f /tmp/$f > /dev/null; done
     $terrarium put $vm $cq /tmp/cinematheque > /dev/null
     guest() { $terrarium exec $vm -- /bin/zsh -c $1 }

@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* README: the Mac's screenshots at Retina resolution, as the others are, from a terrarium VM's Retina display.
 * Mac: the File menu has Add Missing Title…, Rename List, Share List… (or Stop Sharing List), and Delete List… for the list shown, which only its sidebar row's context menu had.
 * Lists: a title not in the library yet can be changed (its name, year, season, or note), keyed afresh as its file will be: by Edit… in the Mac's inspector, the ✎ on its tile in the web client, and on the Apple TV, a page of its own, opened by pressing it, with Remove from List (`cq_list_edit_want`).
 * CI: a push or pull request changing only documentation (Markdown, docs/, the license) isn't built.
