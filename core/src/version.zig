@@ -1,6 +1,6 @@
-//! What this build is: its version (Version.xcconfig's), what it was built
-//! from (`git describe`, as the build found it), how it was optimized, and
-//! by which Zig, so a device's report of a problem says which code it ran.
+//! What this build is: its version (`-Dversion`, as its builder gives
+//! it), what it was built from (`git describe`, as the build found it),
+//! how it was optimized, and by which Zig, so a device's report of a problem says which code it ran.
 //! Served at `/version`.
 
 const std = @import("std");

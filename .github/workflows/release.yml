@@ -29,12 +29,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.TAG }}
-      - name: The tag matches Version.xcconfig
+      - name: The tag matches apple/Version.xcconfig
         id: version
         run: |
-          version=$(sed -n 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*\([^[:space:]]*\).*/\1/p' Version.xcconfig)
+          version=$(sed -n 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*\([^[:space:]]*\).*/\1/p' apple/Version.xcconfig)
           if [ "v$version" != "$TAG" ]; then
-            echo "::error::tag $TAG doesn't match Version.xcconfig's version, $version"
+            echo "::error::tag $TAG doesn't match apple/Version.xcconfig's version, $version"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"

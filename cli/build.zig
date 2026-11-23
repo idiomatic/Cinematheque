@@ -53,7 +53,12 @@ fn stamp(b: *std.Build) *std.Build.Module {
         .target = b.graph.host,
     }) });
     const run = b.addRunArtifact(exe);
-    run.addFileArg(b.path("../Version.xcconfig"));
+    // The project's version, apple/Version.xcconfig's MARKETING_VERSION,
+    // read as it builds, not as this configures (cached), so a new one's
+    // seen.
+    const sed = b.addSystemCommand(&.{ "sed", "-n", "s/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*\\([^[:space:]]*\\).*/\\1/p" });
+    sed.addFileArg(b.path("../apple/Version.xcconfig"));
+    run.addFileArg(sed.captureStdOut(.{ .basename = "version" }));
     run.addArg(b.root.joinString(b.allocator, "..") catch @panic("OOM"));
     run.has_side_effects = true;
     return b.createModule(.{ .root_source_file = run.captureStdOut(.{ .basename = "stamp.zig" }) });

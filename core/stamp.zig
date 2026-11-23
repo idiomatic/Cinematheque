@@ -1,10 +1,11 @@
 //! A build tool, run on every build (core/build.zig's and cli/build.zig's
 //! `stamp`), printing the stamp module that src/version.zig imports:
-//!   stamp VERSION_XCCONFIG CHECKOUT
-//! `version`, Version.xcconfig's `MARKETING_VERSION`; and `revision`, what
-//! the checkout is: `git describe --tags` (lightweight tags too), `-dirty`
-//! if a tracked file differs from it (but CHANGELOG.md, whose Unreleased
-//! section is kept out of commits), else `unknown`, as with no Git. It runs
+//!   stamp VERSION_FILE CHECKOUT
+//! `version`, the file's text, as whoever builds the core gives it; and
+//! `revision`, what the checkout is: `git describe --tags` (lightweight
+//! tags too), `-dirty` if a tracked file differs from it (but CHANGELOG.md,
+//! whose Unreleased section is kept out of commits), else `unknown`, as
+//! with no Git. It runs
 //! at make time, not as the build script configures, since Zig caches
 //! configuring, which knows nothing of commits.
 
@@ -15,8 +16,9 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const args = try init.minimal.args.toSlice(arena);
     if (args.len != 3) return error.Usage;
-    const xcconfig = try std.Io.Dir.cwd().readFileAlloc(io, args[1], arena, .limited(4096));
-    const version = marketingVersion(xcconfig) orelse return error.NoMarketingVersion;
+    const text = try std.Io.Dir.cwd().readFileAlloc(io, args[1], arena, .limited(256));
+    const version = std.mem.trim(u8, text, " \t\r\n");
+    if (version.len == 0) return error.NoVersion;
     const checkout = args[2];
 
     const described = git(arena, io, &.{ "git", "-C", checkout, "describe", "--tags", "--always", "--abbrev=12" });
@@ -30,17 +32,6 @@ pub fn main(init: std.process.Init) !void {
     var out = std.Io.File.stdout().writer(io, &buffer);
     try out.interface.print("pub const version = \"{f}\";\npub const revision = \"{f}\";\n", .{ std.zig.fmtString(version), std.zig.fmtString(revision) });
     try out.interface.flush();
-}
-
-/// The `MARKETING_VERSION` an xcconfig sets.
-fn marketingVersion(text: []const u8) ?[]const u8 {
-    var lines = std.mem.tokenizeScalar(u8, text, '\n');
-    while (lines.next()) |line| {
-        var parts = std.mem.splitScalar(u8, line, '=');
-        if (!std.mem.eql(u8, std.mem.trim(u8, parts.first(), " \t"), "MARKETING_VERSION")) continue;
-        return std.mem.trim(u8, parts.rest(), " \t\r");
-    }
-    return null;
 }
 
 /// What a Git command printed, trimmed, or null if it failed (or there's no Git).

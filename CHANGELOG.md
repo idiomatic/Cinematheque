@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* `Version.xcconfig` moved into `apple/`; the core takes its version from whoever builds it (`-Dversion`), depending on nothing of `apple/`.
 * Debug builds of the Apple app build the core unoptimized, several times faster; Release builds stay ReleaseSafe.
 * Debug builds on iOS and tvOS honor `CINEMATHEQUE_DATA`, running a simulator on a library of the Mac's, such as the mock one.
 * Tiles on every platform, and in the web client: the marks (downloaded, on a list, watched) at the end of the name's line under the cover, leaving its corners to the art, and progress a thin bar along its foot, translucent as the web client's; a tile as wide as its cover. iPhone: names wrap to two lines, the Series tab is in justified rows, and a series' seasons page heads with its whole name.

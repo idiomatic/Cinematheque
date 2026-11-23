@@ -1,0 +1,5 @@
+// Cinematheque's version, its one source: the Apple app's (through
+// Signing.xcconfig, which also gives it the core, by build-core.zsh's
+// -Dversion) and the command-line app's (read by cli/build.zig). A release's tag is `v` and this
+// (v0.1), which the release workflow checks.
+MARKETING_VERSION = 0.1

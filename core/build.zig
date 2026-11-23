@@ -38,8 +38,8 @@ pub fn build(b: *std.Build) void {
     b.step("test", "Run the core's unit tests").dependOn(&b.addRunArtifact(tests).step);
 }
 
-/// The stamp module `version.zig` imports (its version, and what the
-/// checkout is), printed by stamp.zig, a tool run on every build: Zig caches
+/// The stamp module `version.zig` imports (its version, `-Dversion`, and
+/// what the checkout is), printed by stamp.zig, a tool run on every build: Zig caches
 /// configuring, so Git run here would stamp a checkout as it once was.
 fn stamp(b: *std.Build) *std.Build.Module {
     const exe = b.addExecutable(.{ .name = "stamp", .root_module = b.createModule(.{
@@ -47,7 +47,10 @@ fn stamp(b: *std.Build) *std.Build.Module {
         .target = b.graph.host,
     }) });
     const run = b.addRunArtifact(exe);
-    run.addFileArg(b.path("../Version.xcconfig"));
+    // Its version as whoever builds it gives it (the Apple app's build
+    // phase, its MARKETING_VERSION), as the core knows nothing of theirs.
+    const version = b.option([]const u8, "version", "The version to stamp the build with") orelse "unknown";
+    run.addFileArg(b.addWriteFiles().add("version", version));
     run.addArg(b.root.joinString(b.allocator, "..") catch @panic("OOM"));
     run.has_side_effects = true;
     return b.createModule(.{ .root_source_file = run.captureStdOut(.{ .basename = "stamp.zig" }) });

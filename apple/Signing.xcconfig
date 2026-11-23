@@ -10,7 +10,7 @@ CODE_SIGN_IDENTITY[sdk=macosx*] = -
 
 // The version (MARKETING_VERSION), the project's one, set nowhere in the
 // target, so this wins.
-#include "../Version.xcconfig"
+#include "Version.xcconfig"
 
 // A developer's own settings, such as DEVELOPMENT_TEAM, belong in
 // Local.xcconfig beside this file, which Git ignores, so they stay out of
