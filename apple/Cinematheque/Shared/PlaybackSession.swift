@@ -89,7 +89,10 @@ final class PlaybackSession {
         lap("loaded")
         guard first.status == .readyToPlay, !closed else { return }
         if start > 0 {
-            await player.seek(to: CMTime(seconds: max(0, start - Platform.replay), preferredTimescale: 600))
+            // Exactly, as the Mac's player seeks: by default, a seek may
+            // land on the keyframe before, a GOP early (in a file with
+            // sparse keyframes, minutes).
+            await player.seek(to: CMTime(seconds: max(0, start - Platform.replay), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
             lap("sought")
         }
         guard !closed else { return }
