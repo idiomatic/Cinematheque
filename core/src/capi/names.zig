@@ -79,10 +79,14 @@ export fn cq_remove_device(lib: *Library, device: [*:0]const u8) c_int {
     return status(lib, removeDevice, .{std.mem.span(device)});
 }
 
-fn removeDevice(lib: *Library, _: std.mem.Allocator, device: []const u8) !void {
+fn removeDevice(lib: *Library, arena: std.mem.Allocator, device: []const u8) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
-    try (try lib.main()).revokeDevice(lib.now(), try store_.parseKey(device));
+    const key = try store_.parseKey(device);
+    const r = try lib.main();
+    try r.revokeDevice(lib.now(), key);
+    // Its downloads too, as no one would serve them again.
+    try library.removeDownloadsOf(r, arena, lib.now(), key);
 }
 
 /// Removes this device from the library, as it leaves: if `successor` (a

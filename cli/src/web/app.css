@@ -400,3 +400,11 @@ body.outside #sidebar, body.outside header, body.outside #tabs, body.outside #st
 .settings input, .settings select { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); background: Canvas; color: inherit; }
 .settings p.note { margin: 8px 0 0; font-size: 13px; }
 .settings p.note:empty { display: none; }
+/* A symbol alone, as a quiet square button (or a link that looks like
+   one), its name its tooltip. */
+.settings .icon {
+  display: inline-grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0;
+  border-radius: 8px; border: 0; background: none; color: var(--dim); cursor: pointer;
+}
+.settings .icon:hover { background: var(--raised); color: var(--text); }
+.settings .icon svg { width: 18px; height: 18px; display: block; }

@@ -60,7 +60,7 @@ Others are the system's or the network's (`ConnectionRefused`, `ConnectionTimedO
 | `cq_members(library)` | The members: an array of `{key, name, founder, you}`, `name` null if unset |
 | `cq_member_add(library, person_key)` | Adds a person as a member |
 | `cq_member_remove(library, person_key)` | Removes a member, for good: they come back only as someone new |
-| `cq_remove_device(library, device_key)` | Removes another device: its writes past where this one has seen them are refused everywhere, and it's served no more |
+| `cq_remove_device(library, device_key)` | Removes another device: its writes past where this one has seen them are refused everywhere, and it's served no more; its downloads (a source it marked as its own) are removed too, as no one would serve them again |
 | `cq_remove_self(library, successor)` | Removes this device, as it leaves: first handing the library over to `successor` (a person's key, or NULL), if this person founded it; then cutting off its streams just past these writes. Sync so another device takes the removal, then `cq_leave` |
 | `cq_leave(library)` | Forgets the library and this device's identity (seeds and replica), stopping serving and pairing, so it can pair again as a new device |
 
@@ -92,7 +92,7 @@ A new device offers to be added and shows a code; a member's device, given the c
 
 | Function | What it does |
 |---|---|
-| `cq_repos(library)` | *Any thread,* on a connection of its own (counting copies reads every one). The sources: an array of `{id, url, quality_from, quality, skip, copies, managed, unavailable}`: `quality_from` where its files' quality comes from (`"names"`, `"folder"`, `"named"`, or `"unknown"`, a newer device's setting, by which this one doesn't crawl it), and `quality` the name, if named; `managed` for a device's downloads; `unavailable` its unavailable directories, `{dir, since}` (`dir` relative to the source, empty for the whole of it; `since` in milliseconds since the epoch) |
+| `cq_repos(library)` | *Any thread,* on a connection of its own (counting copies reads every one). The sources, by the path they show, devices' downloads last: an array of `{id, url, path, owner, quality_from, quality, skip, copies, managed, unavailable}`: `path`, its server and folders as a person reads them, to join with " › " (the host without `.local` or its port, then its folders, a NAS's shared one left out where there are more than two); `owner`, the key of the device that wrote its address (whose downloads, if `managed`); `quality_from` where its files' quality comes from (`"names"`, `"folder"`, `"named"`, or `"unknown"`, a newer device's setting, by which this one doesn't crawl it), and `quality` the name, if named; `managed` for a device's downloads; `unavailable` its unavailable directories, `{dir, since}` (`dir` relative to the source, empty for the whole of it; `since` in milliseconds since the epoch) |
 | `cq_repo_add(library, url, skip)` | Adds a source by URL, as typed (percent-encoded, a `/` added at its end), with a prefix of names to skip (NULL for the default); its files' quality is from their names until set |
 | `cq_repo_skip(library, source, skip)` | Sets the prefix of names to skip; applied at the next crawl |
 | `cq_repo_quality_from_names(library, source)` | Takes a source's files' quality from their names; copies move at the next crawl |

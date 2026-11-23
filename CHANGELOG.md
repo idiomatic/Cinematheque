@@ -4,6 +4,14 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Web client: Settings' rows act one way, by symbols at their end (a pencil renaming, a ⊖ removing, an × forgetting; a trash only where files are deleted), as sources' already did, in place of words on some rows and symbols on others.
+* Mac: the sidebar is at most 320 points wide and the grid at least 480, so dragging the sidebar's divider no longer takes the grid down to nothing; and View › Show Sidebar, ⌃⌘S.
+* Mac: the inspector keeps its width between launches, and opens at its own ideal width at last (its width, set within it, went unheeded, so it opened at SwiftUI's default).
+* Command-line app: a device it can't reach as it syncs after a change (a phone whose app is napping) is said once, not at every sync, until it answers again.
+* Devices listen on IPv6 as well as IPv4, so `http://localhost:8008/` answers at once in a browser that tries `::1` first (it was refused there, the browser falling back, or not, to `127.0.0.1`).
+* Web client: a favicon, the app's icon filling its square, at 16, 32, and 48 pixels.
+* `/version` says which app answers (`app`: the command-line app, or the Apple app's `macOS app`, `tvOS app`, or `iOS app`), as the Mac app and the command-line app on one computer otherwise read alike.
+* Sources are named and ordered by the core ("sulaco › Video › TV Shows", devices' downloads last, by whose they are), so every player lists them alike; removing a device removes its downloads too. The web client's Settings show them so, with their counts of files, the web's external-link symbol opening each in a new window, and a ⊖ removing it, devices' downloads left behind too.
 * A device's downloads are marked as its own again whenever their address was written after the mark (as the Mac's are when its serving port comes back), so other devices, which took the mark only before the address arrived, no longer refuse it and crawl them.
 * Devices offering to be added are named by their host where they advertise only a generic name (an iPhone's "iPhone" as "lint"), by the core, so the web client and the command-line app name them as the apps do.
 * Command-line app: `serve` serves the web client unless `--no-web` (`--web` is gone), and starts with no library; the web client sets one up (Create, or Join by a code), and has Settings: names, people, devices (added by their codes), sources (a server's address, or the folder `--media` serves), how often they're looked through, Refresh Library, devices by address, and Leave. Only a browser on the server's own computer (or through an SSH tunnel) acts as it, unless `--permissive`; others are told so.

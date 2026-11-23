@@ -316,7 +316,10 @@ fn change(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, nam
         try r.removeMember(at, try core.store.parseKey(p.key));
     } else if (std.mem.eql(u8, name, "device-remove")) {
         const p = try std.json.parseFromSliceLeaky(struct { key: []const u8 }, arena, body, .{});
-        try r.revokeDevice(at, try core.store.parseKey(p.key));
+        const key = try core.store.parseKey(p.key);
+        try r.revokeDevice(at, key);
+        // Its downloads too, as no one would serve them again.
+        try lib.removeDownloadsOf(&r, arena, at, key);
     } else if (std.mem.eql(u8, name, "source-add")) {
         // A server's address alone: a folder of this computer's is shared
         // only as `serve --media` names it.
@@ -404,7 +407,9 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
     }
 
     const Unavailable = struct { dir: []const u8, since_ms: u64 };
-    const Source = struct { id: []const u8, url: []const u8, managed: bool, copies: i64, unavailable: []const Unavailable };
+    // Its path as players show it, and whose it is, by name, for a
+    // device's downloads.
+    const Source = struct { id: []const u8, url: []const u8, path: []const []const u8, owner: ?[]const u8, managed: bool, copies: i64, unavailable: []const Unavailable };
     var sources: std.ArrayList(Source) = .empty;
     var media_added = false;
     for (try lib.sources(&r, arena)) |s| {
@@ -413,7 +418,15 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
         };
         var gone: std.ArrayList(Unavailable) = .empty;
         for (try lib.unavailableDirs(&r, arena, &s.id)) |a| try gone.append(arena, .{ .dir = a.dir, .since_ms = a.since_ms });
-        try sources.append(arena, .{ .id = try arena.dupe(u8, &s.id), .url = s.url, .managed = s.managed, .copies = try lib.countCopies(&r, arena, s), .unavailable = gone.items });
+        try sources.append(arena, .{
+            .id = try arena.dupe(u8, &s.id),
+            .url = s.url,
+            .path = try lib.sourcePath(arena, s.url),
+            .owner = if (s.owner) |o| lib.nameOf(named, &hex(o)) else null,
+            .managed = s.managed,
+            .copies = try lib.countCopies(&r, arena, s),
+            .unavailable = gone.items,
+        });
     }
 
     return web.sendJson(arena, request, .{

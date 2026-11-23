@@ -95,6 +95,9 @@ pub const Source = struct {
     /// written as files are fetched, onto the qualities they came from, so
     /// it isn't crawled.
     managed: bool = false,
+    /// The device that wrote its address, whose it is (and whose downloads,
+    /// if `managed`).
+    owner: ?[32]u8 = null,
     /// When a device last crawled it whole (`crawled`, wall-clock
     /// milliseconds), so others who've synced since needn't again soon.
     crawled_ms: u64 = 0,
@@ -470,11 +473,13 @@ fn crawlFrom(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.h
     };
 }
 
+/// The sources, as players list them: by the path they show
+/// (`sourcePath`), devices' downloads last.
 pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
     var out: std.ArrayList(Source) = .empty;
     // Each one's `quality-by` and `rendition`, read together once all are.
     var stored: std.ArrayList([2][]const u8) = .empty;
-    const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key >= 'r/' AND key < 'r0' ORDER BY key");
+    const s = try replica.db.prepare("SELECT key, field, value, device FROM winners WHERE key >= 'r/' AND key < 'r0' ORDER BY key");
     defer s.finalize();
     while (try s.step()) {
         const key = s.blob(0);
@@ -487,7 +492,10 @@ pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
         const quality = &stored.items[stored.items.len - 1];
         const field = s.blob(1);
         const value = try arena.dupe(u8, s.blob(2));
-        if (std.mem.eql(u8, field, "url")) r.url = value //
+        if (std.mem.eql(u8, field, "url")) {
+            r.url = value;
+            r.owner = try replica.keyOf(s.int(3));
+        } //
         else if (std.mem.eql(u8, field, "rendition")) quality[1] = value //
         else if (std.mem.eql(u8, field, "skip")) r.layout.skip = value //
         else if (std.mem.eql(u8, field, "quality-by")) quality[0] = value //
@@ -498,8 +506,63 @@ pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
     // Dropped sources have no URL, and one whose URL isn't fit to fetch
     // from (as any member could write) is none.
     var kept: std.ArrayList(Source) = .empty;
-    for (out.items) |r| if (url.fitForSource(r.url)) try kept.append(arena, r);
-    return kept.items;
+    var shown: std.ArrayList([]const u8) = .empty;
+    for (out.items) |r| if (url.fitForSource(r.url)) {
+        try kept.append(arena, r);
+        try shown.append(arena, try std.ascii.allocLowerString(arena, try std.mem.join(arena, " › ", try sourcePath(arena, r.url))));
+    };
+    const Order = struct {
+        list: []const Source,
+        shown: []const []const u8,
+        pub fn lessThan(o: @This(), a: usize, b: usize) bool {
+            if (o.list[a].managed != o.list[b].managed) return !o.list[a].managed;
+            return std.mem.order(u8, o.shown[a], o.shown[b]) == .lt;
+        }
+    };
+    const order = try arena.alloc(usize, kept.items.len);
+    for (order, 0..) |*i, n| i.* = n;
+    std.mem.sort(usize, order, Order{ .list = kept.items, .shown = shown.items }, Order.lessThan);
+    const sorted = try arena.alloc(Source, order.len);
+    for (order, sorted) |i, *o| o.* = kept.items[i];
+    return sorted;
+}
+
+/// A source's server and folders as a person reads them ("art", "Movies",
+/// "2160p", to join with " › "): its host without `.local` (or its port),
+/// then its folders, decoded, but a NAS's shared folder (as `Video`), seldom
+/// worth showing, where there are more than two.
+pub fn sourcePath(arena: std.mem.Allocator, u: []const u8) ![]const []const u8 {
+    const uri = std.Uri.parse(u) catch return arena.dupe([]const u8, &.{u});
+    const host_raw = uri.host orelse return arena.dupe([]const u8, &.{u});
+    var host = try host_raw.toRawMaybeAlloc(arena);
+    if (std.ascii.endsWithIgnoreCase(host, ".local")) host = host[0 .. host.len - ".local".len];
+    var parts: std.ArrayList([]const u8) = .empty;
+    var folders = std.mem.tokenizeScalar(u8, try uri.path.toRawMaybeAlloc(arena), '/');
+    while (folders.next()) |f| try parts.append(arena, url.decode(try arena.dupe(u8, f)) catch f);
+    const shown = if (parts.items.len > 2) parts.items[1..] else parts.items;
+    return std.mem.concat(arena, []const u8, &.{ &.{host}, shown });
+}
+
+test "a source's path, as a person reads it" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const join = struct {
+        fn of(a: std.mem.Allocator, u: []const u8) ![]const u8 {
+            return std.mem.join(a, " › ", try sourcePath(a, u));
+        }
+    }.of;
+    try std.testing.expectEqualStrings("sulaco › Video › TV Shows", try join(arena, "http://sulaco/Video/TV%20Shows/"));
+    try std.testing.expectEqualStrings("art › Movies › 2160p", try join(arena, "http://art.local/Video/Movies/2160p/"));
+    try std.testing.expectEqualStrings("firefly › youtube", try join(arena, "http://firefly.local:58208/youtube/"));
+}
+
+/// Removes `device`'s downloads (sources it marked as its own), as it's
+/// removed from the library: no one would serve them again.
+pub fn removeDownloadsOf(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, device: [32]u8) !void {
+    for (try sources(replica, arena)) |s| {
+        if (s.managed and s.owner != null and std.mem.eql(u8, &s.owner.?, &device)) _ = try removeSource(replica, arena, wall_ms, &s.id);
+    }
 }
 
 pub const IngestStats = struct {
