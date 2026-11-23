@@ -14,6 +14,12 @@ case $PLATFORM_NAME in
     iphonesimulator) os=ios; platform=ios-simulator; version=$IPHONEOS_DEPLOYMENT_TARGET; abi=-simulator ;;
     *) print -u2 "error: no core for $PLATFORM_NAME"; exit 1 ;;
 esac
+# Release builds' core is ReleaseSafe, as releases' are; Debug builds' is
+# Zig's Debug, unoptimized, as it builds several times faster.
+case $CONFIGURATION in
+    Debug) optimize=() ;;
+    *) optimize=(--release=safe) ;;
+esac
 out="$DERIVED_FILE_DIR/core"
 libs=()
 cd "$SRCROOT/../core"
@@ -22,7 +28,7 @@ for arch in ${=ARCHS}; do
         arm64) zig_arch=aarch64 ;;
         *) zig_arch=$arch ;;
     esac
-    zig build --release=safe -Dtarget=$zig_arch-$os.$version$abi --sysroot "$SDKROOT" --prefix "$out/$arch"
+    zig build $optimize -Dtarget=$zig_arch-$os.$version$abi --sysroot "$SDKROOT" --prefix "$out/$arch"
     xcrun ld -r -arch $arch -platform_version $platform $version $version -exported_symbol '_cq_*' -all_load "$out/$arch/lib/libcinematheque.a" -o "$out/$arch/core.o"
     rm -f "$out/$arch/libcore.a"
     xcrun libtool -static -o "$out/$arch/libcore.a" "$out/$arch/core.o"
