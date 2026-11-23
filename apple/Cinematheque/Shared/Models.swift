@@ -210,12 +210,15 @@ nonisolated struct Source: Codable, Identifiable, Hashable {
 
     /// Its server and folders, as a person reads them: "art › Movies ›
     /// 2160p".
-    var displayName: String {
-        guard let u = URL(string: url), let host = u.host() else { return url.removingPercentEncoding ?? url }
+    var displayName: String { path.joined(separator: " › ") }
+
+    /// Its server, then its folders: `displayName`'s parts.
+    var path: [String] {
+        guard let u = URL(string: url), let host = u.host() else { return [url.removingPercentEncoding ?? url] }
         let parts = u.pathComponents.filter { $0 != "/" }.compactMap { $0.removingPercentEncoding }
         // A NAS's shared folder (e.g., Video) is seldom worth showing.
         let shown = parts.count > 2 ? Array(parts.dropFirst()) : parts
-        return ([host.replacing(/\.local$/, with: "")] + shown).joined(separator: " › ")
+        return [host.replacing(/\.local$/, with: "")] + shown
     }
 }
 

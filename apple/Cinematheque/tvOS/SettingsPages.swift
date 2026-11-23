@@ -161,7 +161,10 @@ struct SourcesPage: View {
                 Section {
                     ForEach(sources) { source in
                         Button { removing = source } label: {
-                            ValueLabel(title: source.displayName, value: source.copies == 1 ? "1 video" : "\(source.copies.formatted()) videos")
+                            // The count alone, as the page is of videos; said
+                            // whole to VoiceOver.
+                            ValueLabel(title: source.displayName, path: source.path, value: source.copies.formatted())
+                                .accessibilityValue(source.copies == 1 ? "1 video" : "\(source.copies.formatted()) videos")
                         }
                         .explained("source:" + source.id, hint(source), $focus)
                     }

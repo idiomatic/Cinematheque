@@ -231,9 +231,12 @@ private extension View {
 /// the value giving way first, or at accessibility text sizes, the value
 /// under the title; and for a row opening something, a chevron (measured
 /// against the system's: 18 by 32 points, 32 after the value and 36 short
-/// of the plate's edge, scaling with the text).
+/// of the plate's edge, scaling with the text). A path's title (`path`, a
+/// source's server and folders) gives way instead, its middle folders
+/// first.
 struct ValueLabel: View {
     let title: String
+    var path: [String]? = nil
     var opens = false
     let value: String
     @Environment(\.dynamicTypeSize) private var size
@@ -243,11 +246,18 @@ struct ValueLabel: View {
         HStack(spacing: 23) {
             if size.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(title)
+                    if let path { PathText(parts: path) } else { Text(title) }
                     Text(value).foregroundStyle(.secondary)
                 }
                 .lineLimit(1)
                 Spacer(minLength: 0)
+            } else if let path {
+                PathText(parts: path)
+                Spacer(minLength: 0)
+                Text(value)
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
             } else {
                 Text(title)
                     .lineLimit(1)
@@ -267,6 +277,31 @@ struct ValueLabel: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A path's parts ("sulaco › Video › TV Shows") as wide as fits: whole,
+/// else its middle parts collapsed into an ellipsis, one more at a time
+/// ("sulaco › … › TV Shows"), its first and last kept, as they say which
+/// server and which folder; at the last, cut short in the middle.
+private struct PathText: View {
+    let parts: [String]
+
+    /// Each way to show it, widest first.
+    private var forms: [String] {
+        guard parts.count > 2 else { return [parts.joined(separator: " › ")] }
+        return [parts.joined(separator: " › ")] + (1...(parts.count - 2)).map { hidden in
+            ([parts[0], "…"] + parts.suffix(parts.count - 1 - hidden)).joined(separator: " › ")
+        }
+    }
+
+    var body: some View {
+        let forms = forms
+        ViewThatFits(in: .horizontal) {
+            ForEach(forms.dropLast(), id: \.self) { Text($0).lineLimit(1).fixedSize() }
+            Text(forms.last ?? "").lineLimit(1).truncationMode(.middle)
+        }
+        .accessibilityLabel(parts.joined(separator: ", "))
     }
 }
 
