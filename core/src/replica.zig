@@ -313,6 +313,16 @@ pub const Replica = struct {
         }
     }
 
+    /// The hybrid logical clock of the write that holds `key`'s `field`, if
+    /// one does.
+    pub fn clock(replica: *Replica, key: []const u8, field: []const u8) !?u64 {
+        const s = replica.select_winner;
+        defer s.reset();
+        try s.bindText(1, key);
+        try s.bindText(2, field);
+        return if (try s.step()) @bitCast(s.int(1)) else null;
+    }
+
     fn holds(replica: *Replica, key: []const u8, field: []const u8) !bool {
         const s = replica.select_winner;
         defer s.reset();

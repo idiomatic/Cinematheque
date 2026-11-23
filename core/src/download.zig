@@ -461,7 +461,11 @@ pub const Settings = struct {
 };
 
 /// Sets where this device keeps downloads (`dir`), the URL it serves them
-/// at (made a source, `managed`, if it isn't one).
+/// at (made a source, `managed`, if it isn't one). It's marked again unless
+/// its mark is newer than its address: other devices take the mark only
+/// from the address's writer, so one that arrives before the address (as
+/// syncing sends winners in the order written, and the address was written
+/// again, as a removed source added back is) would be refused for good.
 pub fn configure(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, dir: []const u8, served_at: []const u8) !void {
     var typed: std.ArrayList(u8) = .empty;
     try @import("url.zig").escape(arena, &typed, served_at);
@@ -473,7 +477,10 @@ pub fn configure(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, dir:
         },
         else => |e| return e,
     };
-    if (!source.managed) try replica.write(wall_ms, try std.fmt.allocPrint(arena, "r/{s}", .{&source.id}), "managed", "1");
+    const key = try std.fmt.allocPrint(arena, "r/{s}", .{&source.id});
+    const marked = try replica.clock(key, "managed");
+    const placed = try replica.clock(key, "url");
+    if (!source.managed or marked == null or placed == null or marked.? <= placed.?) try replica.write(wall_ms, key, "managed", "1");
     try replica.setLocal(dir_key, dir);
     try replica.setLocal(source_key, typed.items);
 }

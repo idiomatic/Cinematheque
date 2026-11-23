@@ -445,6 +445,27 @@ test "a source's address is its own, and its device's alone to mark as downloads
     try testing.expectError(error.Missing, p.value(2, key, "managed"));
 }
 
+test "a device's downloads stay its own as their address is written again" {
+    const library = @import("library.zig");
+    const download = @import("download.zig");
+    var p: Devices = undefined;
+    try p.init();
+    defer p.deinit();
+    const arena = p.arena_state.allocator();
+    const a = &p.replicas[0];
+    const at = "http://hal.local:8008/downloads/";
+    try download.configure(a, arena, 1000, "/kept", at);
+    const source = try library.findSource(a, arena, at);
+    // Removed, then served there again (as the Mac does as its port comes
+    // back): its address written afresh, after the mark.
+    _ = try library.removeSource(a, arena, 2000, &source.id);
+    try download.configure(a, arena, 3000, "/kept", at);
+    // A device that hadn't seen any of it takes the mark too, its address
+    // arriving first.
+    _ = try p.sync(2, 0);
+    try testing.expect((try library.findSource(&p.replicas[2], arena, at)).managed);
+}
+
 test "a shared list is every member's to see, and its owner's alone to change" {
     const lists = @import("lists.zig");
     var p: Devices = undefined;
