@@ -2,8 +2,8 @@
 // film.stack symbol in white, as layers (tvOS's parallax) or flattened.
 // Usage: swift draw-icons.swift OUTPUT_DIR, then copy the PNGs into
 // Cinematheque/Assets.xcassets (AppIcon, App Icon & Top Shelf Image, and
-// SettingsIcon),
-// whose file names they keep.
+// SettingsIcon), whose file names they keep, and web/favicon.ico into
+// ../cli/src/web.
 import AppKit
 
 guard CommandLine.arguments.count == 2 else {
@@ -12,9 +12,10 @@ guard CommandLine.arguments.count == 2 else {
 }
 let out = URL(fileURLWithPath: CommandLine.arguments[1])
 
-enum Layer { case back, front, flat, mac }
+enum Layer { case back, front, flat, mac, favicon }
 
-func draw(_ width: Int, _ height: Int, _ layer: Layer, title: Bool = false, symbolScale: CGFloat = 0.55, to name: String) {
+@discardableResult
+func draw(_ width: Int, _ height: Int, _ layer: Layer, title: Bool = false, symbolScale: CGFloat = 0.55, to name: String) -> Data {
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
@@ -25,6 +26,10 @@ func draw(_ width: Int, _ height: Int, _ layer: Layer, title: Bool = false, symb
     if layer == .mac {
         let inset = w * 100 / 1024
         box = box.insetBy(dx: inset, dy: inset)
+        NSBezierPath(roundedRect: box, xRadius: box.width * 0.225, yRadius: box.width * 0.225).addClip()
+    }
+    // A browser's tab: the rounded square filling it, no margin to spare.
+    if layer == .favicon {
         NSBezierPath(roundedRect: box, xRadius: box.width * 0.225, yRadius: box.width * 0.225).addClip()
     }
     if layer != .front {
@@ -57,7 +62,9 @@ func draw(_ width: Int, _ height: Int, _ layer: Layer, title: Bool = false, symb
     NSGraphicsContext.restoreGraphicsState()
     let file = out.appendingPathComponent(name)
     try! FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try! rep.representation(using: .png, properties: [:])!.write(to: file)
+    let png = rep.representation(using: .png, properties: [:])!
+    try! png.write(to: file)
+    return png
 }
 
 // macOS: on its icon grid.
@@ -84,3 +91,19 @@ for (name, w, h) in [("Top Shelf Image", 1920, 720), ("Top Shelf Image Wide", 23
 for scale in [1, 2] {
     draw(540 * scale, 324 * scale, .flat, symbolScale: 0.67, to: "tv/SettingsIcon/icon@\(scale)x.png")
 }
+// The web client's favicon: the icon filling its square, at the sizes
+// browsers show (16 and 32 points, 48 for Windows), as one ICO of PNGs.
+let favicons = [16, 32, 48].map { ($0, draw($0, $0, .favicon, symbolScale: 0.62, to: "web/favicon-\($0).png")) }
+var ico = Data()
+func little(_ v: Int, _ bytes: Int) { for i in 0..<bytes { ico.append(UInt8((v >> (8 * i)) & 0xff)) } }
+// Its header (reserved, type 1, count), then an entry per image (width,
+// height, no palette, reserved, planes, bits, size, offset), then the PNGs.
+little(0, 2); little(1, 2); little(favicons.count, 2)
+var offset = 6 + 16 * favicons.count
+for (size, png) in favicons {
+    ico.append(UInt8(size)); ico.append(UInt8(size)); ico.append(0); ico.append(0)
+    little(1, 2); little(32, 2); little(png.count, 4); little(offset, 4)
+    offset += png.count
+}
+for (_, png) in favicons { ico.append(png) }
+try! ico.write(to: out.appendingPathComponent("web/favicon.ico"))

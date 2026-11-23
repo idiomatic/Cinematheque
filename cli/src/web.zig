@@ -20,6 +20,9 @@ const files = [_]struct { path: []const u8, type: []const u8, body: []const u8 }
     .{ .path = "/settings.js", .type = "text/javascript; charset=utf-8", .body = @embedFile("web/settings.js") },
     .{ .path = "/route.js", .type = "text/javascript; charset=utf-8", .body = @embedFile("web/route.js") },
     .{ .path = "/app.css", .type = "text/css; charset=utf-8", .body = @embedFile("web/app.css") },
+    // The app's icon, at the sizes browsers' tabs show it (drawn by
+    // apple/draw-icons.swift).
+    .{ .path = "/favicon.ico", .type = "image/x-icon", .body = @embedFile("web/favicon.ico") },
 };
 
 pub const Web = struct {
