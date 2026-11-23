@@ -80,6 +80,11 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
     /// partway, seasons begun), as are the Mac's In Progress; Watched's,
     /// what's watched through.
     @MainActor func tiles(in library: Library, search: String = "", order: ShelfOrder? = nil) -> [Tile] {
+        members(in: library, search: search).ordered(order ?? defaultOrder)
+    }
+
+    /// As `tiles`, in no order (for counting, which needs none).
+    @MainActor func members(in library: Library, search: String = "") -> [Tile] {
         #if os(macOS)
         let downloaded = self == .downloaded ? library.downloadedTiles : []
         #else
@@ -93,6 +98,8 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
         default: []
         }
         let present = wanted.isEmpty ? [] : Set(library.tiles.map(\.id))
+        // A list's titles, looked up once, not for each tile.
+        let listed: Set<String> = if case .list(let id) = self { Set(library.lists.first { $0.id == id }?.titles ?? []) } else { [] }
         let placeholders = wanted.filter { !present.contains($0.key) }.map(Tile.init(wanted:))
             .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
         return (library.tiles.filter { tile in
@@ -101,13 +108,12 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
             case .movies: !tile.isSeries
             case .series: tile.isSeries
             case .lists: library.onAnyList.contains(tile.id)
-            case .list(let id): library.lists.first { $0.id == id }?.titles.contains(tile.id) ?? false
+            case .list: listed.contains(tile.id)
             case .watched: tile.watched
             case .downloaded: downloaded.contains(tile.id)
             }
             return on && (search.isEmpty || tile.name.localizedCaseInsensitiveContains(search))
         } + placeholders)
-        .ordered(order ?? defaultOrder)
     }
 
     /// What it's sorted by until a person chooses: what's being watched,
@@ -122,7 +128,7 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
     /// "4,000 movies", "300 series, 1,200 seasons, 15,000 episodes", or with a search, "12
     /// of 4,000 movies match “zoo”".
     @MainActor func counts(in library: Library, search: String = "") -> String {
-        let all = tiles(in: library)
+        let all = members(in: library)
         let titles = Set(all.map(\.key)).count
         let noun = switch self {
         case .movies: titles == 1 ? "movie" : "movies"
@@ -130,7 +136,7 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
         case .home, .inProgress, .lists, .list, .watched, .downloaded: titles == 1 ? "title" : "titles"
         }
         if !search.isEmpty {
-            let matching = Set(tiles(in: library, search: search).map(\.key)).count
+            let matching = Set(members(in: library, search: search).map(\.key)).count
             return "\(matching.formatted()) of \(titles.formatted()) \(noun) match “\(search)”"
         }
         if self == .series {

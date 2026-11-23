@@ -802,8 +802,9 @@ fn progressChanged(replica: *Replica, arena: std.mem.Allocator) ![]const Progres
     const prefix = try library.progressKey(replica, arena, "");
     const s = try replica.db.prepare("SELECT key, max(hlc) FROM winners WHERE key >= ?1 AND key < ?2 GROUP BY key");
     defer s.finalize();
-    try s.bindText(1, prefix);
-    try s.bindText(2, try std.fmt.allocPrint(arena, "{s}\xff", .{prefix}));
+    // Titles' progress alone, not this person's lists beside it.
+    try s.bindText(1, try std.fmt.allocPrint(arena, "{s}t/", .{prefix}));
+    try s.bindText(2, try std.fmt.allocPrint(arena, "{s}t0", .{prefix}));
     while (try s.step()) try out.append(arena, .{ .item = try arena.dupe(u8, s.blob(0)[prefix.len..]), .at_ms = @as(u64, @bitCast(s.int(1))) >> 16 });
     return out.items;
 }

@@ -238,7 +238,10 @@ struct Browser: View {
     }
 
     private var browser: some View {
-        NavigationSplitView(columnVisibility: $columns) {
+        // The shelf's tiles, filtered and ordered once a redraw, not for
+        // each that asks.
+        let shown = shown
+        return NavigationSplitView(columnVisibility: $columns) {
             List(selection: $shelf) {
                 ForEach(Self.shelves) { shelf in
                     Label(shelf.title, systemImage: shelf.symbol)
