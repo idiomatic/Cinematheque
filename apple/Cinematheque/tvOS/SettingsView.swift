@@ -167,12 +167,7 @@ struct SettingsView: View {
             KeyboardField(title: title, text: name ?? "", typing: Binding(get: { naming == which }, set: { if !$0 { naming = nil } })) {
                 library.setName(which, $0)
             }
-            .frame(width: 1, height: 1)
-            // tvOS's fields keep a size of their own, whose plate would
-            // show through the row's.
-            .clipped()
-            .opacity(0.01)
-            .accessibilityHidden(true)
+            .unseen()
         }
     }
 
@@ -422,6 +417,15 @@ struct SettingsPage<List: View>: View {
                 .ignoresSafeArea()
             }
         }
+    }
+}
+
+extension KeyboardField {
+    /// Out of sight, a point behind what's pressed, as only its keyboard
+    /// shows: clipped, as tvOS's fields keep a size of their own, whose
+    /// plate would show through the row's.
+    func unseen() -> some View {
+        frame(width: 1, height: 1).clipped().opacity(0.01).accessibilityHidden(true)
     }
 }
 

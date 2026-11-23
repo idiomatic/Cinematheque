@@ -108,27 +108,6 @@ struct TitlePage: View {
     }
 }
 
-/// The quality to play: the best this iPhone plays, unless one's chosen; of
-/// one quality, said, not offered.
-private struct QualityPicker: View {
-    let detail: TitleDetail
-    let items: [TitleDetail.Item]
-    @Binding var chosen: String?
-
-    var body: some View {
-        let labels = QualityChoice.labels(items)
-        let short = QualityChoice.shortNames(labels, in: items)
-        if labels.count == 1, let label = labels.first {
-            Text(short[label] ?? label).font(.subheadline).foregroundStyle(.secondary)
-        } else if labels.count > 1 {
-            Picker("Quality", selection: Binding(get: { detail.quality(for: items, chosen: chosen) }, set: { chosen = $0 })) {
-                ForEach(labels, id: \.self) { Text(short[$0] ?? $0).tag(Optional($0)) }
-            }
-            .pickerStyle(.menu)
-        }
-    }
-}
-
 extension PlayRequest: Identifiable {
     var id: Self { self }
 }

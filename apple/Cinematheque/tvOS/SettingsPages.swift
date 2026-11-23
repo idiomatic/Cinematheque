@@ -92,10 +92,7 @@ struct DevicesPage: View {
                             KeyboardField(title: "Name", text: device.name, typing: Binding(get: { renaming == device.key }, set: { if !$0 { renaming = nil } })) {
                                 library.renameDevice(device.key, $0)
                             }
-                            .frame(width: 1, height: 1)
-                            .clipped()
-                            .opacity(0.01)
-                            .accessibilityHidden(true)
+                            .unseen()
                         }
                         .explained("device:" + device.key, hint(device), $focus)
                     }
@@ -174,10 +171,7 @@ struct SourcesPage: View {
                     Button { problem = nil; typing = true } label: { ValueLabel(title: "Add Server", opens: true, value: "") }
                         .background {
                             KeyboardField(title: "Server Address", text: "http://", keyboard: .URL, typing: $typing, submit: add)
-                                .frame(width: 1, height: 1)
-                                .clipped()
-                                .opacity(0.01)
-                                .accessibilityHidden(true)
+                                .unseen()
                         }
                         .explained("add", Self.adding, $focus)
                 }
@@ -286,10 +280,7 @@ struct AddDevicePage: View {
                             KeyboardField(title: "The code \(device.deviceName ?? "it") shows", text: "", keyboard: .numberPad, typing: Binding(get: { entering == device.url }, set: { if !$0 { entering = nil } })) {
                                 pair(device, $0)
                             }
-                            .frame(width: 1, height: 1)
-                            .clipped()
-                            .opacity(0.01)
-                            .accessibilityHidden(true)
+                            .unseen()
                         }
                         .accessibilityHint(explanation)
                     }

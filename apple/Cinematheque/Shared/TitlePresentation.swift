@@ -308,10 +308,7 @@ struct ListRequests: ViewModifier {
             #if os(tvOS)
             .background {
                 KeyboardField(title: renaming == nil ? "New List" : "Rename List", text: renaming?.name ?? "", typing: prompting) { answer($0) }
-                    .frame(width: 1, height: 1)
-                    .clipped()
-                    .opacity(0.01)
-                    .accessibilityHidden(true)
+                    .unseen()
             }
             #else
             .alert(renaming == nil ? "New List" : "Rename List", isPresented: prompting) {
@@ -352,3 +349,33 @@ struct ListRequests: ViewModifier {
         }
     }
 }
+
+#if os(tvOS) || os(iOS)
+/// The quality a title page plays in, by short names (the Apple TV's and
+/// the iPhone's): a picker, or, of one quality, it as text, so every title
+/// says what it plays in.
+struct QualityPicker: View {
+    let detail: TitleDetail
+    let items: [TitleDetail.Item]
+    @Binding var chosen: String?
+
+    var body: some View {
+        let labels = QualityChoice.labels(items)
+        let short = QualityChoice.shortNames(labels, in: items)
+        if labels.count == 1, let label = labels.first {
+            Text(short[label] ?? label)
+                #if os(iOS)
+                .font(.subheadline)
+                #endif
+                .foregroundStyle(.secondary)
+        } else if labels.count > 1 {
+            Picker(selection: Binding(get: { detail.quality(for: items, chosen: chosen) }, set: { chosen = $0 })) {
+                ForEach(labels, id: \.self) { Text(short[$0] ?? $0).tag(Optional($0)) }
+            } label: {
+                Label("Quality", systemImage: "slider.horizontal.3")
+            }
+            .pickerStyle(.menu)
+        }
+    }
+}
+#endif

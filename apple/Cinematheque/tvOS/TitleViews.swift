@@ -260,31 +260,4 @@ private struct Backdrop: View {
     }
 }
 
-/// The quality to play, after Play: the best this Apple TV plays (MP4,
-/// MOV, or M4V, up to its display's resolution), unless one's chosen, as a
-/// quicker copy in another quality may be, or a direct one; of one quality,
-/// said, not offered, as on the Mac.
-private struct QualityPicker: View {
-    let detail: TitleDetail
-    let items: [TitleDetail.Item]
-    @Binding var chosen: String?
-
-    var body: some View {
-        let labels = QualityChoice.labels(items)
-        if labels.count == 1, let label = labels.first {
-            Text(QualityChoice.shortNames(labels, in: items)[label] ?? label).foregroundStyle(.secondary)
-        } else if labels.count > 1 {
-            let short = QualityChoice.shortNames(labels, in: items)
-            Picker(selection: Binding(get: { detail.quality(for: items, chosen: chosen) }, set: { chosen = $0 })) {
-                ForEach(labels, id: \.self) { label in
-                    Text(short[label] ?? label).tag(Optional(label))
-                }
-            } label: {
-                Label("Quality", systemImage: "slider.horizontal.3")
-            }
-            .pickerStyle(.menu)
-        }
-    }
-}
-
 #endif
