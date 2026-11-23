@@ -44,6 +44,8 @@ struct CinemathequeApp: App {
             }
             // Show Inspector and Hide Inspector in the View menu (the
             // system's goes with the inspector, which isn't there hidden).
+            // Show Sidebar, ⌃⌘S, the system's.
+            SidebarCommands()
             CommandGroup(after: .sidebar) { InspectorCommand() }
             CommandGroup(after: .textEditing) { FindCommand() }
             CommandGroup(before: .toolbar) {

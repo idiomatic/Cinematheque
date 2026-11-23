@@ -318,7 +318,9 @@ struct Browser: View {
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 160, ideal: 180)
+            // Bounded, as is the grid below: dragged wider without, it took
+            // the grid down to nothing, its own rows sliding out of sight.
+            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 320)
         } detail: {
             // A scroll view per shelf: one left scrolled past the end of a
             // shorter shelf shows nothing until scrolled.
@@ -327,6 +329,9 @@ struct Browser: View {
                 // and keeping its place by its topmost title.
                 .id("\(shelf?.rawValue ?? "") \(groupsSeries)")
                 .navigationTitle(shelf?.name(in: library) ?? "Cinematheque")
+                // What the window's least width leaves it beside the
+                // sidebar and the inspector, its toolbar's room.
+                .navigationSplitViewColumnWidth(min: 480, ideal: 640)
                 .overlay(alignment: .bottom) { StatusBar(counts: counts, hovering: nearBottom) }
                 // Pointing near the bottom brings back a faded status bar.
                 .onContinuousHover { phase in
