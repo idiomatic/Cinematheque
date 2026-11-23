@@ -18,7 +18,8 @@ CALLED = {
     "makeCoordinator", "animatableData", "effectValue", "callAsFunction",
     "acceptsFirstResponder", "playerViewControllerShouldDismiss", "std_options",
     "format", "CinemathequeApp", "makeUIView", "updateUIView",
-    "textFieldShouldReturn", "textFieldDidEndEditing",
+    "textFieldShouldReturn", "textFieldDidEndEditing", "placeSubviews",
+    "makeUIViewController", "updateUIViewController", "controlTextDidChange",
 }
 
 files = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "core/src", "cli/src", "apple/Cinematheque"],
