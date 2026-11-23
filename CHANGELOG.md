@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* README: a drawing of how it works, the catalog syncing among devices and videos playing straight from where they're kept.
 * Mac: a source's sheet sets the names it skips, under Advanced; and a folder's shows its path, with Show in Finder and Choose…, where it showed its web address, choosing another folder (its videos moved to a new drive, say) keeping the same source.
 * New sources skip no names by default, where they skipped those starting with `,`: a prefix skips titles starting with it too, so none suits every library. Existing sources keep theirs; `source set --skip` sets one.
 * Apple TV: Settings' Sources show each count whole, as the number alone, and a long path collapses its middle folders into an ellipsis ("sulaco › … › TV Shows").
