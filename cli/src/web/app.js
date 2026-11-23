@@ -789,7 +789,7 @@ function listsMenu(key) {
   // The same name whatever it's on, so nothing beside it moves; its
   // chevron says it opens a menu, as a pull-down button's does.
   const button = el("button", { class: on.length ? "mark on" : "mark", type: "button", popovertarget: "lists-menu", "aria-haspopup": "menu", "aria-expanded": "false", title: on.length ? "On " + on.map((l) => l.name).join(", ") : "Lists" },
-    on.length ? "★ Lists" : "☆ Lists", el("span", { class: "chevron", "aria-hidden": "true" }, "▾"));
+    on.length ? el("span", { class: "mark-star" }, "★") : "☆", " Lists", el("span", { class: "chevron", "aria-hidden": "true" }, "▾"));
   menu.addEventListener("toggle", (e) => button.setAttribute("aria-expanded", String(e.newState === "open")));
   return [button, menu];
 }

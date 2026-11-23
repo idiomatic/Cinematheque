@@ -391,12 +391,15 @@ struct SeriesInspectorView: View {
                         .padding(.bottom, 6)
                     ForEach(seasons) { season in
                         Button { select(season.id) } label: {
-                            // Marked as its tile is: watched at its line's
-                            // end, partway by a thin bar.
+                            // Marked as its tile is: downloaded, on a list,
+                            // and watched at its line's end, partway by a
+                            // thin bar.
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text(season.seasonName ?? "")
                                     Spacer()
+                                    if library.downloadedTiles.contains(season.id) { DownloadedMark() }
+                                    if library.isListed(season) { ListedMark() }
                                     if season.watched { WatchedMark() }
                                     Text("\(season.items) \(season.items == 1 ? "episode" : "episodes")")
                                         .font(.caption)
@@ -710,9 +713,7 @@ private struct DownloadMark: View {
 
     var body: some View {
         if library.isDownloaded(key) {
-            Image(systemName: "arrow.down.circle.fill")
-                .foregroundStyle(.secondary)
-                .help("Downloaded")
+            DownloadedMark()
         } else if library.isWanted(key) {
             DownloadGauge(value: library.downloadProgress(key))
         }

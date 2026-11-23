@@ -251,17 +251,32 @@ struct TileMarks: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            if downloaded { mark("arrow.down.circle.fill", .blue, "Downloaded") }
-            if listed { mark("star.fill", .yellow, "On a list") }
+            if downloaded { DownloadedMark() }
+            if listed { ListedMark() }
             if watched { WatchedMark() }
         }
     }
+}
 
-    private func mark(_ symbol: String, _ color: Color, _ name: String) -> some View {
-        Image(systemName: symbol)
-            .foregroundStyle(color)
-            .accessibilityLabel(name)
-            .help(name)
+/// Downloaded to this device (the Mac's), as tiles and rows mark it: a
+/// blue arrow.
+struct DownloadedMark: View {
+    var body: some View {
+        Image(systemName: "arrow.down.circle.fill")
+            .foregroundStyle(.blue)
+            .accessibilityLabel("Downloaded")
+            .help("Downloaded")
+    }
+}
+
+/// On a list, as every player marks it, on tiles, rows, and the Lists
+/// menu alike: a yellow star.
+struct ListedMark: View {
+    var body: some View {
+        Image(systemName: "star.fill")
+            .foregroundStyle(.yellow)
+            .accessibilityLabel("On a list")
+            .help("On a list")
     }
 }
 
@@ -309,7 +324,23 @@ struct ListsMenu: View {
         Menu {
             ListToggles(key: key)
         } label: {
-            Label("Lists", systemImage: on.isEmpty ? "star" : "star.fill")
+            Label {
+                Text("Lists")
+            } icon: {
+                // Its star the tiles' when it's on one.
+                if on.isEmpty {
+                    Image(systemName: "star")
+                } else {
+                    #if os(macOS)
+                    // Colored in the image itself, as a menu's label on
+                    // macOS is drawn as a template, ignoring its style.
+                    Image(nsImage: NSImage(systemSymbolName: "star.fill", accessibilityDescription: nil)!
+                        .withSymbolConfiguration(.init(paletteColors: [.systemYellow]))!)
+                    #else
+                    Image(systemName: "star.fill").foregroundStyle(.yellow)
+                    #endif
+                }
+            }
         }
         .help(on.isEmpty ? "Add to a list" : "On " + on.map(\.name).joined(separator: ", "))
     }

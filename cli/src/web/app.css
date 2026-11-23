@@ -198,6 +198,7 @@ button.mark { background: none; border-color: transparent; color: var(--dim); pa
 button.mark:hover { color: var(--text); }
 button.mark[aria-pressed="true"], button.mark.on { color: var(--text); }
 button.mark .chevron { margin-left: 4px; font-size: 0.9em; }
+button.mark .mark-star { font-size: inherit; }
 /* A list's name with its Rename and Delete beside it. */
 .list-heading { display: flex; align-items: center; gap: 2px; margin: 24px 0 12px; }
 /* A placeholder: not in the library yet, dimmed, its ✕ taking it off. */
