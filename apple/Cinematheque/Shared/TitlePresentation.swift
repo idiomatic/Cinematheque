@@ -163,31 +163,89 @@ struct Marks: View {
     }
 }
 
-/// A cover's marks: a star at its top leading corner if it's on the
-/// watchlist, and a check at its trailing one if it's watched.
-struct CoverMarks: View {
-    let listed: Bool
-    let watched: Bool
-    var padding: CGFloat = 6
+/// A cover over what's under it (its name), each as wide as
+/// the cover and no wider, so a long name is cut short or wraps rather
+/// than widening its tile, whose cover takes the width its shape gives it,
+/// and the gaps along a row.
+struct UnderCover: Layout {
+    var spacing: CGFloat = 4
 
-    var body: some View {
-        HStack(alignment: .top) {
-            if listed { mark("star.circle.fill", .yellow) }
-            Spacer()
-            // Green, not the accent color, which is white on tvOS.
-            if watched { mark("checkmark.circle.fill", .green) }
-        }
-        .padding(padding)
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let first = subviews.first else { return .zero }
+        let cover = first.sizeThatFits(proposal)
+        let below = subviews.dropFirst().map { $0.sizeThatFits(ProposedViewSize(width: cover.width, height: nil)).height }
+        return CGSize(width: cover.width, height: below.reduce(cover.height) { $0 + spacing + $1 })
     }
 
-    private func mark(_ symbol: String, _ color: Color) -> some View {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let first = subviews.first else { return }
+        let cover = first.sizeThatFits(proposal)
+        first.place(at: bounds.origin, proposal: ProposedViewSize(cover))
+        var y = bounds.minY + cover.height
+        for subview in subviews.dropFirst() {
+            let width = ProposedViewSize(width: cover.width, height: nil)
+            y += spacing
+            subview.place(at: CGPoint(x: bounds.minX, y: y), proposal: width)
+            y += subview.sizeThatFits(width).height
+        }
+    }
+}
+
+/// A tile's marks, at its name line's end, under its cover, on every
+/// platform, so the cover shows whole: downloaded (the Mac's own), on a
+/// list, and watched.
+struct TileMarks: View {
+    let listed: Bool
+    let watched: Bool
+    var downloaded = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            if downloaded { mark("arrow.down.circle.fill", .blue, "Downloaded") }
+            if listed { mark("star.fill", .yellow, "On a list") }
+            // Green, not the accent color, which is white on tvOS.
+            if watched { mark("checkmark.circle.fill", .green, "Watched") }
+        }
+    }
+
+    private func mark(_ symbol: String, _ color: Color, _ name: String) -> some View {
         Image(systemName: symbol)
-            #if os(macOS)
-            .font(.title3)
-            #endif
-            .symbolRenderingMode(.palette)
-            .foregroundStyle(.white, color)
-            .shadow(color: .black.opacity(0.3), radius: 2)
+            .foregroundStyle(color)
+            .accessibilityLabel(name)
+            .help(name)
+    }
+}
+
+/// How far through a tile is, as a thin bar along its cover's foot, white
+/// on a translucent track, as the web client draws it, so the art shows
+/// through rather than being covered; nothing when it's not begun, or
+/// watched. Drawn, not the system's ProgressView, whose track can't be made
+/// translucent.
+struct CoverProgress: View {
+    let tile: Tile
+
+    #if os(tvOS)
+    private static let height: CGFloat = 6
+    private static let inset: CGFloat = 12
+    #else
+    private static let height: CGFloat = 4
+    private static let inset: CGFloat = 8
+    #endif
+
+    var body: some View {
+        if !tile.watched, tile.progress > 0 {
+            Capsule()
+                .fill(.white.opacity(0.35))
+                .overlay(alignment: .leading) {
+                    GeometryReader { space in
+                        Capsule().fill(.white).frame(width: space.size.width * min(max(tile.progress, 0), 1))
+                    }
+                }
+                .frame(height: Self.height)
+                .padding(Self.inset)
+                .accessibilityElement()
+                .accessibilityLabel("\(Int((tile.progress * 100).rounded())) percent watched")
+        }
     }
 }
 

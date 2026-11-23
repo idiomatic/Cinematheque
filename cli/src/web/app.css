@@ -101,16 +101,18 @@ main > h2:first-child, main > .list-heading:first-child { margin-top: 0; }
 .tile.unavailable .cover { opacity: 0.45; }
 .tile .name { margin-top: 6px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile .sub { font-size: 12px; color: var(--dim); }
-/* The Mac's cover marks: white on a colored circle, over the cover. */
-.badge {
-  position: absolute; z-index: 1; width: 22px; height: 22px; border-radius: 50%;
-  display: grid; place-items: center; font-size: 13px; font-weight: 700;
-  color: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+/* A tile's name, its marks at the line's end, as the apps': a star, on a
+   list; a check, watched, white on a green circle. */
+.tile .name-row { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
+.tile .name-row .name { margin-top: 0; flex: 1 1 auto; min-width: 0; }
+.tile .marks { flex: none; display: inline-flex; gap: 3px; align-items: center; margin-left: auto; }
+.mark-star { color: #ffcc00; font-size: 13px; }
+.mark-watched {
+  display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%;
+  background: #34c759; color: #fff; font-size: 9px; font-weight: 700;
 }
-.badge.star { top: 6px; left: 6px; background: #ffcc00; }
-.badge.watched { top: 6px; right: 6px; background: #34c759; }
-.meter { z-index: 1; }
 .meter {
+  z-index: 1;
   position: absolute; left: 8px; right: 8px; bottom: 8px; height: 4px;
   border-radius: 2px; background: rgb(255 255 255 / 0.35);
 }
@@ -124,7 +126,7 @@ main > h2:first-child, main > .list-heading:first-child { margin-top: 0; }
    wrapped to the line below, at its end, so its lines read alike. */
 .tile .sub.split { display: flex; justify-content: space-between; gap: 4px; }
 .tile .name-year { display: flex; flex-wrap: wrap; column-gap: 1em; align-items: baseline; margin-top: 6px; }
-.tile .name-year .name { margin-top: 0; flex: 0 0 auto; max-width: 100%; }
+.tile .name-year .name-row { margin-top: 0; flex: 0 1 auto; max-width: 100%; min-width: 0; }
 .tile .year { margin-left: auto; font-size: 12px; color: var(--dim); }
 .series-tile .name-year, .series-tile .name + .sub { min-height: calc(2.8em + 2px); }
 .series-tile[aria-expanded="true"] .cover { outline: 3px solid var(--accent); outline-offset: -3px; }

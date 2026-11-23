@@ -38,6 +38,23 @@ struct SeasonsOf: Hashable {
     let key: String
 }
 
+/// A tile's link: to `seasons`, a series' seasons, if given, else its own
+/// page. Each a link of its value's own type, as the stack finds a
+/// destination by it (an `AnyHashable` value, finding none, went nowhere).
+private struct TileLink<Label: View>: View {
+    let tile: Tile
+    let seasons: SeasonsOf?
+    @ViewBuilder let label: Label
+
+    var body: some View {
+        if let seasons {
+            NavigationLink(value: seasons) { label }
+        } else {
+            NavigationLink(value: tile) { label }
+        }
+    }
+}
+
 /// A list's whole page: what See All opens.
 struct ListOf: Hashable {
     let id: String
@@ -135,11 +152,10 @@ private struct Carousel: View {
                 LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(tiles) { tile in
                         NavigationLink(value: tile) {
-                            VStack(alignment: .leading, spacing: 4) {
+                            UnderCover {
                                 TileCover(tile: tile)
                                     .frame(height: 150)
-                                TileProgress(tile: tile)
-                                PosterName(tile: tile)
+                                PosterName(tile: tile, reservesLines: true)
                             }
                         }
                         .buttonStyle(.plain)
@@ -152,34 +168,23 @@ private struct Carousel: View {
     }
 }
 
-/// A cover in its own shape, whole: its marks and progress are under it
-/// (`TileProgress`, `PosterName`), as an iPhone's covers are too small to
-/// spare a corner of the art, where a poster's title often is.
+/// A cover in its own shape, its progress a translucent bar along its foot
+/// (`CoverProgress`), its marks under it, at its name's line's end
+/// (`PosterName`), as on every platform.
 struct TileCover: View {
     let tile: Tile
 
     var body: some View {
         CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, shaped: true)
             .opacity(tile.unavailable || tile.isWanted ? 0.4 : 1)
+            .overlay(alignment: .bottom) { CoverProgress(tile: tile) }
             .clipShape(.rect(cornerRadius: 8))
     }
 }
 
-/// How far through a tile is, as a thin bar between its cover and its name,
-/// as Apple's TV app shows it; its place kept, empty, when there's none
-/// (not begun, or watched), so names line up along a row.
-private struct TileProgress: View {
-    let tile: Tile
-
-    var body: some View {
-        ProgressView(value: tile.progress)
-            .tint(.primary)
-            .opacity(!tile.watched && tile.progress > 0 ? 1 : 0)
-    }
-}
-
-/// A title's name under its cover (or `title` in its place), its marks
-/// after it (on a list, watched), and a season's name under that.
+/// A title's name under its cover (or `title` in its place), up to two
+/// lines, its marks (on a list, watched) at the line's end, so name and
+/// marks span the cover's width; and a season's name under that.
 private struct PosterName: View {
     let tile: Tile
     /// What it's called, if not its title's name (a season, among its
@@ -187,21 +192,29 @@ private struct PosterName: View {
     var title: String? = nil
     /// Not for a series' tile, which stands for every season.
     var showsSeason = true
+    /// Whether it keeps room for two lines of name and a season's line,
+    /// whatever it shows, as in a carousel, whose lazy stack takes its
+    /// height from the tiles first laid out, cutting taller ones after.
+    var reservesLines = false
     @Environment(Library.self) private var library
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 3) {
-                Text(title ?? tile.name).lineLimit(1)
-                // After the name, kept whole as it's cut short.
-                if library.isListed(tile) { Image(systemName: "star.fill").foregroundStyle(.yellow).accessibilityLabel("On a list") }
-                if tile.watched { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Watched") }
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(title ?? tile.name)
+                    .lineLimit(2, reservesSpace: reservesLines)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                TileMarks(listed: library.isListed(tile), watched: tile.watched)
             }
             .font(.caption)
             if let season = tile.isWanted ? "Not in library" : showsSeason ? tile.seasonName : nil {
                 Text(season).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            } else if reservesLines {
+                Text(verbatim: " ").font(.caption2).accessibilityHidden(true)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -212,8 +225,83 @@ private struct ShelfGrid: View {
 
     var body: some View {
         let tiles = shelf.tiles(in: library)
-        CoverGrid(tiles: shelf == .series ? library.perTitle(tiles) : tiles, series: shelf == .series, empty: shelf.empty)
-            .navigationTitle(shelf.title)
+        Group {
+            if shelf == .series {
+                JustifiedGrid(tiles: library.perTitle(tiles), empty: shelf.empty)
+            } else {
+                CoverGrid(tiles: tiles, empty: shelf.empty)
+            }
+        }
+        .navigationTitle(shelf.title)
+    }
+}
+
+/// A series' covers in rows, each cover its own shape at one height, as
+/// many to a row as fit, wrapping like words; each full row scaled a little
+/// to fill the width exactly (a justified layout, as photo libraries' grids
+/// are), so a square cover beside portrait ones wastes no space and tops,
+/// bottoms, and names all line up along a row. Shapes come from covers'
+/// placeholders, known before the covers load, so rows don't jump.
+private struct JustifiedGrid: View {
+    let tiles: [Tile]
+    var empty = Shelf.series.empty
+    @State private var width: CGFloat = 0
+
+    /// A row's height before it's scaled to fill, and the gaps.
+    private static let height: CGFloat = 150
+    private static let spacing: CGFloat = 12
+
+    /// A row: its tiles, each with its shape (width over height), and the
+    /// height they take.
+    private struct Row: Identifiable {
+        let tiles: [(tile: Tile, shape: CGFloat)]
+        let height: CGFloat
+        var id: String { tiles.first?.tile.id ?? "" }
+    }
+
+    /// Rows for `width`: tiles added while they fit at the usual height,
+    /// then the row scaled to fill; the last, if not full, left as it is.
+    private static func rows(_ tiles: [Tile], width: CGFloat) -> [Row] {
+        guard width > 0 else { return [] }
+        var rows: [Row] = []
+        var row: [(tile: Tile, shape: CGFloat)] = []
+        func widthAt(_ h: CGFloat) -> CGFloat { row.reduce(0) { $0 + $1.shape * h } + spacing * CGFloat(max(row.count - 1, 0)) }
+        for tile in tiles {
+            row.append((tile, CoverImage.shape(thumb: tile.thumb)))
+            if widthAt(height) >= width {
+                let gaps = spacing * CGFloat(row.count - 1)
+                rows.append(Row(tiles: row, height: (width - gaps) / row.reduce(0) { $0 + $1.shape }))
+                row = []
+            }
+        }
+        if !row.isEmpty { rows.append(Row(tiles: row, height: height)) }
+        return rows
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                ForEach(Self.rows(tiles, width: width)) { row in
+                    HStack(alignment: .top, spacing: Self.spacing) {
+                        ForEach(row.tiles, id: \.tile.id) { item in
+                            TileLink(tile: item.tile, seasons: item.tile.isSeries ? SeasonsOf(key: item.tile.key) : nil) {
+                                UnderCover {
+                                    TileCover(tile: item.tile)
+                                        .frame(width: item.shape * row.height, height: row.height)
+                                    PosterName(tile: item.tile, showsSeason: false)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .padding()
+        }
+        .overlay {
+            if tiles.isEmpty { ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(empty)) }
+        }
     }
 }
 
@@ -230,12 +318,11 @@ struct CoverGrid: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 12, alignment: .top)], spacing: 16) {
                 ForEach(tiles) { tile in
-                    NavigationLink(value: series && tile.isSeries ? AnyHashable(SeasonsOf(key: tile.key)) : AnyHashable(tile)) {
+                    TileLink(tile: tile, seasons: series && tile.isSeries ? SeasonsOf(key: tile.key) : nil) {
                         VStack(alignment: .leading, spacing: 4) {
                             Color.clear
                                 .aspectRatio(2.0 / 3.0, contentMode: .fit)
                                 .overlay(alignment: .bottom) { TileCover(tile: tile) }
-                            TileProgress(tile: tile)
                             PosterName(tile: tile, showsSeason: !series)
                         }
                     }
@@ -256,9 +343,20 @@ private struct SeasonsPage: View {
     let key: String
     @Environment(Library.self) private var library
 
+    /// Whether its heading has scrolled away, so the bar names the series.
+    @State private var headingGone = false
+
     var body: some View {
         let seasons = Library.seasons(of: key, in: library.tiles)
+        let name = seasons.first?.name ?? ""
         ScrollView {
+            // The series' name as the page's heading, whole, wrapping as it
+            // must: a large navigation title keeps to one line, cutting a
+            // long one short.
+            Text(name)
+                .font(.title.bold())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 12, alignment: .top)], spacing: 16) {
                 ForEach(seasons) { tile in
                     NavigationLink(value: tile) {
@@ -266,7 +364,6 @@ private struct SeasonsPage: View {
                             Color.clear
                                 .aspectRatio(1, contentMode: .fit)
                                 .overlay { TileCover(tile: tile) }
-                            TileProgress(tile: tile)
                             PosterName(tile: tile, title: tile.seasonName ?? "", showsSeason: false)
                         }
                     }
@@ -275,7 +372,9 @@ private struct SeasonsPage: View {
             }
             .padding()
         }
-        .navigationTitle(seasons.first?.name ?? "")
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 40 } action: { _, gone in headingGone = gone }
+        .navigationTitle(headingGone ? name : "")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

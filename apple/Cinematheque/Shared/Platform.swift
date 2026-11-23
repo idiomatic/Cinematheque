@@ -13,6 +13,12 @@ enum Platform {
     /// purge the caches that hold it, first puts back its seeds from the
     /// Keychain.
     static func prepareDataDir() -> String? {
+        #if DEBUG && !os(macOS)
+        // `CINEMATHEQUE_DATA`, as the Mac and the command-line app honor it
+        // (there, the core reads it): a simulator's app run on a library of
+        // the Mac's, such as the mock one, its own left alone.
+        if let given = Launch.dataDir { return given }
+        #endif
         #if os(tvOS)
         Keys.restore()
         return Keys.dataDir.path
@@ -30,6 +36,7 @@ enum Platform {
     /// seeds, in the Keychain).
     static func keep() {
         #if os(tvOS)
+        guard !givenDataDir else { return }
         Keys.save()
         #endif
     }
@@ -38,8 +45,19 @@ enum Platform {
     /// and what the Top Shelf shows of it.
     static func forget() {
         #if os(tvOS)
+        guard !givenDataDir else { return }
         Keys.clear()
         TopShelfPublisher.clear()
+        #endif
+    }
+
+    /// Whether the data directory is one given at launch, whose seeds the
+    /// Keychain, which holds this device's own, mustn't take or lose.
+    private static var givenDataDir: Bool {
+        #if DEBUG
+        Launch.dataDir != nil
+        #else
+        false
         #endif
     }
 

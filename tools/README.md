@@ -32,3 +32,11 @@ It refuses a directory that isn't empty unless it made it (marked by a hidden `.
 * **Covers:** the title set large over each title's art from [mock-art/](mock-art/prompts.md) (made with FLUX.1 [schnell], one per title and season, text-free, their prompts and seeds recorded there), darkened under the type; where there's none, a gradient with a pale disc; portrait (2:3) or square, never landscape, as JPEGs named as Plex, Jellyfin, and Kodi name them (a movie's folder's `poster.jpg`, `season01-poster.jpg`, a season's or a series' `poster.jpg`).
 * **`--data DATA`** also makes a data directory, building the command-line app if need be. It founds a library, serves the folder on `--port` (8642), adds it as a source, and crawls it. Then it sets progress: Sanctuary Moon watched into its second season, partway through its third episode; Hostile Survey and an episode of Worldhoppers partway; Wormhole Drift and all of Timestream Defenders Orion watched. And it makes lists through the web client's API, as the command-line app makes none: the Watchlist (two titles, a season, and two placeholders, a Worldhoppers season 3 and a movie, Station Siege), and Favorites. It prints how to serve it again.
 
+For the simulators, the mock library lives in `~/Library/Application Support/Cinematheque-mock/` (`media`, `data`, and a `serve` data directory with its own `bin/cinematheque`), served at `http://127.0.0.1:8642/media/`, the source its library names, while it runs:
+
+```sh
+M=~/Library/Application\ Support/Cinematheque-mock
+"$M/bin/cinematheque" --data "$M/serve" serve --port 8642 --media "$M/media"
+```
+
+A debug build runs on a copy of its data, `SIMCTL_CHILD_CINEMATHEQUE_DATA=/tmp/cq-data xcrun simctl launch booted com.rbrian.cinematheque`, or a copy in the app's own data directory (`Library/Application Support/Cinematheque` in `xcrun simctl get_app_container booted com.rbrian.cinematheque data` on iOS; `Library/Caches/Cinematheque` on tvOS) runs on it at every launch.

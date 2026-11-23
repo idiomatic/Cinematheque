@@ -241,6 +241,11 @@ struct CoverImage: View {
     /// Width over height: the cover's, else its placeholder's, else 1.
     private var shape: CGFloat {
         if let image, image.height > 0 { return CGFloat(image.width) / CGFloat(image.height) }
+        return Self.shape(thumb: thumb)
+    }
+
+    /// A cover's shape before it's loaded: its placeholder's, else 1.
+    static func shape(thumb: String?) -> CGFloat {
         if let thumb, let p = Placeholder.image(thumb), p.height > 0 { return CGFloat(p.width) / CGFloat(p.height) }
         return 1
     }

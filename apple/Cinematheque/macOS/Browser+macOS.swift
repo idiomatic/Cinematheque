@@ -1275,21 +1275,7 @@ struct TileView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 3 : 1)
                 }
-                .overlay(alignment: .top) { CoverMarks(listed: isSeries ? library.isAnySeasonListed(tile) : library.isListed(tile), watched: tile.watched) }
-                .overlay(alignment: .bottomTrailing) {
-                    if !isSeries, library.downloadedTiles.contains(tile.id) {
-                        DownloadBadge(symbol: "arrow.down.circle.fill", color: .blue, raised: !tile.watched && tile.progress > 0)
-                            .help("Downloaded")
-                    }
-                }
-                .overlay(alignment: .bottom) {
-                    if !tile.watched, tile.progress > 0 {
-                        ProgressView(value: tile.progress)
-                            .progressViewStyle(.linear)
-                            .tint(.white)
-                            .padding(8)
-                    }
-                }
+                .overlay(alignment: .bottom) { CoverProgress(tile: tile) }
                 .shadow(color: .black.opacity(0.15), radius: 3, y: 2)
             let name = isSeries ? tile.name : tile.seasonName ?? tile.name
             if series == "", let year = tile.year {
@@ -1302,11 +1288,12 @@ struct TileView: View {
                             Text(name).font(.callout).fixedSize()
                             Spacer(minLength: Self.em)
                             Text(String(year)).font(.caption).foregroundStyle(.secondary).fixedSize()
+                            marks.padding(.leading, 4).fixedSize()
                         }
                         Text(" ").font(.caption)
                     }
                     VStack(alignment: .leading, spacing: Self.spacing) {
-                        nameLine(name)
+                        nameRow(name)
                         HStack {
                             Spacer(minLength: 4)
                             Text(String(year))
@@ -1316,7 +1303,7 @@ struct TileView: View {
                     }
                 }
             } else {
-                nameLine(name)
+                nameRow(name)
             }
             if let series, series != "" || tile.year == nil {
                 // Its year, if its name has one, at the line's end, so the
@@ -1341,6 +1328,21 @@ struct TileView: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    /// The marks, at the name line's end, so the name and they span the
+    /// cover's width; a series' listed if any of its seasons is.
+    private var marks: TileMarks {
+        TileMarks(listed: isSeries ? library.isAnySeasonListed(tile) : library.isListed(tile), watched: tile.watched, downloaded: !isSeries && library.downloadedTiles.contains(tile.id))
+    }
+
+    /// A name's line with its marks at the end.
+    private func nameRow(_ name: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            nameLine(name)
+            Spacer(minLength: 0)
+            marks.font(.callout).fixedSize()
+        }
     }
 
     /// A name's line, its whole name as help only where it's cut short,
@@ -1374,24 +1376,6 @@ nonisolated private struct Band: Shape {
         path.addLine(to: CGPoint(x: notch + depth * 1.2, y: rect.minY + depth + 0.5))
         path.closeSubpath()
         return path
-    }
-}
-
-/// A cover's download mark, at its bottom trailing corner, above its
-/// progress bar if it has one.
-private struct DownloadBadge: View {
-    let symbol: String
-    let color: Color
-    let raised: Bool
-
-    var body: some View {
-        Image(systemName: symbol)
-            .symbolRenderingMode(.palette)
-            .foregroundStyle(.white, color)
-            .font(.title3)
-            .shadow(radius: 2)
-            .padding(6)
-            .padding(.bottom, raised ? 14 : 0)
     }
 }
 

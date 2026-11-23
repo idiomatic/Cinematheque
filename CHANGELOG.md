@@ -4,6 +4,8 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Debug builds on iOS and tvOS honor `CINEMATHEQUE_DATA`, running a simulator on a library of the Mac's, such as the mock one.
+* Tiles on every platform, and in the web client: the marks (downloaded, on a list, watched) at the end of the name's line under the cover, leaving its corners to the art, and progress a thin bar along its foot, translucent as the web client's; a tile as wide as its cover. iPhone: names wrap to two lines, the Series tab is in justified rows, and a series' seasons page heads with its whole name.
 * iPhone: covers show whole; a list's star and the watched check follow a title's name under its cover, and progress is a thin bar between them.
 * Tools: the mock library's 15 covers have art, made with FLUX.1 [schnell] from prompts recorded in tools/mock-art/prompts.md.
 * Versions, starting at 0.1, set once in Version.xcconfig for the apps and the command-line app alike: `/version` and `cinematheque --version` give the version, then what the build was built from (`revision`, as `git describe` gives it, stamped afresh by every build, where a rebuild after a commit had kept the commit before). Every push and pull request is built and tested on GitHub (Linux and macOS, and the Apple app for macOS, tvOS, and iOS), and a tag `v` and the version makes a GitHub release of the command-line app for macOS and Linux and the Mac app, with that version's changelog as its notes.

@@ -164,7 +164,7 @@ function wantedView(tile, underSeries) {
   const link = /^https?:\/\//.test(tile.wanted) ? tile.wanted : null;
   const on = library.mine.filter((l) => (l.wanted || []).some((w) => w.key === tile.wantedKey));
   const a = el(link ? "a" : "div", { class: `tile wanted${tile.season == null ? "" : " season"}`, style: `--shape:${shapeOf(tile)}`, ...(link ? { href: link, target: "_blank", rel: "noopener" } : {}), title: tile.wanted || "Not in the library yet" },
-    coverView(tile, [], underSeries ? seasonName(tile.season) : tile.name),
+    coverView(tile, underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "sub split" }, el("span", {}, "Not in library"),
       on.length ? el("button", { class: "mark", type: "button", title: "Remove from list", "aria-label": `Remove ${tile.name} from the list`, onclick: async (e) => {
@@ -184,9 +184,10 @@ function tileView(tile, underSeries = false) {
   if (tile.wanted != null) return wantedView(tile, underSeries);
   const href = "#title/" + encodeURIComponent(tile.key) + (tile.season == null ? "" : "/" + tile.season);
   // Its shape for a carousel; a grid's cells are the column's.
+  const lists = listsOf(listKey(tile));
   const a = el("a", { class: `tile${tile.season == null ? "" : " season"}${tile.unavailable ? " unavailable" : ""}`, href, style: `--shape:${shapeOf(tile)}` },
-    coverView(tile, listsOf(listKey(tile)), underSeries ? seasonName(tile.season) : tile.name),
-    el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
+    coverView(tile, underSeries ? seasonName(tile.season) : tile.name),
+    el("div", { class: "name-row" }, el("span", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name), marksView(tile, lists)),
     underSeries ? null : el("div", { class: "sub" }, tile.season == null ? (tile.year ? String(tile.year) : "") : seasonName(tile.season)),
   );
   // What it was drawn from, to draw it again if that changes (see `patch`).
@@ -233,9 +234,10 @@ function shapeOf(tile) {
   return tile.season == null ? 2 / 3 : 1;
 }
 
-/// A tile's cover, with its marks: a star if on `lists`, a check if
-/// watched, else its progress; `title` on it while it has no art.
-function coverView(tile, lists, title = tile.name) {
+/// A tile's cover, with its progress along its foot, if it's partway;
+/// `title` on it while it has no art. Its marks are under it, at its name's
+/// line's end (`marksView`), leaving its corners to the art, as the apps'.
+function coverView(tile, title = tile.name) {
   const cover = el("div", { class: "cover" });
   if ((tile.thumb && tile.thumb !== "-") || tile.cover) {
     let placed = false;
@@ -268,7 +270,7 @@ function coverView(tile, lists, title = tile.name) {
       // again as it nears the screen, its page put back (see `kept`).
       img.stop = () => { img.removeAttribute("src"); img.remove(); done(); nearScreen.observe(cover); };
       img.src = coverURL(tile.cover);
-      // Under the marks (star, check, progress), which come before it.
+      // Under its progress, which comes before it.
       cover.prepend(img);
     };
     nearScreen.observe(cover);
@@ -276,10 +278,17 @@ function coverView(tile, lists, title = tile.name) {
   if (!tile.thumb && !tile.cover) {
     cover.append(el("div", { class: "initials" }, title));
   }
-  if (lists.length) cover.append(el("span", { class: "badge star", title: "On " + lists.map((l) => l.name).join(", ") }, "★"));
-  if (tile.watched) cover.append(el("span", { class: "badge watched", title: "Watched" }, "✓"));
-  else if (tile.progress > 0) cover.append(el("div", { class: "meter" }, el("span", { style: `width:${Math.round(tile.progress * 100)}%` })));
+  if (!tile.watched && tile.progress > 0) cover.append(el("div", { class: "meter" }, el("span", { style: `width:${Math.round(tile.progress * 100)}%` })));
   return cover;
+}
+
+/// A tile's marks, at its name's line's end: a star if on `lists`, a check
+/// if watched; nothing if neither.
+function marksView(tile, lists) {
+  if (!lists.length && !tile.watched) return null;
+  return el("span", { class: "marks" },
+    lists.length ? el("span", { class: "mark-star", title: "On " + lists.map((l) => l.name).join(", ") }, "★") : null,
+    tile.watched ? el("span", { class: "mark-watched", title: "Watched" }, "✓") : null);
 }
 
 /// "Season 3", "Specials", or a dated series' season's year alone, "2026"
@@ -330,14 +339,15 @@ function seriesTileView(s) {
   const lists = library.mine.filter((l) => seasons.some((t) => l.titles.has(listKey(t))));
   const caption = seasonsCaption(seasons);
   const year = s.year ? el("span", { class: "year" }, String(s.year)) : null;
+  const marks = marksView(whole, lists);
   const label = caption
-    ? [el("div", { class: "name" }, s.name), el("div", { class: "sub split" }, el("span", {}, caption), year)]
-    : [el("div", { class: "name-year" }, el("span", { class: "name" }, s.name), year)];
+    ? [el("div", { class: "name-row" }, el("span", { class: "name" }, s.name), marks), el("div", { class: "sub split" }, el("span", {}, caption), year)]
+    : [el("div", { class: "name-year" }, el("span", { class: "name-row" }, el("span", { class: "name" }, s.name), marks), year)];
   const single = seasons.length === 1;
   const unavailable = seasons.every((t) => t.unavailable) ? " unavailable" : "";
   const a = single
-    ? el("a", { class: `tile season series-tile${unavailable}`, href: "#title/" + encodeURIComponent(s.key) + "/" + seasons[0].season }, coverView(whole, lists), ...label)
-    : el("a", { class: `tile season series-tile${unavailable}`, href: "#series", role: "button", "aria-expanded": "false", "data-series": s.key }, coverView(whole, lists), ...label);
+    ? el("a", { class: `tile season series-tile${unavailable}`, href: "#title/" + encodeURIComponent(s.key) + "/" + seasons[0].season }, coverView(whole), ...label)
+    : el("a", { class: `tile season series-tile${unavailable}`, href: "#series", role: "button", "aria-expanded": "false", "data-series": s.key }, coverView(whole), ...label);
   // What it was drawn from, to draw it again if that changes (see `patch`).
   a.series = s;
   a.looks = seasons.map(looks).join();

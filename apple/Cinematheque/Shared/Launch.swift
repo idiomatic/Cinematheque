@@ -8,6 +8,10 @@ import Foundation
 enum Launch {
     private static var env: [String: String] { ProcessInfo.processInfo.environment }
 
+    /// `CINEMATHEQUE_DATA` on iOS and tvOS: a data directory to run on (in
+    /// a simulator, one of the Mac's), not the app's own.
+    static var dataDir: String? { env["CINEMATHEQUE_DATA"] }
+
     /// `CINEMATHEQUE_CODE_FILE`: a file to write each pairing code this
     /// device offers to, so a test can send it (`person pair CODE` or
     /// `member pair CODE` from another device).

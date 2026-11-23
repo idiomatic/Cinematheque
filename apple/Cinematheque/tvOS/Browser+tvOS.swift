@@ -370,50 +370,39 @@ extension PosterGrid where Footer == EmptyView {
     }
 }
 
+/// Out of the way of its cover, which lifts and grows as it's focused: what's
+/// under it (its name) moves down with it.
+private struct ClearsLift: ViewModifier {
+    @Environment(\.isFocused) private var focused
+
+    func body(content: Content) -> some View {
+        content
+            .offset(y: focused ? 24 : 0)
+            .animation(.easeOut(duration: 0.2), value: focused)
+    }
+}
+
 /// A poster's name, and a season's under it, moving out of the way of its
 /// cover as the cover lifts: the borderless style moves a title only for
 /// an `Image`, and a cover is a view of images, placeholders, and marks.
 private struct PosterName: View {
     let name: String
     var season: String? = nil
-    @Environment(\.isFocused) private var focused
+    /// At the name's line's end, so the name and they span the cover.
+    var marks: TileMarks? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(name)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(name)
+                Spacer(minLength: 0)
+                marks?.fixedSize()
+            }
             if let season { Text(season).foregroundStyle(.secondary) }
         }
         .font(.caption)
         .lineLimit(1)
-        .offset(y: focused ? 24 : 0)
-        .animation(.easeOut(duration: 0.2), value: focused)
-    }
-}
-
-/// A cover and what's under it (its name), stacked, as wide as the cover,
-/// so a long name is cut short rather than widening a row's lockup, whose
-/// cover takes the width its shape gives it.
-private struct UnderCover: Layout {
-    var spacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let first = subviews.first else { return .zero }
-        let cover = first.sizeThatFits(proposal)
-        let below = subviews.dropFirst().map { $0.sizeThatFits(ProposedViewSize(width: cover.width, height: nil)).height }
-        return CGSize(width: cover.width, height: below.reduce(cover.height) { $0 + spacing + $1 })
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard let first = subviews.first else { return }
-        let cover = first.sizeThatFits(proposal)
-        first.place(at: bounds.origin, proposal: ProposedViewSize(cover))
-        var y = bounds.minY + cover.height
-        for subview in subviews.dropFirst() {
-            let width = ProposedViewSize(width: cover.width, height: nil)
-            y += spacing
-            subview.place(at: CGPoint(x: bounds.minX, y: y), proposal: width)
-            y += subview.sizeThatFits(width).height
-        }
+        .modifier(ClearsLift())
     }
 }
 
@@ -439,7 +428,7 @@ struct Poster: View {
         series && tile.isSeries && library.tiles.contains { $0.key == tile.key && $0.season != tile.season }
     }
 
-    /// The cover itself, with its marks, which lifts: a movie's filling the
+    /// The cover itself, whole, which lifts: a movie's filling the
     /// box; a series' (a season's) in its own shape, square or 4:3, as is
     /// every cover in a row.
     private var cover: some View {
@@ -454,13 +443,7 @@ struct Poster: View {
             // Its copies are all on drives that aren't there, or it's a
             // placeholder, not in the library yet.
             .opacity(tile.unavailable || tile.isWanted ? 0.4 : 1)
-            // A series' tile, on a list if any season is.
-            .overlay(alignment: .top) { CoverMarks(listed: series ? library.isAnySeasonListed(tile) : library.isListed(tile), watched: tile.watched, padding: 10) }
-            .overlay(alignment: .bottom) {
-                if !tile.watched, tile.progress > 0 {
-                    ProgressView(value: tile.progress).tint(.white).padding(12)
-                }
-            }
+            .overlay(alignment: .bottom) { CoverProgress(tile: tile) }
             .clipShape(.rect(cornerRadius: 12))
             // The cover, not its name, is what lifts.
             .hoverEffect(.highlight)
@@ -485,13 +468,19 @@ struct Poster: View {
                     .overlay(alignment: .bottom) { cover }
             }
             if tile.isWanted {
-                PosterName(name: tile.name, season: "Not in library")
+                PosterName(name: tile.name, season: "Not in library", marks: marks)
             } else if amongSeasons {
-                PosterName(name: tile.seasonName ?? tile.name)
+                PosterName(name: tile.seasonName ?? tile.name, marks: marks)
             } else {
-                PosterName(name: tile.name, season: series ? nil : tile.seasonName)
+                PosterName(name: tile.name, season: series ? nil : tile.seasonName, marks: marks)
             }
         }
+    }
+
+    /// Its marks, at its name's line's end; a series' tile on a list if any
+    /// season is.
+    private var marks: TileMarks {
+        TileMarks(listed: series ? library.isAnySeasonListed(tile) : library.isListed(tile), watched: tile.watched)
     }
 
     var body: some View {
