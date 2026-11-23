@@ -65,6 +65,10 @@ pub const Web = struct {
     writer: Io.Mutex = .init,
     /// Servers whose copies didn't answer lately, for copy racing.
     racing: core.race.Memory = .{},
+    /// Devices that couldn't be reached when last synced with (a phone
+    /// whose app is napping, as iOS suspends it, still advertised), said
+    /// once, not at every sync, until they answer again.
+    asleep: Asleep = .{},
     /// When a browser last changed something of this person's (in
     /// milliseconds), if it hasn't been synced since; else 0.
     changed: std.atomic.Value(i64) = .init(0),
@@ -83,6 +87,11 @@ pub const Web = struct {
     done_mb: std.atomic.Value(u32) = .init(0),
     total_mb: std.atomic.Value(u32) = .init(0),
     fetching: core.download.Fetching = .{},
+
+    /// Frees what serving gathered.
+    pub fn deinit(w: *Web, gpa: std.mem.Allocator) void {
+        w.asleep.deinit(gpa);
+    }
 
     pub fn handler(w: *Web) core.serve.Handler {
         return .{ .context = w, .function = respond };
@@ -131,9 +140,13 @@ pub const Web = struct {
             try w.writer.lock(io);
             defer w.writer.unlock(io);
             try r.refresh();
-            _ = core.sync.exchange(arena, &client, &r, u, now(io)) catch |err| {
-                std.log.warn("syncing with {s} after a change: {t}", .{ u, err });
-            };
+            if (core.sync.exchange(arena, &client, &r, u, now(io))) |_| {
+                if (w.asleep.woke(io, u)) std.log.info("{s} answers again", .{u});
+            } else |err| if (!Asleep.unreachable_(err)) {
+                std.log.warn("syncing with {s}: {t}", .{ u, err });
+            } else if (w.asleep.fell(io, gpa, u)) {
+                std.log.info("{s} can't be reached ({t}), as a phone or tablet whose app is napping can't; it's synced with when it answers again", .{ u, err });
+            }
         }
         // What's watched elsewhere moves a series' next episodes along.
         w.reconcile_again.store(true, .release);
@@ -252,6 +265,43 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
 const guarded = [_]http.Header{
     .{ .name = "x-frame-options", .value = "DENY" },
     .{ .name = "x-content-type-options", .value = "nosniff" },
+};
+
+/// The devices that couldn't be reached, by their sync URLs.
+const Asleep = struct {
+    urls: std.StringHashMapUnmanaged(void) = .empty,
+    lock: Io.Mutex = .init,
+
+    /// Whether `err` says only that the device couldn't be reached.
+    fn unreachable_(err: anyerror) bool {
+        return switch (err) {
+            error.ConnectionRefused, error.ConnectionTimedOut, error.Timeout, error.HostUnreachable, error.NetworkUnreachable, error.UnknownHostName, error.ConnectionResetByPeer => true,
+            else => false,
+        };
+    }
+
+    /// Notes `url` unreachable; whether it wasn't already.
+    fn fell(a: *Asleep, io: Io, gpa: std.mem.Allocator, url: []const u8) bool {
+        a.lock.lockUncancelable(io);
+        defer a.lock.unlock(io);
+        if (a.urls.contains(url)) return false;
+        const key = gpa.dupe(u8, url) catch return true;
+        a.urls.put(gpa, key, {}) catch gpa.free(key);
+        return true;
+    }
+
+    fn deinit(a: *Asleep, gpa: std.mem.Allocator) void {
+        var keys = a.urls.keyIterator();
+        while (keys.next()) |k| gpa.free(k.*);
+        a.urls.deinit(gpa);
+    }
+
+    /// Notes `url` reached; whether it had been unreachable.
+    fn woke(a: *Asleep, io: Io, url: []const u8) bool {
+        a.lock.lockUncancelable(io);
+        defer a.lock.unlock(io);
+        return a.urls.remove(url);
+    }
 };
 
 /// Whether a request comes from this computer: its loopback address, as a

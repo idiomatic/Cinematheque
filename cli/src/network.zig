@@ -98,6 +98,7 @@ pub fn serve(p: *App, c: Command) !void {
         .permissive = c.args.has("--permissive"),
         .host_name = name,
     };
+    defer browsers.deinit(p.gpa);
     const handler = if (browsing) browsers.handler() else sharing.handler();
     const txt = if (founder != null) blk: {
         var r = try p.open();
