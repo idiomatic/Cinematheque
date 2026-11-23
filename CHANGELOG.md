@@ -4,6 +4,8 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Mac: deleting a download, or choosing the downloads folder, no longer freezes the app while a refresh is under way; each waits its turn off the main thread.
+* Apple apps: leaving the library, or being told it was removed, waits out what's under way (stopping a download, kept to resume), rather than failing as busy, and nothing more of a refresh runs after.
 * Security: a sync's answer is sealed under a key salted afresh, so a request replayed by an eavesdropper is never answered under the same key and nonces, which leaked private progress; a sync's sealed request must arrive within 30 seconds and the rest a mebibyte a minute, and the replica opens only once it checks out, so no one holds connections without being a member's; a stranger's batches held back each cost at least 4 KiB and are checked once, so a fake device can't keep a sync checking signatures for minutes.
 * Sync: a refused push or repair fails the sync, rather than passing for none.
 * Downloads: deleting a title or season while an earlier file downloads stops its own files too; they came anyway, and stayed.

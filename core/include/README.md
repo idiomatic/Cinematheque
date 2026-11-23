@@ -12,9 +12,9 @@ The core's interface for apps in other languages: [cinematheque.h](cinematheque.
 * **Results** are JSON, every string valid UTF-8 (a name that isn't, from a Latin-1 file, gets U+FFFD for its bad bytes). Each `char *` returned is the caller's, freed with `cq_free` (which takes NULL). A result may be JSON `null`, as `cq_served`'s before any sync.
 * **Failure:** a function returning `char *` returns NULL, one returning `int` returns -1 (else 0, or a count or port as said), and `cq_error` says why: a Zig error's name, such as `Busy`, `NoLibrary`, or `WrongCode`. It's per thread, so read it on the thread that failed, before its next call. Functions returning `void` can't fail, or fail silently where nothing hangs on them (`cq_race_warm`, `cq_race_lost`).
 * **Threads:** functions belong to one thread, the app's main one, on the library's own connection, unless marked *any thread* or *long* below. A long one (crawling, syncing, describing, pairing, looking for devices, reconciling downloads) blocks until done, so call it off the main thread; each runs on a connection of its own. The main connection catches up with other connections' writes before it acts.
-* **Writing:** one connection writes as this device at a time. While a long operation writes, most other changes fail with `Busy` rather than wait: try again once it's done. Progress, and changes to a list of this person's that isn't shared, don't need to wait, and don't fail (but for this device's first private write, which certifies its private stream). `cq_downloads_configure` and `cq_describe` wait their turn instead.
+* **Writing:** one connection writes as this device at a time. While a long operation writes, most other changes fail with `Busy` rather than wait: try again once it's done. Progress, and changes to a list of this person's that isn't shared, don't need to wait, and don't fail (but for this device's first private write, which certifies its private stream). Long ones that change little (`cq_downloads_configure`, `cq_download_remove`, `cq_describe`) wait their turn instead.
 * **Reloading:** a long operation commits as it goes. `cq_data_version` changes once another connection has committed, so poll it and reload (`cq_tiles`, `cq_title`) when it does; `cq_steps` says how far the operation has come. A device that pushes to this one changes `cq_received`.
-* **Leaving:** `cq_leave` refuses with `Busy` while another thread has a connection open; none opens while it leaves.
+* **Leaving:** `cq_leave` refuses with `Busy` while another thread has a connection open; none opens while it leaves. So an app stops reconciling (`cq_reconcile_stop`), starts no long operation, and waits out those under way first.
 
 ## Errors
 
@@ -173,13 +173,14 @@ This device's own: kept in a folder, and served as a source of its own that no d
 
 | Function | What it does |
 |---|---|
-| `cq_downloads_configure(library, dir, served_at)` | Sets the folder and the URL it's served at |
+| `cq_downloads_configure(library, dir, served_at)` | *Long,* on a connection of its own. Sets the folder and the URL it's served at |
 | `cq_download(library, key, quality)` | Wants a title's, a season's (`<title key>/e/s01`), or an item's files kept, each item as of now, in `quality` (NULL or empty: the one most items have), until deleted |
 | `cq_download_next(library, title_key, choice)` | A series' choice of episodes: the next N after where this person is (`"3"`), the watched going as their space is needed; `"all"`, kept however watched; or `""` or `"0"`, none |
-| `cq_download_remove(library, key)` | Deletes a title's, season's, or item's files held here, and stops wanting them |
+| `cq_download_remove(library, key)` | *Long,* on a connection of its own. Deletes a title's, season's, or item's files held here, and stops wanting them |
 | `cq_download_sizes(library, key, choices, count, quality)` | What downloading would come to, for each `cq_download_choice`: `CQ_DOWNLOAD_NEXT` with a `count` of at least 1, or `CQ_DOWNLOAD_ALL`, a series' choice for `key`, its title; or `CQ_DOWNLOAD_OWN`, `key`'s own files in `quality`. Returns an array of `{choice, size, needed}`, in bytes, `choice` as `cq_download_next` takes it (`""` for `key`'s own), `needed` what isn't here yet |
 | `cq_downloads(library)` | All of it: `{dir, source, held, wanted, next, ahead, free, floor, running, done_mb, total_mb, fetching}`: the folder and its source's ID (null if unset); `held`, each `{item, size, only}` (the only copy); `wanted`, `{key, quality}`; `next`, each series' `{title, choice}`; `ahead`, the items those choices come to now; free bytes (or null) and the floor kept free; whether reconciling runs, and its megabytes done of how many; and the file under way, `{item, done, size}`, or null |
 | `cq_reconcile(library)` | *Long,* on a connection of its own. Fetches, records, and deletes to match what's kept, then returns `{fetched, kept, deleted, failed, no_room, held, error, busy}` (`no_room`: files left to keep the floor free; `held`: files waiting while downloads are held). If one runs already, asks it to run again and returns at once with `busy` |
+| `cq_reconcile_stop(library)` | *Any thread.* Stops reconciling under way: the file coming at its next mebibyte (its `.part` kept, to resume), and none after; the next `cq_reconcile` runs afresh. As before leaving, which refuses while it runs |
 | `cq_downloads_hold(library)` | *Any thread.* Holds new downloads back while a stream plays; one under way finishes |
 | `cq_downloads_resume(library)` | *Any thread.* Lets them go; `cq_reconcile` then fetches what waited |
 

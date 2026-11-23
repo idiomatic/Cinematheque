@@ -163,9 +163,7 @@ extension Library {
 
     /// Reads an item's metadata from its file, in the background.
     func describe(_ itemKey: String) async {
-        guard let handle else { return }
-        let ok = await Task.detached { cq_describe(handle.pointer, itemKey) == 0 }.value
-        if ok { described += 1 }
+        if await apart({ cq_describe($0, itemKey) == 0 }) == true { described += 1 }
     }
 
     /// Reads a season's episodes' metadata (titles, descriptions,

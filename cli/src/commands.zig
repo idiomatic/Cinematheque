@@ -343,15 +343,15 @@ const Shown = struct {
     percent: u64 = 0,
 
     /// Shows it; and goes on, as nothing here stops wanting it.
-    fn report(context: *anyopaque, done: u64, total: u64) bool {
+    fn report(context: *anyopaque, done: u64, total: u64) core.download.Verdict {
         const s: *Shown = @ptrCast(@alignCast(context));
         // In tens, to keep to one line.
         const percent = if (total == 0) 100 else done * 10 / total * 10;
-        if (percent == s.percent) return true;
+        if (percent == s.percent) return .go_on;
         s.percent = percent;
         s.out.print("  {d}%", .{percent}) catch {};
         s.out.flush() catch {};
-        return true;
+        return .go_on;
     }
 };
 

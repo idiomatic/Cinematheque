@@ -84,9 +84,10 @@ final class Library {
     /// Counts reloads, so one read off the main thread (`reloadApart`)
     /// that another overtook is dropped.
     private var reloads = 0
-    /// Reads under way off the main thread, each holding a connection,
-    /// which leaving waits out (the core refuses to leave while one's open).
-    private var readingApart = 0
+    /// Calls under way off the main thread, each on a connection of the
+    /// core's own (`apart`), which leaving waits out (the core refuses to
+    /// leave while one's open).
+    private var callsApart = 0
 
     /// Reads the library again, unless nothing has changed since it was
     /// last read; assigns only what differs, so views showing the rest
@@ -126,8 +127,8 @@ final class Library {
         let version = cq_data_version(handle.pointer)
         guard dirty || version < 0 || version != loadedVersion else { return }
         let pass = reloads
-        readingApart += 1
-        defer { readingApart -= 1 }
+        callsApart += 1
+        defer { callsApart -= 1 }
         let read: (tiles: [Tile], sorted: [Tile], sources: [Source])? = await Task.detached {
             guard let tiles = Self.read([Tile].self, handle, { cq_tiles($0) }),
                   let sources = Self.read([Source].self, handle, { cq_repos($0) })
@@ -238,8 +239,16 @@ final class Library {
     /// Leaves the library, as a device removed from it must: forgets it and
     /// this device's identity, so setup can pair it again as a new device.
     func leave(removedBy device: String) {
-        guard forget() else { return }
-        removedBy = device
+        // At once, so nothing more starts (the rest of a refresh), then
+        // once what's under way is done.
+        leavingLibrary = true
+        Task {
+            _ = await quietly {
+                guard forget() else { return nil }
+                removedBy = device
+                return nil
+            }
+        }
     }
 
     /// Leaves the library of this person's own accord (Settings): removes
@@ -272,15 +281,48 @@ final class Library {
     }
 
     /// Runs `body` once a refresh or quiet sync under way is done (it holds
-    /// the writer), and reads off the main thread, starting none meanwhile.
+    /// the writer), and every call off the main thread, starting none
+    /// meanwhile; reconciling downloads is stopped, its file under way kept
+    /// to resume.
     private func quietly(_ body: () async -> String?) async -> String? {
         afterChange?.cancel()
         leavingLibrary = true
         defer { leavingLibrary = false }
-        while activity != nil || syncingQuietly || readingApart > 0 {
+        if let handle { cq_reconcile_stop(handle.pointer) }
+        while activity != nil || syncingQuietly || callsApart > 0 || reconcilingNow {
             try? await Task.sleep(for: .milliseconds(250))
         }
         return await body()
+    }
+
+    /// Whether downloads are reconciling (on the Mac, the only one that
+    /// downloads).
+    private var reconcilingNow: Bool {
+        #if os(macOS)
+        reconciling != nil
+        #else
+        false
+        #endif
+    }
+
+    /// Runs `body` off the main thread, as the core's long operations must
+    /// run, counted so leaving waits it out; none starts while leaving.
+    /// Its error, if any, must be read within it (`cq_error` is the
+    /// thread's own).
+    func apart<T: Sendable>(_ body: @escaping @Sendable (OpaquePointer) -> T) async -> T? {
+        guard let handle, !leavingLibrary else { return nil }
+        callsApart += 1
+        defer { callsApart -= 1 }
+        return await Task.detached { body(handle.pointer) }.value
+    }
+
+    /// Changes the library by a long operation `body`, off the main thread,
+    /// reporting why it couldn't, if it couldn't, then reloads.
+    func changeApart(_ body: @escaping @Sendable (OpaquePointer) -> Int32) async {
+        dirty = true
+        guard let failure = await apart({ body($0) == 0 ? nil : String(cString: cq_error()) }) else { return }
+        reportChange(failure)
+        reload()
     }
 
     /// Forgets the library and this device's identity; why it couldn't, if
@@ -406,7 +448,7 @@ final class Library {
     /// Runs a long operation off the main thread; returns why it failed, if
     /// it did.
     func long(_ what: String, results: ((Data) -> Void)? = nil, _ body: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async -> String? {
-        guard let handle, activity == nil else { return nil }
+        guard let handle, activity == nil, !leavingLibrary else { return nil }
         activity = what
         // Show what the operation commits as it commits it (titles once
         // crawled, covers as they're found), reloading at most each second,
@@ -455,12 +497,14 @@ final class Library {
     func check(_ body: (OpaquePointer) -> Int32) {
         guard let handle else { return }
         dirty = true
-        if body(handle.pointer) != 0 {
-            let reason = String(cString: cq_error())
-            report(.change, reason == "Busy" ? "Couldn't change the library while \(activity?.lowercased() ?? "it's busy"); try again when it's done." : "Couldn't change the library: \(Self.reason(reason)).")
-        } else {
-            report(.change, nil)
-        }
+        reportChange(body(handle.pointer) != 0 ? String(cString: cq_error()) : nil)
+    }
+
+    /// Reports why a change failed (the core's error), or with none,
+    /// clears a change's problem.
+    private func reportChange(_ reason: String?) {
+        guard let reason else { return report(.change, nil) }
+        report(.change, reason == "Busy" ? "Couldn't change the library while \(activity?.lowercased() ?? "it's busy"); try again when it's done." : "Couldn't change the library: \(Self.reason(reason)).")
     }
 
     /// As `check`, then reloads what changed.

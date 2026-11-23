@@ -210,7 +210,7 @@ extension Library {
             report(.serve, nil)
             repoint(Int(port))
             #if os(macOS)
-            configureDownloads()
+            Task { await configureDownloads() }
             #endif
         }
     }

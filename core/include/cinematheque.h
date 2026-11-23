@@ -6,8 +6,9 @@
 // function and result's form.
 //
 // Functions belong to one thread, the app's main one, except the long ones
-// (cq_crawl, cq_sync, cq_describe) and those marked "any thread", which
-// may run on any thread. While a
+// (crawling, syncing, describing, pairing, looking for devices, and
+// downloads' configuring, deleting, and reconciling) and those marked "any
+// thread", which may run on any thread. While a
 // long one runs, other changes to the library fail with "Busy"; progress
 // and private lists don't wait.
 
@@ -108,9 +109,11 @@ void cq_race_lost(cq_library *library, const char *url);
 // as it's watched: the next N ("3"), whose watched ones go as their space
 // is needed (if another source holds them), or "all", kept however watched
 // ("" or "0" stops); cq_download_remove deletes and stops wanting;
-// cq_downloads is all of it as JSON; cq_reconcile (long, its own
-// connection) fetches and deletes to match, returning at once with "busy"
-// if one runs, which then runs again.
+// cq_downloads is all of it as JSON; cq_reconcile fetches and deletes to
+// match, returning at once with "busy" if one runs, which then runs again,
+// and cq_reconcile_stop (any thread) stops it, keeping the file under way
+// to resume. Configuring, deleting, and reconciling are long, each on a
+// connection of its own, waiting their turn to write.
 int cq_downloads_configure(cq_library *library, const char *dir, const char *served_at);
 int cq_download(cq_library *library, const char *key, const char *quality);
 int cq_download_remove(cq_library *library, const char *key);
@@ -121,6 +124,7 @@ int cq_download_next(cq_library *library, const char *title_key, const char *cho
 char *cq_download_sizes(cq_library *library, const char *key, const cq_download_choice *choices, size_t count, const char *quality);
 char *cq_downloads(cq_library *library);
 char *cq_reconcile(cq_library *library);
+void cq_reconcile_stop(cq_library *library);
 // Holds downloads back while a stream plays: none begins; resuming lets
 // them go. Any thread.
 void cq_downloads_hold(cq_library *library);

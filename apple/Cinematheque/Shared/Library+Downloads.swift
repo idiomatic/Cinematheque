@@ -141,8 +141,9 @@ extension Library {
     /// them.
     func removeDownload(_ key: String) {
         // The series' choice, if it asks for any of them, is stopped first
-        // (by the core).
-        checkAndReload { cq_download_remove($0, key) }
+        // (by the core). Off the main thread, as it waits its turn to
+        // write, which a refresh may hold a while.
+        Task { await changeApart { cq_download_remove($0, key) } }
     }
 
     /// How far an item, or a movie's or season's items, have come (`of`,
@@ -204,21 +205,19 @@ extension Library {
 
     /// Changes where downloads go.
     func setDownloads(dir: String? = nil) {
-        if let dir, dir != downloadsDir {
-            configureDownloads(dir: dir)
+        Task {
+            await configureDownloads(dir: dir)
             // Served from the new folder; what's wanted is fetched there.
-            if servingPort != nil { serve() }
-        } else {
-            configureDownloads(dir: dir)
+            if let dir, dir != downloadsDir, servingPort != nil { serve() }
+            reconcileSoon()
         }
-        reconcileSoon()
     }
 
     /// Tells the core where downloads are kept and served (on the port this
     /// Mac serves on, or last did); a source served at another address
     /// before (another port) is removed, its copies recorded afresh as
     /// reconciling finds the files.
-    func configureDownloads(dir: String? = nil) {
+    func configureDownloads(dir: String? = nil) async {
         guard hasLibrary else { return }
         let port = servingPort ?? UserDefaults.standard.integer(forKey: "servingPort")
         guard port > 0 else { return }
@@ -228,7 +227,8 @@ extension Library {
         if let id = downloads?.source, let old = sources.first(where: { $0.id == id }), old.url != url {
             removeSource(old.id)
         }
-        checkAndReload { cq_downloads_configure($0, path, url) }
+        // Off the main thread, as it waits its turn to write.
+        await changeApart { cq_downloads_configure($0, path, url) }
     }
 
 
@@ -246,7 +246,7 @@ extension Library {
     /// Fetches and deletes downloads to match what's kept, off the main
     /// thread, showing how far it's come; if it's running, it runs again.
     func reconcileSoon() {
-        guard let handle, hasLibrary, downloads?.dir != nil else { return }
+        guard let handle, hasLibrary, downloads?.dir != nil, !leavingLibrary else { return }
         guard reconciling == nil else {
             Task.detached { if let text = cq_reconcile(handle.pointer) { cq_free(text) } }
             return

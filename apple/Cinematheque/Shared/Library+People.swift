@@ -53,14 +53,14 @@ extension Library {
     }
 
     private func pair(_ device: NearbyDevice, code: String, by send: @escaping @Sendable (OpaquePointer, String, String) -> UnsafeMutablePointer<CChar>?) async -> (Paired?, String?) {
-        guard let handle else { return (nil, "The library isn't open.") }
         let url = device.url
         let name = device.deviceName ?? "The device"
-        let (paired, failure): (Paired?, String?) = await Task.detached {
-            guard let text = send(handle.pointer, url, code) else { return (nil, String(cString: cq_error())) }
+        let called: (Paired?, String?)? = await apart { handle in
+            guard let text = send(handle, url, code) else { return (nil, String(cString: cq_error())) }
             defer { cq_free(text) }
             return (try? JSONDecoder().decode(Paired.self, from: Data(bytes: text, count: strlen(text))), nil)
-        }.value
+        }
+        guard let (paired, failure) = called else { return (nil, "The library isn't open.") }
         guard let failure else { return (paired, nil) }
         switch failure {
         case "WrongCode": return (nil, "That isn't the code \(name) shows. Check it, and try again.")
@@ -151,12 +151,11 @@ extension Library {
 
     /// Devices found nearby (listening for 2 seconds) and added by address.
     func nearby() async -> [NearbyDevice] {
-        guard let handle else { return [] }
-        let data: Data? = await Task.detached {
-            guard let text = cq_nearby(handle.pointer) else { return nil }
+        let data: Data? = await apart { handle in
+            guard let text = cq_nearby(handle) else { return nil }
             defer { cq_free(text) }
             return Data(bytes: text, count: strlen(text))
-        }.value
+        } ?? nil
         return data.flatMap { try? JSONDecoder().decode([NearbyDevice].self, from: $0) } ?? []
     }
 

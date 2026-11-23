@@ -2,8 +2,9 @@
 
 const std = @import("std");
 const capi = @import("../capi.zig");
-const connection = @import("long.zig").connection;
-const release = @import("long.zig").release;
+const long = @import("long.zig");
+const connection = long.connection;
+const release = long.release;
 const library = @import("../library.zig");
 const download = @import("../download.zig");
 const gpa = capi.gpa;
@@ -12,16 +13,20 @@ const json = capi.json;
 const status = capi.status;
 const span = capi.span;
 
-/// Sets where this device keeps downloads (`dir`), and the URL it serves
-/// them at (made a source of its own, which no one crawls).
+/// Long, on a connection of its own, waiting its turn to write: sets
+/// where this device keeps downloads (`dir`), and the URL it serves them
+/// at (made a source of its own, which no one crawls).
 export fn cq_downloads_configure(lib: *Library, dir: [*:0]const u8, served_at: [*:0]const u8) c_int {
     return status(lib, downloadsConfigure, .{ std.mem.span(dir), std.mem.span(served_at) });
 }
 
 fn downloadsConfigure(lib: *Library, arena: std.mem.Allocator, dir: []const u8, served_at: []const u8) !void {
+    var r = try long.reader(lib, arena);
+    defer release(lib, &r);
     try lib.writer.lock(lib.io());
     defer lib.writer.unlock(lib.io());
-    try download.configure(try lib.main(), arena, lib.now(), dir, served_at);
+    try r.refresh();
+    try download.configure(&r, arena, lib.now(), dir, served_at);
 }
 
 /// Wants a title's, a season's (`<title>/e/s01`), or an item's files kept
@@ -35,15 +40,25 @@ fn downloadWant(lib: *Library, arena: std.mem.Allocator, key: []const u8, qualit
     try download.want(try lib.main(), arena, key, quality);
 }
 
-/// Stops keeping a title's, season's, or item's files: deletes those held
-/// here, and forgets wanting them.
+/// Long, on a connection of its own, waiting its turn to write: stops
+/// keeping a title's, season's, or item's files, deleting those held here,
+/// and forgets wanting them.
 export fn cq_download_remove(lib: *Library, key: [*:0]const u8) c_int {
     return status(lib, downloadRemove, .{std.mem.span(key)});
 }
 
 fn downloadRemove(lib: *Library, arena: std.mem.Allocator, key: []const u8) !void {
-    _ = try download.remove(lib.io(), arena, try lib.main(), &lib.writer, lib.now(), key);
+    var r = try long.reader(lib, arena);
+    defer release(lib, &r);
+    _ = try download.remove(lib.io(), arena, &r, &lib.writer, lib.now(), key);
     lib.fetching.recheck();
+}
+
+/// Any thread: stops reconciling under way (`cq_reconcile`), the file
+/// coming at its next mebibyte (kept, to resume) and none after, as before
+/// leaving the library; the next `cq_reconcile` runs afresh.
+export fn cq_reconcile_stop(lib: *Library) void {
+    lib.fetching.stop();
 }
 
 /// Chooses which of a series' episodes download, as it's watched: the
@@ -137,14 +152,16 @@ fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
     lib.reconcile_again.store(true, .release);
     if (lib.reconciling.swap(true, .acq_rel)) return .{ .busy = true };
     errdefer lib.reconciling.store(false, .release);
+    lib.fetching.start();
     var r = try connection(lib, arena);
     defer release(lib, &r);
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     var out: ReconciledJson = .{};
     while (true) {
-        // Again while asked again (a download wanted meanwhile).
-        while (lib.reconcile_again.swap(false, .acq_rel)) {
+        // Again while asked again (a download wanted meanwhile), unless
+        // stopped.
+        while (!lib.fetching.stopping.load(.acquire) and lib.reconcile_again.swap(false, .acq_rel)) {
             try r.refresh();
             const done = try download.reconcile(lib.io(), gpa, arena, &client, &lib.racing, &r, &lib.writer, lib.now(), .{ .done = &lib.downloaded_mb, .total = &lib.download_mb, .fetching = &lib.fetching }, &lib.hold);
             out.fetched += done.fetched;
