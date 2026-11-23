@@ -123,15 +123,15 @@ async function settingsPage() {
   }
   const people = (s) => s.members.map((m) => {
     const r = row(nameOf(m, "Someone unnamed"), [m.founder ? "Founder" : null, m.you ? "You" : null].filter(Boolean).join(", "),
-      m.you || m.founder ? null : button("Remove…", () => confirm(`Remove ${nameOf(m, "them")} from the library? They come back only by joining again, as someone new.`) &&
+      m.you || m.founder ? null : icon(minus, "Remove…", `Remove ${nameOf(m, "this person")}…`, () => confirm(`Remove ${nameOf(m, "them")} from the library? They come back only by joining again, as someone new.`) &&
         remove(r, "member-remove", { key: m.key }, peopleNote, `Removed ${nameOf(m, "them")}. Their devices leave the library as each next syncs.`)));
     return r;
   });
   const devices = (s) => s.devices.map((d) => {
     const r = row(nameOf(d, "Unnamed device"), d.this ? "This server" : "",
-      d.this ? null : el("span", {},
-        button("Rename…", () => { const name = prompt("Name", d.name || ""); if (name) act("name-device", { key: d.key, name }); }),
-        button("Remove", () => remove(r, "device-remove", { key: d.key }, devicesNote, `Removed ${nameOf(d, "the device")}. It leaves the library as it next syncs, in a moment if it’s on; it can join again as a new device.`))));
+      ...(d.this ? [] : [
+        icon(pencil, "Rename…", `Rename ${nameOf(d, "the device")}…`, () => { const name = prompt("Name", d.name || ""); if (name) act("name-device", { key: d.key, name }); }),
+        icon(minus, "Remove", `Remove ${nameOf(d, "the device")}`, () => remove(r, "device-remove", { key: d.key }, devicesNote, `Removed ${nameOf(d, "the device")}. It leaves the library as it next syncs, in a moment if it’s on; it can join again as a new device.`))]));
     return r;
   });
   const peopleList = el("div", {}, ...people(s));
@@ -151,7 +151,7 @@ async function settingsPage() {
   // Sources, as the core orders and names them (by server and folders, a
   // device's downloads by whose they are, last); each opened in a new
   // window by the web's external-link symbol (the Mac's Open in Browser
-  // shows Safari's compass, macOS's own), and removed by its trash.
+  // shows Safari's compass, macOS's own), and removed by its ⊖.
   const files = (n) => `${n.toLocaleString()} ${n === 1 ? "file" : "files"}`;
   const addServer = el("input", { type: "url", placeholder: "http://nas.local/videos/", "aria-label": "Server address" });
   page.append(section("Sources", "Folders and servers of videos. Cinematheque only reads them.",
@@ -164,9 +164,9 @@ async function settingsPage() {
       return el("div", { class: "source" },
         row(name, files(src.copies),
           el("a", { class: "icon", href: src.url, target: "_blank", rel: "noopener noreferrer", title: "Open in a New Window", "aria-label": `Open ${name} in a new window` }, symbol(external)),
-          el("button", { type: "button", class: "icon", title: "Remove…", "aria-label": `Remove ${name}…`, onclick: () => confirm(removing) && act("source-remove", { id: src.id }) }, symbol(trash))),
+          icon(minus, "Remove…", `Remove ${name}…`, () => confirm(removing) && act("source-remove", { id: src.id }))),
       ...src.unavailable.map((u) => row(`/${u.dir} is unavailable`, `since ${new Date(u.since_ms).toLocaleDateString()}`,
-        button("Remove Videos", () => act("unavailable-remove", { id: src.id, dir: u.dir })))));
+        icon(minus, "Remove Videos", `Remove the videos in /${u.dir}`, () => act("unavailable-remove", { id: src.id, dir: u.dir })))));
     }),
     s.media && !s.media.added ? el("div", { class: "line" }, button(`Add This Server’s Folder (${s.media.dir})`, () => act("source-add-media", {}))) : null,
     el("form", { class: "line", onsubmit: (e) => { e.preventDefault(); act("source-add", { url: addServer.value }); } }, addServer, el("button", { type: "submit" }, "Add Server"))));
@@ -189,7 +189,7 @@ async function settingsPage() {
   // Advanced: devices by address.
   const address = el("input", { type: "url", placeholder: "http://hal.local:8008/", "aria-label": "Device address" });
   page.append(section("Devices by Address", "Devices this one can’t find on the network, which it syncs with too; on this server only.",
-    ...s.addresses.map((u) => row(u, "", button("Forget", () => act("address-forget", { url: u })))),
+    ...s.addresses.map((u) => row(u, "", icon(xmark, "Forget", `Forget ${u}`, () => act("address-forget", { url: u })))),
     el("form", { class: "line", onsubmit: (e) => { e.preventDefault(); act("address-add", { url: address.value }); } }, address, el("button", { type: "submit" }, "Add Address"))));
 
   // Leaving.
@@ -201,9 +201,21 @@ async function settingsPage() {
 /// Symbols for buttons that show no words, drawn as the web's are, in the
 /// text's color: an external link, a square with an arrow leaving its
 /// corner (opening in a new window, as Material's `open_in_new` and SF
-/// Symbols' `arrow.up.right.square` show it), and a trash can.
+/// Symbols' `arrow.up.right.square` show it); a pencil (renaming); a minus
+/// in a circle (removing from a list or the library, as macOS and iOS show
+/// it; a trash is for deleting, files leaving a disk, which nothing here
+/// does); and an × (forgetting what's known).
 const external = '<path d="M13.5 4.5h6v6M19.5 4.5l-8 8M17.5 13.5v4.5a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5V8A1.5 1.5 0 0 1 6 6.5h4.5"/>';
-const trash = '<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5M10.5 10.5v6M13.5 10.5v6"/>';
+const minus = '<circle cx="12" cy="12" r="8.5"/><path d="M8 12h8"/>';
+const pencil = '<path d="M15.5 5.5l3 3M4.5 19.5l1-4 10.5-10.5 3 3L8.5 18.5z"/>';
+const xmark = '<path d="M7 7l10 10M17 7L7 17"/>';
+
+/// A row's action, a symbol alone: its name its tooltip, and what it acts
+/// on its spoken label, as rows' actions are; buttons that start a flow
+/// (Add a Device) keep their words.
+function icon(shapes, title, label, onclick) {
+  return el("button", { type: "button", class: "icon", title, "aria-label": label, onclick }, symbol(shapes));
+}
 
 /// A symbol, from its SVG's shapes (constants above, never data).
 function symbol(shapes) {

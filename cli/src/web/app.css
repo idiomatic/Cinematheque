@@ -408,3 +408,5 @@ body.outside #sidebar, body.outside header, body.outside #tabs, body.outside #st
 }
 .settings .icon:hover { background: var(--raised); color: var(--text); }
 .settings .icon svg { width: 18px; height: 18px; display: block; }
+/* A row's symbols together at its end. */
+.settings .row .icon + .icon { margin-left: -6px; }
