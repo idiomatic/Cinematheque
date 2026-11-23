@@ -57,7 +57,7 @@ fn offering(app: *App) !Offering {
         if (found != null) return error.SeveralOffering;
         found = .{
             .url = try std.fmt.allocPrint(app.arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse core.pair.path }),
-            .name = s.get("name") orelse "",
+            .name = try s.shownName(app.arena) orelse "",
         };
     }
     return found orelse error.NoneOffering;

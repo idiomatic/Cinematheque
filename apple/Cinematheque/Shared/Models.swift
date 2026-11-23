@@ -240,8 +240,6 @@ struct Device: Codable, Identifiable, Hashable {
 struct NearbyDevice: Codable, Identifiable, Hashable {
     let url: String
     let device: String?
-    /// Its host, as DNS-SD resolved it (`Not-Your-AppleTV.local.`).
-    let host: String?
     let person: String?
     /// Its person's key.
     let person_key: String?
@@ -254,29 +252,11 @@ struct NearbyDevice: Codable, Identifiable, Hashable {
     /// `new`, as the member's device decides what it is.
     let pairing: String?
     var id: String { url }
-    /// Its device's and person's names, if they advertise any. tvOS tells
-    /// apps only a generic name ("Apple TV") without an entitlement Apple
-    /// grants, but its host is named for the Apple TV, so that stands in.
-    var deviceName: String? {
-        let advertised = device.flatMap { $0.isEmpty ? nil : $0 }
-        guard advertised == nil || Self.generic.contains(advertised!), let named = hostName else { return advertised }
-        return named
-    }
+    /// Its device's and person's names, if any: the device's as the core
+    /// shows it (by its host's, where it advertised only a generic one, as
+    /// tvOS and iOS give apps).
+    var deviceName: String? { device.flatMap { $0.isEmpty ? nil : $0 } }
     var personName: String? { person.flatMap { $0.isEmpty ? nil : $0 } }
-
-    /// The names devices give apps in place of their own.
-    private static let generic: Set<String> = ["Apple TV", "iPhone", "iPad"]
-
-    /// Its host's name as a person wrote it, near enough
-    /// (`Not-Your-AppleTV.local.` to "Not Your AppleTV"), unless that's
-    /// generic too.
-    private var hostName: String? {
-        guard let host else { return nil }
-        var label = host.hasSuffix(".") ? String(host.dropLast()) : host
-        if label.hasSuffix(".local") { label = String(label.dropLast(6)) }
-        let name = label.replacing("-", with: " ")
-        return name.isEmpty || Self.generic.contains(name) ? nil : name
-    }
 }
 
 /// A device just paired: its person's key and its own.

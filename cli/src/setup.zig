@@ -443,7 +443,7 @@ fn nearby(w: *Web, io: Io, arena: std.mem.Allocator, request: *http.Server.Reque
         const path = s.get("path") orelse core.pair.path;
         if (!std.mem.eql(u8, path, core.pair.path)) continue;
         try out.append(arena, .{
-            .name = s.get("name") orelse s.name,
+            .name = try s.shownName(arena) orelse "A new device",
             .url = try std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, path }),
         });
     }

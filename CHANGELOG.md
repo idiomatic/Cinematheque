@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Devices offering to be added are named by their host where they advertise only a generic name (an iPhone's "iPhone" as "lint"), by the core, so the web client and the command-line app name them as the apps do.
 * Command-line app: `serve` serves the web client unless `--no-web` (`--web` is gone), and starts with no library; the web client sets one up (Create, or Join by a code), and has Settings: names, people, devices (added by their codes), sources (a server's address, or the folder `--media` serves), how often they're looked through, Refresh Library, devices by address, and Leave. Only a browser on the server's own computer (or through an SSH tunnel) acts as it, unless `--permissive`; others are told so.
 * Apple TV and iPhone: resuming seeks exactly, as the Mac's does, rather than to the keyframe before, which in a file with sparse keyframes was minutes early.
 * README: a Status section, player by player, and a quickstart for serving the library to browsers.

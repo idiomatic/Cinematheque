@@ -129,7 +129,8 @@ fn nearby(lib: *Library, arena: std.mem.Allocator) ![]const NearbyJson {
         } else false else false;
         try out.append(arena, .{
             .url = found,
-            .device = s.get("name"),
+            // As it advertised itself, or by its host if that's generic.
+            .device = try s.shownName(arena),
             // As DNS-SD resolved it: an Apple TV's is its own name
             // (`Not-Your-AppleTV.local`), when tvOS tells apps only "Apple TV".
             .host = s.host,

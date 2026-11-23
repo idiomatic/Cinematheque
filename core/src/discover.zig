@@ -79,7 +79,39 @@ pub const Service = struct {
         }
         return null;
     }
+
+    /// The device's name to show: as it advertised itself, unless that's
+    /// empty or generic, as tvOS and iOS tell apps only "Apple TV" or
+    /// "iPhone" without an entitlement Apple grants; then its host's, as a
+    /// person wrote it, near enough (`Not-Your-AppleTV.local.` to "Not
+    /// Your AppleTV"), unless that's generic too; else null.
+    pub fn shownName(s: Service, arena: std.mem.Allocator) !?[]const u8 {
+        if (s.get("name")) |n| if (n.len > 0 and !generic(n)) return n;
+        var label = std.mem.trimEnd(u8, s.host, ".");
+        if (std.ascii.endsWithIgnoreCase(label, ".local")) label = label[0 .. label.len - ".local".len];
+        const name = try arena.dupe(u8, label);
+        std.mem.replaceScalar(u8, name, '-', ' ');
+        return if (name.len == 0 or generic(name)) null else name;
+    }
+
+    /// The names devices give apps in place of their own.
+    fn generic(name: []const u8) bool {
+        for ([_][]const u8{ "Apple TV", "iPhone", "iPad" }) |g| if (std.mem.eql(u8, name, g)) return true;
+        return false;
+    }
 };
+
+test "a device is shown by its host's name when it advertises a generic one" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const txt = try txtRecord(arena, &.{.{ "name", "iPhone" }});
+    try std.testing.expectEqualStrings("lint", (try (Service{ .name = "", .host = "lint.local.", .port = 1, .txt = txt }).shownName(arena)).?);
+    try std.testing.expectEqualStrings("Not Your AppleTV", (try (Service{ .name = "", .host = "Not-Your-AppleTV.local", .port = 1, .txt = txt }).shownName(arena)).?);
+    try std.testing.expectEqual(null, try (Service{ .name = "", .host = "iPhone.local.", .port = 1, .txt = txt }).shownName(arena));
+    const named = try txtRecord(arena, &.{.{ "name", "Den" }});
+    try std.testing.expectEqualStrings("Den", (try (Service{ .name = "", .host = "lint.local.", .port = 1, .txt = named }).shownName(arena)).?);
+}
 
 const Found = struct { name: [:0]const u8, regtype: [:0]const u8, domain: [:0]const u8, interface: u32 };
 
