@@ -159,8 +159,7 @@ struct SourcesPane: View {
 }
 
 /// Adding a source by its address, or editing one; where its files'
-/// quality comes from is advanced. (Names to skip, none unless set, are the
-/// command-line app's to change.)
+/// quality comes from, and names to skip, are advanced.
 private struct SourceSheet: View {
     let source: Source?
     @Environment(Library.self) private var library
@@ -168,6 +167,12 @@ private struct SourceSheet: View {
     @State private var url = ""
     @State private var quality = ""
     @State private var from = Source.QualityFrom.names
+    /// The prefix of names to skip, none if empty.
+    @State private var skip = ""
+    /// For a folder of this Mac, the folder it's served from, which
+    /// Choose… changes.
+    @State private var path: String?
+    @State private var choosing = false
     @State private var advanced = false
     @FocusState private var typing: Bool
 
@@ -205,8 +210,12 @@ private struct SourceSheet: View {
                     }
                     if let source {
                         if chosen != source.qualitySetting { library.setQuality(source.id, chosen) }
+                        if skip != source.skip { library.setSkip(source.id, skip) }
+                        if let folder = library.folder(of: source), let path, path != folder.path {
+                            Task { await library.changeFolder(folder, to: path) }
+                        }
                     } else {
-                        library.addSource(url, skip: nil)
+                        library.addSource(url, skip: skip.isEmpty ? nil : skip)
                         if chosen != .names { library.setQuality(url, chosen) }
                         Task { await library.crawl() }
                     }
@@ -219,16 +228,40 @@ private struct SourceSheet: View {
             if let source {
                 quality = source.quality
                 from = source.quality_from
-                advanced = from != .names
+                skip = source.skip
+                path = library.folder(of: source)?.path
+                advanced = from != .names || !skip.isEmpty
             }
         }
     }
 
-    /// An existing one's address, which can't change, and what can, as
-    /// Settings' forms are.
+    /// An existing server's address, which can't change, or a folder of
+    /// this Mac, which Choose… changes, as the Downloads pane's; and what
+    /// can change, as Settings' forms are.
     private var form: some View {
         Form {
-            if let source {
+            if let path {
+                Section {
+                    LabeledContent("Folder") {
+                        HStack {
+                            Text((path as NSString).abbreviatingWithTildeInPath)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .help(path)
+                            Button("Show in Finder", systemImage: "folder") {
+                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .help("Show in Finder")
+                            Button("Choose…") { choosing = true }
+                        }
+                    }
+                } footer: {
+                    Text("If its videos move (to a new drive, say), choose where they are now: they stay in the library, nothing to look for again but what changed.")
+                        .foregroundStyle(.secondary)
+                }
+            } else if let source {
                 Section {
                     LabeledContent("Address", value: source.url.removingPercentEncoding ?? source.url)
                 }
@@ -245,9 +278,10 @@ private struct SourceSheet: View {
                 if from == .named {
                     TextField("Name", text: $quality, prompt: Text("4K HDR"))
                 }
+                TextField("Skip Names Starting With", text: $skip, prompt: Text("None"))
             }
             if advanced {
-                Footer("If the videos' names don't say their quality, set it here so you can choose which quality plays: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them.")
+                Footer("If the videos' names don't say their quality, set it here so you can choose which quality plays: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them. To leave files out of the library, put them in folders whose names start with what Skip says; titles starting with it are left out too.")
             }
             // As it is now, so one removed leaves the list.
             if let current = library.sources.first(where: { $0.id == source?.id }), !current.unavailable.isEmpty {
@@ -272,6 +306,11 @@ private struct SourceSheet: View {
             }
         }
         .formStyle(.grouped)
+        .fileImporter(isPresented: $choosing, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result { path = url.path }
+        }
+        .fileDialogMessage("Choose where this folder's videos are now.")
+        .fileDialogConfirmationLabel("Choose")
     }
 }
 #endif

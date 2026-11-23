@@ -9,6 +9,12 @@ extension Library {
         checkAndReload { cq_repo_add($0, url, skip) }
     }
 
+    /// Sets the prefix of names a source skips, by ID or URL, none if
+    /// empty; applied at its next crawl.
+    func setSkip(_ source: String, _ skip: String) {
+        checkAndReload { cq_repo_skip($0, source, skip) }
+    }
+
     /// Sets where a source's files' quality comes from, by ID or URL;
     /// copies move at its next crawl. A newer device's setting is left as
     /// it is.
@@ -151,6 +157,18 @@ extension Library {
         folders[folders.count - 1].url = "http://\(host):\(port)/\(prefix)/"
         saveFolders()
         addSource(folders[folders.count - 1].url, skip: nil)
+        await crawl()
+    }
+
+    /// Serves a folder's source from another folder of this device (a drive
+    /// replaced, a folder moved), at the same address, so it stays the same
+    /// source: its next crawl keeps the copies that are there alike.
+    func changeFolder(_ folder: Folder, to path: String) async {
+        loadFolders()
+        guard let i = folders.firstIndex(where: { $0.prefix == folder.prefix }) else { return }
+        folders[i] = Folder(prefix: folder.prefix, path: path, url: folder.url)
+        saveFolders()
+        serve()
         await crawl()
     }
 
