@@ -422,7 +422,7 @@ private struct ListPage: View {
                     Menu("List", systemImage: "ellipsis.circle") {
                         Button("Rename…", systemImage: "pencil") { library.listPrompt = .init(kind: .rename(list)) }
                         if list.isShared {
-                            Button("Stop Sharing", systemImage: "person.2.slash") { library.shareList(list.id, false) }
+                            Button("Stop Sharing", systemImage: "person.2.slash") { library.stopSharingList(list.id) }
                         } else {
                             Button("Share…", systemImage: "person.2") { library.sharingList = list }
                         }

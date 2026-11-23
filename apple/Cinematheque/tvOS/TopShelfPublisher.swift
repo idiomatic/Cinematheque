@@ -58,9 +58,10 @@ enum TopShelfPublisher {
         return parts.url
     }
 
-    /// Whether a link plays its tile at once.
-    static func plays(_ url: URL) -> Bool {
-        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "play" && $0.value == "1" } == true
+    /// How a link opens its tile: playing it at once (`play=1`, the Top
+    /// Shelf's Play/Pause), else showing its page.
+    static func opening(_ url: URL) -> Opening {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "play" && $0.value == "1" } == true ? .play : .show
     }
 
     /// The tile a link opens, if it's one of the library's.

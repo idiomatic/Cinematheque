@@ -39,7 +39,7 @@ struct Browser: View {
     /// nothing.
     struct Opened: Identifiable {
         let tile: Tile
-        let playing: Bool
+        let opening: Opening
         let id = UUID()
     }
 
@@ -65,7 +65,7 @@ struct Browser: View {
             // moment it took.
             var now = Transaction()
             now.disablesAnimations = true
-            withTransaction(now) { opened = Opened(tile: tile, playing: TopShelfPublisher.plays(url)) }
+            withTransaction(now) { opened = Opened(tile: tile, opening: TopShelfPublisher.opening(url)) }
         }
         // Presented over the app, as tvOS gives a screen it presents focus
         // (its page's first, Play or Resume): pushed on Home within the tab
@@ -75,9 +75,9 @@ struct Browser: View {
             let tile = opened.tile
             Group {
                 if tile.isSeries {
-                    SeasonView(tile: tile, detail: library.detail(tile.key), playing: opened.playing)
+                    SeasonView(tile: tile, detail: library.detail(tile.key), opening: opened.opening)
                 } else {
-                    MovieView(tile: tile, detail: library.detail(tile.key), playing: opened.playing)
+                    MovieView(tile: tile, detail: library.detail(tile.key), opening: opened.opening)
                 }
             }
             // A page of its own each time, not the one shown kept, its
@@ -254,7 +254,7 @@ private struct ListPage: View {
                 HStack(spacing: 30) {
                     Button("Rename…") { library.listPrompt = .init(kind: .rename(list)) }
                     if list.isShared {
-                        Button("Stop Sharing") { library.shareList(list.id, false) }
+                        Button("Stop Sharing") { library.stopSharingList(list.id) }
                     } else {
                         Button("Share…") { library.sharingList = list }
                     }

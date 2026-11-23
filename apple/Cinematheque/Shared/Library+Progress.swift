@@ -116,10 +116,16 @@ extension Library {
         myLists.contains { $0.wanted?.contains { $0.key == key } == true }
     }
 
-    /// Shares a list of this person's with everyone in the library, or
-    /// makes it theirs alone again.
-    func shareList(_ id: String, _ on: Bool) {
-        check { on ? cq_list_share($0, id) : cq_list_stop_sharing($0, id) }
+    /// Shares a list of this person's with everyone in the library.
+    func shareList(_ id: String) {
+        check { cq_list_share($0, id) }
+        readLists()
+        changed()
+    }
+
+    /// Makes a shared list of this person's theirs alone again.
+    func stopSharingList(_ id: String) {
+        check { cq_list_stop_sharing($0, id) }
         readLists()
         changed()
     }

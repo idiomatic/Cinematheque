@@ -256,7 +256,7 @@ struct Browser: View {
                                     Button("Rename") { renaming = list.id }
                                     Button("Add Missing Title…") { wanting = list }
                                     if list.isShared {
-                                        Button("Stop Sharing") { library.shareList(list.id, false) }
+                                        Button("Stop Sharing") { library.stopSharingList(list.id) }
                                     } else {
                                         Button("Share…") { library.sharingList = list }
                                     }
@@ -1196,7 +1196,7 @@ struct CoverGrid: View {
         // Named for its series, as every series' is, and under it what its
         // seasons come to.
         let caption = Library.seasonsCaption(seasons)
-        return TileView(tile: series, aspect: 1, selected: selected, series: caption)
+        return TileView(tile: series, aspect: 1, selected: selected, stands: .series(caption: caption))
             .frame(width: Self.cell)
             .onTapGesture {
                 focused = true
@@ -1275,13 +1275,17 @@ struct TileView: View {
     let tile: Tile
     let aspect: Double
     let selected: Bool
-    /// A series' tile, standing for the whole series: under its name, how
-    /// many seasons it has, or, of one but the first, which (its line kept
+    /// What the tile stands for: a movie or a season itself, or a whole
+    /// series, with what its seasons come to under its name (how many, or,
+    /// of one but the first, which; empty, nothing to say, its line kept
     /// either way).
-    var series: String? = nil
+    enum Stands { case itself, series(caption: String) }
+    var stands: Stands = .itself
     @Environment(Library.self) private var library
 
-    private var isSeries: Bool { series != nil }
+    /// A series' caption, if it stands for one.
+    private var caption: String? { if case .series(let caption) = stands { caption } else { nil } }
+    private var isSeries: Bool { caption != nil }
 
     /// Between its cover, name, and year, as `CoverGrid.Rows` counts them.
     static let spacing: CGFloat = 6
@@ -1303,7 +1307,7 @@ struct TileView: View {
                 .overlay(alignment: .bottom) { CoverProgress(tile: tile) }
                 .shadow(color: .black.opacity(0.15), radius: 3, y: 2)
             let name = isSeries ? tile.name : tile.seasonName ?? tile.name
-            if series == "", let year = tile.year {
+            if caption == "", let year = tile.year {
                 // A series whose second line says nothing: its year beside
                 // its name, if an em's space is left between them, its
                 // second line still kept, so rows line up; else below.
@@ -1330,11 +1334,11 @@ struct TileView: View {
             } else {
                 nameRow(name)
             }
-            if let series, series != "" || tile.year == nil {
+            if let caption, caption != "" || tile.year == nil {
                 // Its year, if its name has one, at the line's end, so the
                 // seasons said before it read alike with it or without.
                 HStack {
-                    Text(series)
+                    Text(caption)
                     Spacer(minLength: 4)
                     if let year = tile.year { Text(String(year)) }
                 }

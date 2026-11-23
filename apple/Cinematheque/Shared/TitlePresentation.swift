@@ -332,7 +332,7 @@ struct ListRequests: ViewModifier {
             }
             .confirmationDialog("Share “\(library.sharingList?.name ?? "")” with everyone in the library?", isPresented: Binding(get: { library.sharingList != nil }, set: { if !$0 { library.sharingList = nil } }), titleVisibility: .visible) {
                 Button("Share") {
-                    if let list = library.sharingList { library.shareList(list.id, true) }
+                    if let list = library.sharingList { library.shareList(list.id) }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
