@@ -24,12 +24,12 @@ struct SettingsView: View {
 
     private var me: Member? { library.members.first(where: \.you) }
     private var others: [Member] { library.members.filter { !$0.you } }
-    /// The founder's only device: leaving takes the founder with it, so it
-    /// hands the library over first, or, if no one else is in it, ends it.
     /// The system's rows' text (and headings') inset in its plate, wider
     /// than a form's.
     static let rowInsets = EdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
 
+    /// The founder's only device: leaving takes the founder with it, so it
+    /// hands the library over first, or, if no one else is in it, ends it.
     private var foundersOnly: Bool { me?.founder == true && library.status?.others == 0 }
 
     var body: some View {

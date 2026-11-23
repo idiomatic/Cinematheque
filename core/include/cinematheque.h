@@ -234,7 +234,8 @@ char *cq_nearby(cq_library *library);
 int cq_device_address_add(cq_library *library, const char *url);
 int cq_device_address_forget(cq_library *library, const char *url);
 
-// What this build is: {"version", "mode", "zig"}, as /version serves it.
+// What this build is: {"version", "revision", "mode", "zig"}, as /version
+// serves it.
 // Any thread.
 char *cq_version(void);
 

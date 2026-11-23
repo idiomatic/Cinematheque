@@ -217,8 +217,8 @@ private struct ListsView: View {
                 }
                 ForEach(library.lists) { list in
                     let tiles = Shelf.list(list.id).tiles(in: library)
-                    // A plain heading, as Home's rows have; the list's page,
-                    // from its row's first tile, renames or deletes it.
+                    // Its heading the list's link, as Home's rows have it:
+                    // its page renames, shares, or deletes it.
                     Row(title: list.shownName, tiles: tiles, list: list.id, shared: list.isShared)
                 }
                 // Rare, so last.

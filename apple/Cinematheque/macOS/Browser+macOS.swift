@@ -64,7 +64,7 @@ struct InspectorCommand: View {
 }
 
 /// View › Sort By: the shown shelf's order (Title, Release Date, Date
-/// Added, Date Watched), then its direction, as Finder's.
+/// Added, Date Modified, Date Watched), then its direction, as Finder's.
 struct SortCommand: View {
     @FocusedValue(\.shelfOrder) private var order
 
