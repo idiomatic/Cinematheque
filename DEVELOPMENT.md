@@ -99,6 +99,7 @@ Open:
 Open:
 
 * **Connectivity beyond the LAN:** sync runs both ways, so a device behind a NAT syncs with a device it can reach (a hosted server, say), but two devices both behind NATs still can't reach each other, which the direct-connection rule for private data depends on. And while syncs are sealed, media isn't, so beyond the LAN it wants a TLS proxy in front of `serve`, or a VPN. Explored in other projects.
+* **HTTP/2 or HTTP/3 alone:** a device serving (sync, media, the web client) only over HTTP/2 (or HTTP/3), for multiplexing (a crawl's listings and a cover's range requests over one connection, past browsers' six connections to a host) and compressed headers; static servers are still read as they serve. Both, in browsers and AVFoundation, need TLS (none speaks cleartext HTTP/2, and HTTP/3 is QUIC), so it waits on certificates players trust for a device on the LAN (its own key's, pinned by the apps; browsers' a harder question), and on Zig's `std.http`, which has neither.
 * **CloudKit:** an alternative to the CRDT, if non-Apple players can use it without a Developer subscription, and if it honors the direct-connection rule for private data.
 
 ## Sources
