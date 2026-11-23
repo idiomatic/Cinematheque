@@ -159,8 +159,8 @@ struct SourcesPane: View {
 }
 
 /// Adding a source by its address, or editing one; where its files'
-/// quality comes from is advanced. (Names to skip, `,` unless set otherwise, are the command-line
-/// app's to change.)
+/// quality comes from is advanced. (Names to skip, none unless set, are the
+/// command-line app's to change.)
 private struct SourceSheet: View {
     let source: Source?
     @Environment(Library.self) private var library
@@ -206,7 +206,7 @@ private struct SourceSheet: View {
                     if let source {
                         if chosen != source.qualitySetting { library.setQuality(source.id, chosen) }
                     } else {
-                        library.addSource(url, skip: ",")
+                        library.addSource(url, skip: nil)
                         if chosen != .names { library.setQuality(url, chosen) }
                         Task { await library.crawl() }
                     }

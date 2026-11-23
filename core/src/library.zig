@@ -37,8 +37,9 @@ pub const Layout = struct {
     /// Where its files' quality comes from.
     quality: QualityFrom = .names,
     /// Names starting with this are skipped (e.g., housekeeping folders), or
-    /// none if empty.
-    skip: []const u8 = ",",
+    /// none if empty, as by default: a prefix skips titles that start with
+    /// it too, so no default suits every library.
+    skip: []const u8 = "",
 };
 
 /// Where a source's files' quality comes from. Stored as its `quality-by`
@@ -1375,7 +1376,7 @@ test "state: sources, aliases, progress, and members can be listed, set, and rem
     try std.testing.expectEqual(QualityFrom.folder, (try findSource(&r, arena, &id)).layout.quality);
     try r.write(4000, try std.fmt.allocPrint(arena, "r/{s}", .{&id}), "quality-by", "file");
     try std.testing.expectEqual(QualityFrom.unknown, (try findSource(&r, arena, &id)).layout.quality);
-    try std.testing.expectEqualStrings(",", (try findSource(&r, arena, &id)).layout.skip);
+    try std.testing.expectEqualStrings("", (try findSource(&r, arena, &id)).layout.skip);
 
     const review = @import("review.zig");
     try review.addAlias(&r, 3000, "t/m/rogue-protocol/2019", "t/m/rogue-protocol/2018");

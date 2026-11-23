@@ -150,7 +150,7 @@ extension Library {
         }
         folders[folders.count - 1].url = "http://\(host):\(port)/\(prefix)/"
         saveFolders()
-        addSource(folders[folders.count - 1].url, skip: ",")
+        addSource(folders[folders.count - 1].url, skip: nil)
         await crawl()
     }
 
@@ -221,7 +221,7 @@ extension Library {
             parts.port = port
             guard let moved = parts.string else { continue }
             let old = sources.first { $0.url == folder.url }
-            addSource(moved, skip: old?.skip ?? ",")
+            addSource(moved, skip: old?.skip)
             if let old { setQuality(moved, old.qualitySetting); removeSource(old.id) }
             folders[i].url = moved
         }

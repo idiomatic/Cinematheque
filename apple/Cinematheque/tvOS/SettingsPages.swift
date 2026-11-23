@@ -226,7 +226,7 @@ struct SourcesPage: View {
             return
         }
         problem = nil
-        library.addSource(address, skip: ",")
+        library.addSource(address, skip: nil)
         Task { await library.crawl() }
     }
 }
