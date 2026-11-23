@@ -187,6 +187,7 @@ Their details, as built, are in [apple/README.md](apple/README.md#in-detail).
 
 * **Data directory:** the app's Application Support, which iOS keeps.
 * **Shelves:** a tab bar of Home (Continue Watching, then a row per list, each with See All, how many it holds, to the list's page; Settings from its corner), Movies, Series (a cover per series, opening a page of its seasons in square cells, each cover fit whole), Lists (every list's row, New List in the navigation bar; a list's page renaming, sharing, and deleting it from its menu, if it's this person's own), and Search. Rows are carousels, every cover one height, each its own width by its shape; grids give every cell the column's width.
+* **Tiles:** a cover shows whole, as one so small can't spare a corner of its art, where a poster's title often is: a list's star and the watched check follow the title's name under it, and progress is a thin bar between the two, its place kept when empty, so names line up.
 * **Pages:** a movie's or a season's, its cover in its own shape, Play or Resume, Start Over (partway), the quality, the Lists menu and watched mark, then versions or episodes; a season's neighbors (‹ ›) in the navigation bar, moving in place.
 * **Playing:** full screen, in AVKit's player, fading in from black as its sound rises, its close button lowering the curtain first.
 * **Not yet:** setup is the Mac's welcome form, filling the screen; Settings only refreshes; nothing adds sources, pairs devices, or downloads.

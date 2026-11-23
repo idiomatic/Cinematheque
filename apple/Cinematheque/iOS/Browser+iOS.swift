@@ -138,6 +138,7 @@ private struct Carousel: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 TileCover(tile: tile)
                                     .frame(height: 150)
+                                TileProgress(tile: tile)
                                 PosterName(tile: tile)
                             }
                         }
@@ -151,33 +152,52 @@ private struct Carousel: View {
     }
 }
 
-/// A cover in its own shape, with its marks and progress.
+/// A cover in its own shape, whole: its marks and progress are under it
+/// (`TileProgress`, `PosterName`), as an iPhone's covers are too small to
+/// spare a corner of the art, where a poster's title often is.
 struct TileCover: View {
     let tile: Tile
-    @Environment(Library.self) private var library
 
     var body: some View {
         CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, shaped: true)
             .opacity(tile.unavailable || tile.isWanted ? 0.4 : 1)
-            .overlay(alignment: .top) { CoverMarks(listed: library.isListed(tile), watched: tile.watched, padding: 6) }
-            .overlay(alignment: .bottom) {
-                if !tile.watched, tile.progress > 0 {
-                    ProgressView(value: tile.progress).tint(.white).padding(8)
-                }
-            }
             .clipShape(.rect(cornerRadius: 8))
     }
 }
 
-/// A title's name under its cover, and a season's under that.
+/// How far through a tile is, as a thin bar between its cover and its name,
+/// as Apple's TV app shows it; its place kept, empty, when there's none
+/// (not begun, or watched), so names line up along a row.
+private struct TileProgress: View {
+    let tile: Tile
+
+    var body: some View {
+        ProgressView(value: tile.progress)
+            .tint(.primary)
+            .opacity(!tile.watched && tile.progress > 0 ? 1 : 0)
+    }
+}
+
+/// A title's name under its cover (or `title` in its place), its marks
+/// after it (on a list, watched), and a season's name under that.
 private struct PosterName: View {
     let tile: Tile
+    /// What it's called, if not its title's name (a season, among its
+    /// series' seasons).
+    var title: String? = nil
     /// Not for a series' tile, which stands for every season.
     var showsSeason = true
+    @Environment(Library.self) private var library
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(tile.name).font(.caption).lineLimit(1)
+            HStack(spacing: 3) {
+                Text(title ?? tile.name).lineLimit(1)
+                // After the name, kept whole as it's cut short.
+                if library.isListed(tile) { Image(systemName: "star.fill").foregroundStyle(.yellow).accessibilityLabel("On a list") }
+                if tile.watched { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Watched") }
+            }
+            .font(.caption)
             if let season = tile.isWanted ? "Not in library" : showsSeason ? tile.seasonName : nil {
                 Text(season).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -215,6 +235,7 @@ struct CoverGrid: View {
                             Color.clear
                                 .aspectRatio(2.0 / 3.0, contentMode: .fit)
                                 .overlay(alignment: .bottom) { TileCover(tile: tile) }
+                            TileProgress(tile: tile)
                             PosterName(tile: tile, showsSeason: !series)
                         }
                     }
@@ -245,7 +266,8 @@ private struct SeasonsPage: View {
                             Color.clear
                                 .aspectRatio(1, contentMode: .fit)
                                 .overlay { TileCover(tile: tile) }
-                            Text(tile.seasonName ?? "").font(.caption).lineLimit(1)
+                            TileProgress(tile: tile)
+                            PosterName(tile: tile, title: tile.seasonName ?? "", showsSeason: false)
                         }
                     }
                     .buttonStyle(.plain)
