@@ -219,7 +219,7 @@ struct WantedInspectorView: View {
                 .foregroundStyle(.secondary)
             if !wanted.note.isEmpty {
                 // An article's address, opened in the browser; else the note.
-                if let url = URL(string: wanted.note), ["http", "https"].contains(url.scheme ?? "") {
+                if let url = URL(web: wanted.note) {
                     Link(wanted.note, destination: url).lineLimit(2)
                 } else {
                     Text(wanted.note).textSelection(.enabled)

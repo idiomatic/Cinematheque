@@ -332,6 +332,8 @@ fn fetchNow(arena: std.mem.Allocator, client: *std.http.Client, target: []const 
     const last = std.math.add(u64, offset, length - 1) catch return error.TooLarge;
     const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-{d}", .{ offset, last });
     var request = try client.request(.GET, try std.Uri.parse(target), .{
+        // No redirect: it could lead anywhere the server likes.
+        .redirect_behavior = .not_allowed,
         .extra_headers = &.{.{ .name = "range", .value = range }},
     });
     defer request.deinit();

@@ -139,9 +139,11 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         if (std.mem.eql(u8, path, f.path) or (std.mem.eql(u8, f.path, "/") and std.mem.eql(u8, path, "/index.html"))) break f;
     } else null;
     if (page == null and !std.mem.startsWith(u8, path, "/api/")) return false;
-    // Only this page's own, by an address no other site can take, so a
-    // page elsewhere can't read the library, or act as this person.
-    if (!fromThisPage(request)) {
+    // By an address no other site can take, so a site that rebinds its
+    // name here is refused. The page itself, which holds nothing of the
+    // library, opens from a link anywhere (an email's, say); what reads
+    // the library or acts as this person is this page's own.
+    if (!privateHostOf(request) or page == null and !fromThisPage(request)) {
         try request.respond("Forbidden", .{ .status = .forbidden, .extra_headers = &guarded });
         return true;
     }
@@ -183,14 +185,17 @@ fn header(request: *http.Server.Request, name: []const u8) ?[]const u8 {
     return null;
 }
 
-/// Whether a request is this page's own. Its host must be one no other
-/// site can be (an address, `localhost`, a `.local` or single-label name,
-/// or this computer's), so a site that rebinds its own name to this
-/// device's address is refused; and a change (a POST) must be JSON, from
-/// this origin, which a page elsewhere can't send without asking first.
+/// Whether a request is by a host no other site can be (an address,
+/// `localhost`, a `.local` or single-label name, or this computer's).
+fn privateHostOf(request: *http.Server.Request) bool {
+    return privateHost(header(request, "host") orelse return false);
+}
+
+/// Whether a request is this page's own (by a private host, as
+/// `privateHostOf` checks first): from this origin, and a change (a POST)
+/// JSON, which a page elsewhere can't send without asking first.
 fn fromThisPage(request: *http.Server.Request) bool {
     const host = header(request, "host") orelse return false;
-    if (!privateHost(host)) return false;
     if (header(request, "sec-fetch-site")) |site| if (!std.mem.eql(u8, site, "same-origin") and !std.mem.eql(u8, site, "none")) return false;
     if (header(request, "origin")) |origin| {
         const rest = if (std.mem.startsWith(u8, origin, "http://")) origin[7..] else if (std.mem.startsWith(u8, origin, "https://")) origin[8..] else return false;

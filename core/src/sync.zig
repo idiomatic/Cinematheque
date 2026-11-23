@@ -608,7 +608,8 @@ const Named = struct {
 
     fn hex(comptime n: usize, text: []const u8) ?[n]u8 {
         var out: [n]u8 = undefined;
-        _ = std.fmt.hexToBytes(&out, text) catch return null;
+        // Whole alone: a short one would leave bytes unwritten.
+        if ((std.fmt.hexToBytes(&out, text) catch return null).len != n) return null;
         return out;
     }
 
@@ -665,7 +666,7 @@ fn opened(arena: std.mem.Allocator, response: *http.Client.Response, keys: seal.
 fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []const u8, now_ms: u64, recipient: [32]u8, theirs: *std.ArrayList(replica_.Entry)) !Pulled {
     const head = try writeRequest(arena, dst, now_ms, recipient, @splat(0));
     const body, const keys = try sealed(arena, client.io, dst.library, recipient, head, null);
-    var request = try client.request(.POST, try std.Uri.parse(url), .{});
+    var request = try client.request(.POST, try std.Uri.parse(url), .{ .redirect_behavior = .not_allowed });
     defer request.deinit();
     request.transfer_encoding = .{ .content_length = body.len };
     var sending = try request.sendBodyUnflushed(&.{});
@@ -709,6 +710,7 @@ fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []co
     if (sent == 0) return 0;
     const body, _ = try sealed(arena, client.io, src.library, recipient, head, frames.written());
     var request = try client.request(.POST, try std.Uri.parse(url), .{
+        .redirect_behavior = .not_allowed,
         .headers = .{ .content_type = .{ .override = push_type } },
     });
     defer request.deinit();
@@ -740,6 +742,7 @@ fn repairFrom(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url
     try gz.finish();
     const body, const keys = try sealed(arena, client.io, dst.library, recipient, head, asked.written());
     var request = try client.request(.POST, try std.Uri.parse(url), .{
+        .redirect_behavior = .not_allowed,
         .headers = .{ .content_type = .{ .override = repair_type } },
     });
     defer request.deinit();

@@ -221,7 +221,7 @@ private struct SourceSheet: View {
                     }
                     dismiss()
                 }
-                .disabled((source == nil && URL(string: url)?.scheme?.hasPrefix("http") != true) || (from == .named && quality.isEmpty))
+                .disabled((source == nil && URL(web: url) == nil) || (from == .named && quality.isEmpty))
             }
         }
         .onAppear {

@@ -1475,11 +1475,12 @@ pub fn names(replica: *Replica, arena: std.mem.Allocator) ![]Name {
 /// Whether `person` (hex) is the one `writer` acts for, or the one the
 /// certificate of `device` (hex) names.
 fn ownedBy(replica: *Replica, writer: [32]u8, device: []const u8, person: []const u8) !bool {
+    // Whole keys alone: a short one would leave bytes unwritten.
     var claimed: [32]u8 = undefined;
-    _ = std.fmt.hexToBytes(&claimed, person) catch return false;
+    if ((std.fmt.hexToBytes(&claimed, person) catch return false).len != claimed.len) return false;
     if (try replica.certifiedPerson(writer, &.{})) |p| if (std.mem.eql(u8, &p, &claimed)) return true;
     var key: [32]u8 = undefined;
-    _ = std.fmt.hexToBytes(&key, device) catch return false;
+    if ((std.fmt.hexToBytes(&key, device) catch return false).len != key.len) return false;
     const p = try replica.certifiedPerson(key, &.{}) orelse return false;
     return std.mem.eql(u8, &p, &claimed);
 }

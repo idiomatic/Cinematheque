@@ -147,6 +147,8 @@ const File = struct {
         const last = std.math.add(u64, offset, length - 1) catch return error.Malformed;
         const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-{d}", .{ offset, last });
         var request = try f.client.request(.GET, f.uri, .{
+            // No redirect: it could lead anywhere the server likes.
+            .redirect_behavior = .not_allowed,
             .extra_headers = &.{.{ .name = "range", .value = range }},
         });
         defer request.deinit();

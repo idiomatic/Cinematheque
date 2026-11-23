@@ -290,6 +290,8 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
         var range_buf: [64]u8 = undefined;
         const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-", .{have});
         var request = try client.request(.GET, try std.Uri.parse(url), .{
+            // No redirect: it could lead anywhere the server likes.
+            .redirect_behavior = .not_allowed,
             // Bytes as stored, so lengths and ranges are the file's.
             .headers = .{ .accept_encoding = .{ .override = "identity" } },
             .extra_headers = if (have > 0) &.{.{ .name = "range", .value = range }} else &.{},

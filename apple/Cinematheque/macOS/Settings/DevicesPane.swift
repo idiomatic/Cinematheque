@@ -73,7 +73,7 @@ struct DevicesPane: View {
         .onAppear { sharing = library.sharing }
     }
 
-    private var validAddress: Bool { URL(string: address)?.scheme?.hasPrefix("http") == true }
+    private var validAddress: Bool { URL(web: address) != nil }
 
     private func addAddress() {
         guard validAddress else { return }

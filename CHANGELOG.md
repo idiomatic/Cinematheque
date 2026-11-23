@@ -4,6 +4,9 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Security: downloads, covers, and MP4 reads follow no redirect, as one could lead anywhere (only crawls follow them, within their source); the connection limit per address is counted by a hash seeded afresh, so no one can choose addresses that crowd out another device's; pairing counts wrong codes by the address itself, not a hash of it; keys read as hex must be whole, as a short one left bytes unset.
+* Web client: a link to it from another site (an email's) opens it, where it was refused; its API still answers only its own page.
+* Mac: addresses (a server's, a device's, a placeholder's note) are checked as web addresses with a host, not by their scheme's start.
 * Sync: a device that takes connections but never answers (an app stopped in a debugger) is given up on in 10 seconds, not 10 minutes, so syncing with the others, and a person's changes, don't wait on it.
 * Web client: a download through the server that fails partway drops the connection, rather than writing an error into the file; a cover's fetch has a minute; describing an episode and syncing after a change hold the writer only to write, so saving progress doesn't wait on the network.
 * Downloads: whether another source holds a download alike is asked within a minute; a crawl stops at 4 million entries as it finds them, not once a level's done.

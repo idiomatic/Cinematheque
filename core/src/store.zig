@@ -37,7 +37,7 @@ pub const Store = struct {
         // Only a missing file means a new device; any other failure
         // (out of file descriptors, say) must not replace its identity.
         if (cwd.readFileAlloc(io, file, arena, .limited(128))) |text| {
-            _ = try std.fmt.hexToBytes(&seed, std.mem.trim(u8, text, " \n"));
+            seed = try parseKey(std.mem.trim(u8, text, " \n"));
         } else |err| switch (err) {
             error.FileNotFound => {
                 io.random(&seed);
@@ -47,7 +47,7 @@ pub const Store = struct {
         }
         var identity: replica_.Identity = .from(seed);
         if (cwd.readFileAlloc(io, try path(arena, dir, "user"), arena, .limited(128))) |text| {
-            _ = try std.fmt.hexToBytes(&identity.person, std.mem.trim(u8, text, " \n"));
+            identity.person = try parseKey(std.mem.trim(u8, text, " \n"));
         } else |err| switch (err) {
             error.FileNotFound => {},
             else => |e| return e,

@@ -76,6 +76,10 @@ const Connections = struct {
     /// Connections per address, counted in a slot by its hash: addresses
     /// that share one share its limit, which only errs toward refusing.
     hosts: [1024]std.atomic.Value(u16) = @splat(.init(0)),
+    /// The slots' hash's seed, random each time the device serves, so no
+    /// one can choose addresses (as from an IPv6 subnet) that share a slot
+    /// with another device's and fill it.
+    seed: u64 = 0,
 
     /// Counts a connection from `slot` in, unless there are too many, in
     /// all or from its address. Only the accepting task admits, so a count
@@ -93,10 +97,10 @@ const Connections = struct {
     }
 
     /// An address's slot, by its host alone (not its port).
-    fn slotOf(address: Io.net.IpAddress) usize {
+    fn slotOf(c: *const Connections, address: Io.net.IpAddress) usize {
         const hash = switch (address) {
-            .ip4 => |a| std.hash.Wyhash.hash(4, &a.bytes),
-            .ip6 => |a| std.hash.Wyhash.hash(6, &a.bytes),
+            .ip4 => |a| std.hash.Wyhash.hash(c.seed, &a.bytes),
+            .ip6 => |a| std.hash.Wyhash.hash(c.seed, &a.bytes),
         };
         return @intCast(hash % 1024);
     }
@@ -207,6 +211,7 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
         if (root) |r| out.setIndex(try buildIndex(io, gpa, r), nowMs(io));
     }
     var connections: Connections = .{};
+    io.random(std.mem.asBytes(&connections.seed));
     const ctx: Context = .{
         .io = io,
         .gpa = gpa,
@@ -241,7 +246,7 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
             stream.close(io);
             return;
         };
-        const slot = Connections.slotOf(stream.socket.address);
+        const slot = connections.slotOf(stream.socket.address);
         if (!connections.admit(slot)) {
             stream.close(io);
             continue;

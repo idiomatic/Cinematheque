@@ -641,9 +641,7 @@ pub const Replica = struct {
         while (try s.step()) {
             const value = s.blob(1);
             if (value.len != 96 or !std.mem.eql(u8, value[0..32], &person)) continue;
-            var dev: Device = undefined;
-            _ = std.fmt.hexToBytes(&dev, s.blob(0)[2..]) catch continue;
-            try out.append(arena, dev);
+            try out.append(arena, parseHex(s.blob(0)[2..]) orelse continue);
         }
         return out.items;
     }
@@ -689,9 +687,7 @@ pub const Replica = struct {
             defer s.finalize();
             try s.bindInt(1, try replica.deviceId(replica.device()));
             while (try s.step()) {
-                var stream: Device = undefined;
-                _ = std.fmt.hexToBytes(&stream, s.blob(0)[2..]) catch continue;
-                try private.append(arena, .{ .stream = stream, .seq = 0 });
+                try private.append(arena, .{ .stream = parseHex(s.blob(0)[2..]) orelse continue, .seq = 0 });
             }
         }
         for (private.items) |*p| p.seq = try replica.seen(try replica.deviceId(p.stream));
@@ -723,9 +719,7 @@ pub const Replica = struct {
             defer s.finalize();
             try s.bindInt(1, try replica.deviceId(device_key));
             while (try s.step()) {
-                var private: Device = undefined;
-                _ = std.fmt.hexToBytes(&private, s.blob(0)[2..]) catch continue;
-                try streams.append(arena, private);
+                try streams.append(arena, parseHex(s.blob(0)[2..]) orelse continue);
             }
         }
         for (streams.items) |stream| {
@@ -768,8 +762,7 @@ pub const Replica = struct {
     /// them from a device that refused those writes.
     fn cut(replica: *Replica, stream_hex: []const u8, value: []const u8) !void {
         if (value.len != 8) return;
-        var stream: Device = undefined;
-        _ = std.fmt.hexToBytes(&stream, stream_hex) catch return;
+        const stream = parseHex(stream_hex) orelse return;
         // As another connection may have learned of it.
         const id = try replica.deviceId(stream);
         // A cutoff past any sequence number (which only its own writer
