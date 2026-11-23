@@ -24,8 +24,24 @@ const Sha512 = std.crypto.hash.sha2.Sha512;
 const Ristretto255 = std.crypto.ecc.Ristretto255;
 const Aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 const serve_ = @import("serve.zig");
+const discover = @import("discover.zig");
+const model_ = @import("model.zig");
 
 pub const path = "/pair";
+
+/// What a new device offering to be added advertises by DNS-SD: that it
+/// offers, where, its name, and its model (`model.shown`, if any), for the
+/// member's device to show it by, as in nothing else.
+pub fn offerRecord(arena: std.mem.Allocator, name: []const u8, model: []const u8) ![]u8 {
+    const shown = model_.shown(model);
+    const fields: []const [2][]const u8 = &.{
+        .{ "pair", "new" },
+        .{ "path", path },
+        .{ "name", name[0..@min(name.len, 200)] },
+        .{ "model", shown[0..@min(shown.len, 200)] },
+    };
+    return discover.txtRecord(arena, if (shown.len == 0) fields[0..3] else fields);
+}
 /// Wrong codes the new device takes from one address, and from all, before
 /// it stops pairing: so no one host can stop it, and thirty guesses at a
 /// million codes are all anyone gets.

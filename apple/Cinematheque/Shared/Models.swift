@@ -234,6 +234,9 @@ struct Device: Codable, Identifiable, Hashable {
 struct NearbyDevice: Codable, Identifiable, Hashable {
     let url: String
     let device: String?
+    /// What kind of device, as one offering to be added says ("iPhone 13
+    /// mini").
+    let model: String?
     let person: String?
     /// Its person's key.
     let person_key: String?

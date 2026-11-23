@@ -19,7 +19,7 @@ extension Library {
     func offerPairing() -> Pairing? {
         // As setup leaves, once paired, its screen may ask once more.
         guard !hasLibrary else { return nil }
-        return decode(Pairing.self) { cq_pair_offer($0, Platform.deviceName) }
+        return decode(Pairing.self) { cq_pair_offer($0, Platform.deviceName, Platform.model) }
     }
 
     /// The offer's state; once paired, this device has its person and library.

@@ -181,11 +181,7 @@ pub fn offerPairing(p: *App) !void {
         .gpa = p.gpa,
         .options = .{ .host = "::", .port = 0, .handler = offer.handler() },
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
-        .txt = try core.discover.txtRecord(p.arena, &.{
-            .{ "pair", "new" },
-            .{ "path", core.pair.path },
-            .{ "name", try advertisedName(p) },
-        }),
+        .txt = try core.pair.offerRecord(p.arena, try advertisedName(p), core.model.this(p.io, p.arena) orelse ""),
     };
     try host.start();
     defer host.stop();

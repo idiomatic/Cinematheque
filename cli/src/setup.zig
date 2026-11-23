@@ -219,7 +219,7 @@ pub fn advertise(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocat
         defer r.close();
         break :blk try core.sync.advertisement(arena, &r, try w.store.person(), try w.store.device());
     } else if (w.offering)
-        try core.discover.txtRecord(arena, &.{ .{ "pair", "new" }, .{ "path", core.pair.path }, .{ "name", w.host_name } })
+        try core.pair.offerRecord(arena, w.host_name, core.model.this(io, arena) orelse "")
     else
         try core.discover.txtRecord(arena, &.{.{ "name", w.host_name }});
     host.readvertise(try std.fmt.allocPrintSentinel(w.long, "{s}", .{try w.store.serviceName(arena)}, 0), try w.long.dupe(u8, txt));
@@ -448,15 +448,17 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
 /// New devices nearby offering to be added (listening for 2 seconds).
 fn nearby(w: *Web, io: Io, arena: std.mem.Allocator, request: *http.Server.Request) !void {
     const own = (try w.snapshot(io, arena)).own;
-    const Offering = struct { name: []const u8, url: []const u8 };
+    const Offering = struct { name: []const u8, model: ?[]const u8, url: []const u8 };
     var out: std.ArrayList(Offering) = .empty;
     for (try core.discover.browse(io, arena, 2000)) |s| {
         if (s.host.len == 0 or s.get("pair") == null or core.sync.isOwn(s.name, own)) continue;
         // Its path, as any device may advertise what it likes, only a path.
         const path = s.get("path") orelse core.pair.path;
         if (!std.mem.eql(u8, path, core.pair.path)) continue;
+        const name = try s.shownName(arena);
         try out.append(arena, .{
-            .name = try s.shownName(arena) orelse "A new device",
+            .name = name orelse "A new device",
+            .model = s.shownModel(name),
             .url = try std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, path }),
         });
     }

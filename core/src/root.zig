@@ -9,6 +9,7 @@ pub const library = @import("library.zig");
 pub const review = @import("review.zig");
 pub const serve = @import("serve.zig");
 pub const discover = @import("discover.zig");
+pub const model = @import("model.zig");
 pub const url = @import("url.zig");
 pub const mp4 = @import("mp4.zig");
 pub const art = @import("art.zig");
@@ -50,6 +51,7 @@ test {
     _ = json;
     _ = @import("deadline.zig");
     _ = @import("version.zig");
+    _ = @import("model.zig");
     _ = @import("order.zig");
     _ = @import("lists.zig");
     _ = @import("seal.zig");

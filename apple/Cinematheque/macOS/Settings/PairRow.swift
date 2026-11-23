@@ -20,7 +20,17 @@ struct PairRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Label(device.deviceName ?? "A new device", systemImage: "plus.circle")
+                // Its name, and under it what kind of device it is.
+                Label {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(device.deviceName ?? "A new device")
+                        if let model = device.model {
+                            Text(model).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                } icon: {
+                    Image(systemName: "plus.circle")
+                }
                 Spacer()
                 // Before the boxes, in the row's slack: appearing, it moves
                 // nothing, the row being right-aligned.

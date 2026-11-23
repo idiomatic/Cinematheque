@@ -108,7 +108,8 @@ fn removeSelf(lib: *Library, _: std.mem.Allocator, successor: ?[]const u8) !void
 /// Long (it listens for 2 seconds): the devices found on the network, by
 /// DNS-SD, other than this one, and those added by address, as a JSON
 /// array of objects with `url` (to sync with, or for one `pairing`, to pair
-/// with), `device` and `person` (their names, if advertised), `host` (as
+/// with), `device` and `person` (their names, if advertised), `model` (what
+/// kind of device, as one offering to be added says), `host` (as
 /// DNS-SD resolved it), `person_key`,
 /// `ours` (of this library), `member` (its person is one), `added`, and
 /// `pairing` (`new`, for a new device offering to be added, by `cq_pair`;
@@ -131,10 +132,13 @@ fn nearby(lib: *Library, arena: std.mem.Allocator) ![]const NearbyJson {
         const is_member = if (person) |u| for (list) |m| {
             if (std.mem.eql(u8, &std.fmt.bytesToHex(m, .lower), u)) break true;
         } else false else false;
+        // As it advertised itself, or by its host if that's generic.
+        const name = try s.shownName(arena);
         try out.append(arena, .{
             .url = found,
-            // As it advertised itself, or by its host if that's generic.
-            .device = try s.shownName(arena),
+            .device = name,
+            // What kind, as a new device offering to be added says.
+            .model = s.shownModel(name),
             // As DNS-SD resolved it: an Apple TV's is its own name
             // (`Not-Your-AppleTV.local`), when tvOS tells apps only "Apple TV".
             .host = s.host,

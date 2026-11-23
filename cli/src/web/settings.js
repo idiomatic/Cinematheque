@@ -329,7 +329,9 @@ function pairing(label, kind, added, opened) {
           rows.delete(url);
         }
         for (const o of offering) if (!rows.has(o.url) && !taken.has(o.url)) {
-          const row = codeRow(o.name, () => o.url, o.name, () => {
+          // Its name, and under it what kind of device it is, if it says.
+          const shown = el("span", { class: "name" }, o.name, o.model ? el("small", { class: "model" }, o.model) : null);
+          const row = codeRow(shown, () => o.url, o.name, () => {
             taken.add(o.url);
             row.remove();
             rows.delete(o.url);

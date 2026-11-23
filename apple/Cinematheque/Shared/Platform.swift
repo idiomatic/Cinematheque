@@ -1,6 +1,7 @@
 import Foundation
 #if os(macOS)
 import AppKit
+import IOKit
 #else
 import UIKit
 #endif
@@ -76,6 +77,36 @@ enum Platform {
         Host.current().localizedName ?? "Mac"
         #else
         UIDevice.current.name
+        #endif
+    }
+
+    /// What kind of device this is, for the member's device to show under
+    /// its name as it offers to be added: a Mac's own name for its model
+    /// ("MacBook Pro (14-inch, 2021)"), else its identifier (`iPhone14,4`),
+    /// which the core names.
+    static var model: String {
+        #if targetEnvironment(simulator)
+        if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] { return simulated }
+        #endif
+        #if os(macOS)
+        // Apple silicon's, in its device tree; an Intel Mac's identifier.
+        let product = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/product")
+        if product != 0 {
+            defer { IOObjectRelease(product) }
+            if let name = IORegistryEntryCreateCFProperty(product, "product-name" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Data {
+                let text = String(decoding: name.prefix { $0 != 0 }, as: UTF8.self)
+                if !text.isEmpty { return text }
+            }
+        }
+        var size = 0
+        guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 0 else { return "" }
+        var model = [UInt8](repeating: 0, count: size)
+        guard sysctlbyname("hw.model", &model, &size, nil, 0) == 0 else { return "" }
+        return String(decoding: model.prefix { $0 != 0 }, as: UTF8.self)
+        #else
+        var system = utsname()
+        uname(&system)
+        return withUnsafeBytes(of: &system.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         #endif
     }
 

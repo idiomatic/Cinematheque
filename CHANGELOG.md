@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* A device offering to be added says what kind it is ("iPhone 13 mini", "MacBook Pro (14-inch, 2021)"), shown under its name on the Mac, the Apple TV, and the web client. `cq_pair_offer` takes its model.
 * Web client: Settings' rows act one way, by symbols at their end (a pencil renaming, a ⊖ removing, an × forgetting; a trash only where files are deleted), as sources' already did, in place of words on some rows and symbols on others.
 * Mac: the sidebar is at most 320 points wide and the grid at least 480, so dragging the sidebar's divider no longer takes the grid down to nothing; and View › Show Sidebar, ⌃⌘S.
 * Mac: the inspector keeps its width between launches, and opens at its own ideal width at last (its width, set within it, went unheeded, so it opened at SwiftUI's default).

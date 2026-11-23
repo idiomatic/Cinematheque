@@ -30,14 +30,15 @@ pub const Pairing = struct {
 /// On a new device, before it has a library: offers to be added to one, as
 /// another of a member's devices or a new member's, as the member's device
 /// decides, serving and advertising by DNS-SD (as `name`, for the other
-/// device to show) until paired or `cq_pair_stop`. Returns its state, as
-/// `cq_pair_check` does, with a new code. Offering again starts over, with
-/// another code.
-export fn cq_pair_offer(lib: *Library, name: [*:0]const u8) ?[*:0]u8 {
-    return json(lib, pairOffer, .{std.mem.span(name)});
+/// device to show) until paired or `cq_pair_stop`, with its `model` (an
+/// Apple identifier, as `iPhone14,4`, shown by its name; or a name; or
+/// empty), shown under its name. Returns its state, as `cq_pair_check`
+/// does, with a new code. Offering again starts over, with another code.
+export fn cq_pair_offer(lib: *Library, name: [*:0]const u8, model: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, pairOffer, .{ std.mem.span(name), std.mem.span(model) });
 }
 
-fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8) !PairJson {
+fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, model: []const u8) !PairJson {
     if (lib.replica != null) return error.LibraryExists;
     stopPairing(lib);
     const p = try gpa.create(Pairing);
@@ -51,11 +52,7 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8) !PairJso
         .gpa = gpa,
         .options = .{ .host = "::", .port = 0, .handler = p.offer.handler() },
         .name = try std.fmt.allocPrintSentinel(a, "{s}", .{try lib.store.serviceName(arena)}, 0),
-        .txt = try discover.txtRecord(a, &.{
-            .{ "pair", "new" },
-            .{ "path", pair.path },
-            .{ "name", name[0..@min(name.len, 200)] },
-        }),
+        .txt = try pair.offerRecord(a, name, model),
     };
     try p.host.start();
     lib.pairing = p;

@@ -94,6 +94,16 @@ pub const Service = struct {
         return if (name.len == 0 or generic(name)) null else name;
     }
 
+    /// What kind of device it is, as one offering to be added says, unless
+    /// its name (`shown`, from `shownName`) says so already, as a simulator's
+    /// is its model's ("iPhone 13 mini").
+    pub fn shownModel(s: Service, shown: ?[]const u8) ?[]const u8 {
+        const model = s.get("model") orelse return null;
+        if (model.len == 0) return null;
+        if (shown) |n| if (std.ascii.eqlIgnoreCase(n, model)) return null;
+        return model;
+    }
+
     /// The names devices give apps in place of their own.
     fn generic(name: []const u8) bool {
         for ([_][]const u8{ "Apple TV", "iPhone", "iPad" }) |g| if (std.mem.eql(u8, name, g)) return true;
@@ -111,6 +121,10 @@ test "a device is shown by its host's name when it advertises a generic one" {
     try std.testing.expectEqual(null, try (Service{ .name = "", .host = "iPhone.local.", .port = 1, .txt = txt }).shownName(arena));
     const named = try txtRecord(arena, &.{.{ "name", "Den" }});
     try std.testing.expectEqualStrings("Den", (try (Service{ .name = "", .host = "lint.local.", .port = 1, .txt = named }).shownName(arena)).?);
+    // Its model, unless its name says so already.
+    const modeled = try txtRecord(arena, &.{ .{ "name", "iPhone 13 mini" }, .{ "model", "iPhone 13 mini" } });
+    try std.testing.expectEqual(null, (Service{ .name = "", .host = "", .port = 1, .txt = modeled }).shownModel("iPhone 13 mini"));
+    try std.testing.expectEqualStrings("iPhone 13 mini", (Service{ .name = "", .host = "", .port = 1, .txt = modeled }).shownModel("lint").?);
 }
 
 const Found = struct { name: [:0]const u8, regtype: [:0]const u8, domain: [:0]const u8, interface: u32 };

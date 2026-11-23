@@ -273,7 +273,9 @@ struct AddDevicePage: View {
                 Section {
                     ForEach(offering) { device in
                         Button { problem = nil; entering = device.url } label: {
-                            ValueLabel(title: device.deviceName ?? "A New Device", opens: true, value: pairing?.url == device.url ? "Adding…" : "")
+                            // What kind of device it is as its value, at the row's
+                            // end, as the system's rows keep one height.
+                            ValueLabel(title: device.deviceName ?? "A New Device", opens: true, value: pairing?.url == device.url ? "Adding…" : device.model ?? "")
                         }
                         .disabled(pairing != nil)
                         .background {

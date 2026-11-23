@@ -395,6 +395,7 @@ body.outside #sidebar, body.outside header, body.outside #tabs, body.outside #st
 .settings .pairing > p.dim { margin: 10px 0 4px; font-size: 13px; }
 .settings .pairing p:empty { display: none; }
 .settings [hidden] { display: none; }
+.settings .row .name .model { display: block; font-size: 13px; color: var(--dim); }
 .settings .code-input { width: 6.5em; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; }
 .settings .source .row:not(:first-child) { padding-left: 18px; font-size: 13px; }
 .settings input, .settings select { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); background: Canvas; color: inherit; }
