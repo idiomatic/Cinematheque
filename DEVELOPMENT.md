@@ -2,6 +2,16 @@
 
 Unbuilt work and open design questions, in the terms [AGENTS.md](AGENTS.md) defines. Each item moves into [AGENTS.md](AGENTS.md) when it ships. The measurements cited are in [ARCHITECTURE.md](ARCHITECTURE.md#measurements).
 
+## Routine
+
+When each routine task was last done, and the commit it looked at (or made), so the next covers what came after.
+
+| Task | Done | Commit | Notes |
+| --- | --- | --- | --- |
+| Security audit | 2026-11-20 | `8d96a14` | Its fixes through `8fc7843`; the limits it left under [What members are trusted with](#sync) |
+| Code review | — | — | Due (see [Next](#next)) |
+| Screenshots | 2026-11-22 | `24e2d32` | [tools/screenshots.sh](tools/screenshots.sh); the Mac's at 1× |
+
 ## Practice
 
 How work keeps the code from growing faster than it earns; soften these where they chafe.
