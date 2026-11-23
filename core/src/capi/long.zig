@@ -26,9 +26,12 @@ pub fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
 }
 
 /// A connection of its own for reading, on any thread, once there's a
-/// library.
+/// library: counted first, so leaving (which then refuses) can't take the
+/// library away between the check and the opening.
 pub fn reader(lib: *Library, arena: std.mem.Allocator) !Replica {
-    if (lib.replica == null) return error.NoLibrary;
+    _ = lib.connections.fetchAdd(1, .seq_cst);
+    defer _ = lib.connections.fetchSub(1, .seq_cst);
+    if (!lib.has_library.load(.seq_cst)) return error.NoLibrary;
     return connection(lib, arena);
 }
 

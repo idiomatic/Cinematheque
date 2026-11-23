@@ -1224,7 +1224,9 @@ function downloadButton(item, quality) {
     const urls = q ? q.copies.filter((c) => c.url).sort((a, b) => a.unavailable - b.unavailable).map((c) => c.url) : [];
     if (!urls.length) return problem("No source holds it now.");
     const [url] = urls.length > 1 ? await api("race", urls).catch(() => urls) : urls;
-    location.href = "api/file?" + new URLSearchParams({ url });
+    // A link to download, not a navigation: a server's error stays in the
+    // browser's downloads, not in place of this page.
+    el("a", { href: "api/file?" + new URLSearchParams({ url }), download: true }).click();
   } }, "Download");
 }
 
@@ -1488,6 +1490,8 @@ async function route(how) {
       show(keepingLine());
       shelfTitle.textContent = "";
       parts = await titlePage(key, season);
+      // Another route shown meanwhile: nothing of this one's.
+      if (mine !== showing) return;
       shownMakeup = null;
     } else {
       shownList = shownShelf === "list" ? library.lists.find((l) => l.id === hash.slice("lists/".length)) || null : null;
@@ -1509,6 +1513,7 @@ async function route(how) {
       show(keepingLine() || shelfStatus);
     }
   } catch (e) {
+    if (mine !== showing) return;
     parts = [empty("Couldn't load it.")];
     problem(e.message);
   }

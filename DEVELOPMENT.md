@@ -47,14 +47,6 @@ How work keeps the code from growing faster than it earns; soften these where th
   * **Decided:** screenshots are committed, versioned with the README; dark appearance first, light too, each image twice, shown by a `<picture>` with `prefers-color-scheme`, dark the default; and the hero made by the script too, driven at a person's pace (pauses as a person's between steps, scrolling and focus moving as a hand would), so it looks used, not staged.
 * **Code review's low findings** (November 22, 2026; its high and medium ones are fixed):
   * **Security, in smaller cases:** a cutoff of a stream whose certificate isn't held yet is taken from anyone ([replica.zig](core/src/replica.zig), `removalAllowed`), so whether one of the founder's devices' stands depends on arrival order. Refusing it would lose a true removal arriving before its device's certificate, as a refused write isn't sent again; it wants holding back, as a batch from a member not yet admitted is.
-  * **Correctness:**
-    * A Top Shelf Play whose title has no playable copy leaves its page black ([TitleViews.swift](apple/Cinematheque/tvOS/TitleViews.swift), `startsBlack`).
-    * Rewriting a Keychain seed deletes, then adds ([Keys.swift](apple/Cinematheque/tvOS/Keys.swift)), so a failed add loses it: update in place.
-    * Date Modified counts this device's downloads' times ([art.zig](core/src/art.zig)).
-    * The iPhone's setup says "this Mac" ([SetupView.swift](apple/Cinematheque/Shared/SetupView.swift)).
-    * Debug launch options: iOS's `CINEMATHEQUE_SELECT` pushes on every tab; `CINEMATHEQUE_PLAY` is used up before a page's details are read.
-    * `long.zig`'s `reader` reads `lib.replica` unsynchronized ([long.zig](core/src/capi/long.zig)).
-    * The web client downloads by `location.href`, and a route superseded mid-load can still draw ([app.js](cli/src/web/app.js)); a cover from a server ignoring ranges is taken only up to 8 MiB.
   * **Performance:** the Mac filters and sorts a shelf four times a redraw ([Browser+macOS.swift](apple/Cinematheque/macOS/Browser+macOS.swift)); `cq_tiles` and `cq_repos` open a whole replica each call; `progressChanged` scans every list's keys ([art.zig](core/src/art.zig)).
   * **Flags and modes:** `Library.shareList(_:_: Bool)` (split into share and stop sharing); tvOS's `Opened.playing` and `MovieView`/`SeasonView(playing:)` (an enum of showing or playing); `TileView.series: String?` (a kind, with its caption).
   * **Duplication:** the tvOS and iOS `QualityPicker`; a list's Rename, Share, and Delete on three platforms; the hidden `KeyboardField` five times; leaving's flow on the Mac and the Apple TV; `answered`'s source lookups in downloads; the C interface's repeated lock-and-open.

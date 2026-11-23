@@ -20,12 +20,15 @@ struct PlaysFullScreen: ViewModifier {
     @Binding var request: PlayRequest?
     @Environment(Library.self) private var library
     @State private var black: Bool
+    let startsBlack: Bool
 
     /// `startsBlack` for a page that plays as it opens (a Top Shelf item's
-    /// Play), so it isn't seen before the player.
+    /// Play), so it isn't seen before the player; while it's true, until
+    /// the page asks to play.
     init(request: Binding<PlayRequest?>, startsBlack: Bool = false) {
         _request = request
         _black = State(initialValue: startsBlack)
+        self.startsBlack = startsBlack
     }
 
     func body(content: Content) -> some View {
@@ -54,6 +57,11 @@ struct PlaysFullScreen: ViewModifier {
             // Not `initial`: that fires again as the page reappears (the
             // player dismissed), which, its request not yet cleared, started
             // it over.
+            // The page tried to play as it opened and found nothing to
+            // (no copy it can play): it shows, rather than staying black.
+            .onChange(of: startsBlack) { _, still in
+                if !still, request == nil, !warming { abandon() }
+            }
             .onChange(of: request) { _, asked in
                 // Pressing Play again over the black (focus stays on the
                 // page's Play beneath it) doesn't start it over.

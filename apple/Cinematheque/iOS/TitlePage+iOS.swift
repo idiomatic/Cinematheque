@@ -97,7 +97,8 @@ struct TitlePage: View {
         .task(id: library.detailsRevision) {
             detail = library.detail(tile.key)
             #if DEBUG
-            if Launch.play != nil, playing == nil, let detail {
+            // Asked last, as asking uses it up, once its details are read.
+            if playing == nil, let detail, Launch.play != nil {
                 playing = Playback.next(in: detail, season: shown.season, quality: quality)
             }
             #endif

@@ -67,13 +67,15 @@ enum Keys {
         return out as? Data
     }
 
+    /// Updates a seed in place, else adds it: never deleted first, as an
+    /// add that then failed would lose it.
     private static func write(_ name: String, _ data: Data) {
-        SecItemDelete(query(name) as CFDictionary)
-        var q = query(name)
-        q[kSecValueData] = data
         // Never in a backup restored to another device, which would then
         // act as this one.
-        q[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let attributes: [CFString: Any] = [kSecValueData: data, kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+        guard SecItemUpdate(query(name) as CFDictionary, attributes as CFDictionary) == errSecItemNotFound else { return }
+        var q = query(name)
+        q.merge(attributes) { _, new in new }
         SecItemAdd(q as CFDictionary, nil)
     }
 }

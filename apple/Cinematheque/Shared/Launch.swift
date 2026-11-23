@@ -33,6 +33,10 @@ enum Launch {
     /// series' (e.g., `t/s/firefly/-#1`).
     static var selection: String? { env["CINEMATHEQUE_SELECT"] }
 
+    /// Takes the selection, once a launch (iOS, where each tab's stack
+    /// asks): whether it's this asker's to open.
+    static func takeSelection() -> Bool { taken.insert("CINEMATHEQUE_SELECT").inserted }
+
     /// The selection's title key.
     static var selectedTitle: String? { selection.map { String($0.split(separator: "#")[0]) } }
 

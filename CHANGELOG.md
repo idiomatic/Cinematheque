@@ -4,6 +4,10 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Apple TV: a Top Shelf item's Play, for a title with nothing to play, shows its page rather than leaving it black; a seed rewritten in the Keychain is updated in place, never deleted first.
+* Date Modified counts files' times, not when a device downloaded them.
+* iPhone: its setup names this iPhone, not this Mac.
+* Web client: Download saves the file without leaving the page (a server's error stays in the browser's downloads); a title page that finishes loading after another page was chosen no longer touches it.
 * Security: downloads, covers, and MP4 reads follow no redirect, as one could lead anywhere (only crawls follow them, within their source); the connection limit per address is counted by a hash seeded afresh, so no one can choose addresses that crowd out another device's; pairing counts wrong codes by the address itself, not a hash of it; keys read as hex must be whole, as a short one left bytes unset.
 * Web client: a link to it from another site (an email's) opens it, where it was refused; its API still answers only its own page.
 * Mac: addresses (a server's, a device's, a placeholder's note) are checked as web addresses with a host, not by their scheme's start.

@@ -50,6 +50,9 @@ pub const Library = struct {
     store: store_.Store,
     /// The main thread's connection, once there's a library.
     replica: ?Replica = null,
+    /// Whether there's a library, as other threads read it (`replica`
+    /// being the main thread's alone).
+    has_library: std.atomic.Value(bool) = .init(false),
     /// Held while a connection writes as this device.
     writer: Io.Mutex = .init,
     /// Connections other threads have open (`connection`), and whether
@@ -171,6 +174,7 @@ pub fn open(data_dir: ?[*:0]const u8) !*Library {
         else => |e| return e,
     };
     lib.replica = try lib.store.openReplica(arena);
+    lib.has_library.store(true, .seq_cst);
     // One an older build certified wrongly is accepted by others again.
     try lib.replica.?.recertify(lib.now());
     return lib;

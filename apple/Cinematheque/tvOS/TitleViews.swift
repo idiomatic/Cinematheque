@@ -77,7 +77,7 @@ struct MovieView: View {
                 playing = Playback.next(in: detail, season: nil, quality: quality)
             }
             #if DEBUG
-            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: nil, quality: quality) }
+            if playing == nil, let detail, Launch.play != nil { playing = Playback.next(in: detail, season: nil, quality: quality) }
             #endif
         }
         .modifier(PlaysFullScreen(request: $playing, startsBlack: playsAtOnce))
@@ -197,7 +197,7 @@ struct SeasonView: View {
                 playing = Playback.next(in: detail, season: shown.season, quality: quality)
             }
             #if DEBUG
-            if Launch.play != nil, playing == nil, let detail { playing = Playback.next(in: detail, season: shown.season, quality: quality) }
+            if playing == nil, let detail, Launch.play != nil { playing = Playback.next(in: detail, season: shown.season, quality: quality) }
             #endif
         }
         // Its other episodes, described as they're shown.

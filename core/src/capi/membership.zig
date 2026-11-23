@@ -72,6 +72,7 @@ fn leave(lib: *Library, arena: std.mem.Allocator) !void {
     if (lib.connections.load(.seq_cst) > 0) return error.Busy;
     stopServing(lib);
     stopPairing(lib);
+    lib.has_library.store(false, .seq_cst);
     if (lib.replica) |*r| r.close();
     lib.replica = null;
     lib.known.deinit();
@@ -98,4 +99,5 @@ pub fn openFounded(lib: *Library, arena: std.mem.Allocator, founder: [32]u8) !vo
     stopPairing(lib);
     try lib.store.setFounder(arena, founder);
     lib.replica = try lib.store.openReplica(lib.arena_state.allocator());
+    lib.has_library.store(true, .seq_cst);
 }

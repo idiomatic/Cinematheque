@@ -693,6 +693,10 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
         // the key's index), as this runs on each reload, every second of a
         // crawl: copies, lengths, and covers.
         const unavailable = try library.UnavailableDirs.load(replica, arena);
+        // Devices' downloads, whose copies' times are when they were
+        // fetched, not when their files last changed.
+        var fetched: std.StringHashMapUnmanaged(void) = .empty;
+        for (try library.sources(replica, arena)) |source| if (source.managed) try fetched.put(arena, try arena.dupe(u8, &source.id), {});
         var seen: std.StringHashMapUnmanaged(void) = .empty;
         const s = try replica.db.prepare(
             \\SELECT key, field, value, hlc FROM winners WHERE key >= 't/' AND key < 't0' AND length(value) > 0
@@ -722,10 +726,10 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
                 const at = file_ms orelse @as(u64, @bitCast(s.int(3))) >> 16;
                 const g = try first.getOrPut(arena, tile);
                 if (!g.found_existing or at < g.value_ptr.*) g.value_ptr.* = at;
-                if (file_ms) |ms| {
+                if (file_ms) |ms| if (!fetched.contains(field["held:".len..])) {
                     const m = try modified.getOrPut(arena, tile);
                     if (!m.found_existing or ms > m.value_ptr.*) m.value_ptr.* = ms;
-                }
+                };
             }
             if (seen.contains(held)) {
                 if (here) if (tileOf(held)) |id| try present.put(arena, try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season }), {});
@@ -960,6 +964,10 @@ test "a title comes when a later crawl finds it; one there all along, by its fil
     // A later one: the time it found the new title.
     source.crawled_ms = 5_000_000_000_000;
     _ = try library.ingest(&r, arena, 6_000_000_000_000, source, &.{ alien, zulu });
+    // Downloaded since, here: when it was fetched isn't when it changed.
+    const downloads = try library.addSource(&r, 7, "http://firefly.local:8008/downloads/", .{});
+    try r.write(7, "r/" ++ downloads, "managed", "1");
+    try r.write(7, "t/m/alien/1979/r/-", "held:" ++ downloads, "Alien (1979).m4v\t1\t7000000000");
     const all = try tiles(&r, arena);
     for (all) |t| {
         if (std.mem.eql(u8, t.key, "t/m/alien/1979")) {

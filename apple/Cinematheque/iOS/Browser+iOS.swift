@@ -80,10 +80,12 @@ private struct Stack<Content: View>: View {
         // A season's page, or a series' seasons, once the title's there.
         .task(id: library.tiles.isEmpty) {
             guard path.isEmpty, let id = Launch.selection else { return }
+            // The first tab to find it opens it, not every tab as it's first
+            // shown.
             if let tile = library.tiles.first(where: { $0.id == id }) {
-                path = NavigationPath([tile])
+                if Launch.takeSelection() { path = NavigationPath([tile]) }
             } else if let key = Launch.selectedTitle, library.tiles.contains(where: { $0.key == key }) {
-                path = NavigationPath([SeasonsOf(key: key)])
+                if Launch.takeSelection() { path = NavigationPath([SeasonsOf(key: key)]) }
             }
         }
         #endif

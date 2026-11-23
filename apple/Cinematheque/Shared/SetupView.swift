@@ -122,7 +122,7 @@ struct CodeBoxes: View {
 /// between panes. The iPhone's, for now, is the same, filling its screen.
 private struct SetupForm: View {
     @Environment(Library.self) private var library
-    /// Whether this Mac shows a code, to be added to a library.
+    /// Whether this device shows a code, to be added to a library.
     @State private var joining = false
 
     var body: some View {
@@ -184,7 +184,7 @@ private struct SetupForm: View {
     private var joinStep: some View {
         VStack(spacing: 20) {
             Text("Join a Library").font(.title.weight(.semibold))
-            Text("On a device in the library, open Cinematheque's Settings: on a Mac, Devices, and enter this code beside this Mac; on an Apple TV, Your Devices or People, then Add, and choose this Mac.")
+            Text("On a device in the library, open Cinematheque's Settings: on a Mac, Devices, and enter this code beside \(Library.thisDevice); on an Apple TV, Your Devices or People, then Add, and choose \(Library.thisDevice).")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Spacer(minLength: 0)
