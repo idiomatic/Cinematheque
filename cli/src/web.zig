@@ -78,14 +78,18 @@ pub const Web = struct {
         defer r.close();
         // Found before writing, so looking holds up no page's writes.
         const found = try core.sync.everyDevice(io, arena, &r, w.own);
-        try w.writer.lock(io);
-        defer w.writer.unlock(io);
-        try r.refresh();
         var client: http.Client = .{ .allocator = gpa, .io = io };
         defer client.deinit();
-        for (found.urls) |u| _ = core.sync.exchange(arena, &client, &r, u, now(io)) catch |err| {
-            std.log.warn("syncing with {s} after a change: {t}", .{ u, err });
-        };
+        // The writer taken for one device at a time, so a page's writes
+        // (progress saved as it plays) wait out one exchange, not them all.
+        for (found.urls) |u| {
+            try w.writer.lock(io);
+            defer w.writer.unlock(io);
+            try r.refresh();
+            _ = core.sync.exchange(arena, &client, &r, u, now(io)) catch |err| {
+                std.log.warn("syncing with {s} after a change: {t}", .{ u, err });
+            };
+        }
         // What's watched elsewhere moves a series' next episodes along.
         w.reconcile_again.store(true, .release);
     }
@@ -152,6 +156,9 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     api(w, io, gpa, arena, request, path["/api/".len..], query(target)) catch |err| {
+        // An answer begun can't tell of a failure in its body: the
+        // connection's dropped, its length unmet, so the browser knows.
+        if (err == error.CutShort) return err;
         const status: http.Status = switch (err) {
             error.NoSuchTitle, error.NotFound => .not_found,
             error.Forbidden => .forbidden,
@@ -308,6 +315,20 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
         return sendJson(arena, request, true);
     }
 
+    // An episode's title, description, and duration, read from its file,
+    // as the apps describe a season's as it's shown: the writer taken only
+    // to write them, not as the file's read.
+    if (std.mem.eql(u8, name, "describe")) {
+        const p = try std.json.parseFromSliceLeaky(struct { item: []const u8 }, arena, body, .{});
+        var r = try open(w, io, gpa);
+        defer r.close();
+        var client: http.Client = .{ .allocator = gpa, .io = io };
+        defer client.deinit();
+        // Shared metadata, which needs no hurry to reach other devices.
+        try core.art.describeItem(&r, arena, &client, &w.writer, now(io), p.item);
+        return sendJson(arena, request, true);
+    }
+
     // This person's own writes.
     try w.writer.lock(io);
     defer w.writer.unlock(io);
@@ -359,19 +380,11 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
         }
         // The file under way, if any, asked again whether it's wanted.
         w.fetching.recheck();
-    } else if (std.mem.eql(u8, name, "describe")) {
-        // An episode's title, description, and duration, read from its
-        // file, as the apps describe a season's as it's shown.
-        const p = try std.json.parseFromSliceLeaky(struct { item: []const u8 }, arena, body, .{});
-        var client: http.Client = .{ .allocator = gpa, .io = io };
-        defer client.deinit();
-        try core.art.describeItem(&r, arena, &client, now(io), p.item);
     } else return error.NotFound;
-    // Shared metadata (an episode described) needs no hurry; the rest is
-    // this person's, for their other devices.
-    if (!std.mem.eql(u8, name, "describe")) w.changed.store(@intCast(now(io)), .release);
+    // This person's, for their other devices.
+    w.changed.store(@intCast(now(io)), .release);
     // Downloads wanted, and a series' next episodes, move with any of it.
-    if (w.downloads and !std.mem.eql(u8, name, "describe")) w.reconcile_again.store(true, .release);
+    if (w.downloads) w.reconcile_again.store(true, .release);
     if (created) |id| return sendJson(arena, request, id);
     return sendJson(arena, request, true);
 }
@@ -415,6 +428,17 @@ fn cover(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
     }
     var client: http.Client = .{ .allocator = gpa, .io = io };
     defer client.deinit();
+    // Within a minute, as the apps' covers are, so a source that answers a
+    // byte at a time holds no connection for long.
+    const image = try core.deadline.within(io, 60 * 1000, fetchCover, .{ w, arena, &client, u, offset, length });
+    try request.respond(image, .{ .extra_headers = &([_]http.Header{
+        .{ .name = "content-type", .value = imageType(image) },
+        .{ .name = "cache-control", .value = "max-age=31536000, immutable" },
+    } ++ guarded) });
+}
+
+/// A cover's bytes: its range of the file at `u`.
+fn fetchCover(w: *Web, arena: std.mem.Allocator, client: *http.Client, u: []const u8, offset: u64, length: u64) ![]const u8 {
     const last = std.math.add(u64, offset, length - 1) catch return error.BadRequest;
     const range = try std.fmt.allocPrint(arena, "bytes={d}-{d}", .{ offset, last });
     // No redirect: it could lead anywhere the server likes.
@@ -436,14 +460,11 @@ fn cover(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
     var transfer: [64 * 1024]u8 = undefined;
     const bytes = try response.reader(&transfer).allocRemaining(arena, .limited(max_cover_bytes + 1));
     // A whole file, from a server that ignored the range: its cover's part.
-    const image = if (response.head.status == .ok and bytes.len > length) blk: {
+    if (response.head.status == .ok and bytes.len > length) {
         if (offset > bytes.len or length > bytes.len - offset) return error.NotFound;
-        break :blk bytes[offset..][0..length];
-    } else bytes;
-    try request.respond(image, .{ .extra_headers = &([_]http.Header{
-        .{ .name = "content-type", .value = imageType(image) },
-        .{ .name = "cache-control", .value = "max-age=31536000, immutable" },
-    } ++ guarded) });
+        return bytes[offset..][0..length];
+    }
+    return bytes;
 }
 
 /// A copy's file, saved by the browser on its own computer (through this
@@ -476,8 +497,14 @@ fn file(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reque
         .content_length = relay.length,
         .respond_options = .{ .status = relay.status, .extra_headers = headers.items },
     });
-    try relay.pump(io, &body.writer);
-    try body.end();
+    relay.pump(io, &body.writer) catch |err| return cutShort(err);
+    body.end() catch |err| return cutShort(err);
+}
+
+/// A streamed answer's failure, once begun: `error.CutShort` (but for
+/// cancellation), so it isn't answered again.
+fn cutShort(err: anyerror) anyerror {
+    return if (err == error.Canceled) err else error.CutShort;
 }
 
 /// Saving a file as its name in the source (`Alien (1979).m4v`): plainly,

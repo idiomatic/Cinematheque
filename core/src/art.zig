@@ -574,8 +574,9 @@ pub fn itemRead(arena: std.mem.Allocator, source: []const u8, path: []const u8, 
 }
 
 /// Describes one item from its first held copy (e.g., an episode the
-/// season's describing didn't read), if it's an MP4.
-pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.http.Client, wall_ms: u64, item_key: []const u8) !void {
+/// season's describing didn't read), if it's an MP4; taking `writer`, if
+/// given, only to write what it read, not as it reads the file.
+pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.http.Client, writer: ?*std.Io.Mutex, wall_ms: u64, item_key: []const u8) !void {
     // Copied out and finalized before the network, so no read snapshot is
     // held open across it and the write after.
     const source_id, const value = blk: {
@@ -617,6 +618,9 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
     }
     // Described even if the file says nothing, as of what was read.
     try writes.append(arena, .{ .key = item_key, .field = "read", .value = read });
+    if (writer) |m| try m.lock(client.io);
+    defer if (writer) |m| m.unlock(client.io);
+    try replica.refresh();
     try replica.begin();
     errdefer replica.rollback();
     for (writes.items) |w| try replica.write(wall_ms, w.key, w.field, w.value);

@@ -692,7 +692,6 @@ pub fn confirmed(replica: *Replica, sources: []const library.Source, unavailable
 /// Whether another source's server answers for a download's file alike: a
 /// `HEAD` of a copy that `confirmed` counts, giving its size.
 fn answered(io: Io, arena: std.mem.Allocator, client: *std.http.Client, replica: *Replica, h: Held) !bool {
-    _ = io;
     const sources = try library.sources(replica, arena);
     const unavailable = try library.UnavailableDirs.load(replica, arena);
     const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND field >= 'held:' AND field < 'held;' AND length(value) > 0");
@@ -710,14 +709,22 @@ fn answered(io: Io, arena: std.mem.Allocator, client: *std.http.Client, replica:
         if ((std.fmt.parseInt(u64, parts.next() orelse "", 10) catch continue) != h.size or !safe(path)) continue;
         try urls.append(arena, try art.fileUrl(arena, source.url, path));
     }
-    for (urls.items) |u| {
-        var request = client.request(.HEAD, std.Uri.parse(u) catch continue, .{ .redirect_behavior = .not_allowed }) catch continue;
-        defer request.deinit();
-        request.sendBodiless() catch continue;
-        const response = request.receiveHead(&.{}) catch continue;
-        if (response.head.status == .ok and response.head.content_length == h.size) return true;
-    }
+    // Each within a minute, as a server that never answers would hold
+    // reconciling (and the space it's freeing) for good.
+    for (urls.items) |u| if (deadline.within(io, 60 * 1000, holdsAlike, .{ client, u, h.size }) catch |err| switch (err) {
+        error.Canceled => return err,
+        else => false,
+    }) return true;
     return false;
+}
+
+/// Whether the server at `u` says it holds a file of `size` bytes there.
+fn holdsAlike(client: *std.http.Client, u: []const u8, size: u64) !bool {
+    var request = try client.request(.HEAD, try std.Uri.parse(u), .{ .redirect_behavior = .not_allowed });
+    defer request.deinit();
+    try request.sendBodiless();
+    const response = try request.receiveHead(&.{});
+    return response.head.status == .ok and response.head.content_length == size;
 }
 
 /// The item keys (below the title's) of a series' episodes `choice` comes

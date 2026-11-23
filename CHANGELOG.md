@@ -4,6 +4,9 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Web client: a download through the server that fails partway drops the connection, rather than writing an error into the file; a cover's fetch has a minute; describing an episode and syncing after a change hold the writer only to write, so saving progress doesn't wait on the network.
+* Downloads: whether another source holds a download alike is asked within a minute; a crawl stops at 4 million entries as it finds them, not once a level's done.
+* Apple TV: Add a Device and Add Someone are one page given what to do, not told by a flag.
 * Mac: double-clicking a tile, Return, and a series' Play play the quality the inspector's Play does; they could start another, as an MKV or the lowest.
 * Mac: showing or hiding the inspector keeps the sidebar hidden if it was, a search's place, and a series' band closed.
 * Mac: deleting a download, or choosing the downloads folder, no longer freezes the app while a refresh is under way; each waits its turn off the main thread.

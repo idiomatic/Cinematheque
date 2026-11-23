@@ -122,6 +122,9 @@ const Worker = struct {
     format: Format,
     dirs: []const Dir,
     prev: ?*const Snapshot,
+    /// Entries found so far by every worker, to stop at `max_entries`
+    /// as they're found, not once a level's done.
+    seen: *std.atomic.Value(usize),
     next: std.ArrayList(Dir) = .empty,
     entries: std.ArrayList(Entry) = .empty,
     result: Result = .{},
@@ -235,6 +238,7 @@ const Worker = struct {
     }
 
     fn found(w: *Worker, target: []const u8, parent: []const u8, is_dir: bool, size: u64, mtime: []const u8) !void {
+        if (w.seen.fetchAdd(1, .monotonic) >= max_entries) return error.TooMany;
         try w.entries.append(w.arena, .{ .url = target, .parent = parent, .is_dir = is_dir, .size = size, .mtime = mtime });
         if (is_dir) {
             w.result.dirs += 1;
@@ -300,6 +304,7 @@ pub fn crawl(io: Io, arena: std.mem.Allocator, client: *http.Client, base: []con
     var result: Result = .{};
     var level: []const Dir = &.{.{ .url = base }};
     const pool = try arena.alloc(Worker, workers);
+    var seen: std.atomic.Value(usize) = .init(0);
     var depth: usize = 0;
     while (level.len > 0) : (depth += 1) {
         if (depth == max_depth) return error.TooDeep;
@@ -315,6 +320,7 @@ pub fn crawl(io: Io, arena: std.mem.Allocator, client: *http.Client, base: []con
                 .format = format,
                 .dirs = level[@min(level.len, i * chunk)..@min(level.len, (i + 1) * chunk)],
                 .prev = prev,
+                .seen = &seen,
             };
             try group.concurrent(io, Worker.run, .{w});
         }

@@ -36,7 +36,7 @@ struct PeoplePage: View {
             }
             .scrollClipDisabled()
         }
-        .navigationDestination(isPresented: $adding) { AddDevicePage(join: true) }
+        .navigationDestination(isPresented: $adding) { AddDevicePage.someone }
         // Hard to undo, so asked first.
         .confirmationDialog(
             "Remove \(removing?.name ?? "Them")?",
@@ -109,7 +109,7 @@ struct DevicesPage: View {
             }
             .scrollClipDisabled()
         }
-        .navigationDestination(isPresented: $adding) { AddDevicePage(join: false) }
+        .navigationDestination(isPresented: $adding) { AddDevicePage.device }
         .confirmationDialog(
             acting?.name ?? "",
             isPresented: Binding(get: { acting != nil }, set: { if !$0 { acting = nil } }),
@@ -233,11 +233,36 @@ struct SourcesPage: View {
 
 /// Adding a device: one nearby offering to be added (as it shows Join a
 /// Library), chosen, then the code it shows, typed. As this person's own
-/// (sharing their secret, so it can act as them), or someone new's (`join`).
-/// Added, it goes back to the list, where the device now is; Cancel, or
-/// Back, goes back without adding one.
+/// (sharing their secret, so it can act as them: `device`), or someone
+/// new's (`someone`). Added, it goes back to the list, where the device now
+/// is; Cancel, or Back, goes back without adding one.
 struct AddDevicePage: View {
-    let join: Bool
+    let title: String
+    /// What to do, before anything's chosen.
+    let about: String
+    /// Adds the device by its code, as whose it is.
+    let add: (Library, NearbyDevice, String) async -> (Paired?, String?)
+    /// Names the device added, and its person, if new.
+    let welcome: (Library, Paired, NearbyDevice) -> Void
+
+    /// Another of this person's devices.
+    static var device: AddDevicePage {
+        AddDevicePage(
+            title: "Add a Device",
+            about: "On your device, choose Join a Library, then choose it here and enter the code it shows. Add only your own: it can act as you, sharing your progress and watchlist.",
+            add: { await $0.pairPerson($1, code: $2) },
+            welcome: { $0.welcome($1, from: $2) })
+    }
+
+    /// Someone new's device, who joins as a member.
+    static var someone: AddDevicePage {
+        AddDevicePage(
+            title: "Add Someone",
+            about: "On their device, have them choose Join a Library, then choose it here and enter the code it shows. They keep their own progress and watchlist.",
+            add: { await $0.pairMember($1, code: $2) },
+            welcome: { $0.welcomeMember($1, from: $2) })
+    }
+
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var nearby: [NearbyDevice] = []
@@ -249,7 +274,7 @@ struct AddDevicePage: View {
     private var offering: [NearbyDevice] { nearby.filter { $0.pairing != nil } }
 
     var body: some View {
-        SettingsPage(title: join ? "Add Someone" : "Add a Device", explanation: explanation) {
+        SettingsPage(title: title, explanation: explanation) {
             Form {
                 Section {
                     ForEach(offering) { device in
@@ -298,9 +323,7 @@ struct AddDevicePage: View {
     private var explanation: String {
         if let problem { return problem }
         if let pairing { return "Adding \(pairing.deviceName ?? "the device")…" }
-        return join
-            ? "On their device, have them choose Join a Library, then choose it here and enter the code it shows. They keep their own progress and watchlist."
-            : "On your device, choose Join a Library, then choose it here and enter the code it shows. Add only your own: it can act as you, sharing your progress and watchlist."
+        return about
     }
 
     private func pair(_ device: NearbyDevice, _ typed: String) {
@@ -312,13 +335,13 @@ struct AddDevicePage: View {
         pairing = device
         problem = nil
         Task {
-            let (joined, why) = join ? await library.pairMember(device, code: code) : await library.pairPerson(device, code: code)
+            let (joined, why) = await add(library, device, code)
             pairing = nil
             guard let joined else {
                 problem = why ?? "Couldn't add it."
                 return
             }
-            if join { library.welcomeMember(joined, from: device) } else { library.welcome(joined, from: device) }
+            welcome(library, joined, device)
             dismiss()
         }
     }

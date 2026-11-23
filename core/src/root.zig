@@ -23,6 +23,7 @@ pub const views = @import("views.zig");
 pub const lists = @import("lists.zig");
 pub const version = @import("version.zig");
 pub const json = @import("json.zig");
+pub const deadline = @import("deadline.zig");
 
 test {
     _ = replica;

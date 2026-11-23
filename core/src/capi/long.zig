@@ -324,11 +324,9 @@ export fn cq_describe(lib: *Library, item_key: [*:0]const u8) c_int {
 }
 
 fn describeItem(lib: *Library, arena: std.mem.Allocator, item_key: []const u8) !void {
-    try lib.writer.lock(lib.io());
-    defer lib.writer.unlock(lib.io());
     var r = try connection(lib, arena);
     defer release(lib, &r);
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
-    try art.describeItem(&r, arena, &client, lib.now(), item_key);
+    try art.describeItem(&r, arena, &client, &lib.writer, lib.now(), item_key);
 }
