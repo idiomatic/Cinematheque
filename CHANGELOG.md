@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* README: for people using Cinematheque, the screenshots first, then getting it (releases before building), getting started, and the rest, in short bullets, their details in a guide ([docs/guide.md](docs/guide.md)); building, versions, and the tools in an index for developers.
 * Apple TV: Play/Pause on a tile plays it at once, without opening its page; a series' plays the season to watch.
 * Apple TV: Settings' lists are centered on the screen's height while they fit, as the system's, not at its top.
 * README: screenshots of the Mac, the Apple TV, the iPhone, and the web client, in dark and light, taken by `tools/screenshots.sh` on the mock library; debug builds take `CINEMATHEQUE_APPEARANCE`.

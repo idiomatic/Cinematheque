@@ -1,20 +1,8 @@
 # Cinematheque
 
-Cinematheque is a video library for your household. It catalogs the movies and TV shows you already keep on your own disks and NAS, and plays them on the family's devices straight from where they're stored, over your home network. It isn't a streaming service or a store: nothing to subscribe to or buy, and no account. The catalog is shared directly among your household's devices, and with the family and friends you invite.
+Cinematheque is a video library for your household. It catalogs the movies and TV shows on your own disks and NAS, and plays them on your devices straight from where they're kept. There's nothing to subscribe to or buy, and no account: the catalog is shared directly among your devices, and with the family and friends you invite.
 
-Every device keeps its own copy of the catalog (the titles, their episodes and versions, where each file is, and what you've watched), but not the videos. So each device can browse offline, and catches up with the others when they can reach each other, at home or elsewhere. The videos stay on servers you already run, such as a NAS's web server, Caddy, nginx, or Apache, and play from there over plain HTTP.
-
-> **Status:** early. Today Cinematheque is players for the Mac and the Apple TV, an iPhone player as a prototype, and a command-line app for macOS and Linux that builds and shares a library. Players for other Apple devices, Linux, and Windows, outside metadata beyond what video files carry, and the transcoder are planned; see [DEVELOPMENT.md](DEVELOPMENT.md).
-
-## Ideas
-
-* **Library:** the shared catalog of titles (movies and series), their episodes and versions, and where each file is.
-* **Source:** anywhere your videos are served over HTTP. Cinematheque never changes a source's files; it only reads its listings.
-* **Quality:** one encoding of an item (e.g., 720p H.264, or 4K HEVC). The same quality may have copies in several sources; when one copy doesn't load, players try the next.
-* **Device:** anything running Cinematheque (an app, or the command-line app). Devices sync directly with each other; there is no server in the middle.
-* **Founder and members:** whoever creates a library founds it, and members add others. The founder can hand the library over to a successor; members can remove others, but not the founder.
-
-## Getting it
+> **Status:** early. Today there are players for the Mac and the Apple TV, an iPhone player as a prototype, and a command-line app for macOS and Linux. More players, metadata from beyond your files, and a transcoder are planned (see [DEVELOPMENT.md](DEVELOPMENT.md)).
 
 <table><tr>
 <td align="center"><a href="docs/screenshots/mac-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/mac-light.png"><img src="docs/screenshots/mac-dark.png" alt="The Mac app: the Series shelf, a series’ seasons open below it, and the inspector on a season partway through" height="120"></picture></a><br><sub>Mac</sub></td>
@@ -23,25 +11,46 @@ Every device keeps its own copy of the catalog (the titles, their episodes and v
 <td align="center"><a href="docs/screenshots/web-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/web-light.png"><img src="docs/screenshots/web-dark.png" alt="The web client: the Movies shelf, with its sidebar" height="120"></picture></a><br><sub>Web</sub></td>
 </tr></table>
 
-On a [mock library](tools/README.md#a-mock-library) (see [Screenshots](tools/README.md#screenshots)).
+<sub>Shown on a made-up library.</sub>
 
-* **On a Mac or an Apple TV,** build the app; [apple/README.md](apple/README.md) says how. It needs Xcode 27 or later.
-* **Releases** are on [GitHub](https://github.com/idiomatic/Cinematheque/releases): the command-line app for macOS and Linux, and the Mac app, each with what changed, from [CHANGELOG.md](CHANGELOG.md). Versions are numbered major.minor from 0.1 (a third number for fixes), each tagged `v` and its number (`v0.1`).
-* **On the command line,** on macOS or Linux, build the command-line app; [cli/README.md](cli/README.md) says how, and how to use it. It builds and shares a library; run in the background, it keeps the library available to your other devices and to browsers.
+## How it works
 
-### Running a downloaded build
+Every device keeps its own copy of the catalog, and of what you've watched, but not the videos. So each one browses offline, and catches up with the others when it can reach them.
 
-[Releases](https://github.com/idiomatic/Cinematheque/releases) carry the Mac app and the command-line app, each with a `.sha256` file; check a download with `shasum -a 256 -c FILE.sha256` (`sha256sum -c` on Linux). The Apple TV and iPhone apps aren't released yet; build them from source.
+<p align="center"><img src="docs/how-it-works.svg" alt="The catalog syncs directly among an Apple TV, a Mac or Linux computer, and an iPhone, with no server in the middle; each plays videos straight from a NAS, and from folders the Mac or Linux computer shares" width="640"></p>
 
-They aren't notarized yet, only signed to run locally, so macOS stops them the first time:
+* **Library:** the catalog: movies and series, their episodes and versions, and where each file is.
+* **Source:** a folder or server holding your videos. Cinematheque only reads it, and never changes its files.
+* **Quality:** one encoding of a title, such as 1080p or 4K HDR. A quality may have copies on several sources; when one doesn't load, players try the next.
+* **Device:** anything running Cinematheque. Devices sync directly with each other, with no server in the middle.
 
-* **The Mac app:** unzip it, move Cinematheque.app to Applications, and open it. macOS says it can't check it for malicious software; choose Done, then open System Settings › Privacy & Security, scroll to Security, choose Open Anyway beside Cinematheque, and confirm with your password. (Control-clicking and choosing Open no longer gets past this since macOS 15.) Or, in Terminal, clear the mark the download left, then open it as usual:
+## Getting it
+
+* **The Mac app** and **the command-line app** (for macOS and Linux) are on the [releases page](https://github.com/idiomatic/Cinematheque/releases), with what changed in each ([CHANGELOG.md](CHANGELOG.md)).
+* **The Apple TV and iPhone apps** aren't released yet; build them with Xcode (see [For developers](#for-developers)).
+* **Without a screen,** on a home server or a NAS that runs Linux, the command-line app builds and shares a library, and can offer it to browsers (see the [guide](docs/guide.md#in-a-browser) and [cli/README.md](cli/README.md)).
+
+### Opening a download
+
+Check a download against its `.sha256` file:
+
+* macOS: `shasum -a 256 -c FILE.sha256`
+* Linux: `sha256sum -c FILE.sha256`
+
+Releases aren't notarized yet, so macOS stops them the first time:
+
+* **The Mac app:**
+  1. Unzip it, move Cinematheque.app to Applications, and open it.
+  2. When macOS says it can't check it for malicious software, choose Done.
+  3. In System Settings › Privacy & Security, under Security, choose Open Anyway beside Cinematheque, and confirm with your password.
+
+  Or clear the download's mark in Terminal, then open it as usual:
 
   ```sh
   xattr -dr com.apple.quarantine /Applications/Cinematheque.app
   ```
 
-* **The command-line app on macOS:** a file downloaded in a browser carries the same mark; clear it, then run it:
+* **The command-line app on macOS:** clear the mark a browser's download leaves, then run it:
 
   ```sh
   tar -xzf cinematheque-*.tar.gz
@@ -49,42 +58,46 @@ They aren't notarized yet, only signed to run locally, so macOS stops them the f
   ./cinematheque --version
   ```
 
-  One fetched with `curl` carries no mark.
-* **The command-line app on Linux:** it needs the system's SQLite and Avahi's compatibility library for DNS-SD: `apk add sqlite-libs avahi-compat-libdns_sd` (Alpine), `dnf install sqlite-libs avahi-compat-libdns_sd` (Fedora), or `apt install libsqlite3-0 libavahi-compat-libdnssd1` (Debian, Ubuntu), with Avahi's daemon running.
+* **The command-line app on Linux:** it needs SQLite and Avahi's library for DNS-SD, with Avahi's daemon running:
+  * Alpine: `apk add sqlite-libs avahi-compat-libdns_sd`
+  * Fedora: `dnf install sqlite-libs avahi-compat-libdns_sd`
+  * Debian, Ubuntu: `apt install libsqlite3-0 libavahi-compat-libdnssd1`
 
-The first time either app reaches your network, macOS asks to let it find devices on your local network; allow it, or it can't reach your NAS or your other devices (System Settings › Privacy & Security › Local Network changes it later).
+When either app first reaches your network, macOS asks to let it find devices on your local network. Allow it, or it can't reach your NAS or your other devices (System Settings › Privacy & Security › Local Network changes it later).
+
+## Getting started
+
+1. On first run, an app creates a library, or joins one by a code it shows (see [Sharing a library](#sharing-a-library)).
+2. Add a source, a folder or server of your videos (below). The library fills in as it looks through it.
+
+The Mac's Settings manage sources, people, and devices, so a household needs no command line. On a Mac, the app and the command-line app share one library, so either can manage it.
 
 ## Preparing a source
 
-A source is a folder of videos your devices can reach over your network. The easiest is one you already have.
+A source is a folder of videos your devices can reach over your network. The easiest is one you already have, as it is: Cinematheque never changes its files.
 
 ### A folder
 
-* **On a Mac,** choose Add Folder… in the app's Settings > Sources: a folder on the Mac, on a drive plugged into it, or on a NAS share mounted in Finder. While the app runs, it shares the folder with your other devices (an Apple TV, say), which play from it.
-* **Anywhere else,** on macOS or Linux (a home server, or a NAS that runs Linux), the command-line app shares a folder, then adds it:
+* **On a Mac,** choose Add Folder… in Settings › Sources: a folder on the Mac, on a drive plugged into it, or on a NAS share mounted in Finder. While the app runs, it shares the folder with your other devices, which play from it.
+* **Anywhere else,** on macOS or Linux, the command-line app shares a folder, then adds it:
 
-```sh
-cinematheque serve --media /srv/videos
-cinematheque source add http://hal.local:8008/media/
-```
-
-Either way, the folder needs nothing done to it: Cinematheque reads it as it is, and never changes its files.
+  ```sh
+  cinematheque serve --media /srv/videos
+  cinematheque source add http://hal.local:8008/media/
+  ```
 
 ### A web server
 
-If your videos are on a server that already serves files, such as a NAS's web server, Caddy, nginx, or Apache, add its address instead (with Add Server… on the Mac). Any web server that lists its folders will do if it lets players seek within a file, as nearly all do (Python's built-in `http.server` doesn't: its videos are listed, but won't play).
+If your videos are on a server that already serves files, such as a NAS's web server, Caddy, nginx, or Apache, add its address instead (Add Server… on the Mac).
 
-If your server doesn't list directories, put a file named `INDEX` in the served folder, listing its files. Make it there with:
+* **Seeking:** any server that lists its folders will do if players can seek within a file, as nearly all can. Python's built-in `http.server` can't: its videos are listed, but won't play.
+* **No listings?** Put a file named `INDEX` in the served folder, listing its files, and remake it whenever they change:
 
-```sh
-find . -type f ! -name INDEX > INDEX
-```
+  ```sh
+  find . -type f ! -name INDEX > INDEX
+  ```
 
-and remake it whenever the files change. The command works on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to read a large source: one request instead of one per folder. The command-line app's server serves one for you.
-
-Refresh Library (⌘R on the Mac) catches up with your other devices first (as they do on their own anyway), then looks for new videos: it reads each source's listings, recognizes titles from file and folder names, and records each file as a copy of its title, in its quality. Later looks reread only the folders that changed. A file you rename or move keeps its place in the library, as long as its name still says the same title. When a folder's drive is unplugged or its share unmounted, its videos stay in the library, dimmed, until it's back, a year passes, or you remove them in Settings > Sources.
-
-A source skips names beginning with a prefix, by default `,`, for folders like `,obsolete` that hold files you don't want in the library. Removing a source removes its copies on every device, so titles it alone held stop showing; its files stay where they are.
+  It works on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to read a large source; the command-line app's server makes one for you.
 
 ### Naming
 
@@ -99,21 +112,17 @@ TV Shows/Sanctuary Moon (2019)/Season 01/Sanctuary Moon - S01E01 - Pilot.mkv
 TV Shows/Worldhoppers/Worldhoppers The Lost Signal.m4v
 ```
 
-A file without an episode number beside a series' episodes, named for the series (as `Worldhoppers The Lost Signal`), or in a `Specials` folder, is one of the series' specials.
-
 Dated videos, as a channel's archive has them, are a series of a season a year and an episode a day:
 
 ```
 Channels/Feed Watch/Feed Watch 2024-03-12 The Wormhole Explained [youtube-ID].mp4
 ```
 
-The ID tag (as yt-dlp's output template `%(channel)s/%(channel)s %(upload_date>%Y-%m-%d)s %(title).150B [youtube-%(id)s].%(ext)s` writes it) keeps two videos of one day apart; the words between the date and the tag are the video's title, for browsing the folder, and aren't read for a year or an episode code.
-
-Names aren't always consistent: a year off by one, a title spelled two ways, or a file copied twice. The command-line app's review lists what looks related, and an alias, recorded once, tells every device that two entries are the same title; see [cli/README.md](cli/README.md#titles).
+The [guide](docs/guide.md#naming) covers specials, yt-dlp's names, and tidying names that don't agree.
 
 ### Quality
 
-A title may come in more than one quality, such as 1080p and 4K HDR; the apps' Quality picker chooses which to play, and when a copy doesn't load (on a device that's asleep, say), players try the next. A file's quality comes from its name, where media servers put it, so a title's files can sit side by side:
+A file's quality comes from its name (its resolution, origin, codec, and dynamic range), so a title's qualities can sit side by side, and the apps' Quality picker chooses which to play:
 
 ```
 Movies/All Systems Red (2017)/All Systems Red (2017) - 1080p.mkv
@@ -121,40 +130,66 @@ Movies/All Systems Red (2017)/All Systems Red (2017) - 4K HDR.mkv
 Movies/Network.Effect.2020.1080p.BluRay.x264-GROUP.mkv
 ```
 
-Names give the resolution, origin (Blu-ray, web, DVD, or HDTV), codec, and dynamic range; a file whose name says none of these is of unknown quality.
+A folder whose files are all one quality, though their names don't say so (everything one encoder preset made, say), can be a source of its own, named for its quality:
 
-If a folder holds files of one quality whose names don't say which (everything one encoder preset made, say), add it as a source of its own and name its quality: under Advanced in Settings > Sources on the Mac, or with `source add --quality` on the command line.
+* on the Mac, under Advanced in Settings › Sources;
+* on the command line, with `source add --quality`.
+
+### Keeping it current
+
+* **Refreshing:** Refresh Library (⌘R on the Mac) looks through your sources for new videos.
+* **Unplugged drives:** a folder's videos stay in the library, dimmed, until it's back.
+* **Removing a source** removes its videos from the library on every device; its files stay where they are.
+
+More is in the [guide](docs/guide.md#refreshing).
 
 ## Watching
 
-The apps browse the library by cover art: movies, and each series by season. Choose one for its details, and play it from its source, resuming where you left off on any of your devices; a season plays on from the episode you're partway through, else its next unwatched one. Covers and descriptions come from your sources: a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them, else the cover and details your MP4 files carry (as HandBrake, iTunes, and tagging tools write them). Until a cover loads, its tile shows a blurred likeness of it, which travels with the library, so even a newly paired device shows one at once. Put titles on lists (a Watchlist, Favorites), which, like what you've watched, are yours alone unless you share one with everyone in the library. Stopping within the first 10 seconds forgets where you were, so going back to the start sticks.
+* **Browsing:** by cover art: movies, and each series by season.
+* **Playing** resumes where you left off, on any of your devices.
+* **Covers and descriptions** come from your sources: a `poster.jpg` beside a movie, else what your MP4 files carry.
+* **Lists** (a Watchlist, Favorites) are yours alone, unless you share one with everyone in the library.
+* **In a browser:** the command-line app, on a computer that stays on, offers the library to any browser on your network (see the [guide](docs/guide.md#in-a-browser)).
 
-`cinematheque serve --web` offers the library at `http://<host>:8008/`, to browse and play in a browser on any computer on your network, as the person whose device it is; see [cli/README.md](cli/README.md#in-a-browser).
-
-On first run, an app creates a library, or joins one by a code it shows; the Mac's Settings manage sources, people, and devices, so a household needs no command line. The Mac app uses the same data directory as the command-line app on that Mac, so either can manage the library.
+More is in the [guide](docs/guide.md#watching).
 
 ## Downloading
 
-On a Mac, you can download what you'll watch away from home, or keep on hand when the network is slow. A movie's Download button says its size. A season's Download menu chooses which of the series' episodes the Mac keeps as you watch: the Next one or few, or All. The menu gives each choice's size and the space available for downloads (what's free, less the 20 GB Cinematheque always leaves free), warning when a choice wouldn't fit.
+On a Mac, download what you'll watch away from home, or keep on hand when the network is slow:
 
-Downloads go to `~/Movies/Cinematheque` (Settings > Downloads changes it), wait while something streams so as not to slow it, and are shared with your other devices like any source. What you download yourself stays until you delete it. A series' episodes you've watched are deleted when their space is needed (unless you chose All), but only if a source still holds the same file, never the only copy. The trash button beside the Download controls deletes them by hand, asking first if any is the only copy.
+* **Movies:** the Download button says its size.
+* **Series:** a season's Download menu chooses which episodes the Mac keeps as you watch: the Next one or few, or All.
+* **Where:** `~/Movies/Cinematheque`, unless Settings › Downloads says otherwise.
+* **Cleaning up:** watched episodes are deleted as their space is needed, but never the only copy.
+
+More is in the [guide](docs/guide.md#downloading).
 
 ## Sharing a library
 
-A library is shared by joining: the new device shows a 6-digit code, and someone already in the library enters it (in the Mac app under Settings > Devices > New Devices, or with the command-line app), choosing whose device it is: yours, to use the library as yourself, with your progress and lists; or someone new's, who joins as a member. The code seals what's sent, so only the device showing it can open it, and the new device stops answering an address after 3 wrong tries from it, and everyone after 30, until it offers a new code. [cli/README.md](cli/README.md#sharing-a-library) covers the command line, and pairing from off your network.
+1. On the new device, choose Join a Library. It shows a 6-digit code.
+2. On a device already in the library, enter the code, choosing whose device it is: yours, to use the library as yourself, or someone new's, who joins as a member.
+   * **A Mac:** in Settings › Devices › New Devices, then Yours or Someone New.
+   * **An Apple TV:** in Settings › Your Devices › Add a Device, or Settings › People › Add Someone.
+   * **The command-line app:** `cinematheque person pair CODE`, or `cinematheque member pair CODE`.
 
-Devices find each other on your network. While an app runs, it shares the library with your other devices and syncs with them a minute after it last did, whenever it comes to the front, and a second after you make a change. Each device checks, by signature, that every change comes from a member, so a device that relays the library can't alter it, and serves the library only to members' devices. Removing a member stops their later changes everywhere, while what they did before stands; removing one of your devices does the same for that device.
+Devices find each other on your network, and sync on their own while the apps run.
+
+* **The founder,** whoever created the library, can hand it over to another member.
+* **Removing** a member or a device stops their later changes everywhere; what they did before stands. Any member can remove another, but not the founder.
+
+More is in the [guide](docs/guide.md#sharing-a-library), and the command line's way in [cli/README.md](cli/README.md#sharing-a-library).
 
 ## Privacy
 
-Cinematheque has no accounts and no central server, and nothing leaves your devices except to the devices you sync with and the sources you add. What you've watched, and where you stopped, syncs only directly among your own devices, never through anyone else's. It's kept from other people, not hardened against someone with access to a device that holds it.
+Cinematheque has no accounts and no central server. Nothing leaves your devices but to the devices you sync with and the sources you add, and what you've watched syncs only directly among your own devices. It's kept from other people, not hardened against someone with access to a device that holds it.
 
 ## For developers
 
-* [AGENTS.md](AGENTS.md) specifies what's built; [DEVELOPMENT.md](DEVELOPMENT.md) holds the plans, open questions, and known issues.
-* [ARCHITECTURE.md](ARCHITECTURE.md) explains operations: how devices write, sign, merge, and sync them, and every key and field the library writes.
-* [core](core/README.md) is the Zig library, [cli](cli/README.md) the command-line app, and [apple](apple/README.md) the Apple players.
-* [docs/specifications](docs/specifications/README.md) indexes the outside specifications and papers Cinematheque relies on.
+* **Building:** the Apple apps (Mac, Apple TV, iPhone) with Xcode 27 or later, as [apple/README.md](apple/README.md) says; the command-line app with Zig, as [cli/README.md](cli/README.md) says.
+* **What's built:** [AGENTS.md](AGENTS.md) specifies it; [ARCHITECTURE.md](ARCHITECTURE.md) explains how devices write, sign, merge, and sync operations, and every key and field the library writes; [DEVELOPMENT.md](DEVELOPMENT.md) holds the plans, open questions, and known issues.
+* **Components:** [core](core/README.md), the Zig library, and its [C interface](core/include/README.md); [cli](cli/README.md), the command-line app and its web client; [apple](apple/README.md), the Apple players; [tools](tools/README.md), scripts beside them, among them the [mock library](tools/README.md#a-mock-library) and the [screenshots](tools/README.md#screenshots) above.
+* **Versions and releases:** major.minor from 0.1 (a third number for fixes), set once in [apple/Version.xcconfig](apple/Version.xcconfig). Each release is tagged (`v0.1`) and built by GitHub's [workflows](.github/workflows), its notes its [CHANGELOG.md](CHANGELOG.md) section.
+* **Outside specifications:** [docs/specifications](docs/specifications/README.md) indexes the specifications and papers Cinematheque relies on; [docs/design](docs/design) holds sketches of the players.
 
 ## How it was made
 
