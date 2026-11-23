@@ -123,7 +123,7 @@ struct SeriesSeasons: Hashable {
     let key: String
 }
 
-/// A list's whole page, by the list's ID: what See All opens.
+/// A list's whole page, by the list's ID: what its row's heading opens.
 struct ListPageID: Hashable {
     let id: String
 }
@@ -235,24 +235,6 @@ private struct ListsView: View {
     }
 }
 
-/// A list's whole page, where it's renamed and deleted too: a small
-/// button saying how many titles it holds.
-private struct SeeAll: View {
-    let list: String
-    let count: Int
-
-    var body: some View {
-        NavigationLink(value: ListPageID(id: list)) {
-            HStack(spacing: 8) {
-                Text("See All \(count)")
-                Image(systemName: "chevron.right")
-            }
-            .font(.caption)
-        }
-        .controlSize(.small)
-    }
-}
-
 /// One list, whole, as a shelf's grid, under its name; renaming and
 /// deleting it last, as rare.
 private struct ListPage: View {
@@ -295,27 +277,48 @@ private struct ListPage: View {
 private struct Row: View {
     let title: String
     let tiles: [Tile]
-    /// A list's, whose page See All, small, beside the heading, opens, so a
-    /// long row needn't be scrolled through to reach it.
+    /// A list's, whose page its heading opens, so a long row needn't be
+    /// scrolled through to reach it.
     var list: String? = nil
     /// A shared list's, its heading marked with people.
     var shared = false
 
+    /// The row's name, a shared list's marked with people.
+    @ViewBuilder
+    private var heading: some View {
+        if shared {
+            Label(title, systemImage: UserList.sharedSymbol)
+        } else {
+            Text(title)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            // Centered: See All's pill, not its smaller text, is what the
-            // eye lines up, and on the heading's baseline it drooped.
-            HStack(alignment: .center, spacing: 24) {
-                if shared {
-                    Label(title, systemImage: UserList.sharedSymbol).font(.title3)
+            // A list's heading is its link, "Favorites 3 ›", at the row's
+            // left edge, as Apple's apps' shelves' are: moving down from it
+            // goes to the row's first cover, and up from any cover to it, so
+            // focus doesn't drift right as it did through a See All beside
+            // the heading, over the second cover. Borderless, so it lines up
+            // with a heading that isn't one; its count and chevron grey.
+            Group {
+                if let list {
+                    NavigationLink(value: ListPageID(id: list)) {
+                        HStack(alignment: .firstTextBaseline, spacing: 16) {
+                            heading
+                            Text(tiles.count, format: .number).foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").font(.headline).foregroundStyle(.secondary)
+                        }
+                        .font(.title3)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(title), \(tiles.count) titles")
                 } else {
-                    Text(title).font(.title3)
+                    heading.font(.title3)
                 }
-                if let list { SeeAll(list: list, count: tiles.count) }
             }
-            // As the row below: See All, small and at the left, takes focus
-            // moving down from the sections' buttons, as the heading's whole
-            // width does, not a cover more nearly beneath the button.
+            // The heading's whole width takes focus moving down from the
+            // sections' buttons.
             .frame(maxWidth: .infinity, alignment: .leading)
             .focusSection()
             // A carousel, not a grid: every cover one height, each its own
