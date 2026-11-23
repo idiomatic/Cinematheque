@@ -94,6 +94,7 @@
       ],
       "build-settings": {
         "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletv*]": "App Icon & Top Shelf Image",
+        "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphone*]": "AppIcon",
         "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]": "AppIcon",
         "CODE_SIGN_ENTITLEMENTS[sdk=appletv*]": "Cinematheque.entitlements",
         "COMBINE_HIDPI_IMAGES[sdk=macosx*]": "YES",

@@ -1,9 +1,9 @@
 // Draws Cinematheque's placeholder icons: a cinema-red gradient, and the
 // film.stack symbol in white, as layers (tvOS's parallax) or flattened.
 // Usage: swift draw-icons.swift OUTPUT_DIR, then copy the PNGs into
-// Cinematheque/Assets.xcassets (AppIcon, App Icon & Top Shelf Image, and
-// SettingsIcon), whose file names they keep, and web/favicon.ico into
-// ../cli/src/web.
+// Cinematheque/Assets.xcassets (AppIcon, the Mac's and iOS's; App Icon &
+// Top Shelf Image; and SettingsIcon), whose file names they keep, and
+// web/favicon.ico into ../cli/src/web.
 import AppKit
 
 guard CommandLine.arguments.count == 2 else {
@@ -73,6 +73,8 @@ for (size, scales) in [(16, [1, 2]), (32, [1, 2]), (128, [1, 2]), (256, [1, 2]),
         draw(size * scale, size * scale, .mac, to: "mac/icon_\(size)x\(size)@\(scale)x.png")
     }
 }
+// iOS: one square, the gradient to its edges, as iOS rounds its corners.
+draw(1024, 1024, .flat, to: "ios/icon_1024x1024.png")
 // tvOS: the Home Screen icon and the App Store's, in two layers each.
 for (name, w, h, scales) in [("App Icon", 400, 240, [1, 2]), ("App Icon - App Store", 1280, 768, [1])] {
     for scale in scales {

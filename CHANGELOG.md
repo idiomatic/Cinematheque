@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* iPhone: an icon, the Mac's and the Apple TV's red gradient and film stack, drawn by draw-icons.swift.
 * iPhone: Settings, as iOS's own apps' are: names; people and your devices, each added by the code a device shows (those offering nearby listed with their models); sources, servers added by address, each with its quality, names to skip, and unavailable folders; Refresh Library, Look for New Videos, and Show Sync Activity; devices by address; and Leave This Library….
 * Web client: Add Someone's and Add a Device's panel closes by an × in its corner, or Escape, in place of Cancel and Done.
 * A device offering to be added says what kind it is ("iPhone 13 mini", "MacBook Pro (14-inch, 2021)"), shown under its name on the Mac, the Apple TV, and the web client. `cq_pair_offer` takes its model.
