@@ -389,9 +389,11 @@ body.outside #sidebar, body.outside header, body.outside #tabs, body.outside #st
 .settings .row input:not(.code-input) { flex: 0 1 260px; }
 .settings .line { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .settings .line input { flex: 1 1 260px; }
-/* Adding a device: a tinted sheet below its button's place, Cancel at its
-   foot. */
-.settings .pairing { margin-top: 10px; padding: 4px 14px 14px; border-radius: 10px; background: var(--raised); }
+/* Adding a device: a tinted sheet in its button's place, an × in its top
+   corner closing it. */
+.settings .pairing { position: relative; margin-top: 10px; padding: 4px 14px 14px; border-radius: 10px; background: var(--raised); }
+.settings .pairing > .close { position: absolute; top: 6px; right: 6px; }
+.settings .pairing > p.dim:first-of-type { padding-right: 32px; }
 .settings .pairing > p.dim { margin: 10px 0 4px; font-size: 13px; }
 .settings .pairing p:empty { display: none; }
 .settings [hidden] { display: none; }

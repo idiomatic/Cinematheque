@@ -271,10 +271,14 @@ function said(e) {
 /// it may advertise its offer a moment longer. `opened` is told as it opens.
 function pairing(label, kind, added, opened) {
   const box = el("div", { class: "pairing", hidden: true });
+  // Escape closes it, as its × does, wherever focus is (its opening button
+  // hides, so focus leaves for the page), while it's open.
+  const escape = (e) => { if (e.key === "Escape" && box.isConnected) cancel(); };
   const open = button(label, () => {
     opened();
     open.hidden = true;
     box.hidden = false;
+    document.addEventListener("keydown", escape);
     look();
   });
   // Which look is current, so one going on after Cancel stops; and the
@@ -282,6 +286,7 @@ function pairing(label, kind, added, opened) {
   let looking = 0;
   const taken = new Set();
   const cancel = () => {
+    document.removeEventListener("keydown", escape);
     looking++;
     box.hidden = true;
     box.replaceChildren();
@@ -291,13 +296,14 @@ function pairing(label, kind, added, opened) {
   async function look() {
     const mine = ++looking;
     const status = el("p", { class: "dim", role: "status" }, "Looking for new devices nearby…");
-    const close = button("Cancel", cancel);
+    // An × in its corner closes it, whether or not one's been added.
+    const close = icon(xmark, "Close", "Close", cancel);
+    close.classList.add("close");
     // Said in place of looking, as a device is added.
     let said = "";
     const addedOne = (name) => {
       said = `Added ${name || "a device"}.`;
       status.textContent = said;
-      close.textContent = "Done";
     };
     const list = el("div");
     const rows = new Map();
@@ -314,9 +320,10 @@ function pairing(label, kind, added, opened) {
       address.focus();
     });
     box.replaceChildren(
+      close,
       el("p", { class: "dim" }, `On ${kind === "pair" ? "your" : "their"} new device, choose Join a Library; it shows here, with a code to enter.`),
       list, status, byAddress,
-      el("div", { class: "line" }, toggle, close));
+      el("div", { class: "line" }, toggle));
     taken.clear();
     while (mine === looking && box.isConnected) {
       const offering = await api("nearby").catch(() => null);

@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Web client: Add Someone's and Add a Device's panel closes by an × in its corner, or Escape, in place of Cancel and Done.
 * A device offering to be added says what kind it is ("iPhone 13 mini", "MacBook Pro (14-inch, 2021)"), shown under its name on the Mac, the Apple TV, and the web client. `cq_pair_offer` takes its model.
 * Web client: Settings' rows act one way, by symbols at their end (a pencil renaming, a ⊖ removing, an × forgetting; a trash only where files are deleted), as sources' already did, in place of words on some rows and symbols on others.
 * Mac: the sidebar is at most 320 points wide and the grid at least 480, so dragging the sidebar's divider no longer takes the grid down to nothing; and View › Show Sidebar, ⌃⌘S.
