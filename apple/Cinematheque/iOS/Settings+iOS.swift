@@ -77,6 +77,7 @@ struct SettingsSheet: View {
                 switch page {
                 case .people: PeoplePage()
                 case .devices: DevicesPage()
+                case .device(let key): DevicePage(key: key)
                 case .sources: SourcesPage()
                 case .source(let id): SourcePage(id: id)
                 }
@@ -89,6 +90,7 @@ struct SettingsSheet: View {
             case "people": path = [.people]
             case "add-someone": path = [.people]
             case "devices": path = [.devices]
+            case "device": path = [.devices] + (library.devices.first { !$0.you }.map { [.device($0.key)] } ?? [])
             case "add-device": path = [.devices]
             case "sources": path = [.sources]
             case "source": path = [.sources] + (library.sources.first { !$0.managed }.map { [.source($0.id)] } ?? [])
@@ -139,7 +141,7 @@ struct SettingsSheet: View {
 
 /// A page of Settings, pushed on its stack.
 enum SettingsPage: Hashable {
-    case people, devices, sources, source(String)
+    case people, devices, device(String), sources, source(String)
 }
 
 /// A name, typed in place, as iOS's forms take text; saved as it's
@@ -215,15 +217,11 @@ private struct PeoplePage: View {
     private func removable(_ member: Member) -> Bool { !member.you && !member.founder }
 }
 
-/// Your devices, this one first, each other renamed or removed by pressing
-/// it (asked which) or swiping; adding another, by its code; and sharing
-/// the library while the app runs.
+/// This person's devices, this iPhone first, each opening its own page
+/// (its name, and removing it); swiping one removes it; then adding one, by
+/// its code, and sharing.
 private struct DevicesPage: View {
     @Environment(Library.self) private var library
-    /// A device pressed: what to do with it, asked.
-    @State private var acting: Device?
-    @State private var renaming: Device?
-    @State private var name = ""
     @State private var sharing = true
 
     var body: some View {
@@ -232,7 +230,7 @@ private struct DevicesPage: View {
                 ForEach(library.devices.filter(\.you) + library.devices.filter { !$0.you }) { device in
                     // Each by its kind's symbol, "This iPhone" or its model
                     // under its name, as Apple's own list of devices has them.
-                    Button { if !device.you { acting = device } } label: {
+                    NavigationLink(value: SettingsPage.device(device.key)) {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(device.name)
@@ -244,16 +242,14 @@ private struct DevicesPage: View {
                             Image(systemName: device.symbol)
                         }
                     }
-                    .foregroundStyle(.primary)
                     .swipeActions {
                         if !device.you {
                             Button("Remove", role: .destructive) { library.removeDevice(device.key) }
-                            Button("Rename") { rename(device) }
                         }
                     }
                 }
             } footer: {
-                Text("Your devices share your progress and lists. Press one to rename it, or to remove it if you've given it away or no longer use it.")
+                Text("Your devices share your progress and lists. Choose one to rename it, or to remove it if you've given it away or no longer use it.")
             }
             NewDevices.device
             Section {
@@ -265,28 +261,45 @@ private struct DevicesPage: View {
         }
         .navigationTitle("Your Devices")
         .onAppear { sharing = library.sharing }
-        .confirmationDialog(
-            acting?.name ?? "",
-            isPresented: Binding(get: { acting != nil }, set: { if !$0 { acting = nil } }),
-            titleVisibility: .visible,
-            presenting: acting
-        ) { device in
-            Button("Rename") { rename(device) }
-            Button("Remove", role: .destructive) { library.removeDevice(device.key) }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("Removed, it leaves the library the next time it catches up, and comes back only by joining again.")
-        }
-        .alert("Rename \(renaming?.name ?? "It")", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { device in
-            TextField("Name", text: $name)
-            Button("Rename") { library.renameDevice(device.key, name) }
-            Button("Cancel", role: .cancel) {}
-        }
     }
+}
 
-    private func rename(_ device: Device) {
-        name = device.name
-        renaming = device
+/// One of this person's devices: its name, typed in place, what kind it is,
+/// and, but for this iPhone, removing it, unconfirmed, as it can join again
+/// as easily (as on the Mac).
+private struct DevicePage: View {
+    let key: String
+    @Environment(Library.self) private var library
+    @Environment(\.dismiss) private var dismiss
+
+    private var device: Device? { library.devices.first { $0.key == key } }
+
+    var body: some View {
+        Form {
+            if let device {
+                Section {
+                    NameField(title: "Name", name: device.name) { name in
+                        if device.you { library.setName(.device, name) } else { library.renameDevice(device.key, name) }
+                    }
+                    if let model = device.model {
+                        LabeledContent("Model", value: model)
+                    }
+                } footer: {
+                    Text(device.you ? "This iPhone, by the name your other devices know it by." : "The name everyone in the library sees it by.")
+                }
+                if !device.you {
+                    Section {
+                        Button("Remove Device", role: .destructive) { library.removeDevice(key) }
+                    } footer: {
+                        Text("Remove it if you've given it away or no longer use it. It leaves the library the next time it catches up, and comes back by joining again.")
+                    }
+                }
+            }
+        }
+        .navigationTitle(device?.name ?? "Device")
+        .navigationBarTitleDisplayMode(.inline)
+        // Gone (removed here or elsewhere): back to the list.
+        .onChange(of: device == nil) { if device == nil { dismiss() } }
     }
 }
 

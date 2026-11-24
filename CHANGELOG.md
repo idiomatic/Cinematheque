@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* iPhone: each of Your Devices opens a page of its own, to rename it in place or remove it, instead of asking in a dialog and an alert.
 * Apps: debug builds build the core ReleaseSafe too, so Zig's standard library failing a connection attempt no longer crashes them.
 * Apps: a change made while a sync or crawl holds the library (a name, a watched mark, progress) waits its turn and is made once it's free, instead of failing with "Couldn't change the library while it's busy". Syncing holds it for one device at a time, not all of them.
 * Mac: Settings' Devices shows each device by its kind's symbol (an iPhone, an Apple TV, a laptop…), not all as a desktop computer.

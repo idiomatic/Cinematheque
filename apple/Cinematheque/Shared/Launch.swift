@@ -62,7 +62,7 @@ enum Launch {
 
     /// `CINEMATHEQUE_PAGE`, once a launch (tvOS and iOS, on Settings): a page to
     /// open: `people`, `devices`, or `sources` (on iOS, `source`, the
-    /// first's own); `add-device` and `add-someone` open Devices and People,
+    /// first's own, or `device`, the first other device's); `add-device` and `add-someone` open Devices and People,
     /// which list the devices offering to be added.
     static var page: String? { once("CINEMATHEQUE_PAGE") }
 
