@@ -7,6 +7,10 @@
 # also a data directory whose library has crawled it, with progress and
 # lists. The same every run. See README.md.
 set -eu
+
+# The mock library's devices announce and look for their own service type,
+# never seeing a person's own devices nor theirs them (see discover.zig).
+export CINEMATHEQUE_DNSSD=_cinemock._tcp
 here=${0:A:h}
 script=$0
 cq=$here/../cli/zig-out/bin/cinematheque
@@ -287,4 +291,4 @@ kill $serve_pid
 wait $serve_pid 2> /dev/null || true
 serve_pid=
 echo "made a library of it in $data; serve it again with:"
-echo "  $cq --data $data serve --port $port --media $dir"
+echo "  CINEMATHEQUE_DNSSD=$CINEMATHEQUE_DNSSD $cq --data $data serve --port $port --media $dir"

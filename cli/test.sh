@@ -5,6 +5,10 @@
 # A by push; C, paired then removed, is refused; and B's progress reaches
 # B's other device, B2 (paired to be B's), only directly.
 set -eu
+
+# The mock library's devices announce and look for their own service type,
+# never seeing a person's own devices nor theirs them (see discover.zig).
+export CINEMATHEQUE_DNSSD=_cinemock._tcp
 here=${0:A:h}
 work=${1:-/tmp/cinematheque-cli-test}
 cq=$here/zig-out/bin/cinematheque

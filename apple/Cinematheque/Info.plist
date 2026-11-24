@@ -37,6 +37,8 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_cinematheque._tcp</string>
+		<!-- For the mock library (CINEMATHEQUE_DNSSD), in tests and screenshots: no apostrophes, as the preprocessor reads one as a character literal. -->
+		<string>_cinemock._tcp</string>
 	</array>
 </dict>
 </plist>

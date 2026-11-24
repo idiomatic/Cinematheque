@@ -6,6 +6,36 @@ const Io = std.Io;
 
 pub const service_type = "_cinematheque._tcp";
 
+/// The service type devices advertise and look for: `service_type`, unless
+/// `CINEMATHEQUE_DNSSD` gives another (as `_cinemock._tcp`), so devices on
+/// a mock library (tests, screenshots) and a person's own never see each
+/// other, or each other's offers to pair. To remove in the next major
+/// release (see DEVELOPMENT.md).
+pub fn serviceType() [*:0]const u8 {
+    const given = std.c.getenv("CINEMATHEQUE_DNSSD") orelse return service_type;
+    return if (wellFormed(std.mem.span(given))) given else service_type;
+}
+
+/// Whether `t` is a TCP service type DNS-SD takes: `_` and a name of 1 to
+/// 15 lowercase letters, digits, and hyphens, then `._tcp`.
+fn wellFormed(t: []const u8) bool {
+    const suffix = "._tcp";
+    if (t.len < 1 + 1 + suffix.len or t[0] != '_' or !std.mem.endsWith(u8, t, suffix)) return false;
+    const name = t[1 .. t.len - suffix.len];
+    if (name.len > 15) return false;
+    for (name) |ch| if (!(std.ascii.isLower(ch) or std.ascii.isDigit(ch) or ch == '-')) return false;
+    return true;
+}
+
+test "a service type given is taken only if well formed" {
+    try std.testing.expect(wellFormed("_cinemock._tcp"));
+    try std.testing.expect(wellFormed("_cinematheque._tcp"));
+    try std.testing.expect(!wellFormed("_cinematheque-mock._tcp"));
+    try std.testing.expect(!wellFormed("cinemock._tcp"));
+    try std.testing.expect(!wellFormed("_cinemock._udp"));
+    try std.testing.expect(!wellFormed("_Cinemock._tcp"));
+}
+
 const c = struct {
     const DNSServiceRef = ?*opaque {};
     const Flags = u32;
@@ -56,7 +86,7 @@ pub fn txtRecord(arena: std.mem.Allocator, pairs: []const [2][]const u8) ![]u8 {
 
 pub fn advertise(name: [:0]const u8, port: u16, txt: []const u8) !Advertisement {
     var ref: c.DNSServiceRef = null;
-    if (c.DNSServiceRegister(&ref, 0, 0, name.ptr, service_type, null, null, std.mem.nativeToBig(u16, port), @intCast(txt.len), txt.ptr, null, null) != 0)
+    if (c.DNSServiceRegister(&ref, 0, 0, name.ptr, serviceType(), null, null, std.mem.nativeToBig(u16, port), @intCast(txt.len), txt.ptr, null, null) != 0)
         return error.DnsSd;
     return .{ .ref = ref };
 }
@@ -284,7 +314,7 @@ const resolving_ms = 4000;
 pub fn browse(io: Io, arena: std.mem.Allocator, ms: i64) ![]Service {
     var state: State = .{ .arena = arena };
     var ref: c.DNSServiceRef = null;
-    if (c.DNSServiceBrowse(&ref, 0, 0, service_type, null, onBrowse, &state) != 0) return error.DnsSd;
+    if (c.DNSServiceBrowse(&ref, 0, 0, serviceType(), null, onBrowse, &state) != 0) return error.DnsSd;
     defer c.DNSServiceRefDeallocate(ref);
     var browsing: Browsing = .{ .state = &state };
     try pump(io, ref, ms, &browsing, Browsing.finished);

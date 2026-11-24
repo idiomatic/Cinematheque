@@ -6,6 +6,10 @@
 # TV's, the hero. With names (mac, tv, iphone, web), only those; `video`,
 # not among them unless named, also records the loop. See README.md.
 set -eu
+
+# The mock library's devices announce and look for their own service type,
+# never seeing a person's own devices nor theirs them (see discover.zig).
+export CINEMATHEQUE_DNSSD=_cinemock._tcp
 here=${0:A:h}
 root=${here:h}
 out=$root/docs/screenshots
@@ -122,7 +126,7 @@ screen() {
     shift 3
     xcrun simctl terminate $id $bundle 2> /dev/null || true
     rm -rf $tmp/run && cp -R $tmp/data $tmp/run
-    env SIMCTL_CHILD_CINEMATHEQUE_DATA=$tmp/run SIMCTL_CHILD_CINEMATHEQUE_APPEARANCE=$a ${@/#/SIMCTL_CHILD_} xcrun simctl launch $id $bundle > /dev/null
+    env SIMCTL_CHILD_CINEMATHEQUE_DNSSD=$CINEMATHEQUE_DNSSD SIMCTL_CHILD_CINEMATHEQUE_DATA=$tmp/run SIMCTL_CHILD_CINEMATHEQUE_APPEARANCE=$a ${@/#/SIMCTL_CHILD_} xcrun simctl launch $id $bundle > /dev/null
     [[ -z $link ]] || xcrun simctl openurl $id $link
     settle "simshot $id" $shot
     xcrun simctl terminate $id $bundle
@@ -191,7 +195,7 @@ mac_vm() {
     $terrarium put $vm $cq /tmp/cinematheque > /dev/null
     guest "cd /tmp && ditto -x -k app.zip /Applications && mkdir m && tar -xzf mock.tgz -C m && chmod +x cinematheque windows
         ./cinematheque --data /tmp/serve library create > /dev/null
-        (nohup ./cinematheque --data /tmp/serve serve --port $port --media /tmp/m/media > /tmp/serve.log 2>&1 &)"
+        (CINEMATHEQUE_DNSSD=$CINEMATHEQUE_DNSSD nohup ./cinematheque --data /tmp/serve serve --port $port --media /tmp/m/media > /tmp/serve.log 2>&1 &)"
     # The shot's pixels a point.
     shoot $tmp/mac.png
     guest /tmp/windows > $tmp/windows.txt
@@ -206,7 +210,7 @@ launch() {
     shift
     guest "pkill -x Cinematheque; sleep 1; D=~/Library/Application\ Support/Cinematheque; rm -rf \$D; mkdir -p \${D:h}; cp -R /tmp/m/$data \$D
         defaults delete $bundle 2> /dev/null; rm -rf ~/Library/Saved\ Application\ State/$bundle.savedState
-        open ${(j: :)${(q)@}} -a /Applications/Cinematheque.app"
+        open --env CINEMATHEQUE_DNSSD=$CINEMATHEQUE_DNSSD ${(j: :)${(q)@}} -a /Applications/Cinematheque.app"
 }
 # Its window's bounds, once it's there, in `win`.
 window() {
@@ -297,7 +301,7 @@ if (( ${which[(Ie)video]} )); then
     # The Apple TV, on Home, and the port it serves on, for the Mac.
     simulator "Mockup Apple TV 4K" tvOS appletvsimulator
     xcrun simctl terminate $id $bundle 2> /dev/null || true
-    tv=$(SIMCTL_CHILD_CINEMATHEQUE_DATA=$tmp/vb SIMCTL_CHILD_CINEMATHEQUE_APPEARANCE=dark xcrun simctl launch $id $bundle | awk '{print $NF}')
+    tv=$(SIMCTL_CHILD_CINEMATHEQUE_DNSSD=$CINEMATHEQUE_DNSSD SIMCTL_CHILD_CINEMATHEQUE_DATA=$tmp/vb SIMCTL_CHILD_CINEMATHEQUE_APPEARANCE=dark xcrun simctl launch $id $bundle | awk '{print $NF}')
     tv_port=
     for i in {1..100}; do
         tv_port=$(lsof -nP -a -p $tv -iTCP -sTCP:LISTEN -Fn 2> /dev/null | awk -F: '/^n/ {print $NF; exit}')
