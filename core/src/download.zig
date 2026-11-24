@@ -444,6 +444,29 @@ const source_key = "downloads/source";
 const want_prefix = "downloads/want/";
 const next_prefix = "downloads/next/";
 const at_prefix = "downloads/at/";
+/// This device's own record of each download's file (its path, quality,
+/// and size, tab-separated), which doesn't sync: what it plays and marks
+/// from, whatever becomes of the shared records (`held:`, for other devices
+/// to stream from), which a source's moving (a port changed) or going
+/// (its drive's source removed) empties.
+const file_prefix = "downloads/file/";
+
+/// A download this device holds, by its own record.
+pub const LocalFile = struct { item: []const u8, path: []const u8, quality: []const u8, size: u64 };
+
+/// This device's downloads by its own records (`file_prefix`).
+pub fn localFiles(replica: *Replica, arena: std.mem.Allocator) ![]LocalFile {
+    var out: std.ArrayList(LocalFile) = .empty;
+    for (try replica.localKeys(arena, file_prefix)) |k| {
+        const value = try replica.local(arena, k) orelse continue;
+        var fields = std.mem.splitScalar(u8, value, '\t');
+        const path = fields.next() orelse continue;
+        const quality = fields.next() orelse continue;
+        const size = std.fmt.parseInt(u64, fields.next() orelse continue, 10) catch continue;
+        try out.append(arena, .{ .item = k[file_prefix.len..], .path = path, .quality = quality, .size = size });
+    }
+    return out.items;
+}
 
 /// Free space a download never goes below.
 pub const floor_bytes: u64 = 20_000_000_000;
@@ -1005,6 +1028,9 @@ pub const Report = struct {
     total_mb: u32,
     no_room: u32,
     fetching: ?FetchingReport,
+    /// Its downloads by its own records (`LocalFile`), for it to play and
+    /// mark from.
+    files: []const LocalFile,
 };
 pub const HeldReport = struct { item: []const u8, size: u64, only: bool };
 pub const NextReport = struct { title: []const u8, choice: []const u8 };
@@ -1051,6 +1077,7 @@ pub fn report(io: Io, replica: *Replica, arena: std.mem.Allocator, live: Live) !
         .done_mb = live.done_mb,
         .total_mb = live.total_mb,
         .no_room = live.no_room,
+        .files = try localFiles(replica, arena),
         .fetching = if (fetching) |f| .{ .item = f.item, .done = f.done, .size = f.size } else null,
     };
 }
@@ -1075,6 +1102,10 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
     for (try held(replica, arena, s.source)) |h| {
         const there = if (dir.statFile(io, h.path, .{})) |st| st.size == h.size else |_| false;
         if (!there) try locked(writer, io, replica, wall_ms, h.key, s.source, "") else try recorded.put(arena, h.key, h);
+    }
+    for (try localFiles(replica, arena)) |f| {
+        const there = if (dir.statFile(io, f.path, .{})) |st| st.size == f.size else |_| false;
+        if (!there) try replica.removeLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ file_prefix, f.item }));
     }
 
     // Done with: not fetched again; deleted as below.
@@ -1204,6 +1235,7 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
         if (fetched == .fetched) out.fetched += 1 else out.kept += 1;
         const at = try std.fmt.allocPrint(arena, "{s}{s}", .{ at_prefix, f.item });
         if (fetched == .fetched or try replica.local(arena, at) == null) try replica.setLocal(at, try std.fmt.allocPrint(arena, "{d}", .{wall_ms}));
+        try replica.setLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ file_prefix, f.item }), try std.fmt.allocPrint(arena, "{s}\t{s}\t{d}", .{ f.path, f.quality, f.size }));
         const copy = try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ f.item, f.quality });
         if (fetched == .kept) if (recorded.get(copy)) |h| if (std.mem.eql(u8, h.path, f.path) and h.size == f.size) continue;
         const value = try std.fmt.allocPrint(arena, "{s}\t{d}\t{d}", .{ f.path, f.size, @divTrunc(Io.Timestamp.now(io, .real).toMilliseconds(), 1000) });
@@ -1244,7 +1276,7 @@ fn delete(io: Io, arena: std.mem.Allocator, dir: Io.Dir, replica: *Replica, writ
         else => |e| return e,
     };
     try locked(writer, io, replica, wall_ms, h.key, source, "");
-    for ([_][]const u8{ want_prefix, at_prefix }) |prefix|
+    for ([_][]const u8{ want_prefix, at_prefix, file_prefix }) |prefix|
         try replica.removeLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, h.item }));
     out.deleted += 1;
 }
@@ -1273,6 +1305,20 @@ pub fn remove(io: Io, arena: std.mem.Allocator, replica: *Replica, writer: ?*Io.
         if (!std.mem.startsWith(u8, h.item, key[0..title_end]) or h.item.len <= title_end or h.item[title_end] != '/') continue;
         if (!covers(h.item[title_end + 1 ..], below, exact)) continue;
         try delete(io, arena, dir, replica, writer, wall_ms, s.source, h, &out);
+    }
+    // Those only its own records know (their shared records gone with a
+    // source), deleted too.
+    for (try localFiles(replica, arena)) |f| {
+        if (!std.mem.startsWith(u8, f.item, key[0..title_end]) or f.item.len <= title_end or f.item[title_end] != '/') continue;
+        if (!covers(f.item[title_end + 1 ..], below, exact)) continue;
+        if (!safe(f.path)) return error.UnsafePath;
+        dir.deleteFile(io, f.path) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return e,
+        };
+        for ([_][]const u8{ want_prefix, at_prefix, file_prefix }) |prefix|
+            try replica.removeLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, f.item }));
+        out.deleted += 1;
     }
     // Wanted but not yet fetched, too.
     for (try replica.localKeys(arena, want_prefix)) |k| {

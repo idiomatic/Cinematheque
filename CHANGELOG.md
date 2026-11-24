@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Mac: a download plays (and shows as downloaded) from this Mac's own record of its file, so one whose source has gone, as an unplugged drive's whose source moved, is still found, with no writes to the shared library.
 * Apps: an MKV or ISO, which Apple's players can't play, opens in VLC if it's installed (Play says "Play in VLC"), on the Mac, iPhone, and Apple TV.
 * Screenshots made again, with the mock library's art for Sanctuary Moon's seasons 7 to 12.
 * Command-line app: `person set --name` and `device set --name` name this person and their devices; `library leave` removes this device and syncs before forgetting, as the apps' Leave This Library does (`--to` handing the library over if need be).

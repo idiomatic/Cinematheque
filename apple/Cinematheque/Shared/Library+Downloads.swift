@@ -43,6 +43,16 @@ extension Library {
         let total_mb: Int
         /// Files the last pass of reconciling left for want of room.
         let no_room: Int
+        /// Its downloads by this Mac's own records, which don't sync: what
+        /// it plays and marks from, whatever becomes of `held` (the shared
+        /// records, which a source's moving or going empties).
+        struct File: Decodable, Equatable {
+            let item: String
+            let path: String
+            let quality: String
+            let size: Int
+        }
+        let files: [File]
         /// The file being fetched: its item's full key, size, and bytes here.
         struct Fetching: Decodable, Equatable {
             let item: String
@@ -83,17 +93,22 @@ extension Library {
         // and any assignment redraws them all (half a second, on a large
         // library), as a series' choice or a download's progress changes
         // what's kept without changing what's held.
-        let held = Self.tiles(of: (loaded?.held ?? []).map(\.item))
+        let held = Self.tiles(of: (loaded?.held ?? []).map(\.item) + (loaded?.files ?? []).map(\.item))
         if held != downloadedTiles { downloadedTiles = held }
         if let d = downloads, let id = d.source, let dir = d.dir, let source = sources.first(where: { $0.id == id }) {
             Playback.downloads = .init(source: id, base: source.url, dir: dir)
         } else {
             Playback.downloads = nil
         }
+        Playback.localFiles = loaded?.dir.map { dir in
+            Dictionary((loaded?.files ?? []).compactMap { f in URL(fileURLWithPath: dir).within(f.path).map { (f.item, ($0, f.size)) } }, uniquingKeysWith: { a, _ in a })
+        } ?? [:]
     }
 
     /// Whether this Mac holds an item (its full key).
-    func isDownloaded(_ item: String) -> Bool { downloads?.held.contains { $0.item == item } ?? false }
+    func isDownloaded(_ item: String) -> Bool {
+        (downloads?.held.contains { $0.item == item } ?? false) || (downloads?.files.contains { $0.item == item } ?? false)
+    }
 
     /// Whether a title, season, or item is wanted, and being fetched if it
     /// isn't held.

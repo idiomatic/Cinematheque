@@ -105,8 +105,13 @@ enum Playback {
         guard let chosen = ordered.first else { return ([], 0) }
         let others = ordered.dropFirst().flatMap(\.copies)
         // A download on this device first, from its file, in whatever
-        // quality: it's there to play, online or not.
-        let local = (chosen.copies + others).compactMap(downloaded)
+        // quality: it's there to play, online or not; by this device's own
+        // record first, as its shared one may have gone with a source.
+        let own = localFiles["\(detail.key)/\(item.key)"].flatMap { file in
+            FileManager.default.fileExists(atPath: file.url.path) ? TitleDetail.Copy(url: file.url.absoluteString, size: file.size, source: downloads?.source ?? "", unavailable: false) : nil
+        }
+        let recorded = (chosen.copies + others).compactMap(downloaded)
+        let local = (own.map { [$0] } ?? []) + recorded.filter { $0.url != own?.url }
         let streamed = { (copies: [TitleDetail.Copy]) in copies.filter { $0.source != downloads?.source } }
         let mine = streamed(chosen.copies).filter { !$0.unavailable }
         let theirs = streamed(others).filter { !$0.unavailable }
@@ -124,6 +129,11 @@ enum Playback {
     }
 
     static var downloads: Downloads?
+
+    /// This device's downloads by its own records: each item's file (its
+    /// full key's) and size, played first, whether or not a source's record
+    /// of it is left.
+    static var localFiles: [String: (url: URL, size: Int)] = [:]
 
     /// A copy of this device's downloads, as its file, if it's there.
     static func downloaded(_ copy: TitleDetail.Copy) -> TitleDetail.Copy? {
