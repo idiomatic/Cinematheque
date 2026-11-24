@@ -66,14 +66,16 @@ device list prints it.
 
   source list                  list sources
   source show SOURCE           show a source
-  source add URL [--quality NAME] [--quality-by folder|name]
+  source add URL [--quality NAME] [--quality-by path|folder|name]
                 [--skip PREFIX]
                                add a source: the quality of its files,
-                               if known, or by folder, each file's being
-                               the first folder within the source's
-                               (Movies/QUALITY/TITLE.m4v); and the prefix
+                               if known; else by path (the default), the
+                               nearest of each file's name and its
+                               folders that says one (TV/1080p/SHOW/
+                               EPISODE.mkv), or by folder, the first
+                               folder within the source; and the prefix
                                of names to skip (default none)
-  source set SOURCE [--quality NAME] [--quality-by folder|name]
+  source set SOURCE [--quality NAME] [--quality-by path|folder|name]
                 [--skip PREFIX]
                                change a source's settings; crawl to apply
   source remove SOURCE --unavailable DIR

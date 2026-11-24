@@ -8,6 +8,8 @@ const ascii = std.ascii;
 const Replica = @import("replica.zig").Replica;
 const crawl = @import("crawl.zig");
 const library = @import("library.zig");
+const naming = @import("naming.zig");
+const testing = std.testing;
 const Source = library.Source;
 const sources = library.sources;
 const CrawlStats = library.CrawlStats;
@@ -258,4 +260,43 @@ test "a device's own source, moved to its port-free address once, keeps its copi
     try t.expectEqualStrings(try url.deviceSource(arena, me, "/downloads/"), own);
     try t.expect(try library.portBound(&r, arena, me, "/downloads/") == null);
     try t.expectEqual(@as(usize, 2), (try sources(&r, arena)).len);
+}
+
+test "qualities come from the source, or else from the file's name, or its folders'" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // Parses share nothing with each other but their scratch space.
+    var scratch: [3][512]u8 = undefined;
+    const sd = naming.parse("Movies/Alien (1979)/Alien (1979) - 720p.mkv", &scratch[0]);
+    const uhd = naming.parse("Movies/Alien (1979)/Alien (1979) - 4K HDR.mkv", &scratch[1]);
+    try testing.expectEqualStrings((try library.keys(a, sd)).item, (try library.keys(a, uhd)).item);
+    try testing.expectEqualStrings("720p", try library.qualityOf(a, .{}, sd, null));
+    try testing.expectEqualStrings("2160p-hdr", try library.qualityOf(a, .{}, uhd, null));
+    try testing.expectEqualStrings("very-fast-720p30", try library.qualityOf(a, .{ .quality = .{ .named = "Very Fast 720p30" } }, uhd, null));
+    try testing.expectEqualStrings("-", try library.qualityOf(a, .{}, naming.parse("Alien (1979).mkv", &scratch[2]), null));
+    // A source naming qualities by folder: the first folder is the quality,
+    // and isn't read as the file's name.
+    const by_folder: library.Layout = .{ .quality = .folder };
+    const as = try library.named(a, by_folder, "HQ 1080p30 Surround/Firefly/Season 01/Firefly S01E02.m4v");
+    try testing.expectEqualStrings("Firefly/Season 01/Firefly S01E02.m4v", as.path);
+    try testing.expectEqualStrings("hq-1080p30-surround", try library.qualityOf(a, by_folder, naming.parse(as.path, &scratch[2]), as.folder));
+    try testing.expectEqual(@as(?[]const u8, null), (try library.named(a, by_folder, "Alien (1979).m4v")).folder);
+    try testing.expectEqual(@as(?[]const u8, null), (try library.named(a, .{ .quality = .names }, "HQ/Alien (1979).m4v")).folder);
+    // By default, names and folders: the nearest that says one, a folder by
+    // its whole name, unless it reads as a title's.
+    const Case = struct { []const u8, []const u8, []const u8 };
+    for ([_]Case{
+        .{ "Video/TV Shows/1080p/30 Rock/30 Rock 101 Pilot.mkv", "Video/TV Shows/30 Rock/30 Rock 101 Pilot.mkv", "1080p" },
+        .{ "HQ 1080p30 Surround/Firefly/Season 01/Firefly S01E02.m4v", "Firefly/Season 01/Firefly S01E02.m4v", "hq-1080p30-surround" },
+        .{ "Downloaded 1080p/Hamilton.2020.2160p.WEBRip.x264.mp4", "Downloaded 1080p/Hamilton.2020.2160p.WEBRip.x264.mp4", "2160p-web-h264" },
+        .{ "Very Fast 720p30/Madame Web (2024).m4v", "Madame Web (2024).m4v", "very-fast-720p30" },
+        .{ "TV Shows/30 Rock (2006) 1080p/30 Rock 101 Pilot.mkv", "TV Shows/30 Rock (2006) 1080p/30 Rock 101 Pilot.mkv", "1080p" },
+        .{ "Video/Alien (1979).mkv", "Video/Alien (1979).mkv", "-" },
+    }) |c| {
+        const layout: library.Layout = .{};
+        const at = try library.named(a, layout, c[0]);
+        try testing.expectEqualStrings(c[1], at.path);
+        try testing.expectEqualStrings(c[2], try library.qualityOf(a, layout, naming.parse(at.path, &scratch[2]), at.folder));
+    }
 }

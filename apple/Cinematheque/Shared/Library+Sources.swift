@@ -20,6 +20,7 @@ extension Library {
     /// it is.
     func setQuality(_ source: String, _ quality: Source.Quality) {
         switch quality {
+        case .path: checkAndReload { cq_repo_quality_from_path($0, source) }
         case .names: checkAndReload { cq_repo_quality_from_names($0, source) }
         case .folder: checkAndReload { cq_repo_quality_from_folder($0, source) }
         case .named(let name): checkAndReload { cq_repo_quality_named($0, source, name) }

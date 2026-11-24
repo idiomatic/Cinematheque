@@ -34,8 +34,9 @@ const url = @import("url.zig");
 const Blake3 = std.crypto.hash.Blake3;
 
 pub const Layout = struct {
-    /// Where its files' quality comes from.
-    quality: QualityFrom = .names,
+    /// Where its files' quality comes from: by default, the nearest of the
+    /// file's name and its folders that says one.
+    quality: QualityFrom = .path,
     /// Names starting with this are skipped (e.g., housekeeping folders), or
     /// none if empty, as by default: a prefix skips titles that start with
     /// it too, so no default suits every library.
@@ -52,6 +53,15 @@ pub const QualityFrom = union(enum) {
     /// (`Movies/HQ 1080p30 Surround/Alien (1979).m4v`); that folder isn't
     /// read as part of the file's name.
     folder,
+    /// The nearest that says one, of the file's name and its folders up to
+    /// the source (`D/C/B/A.m4v`: A, then B, C, D): the name by its tokens,
+    /// canonically (`2160p hevc hdr`); a folder by its whole name
+    /// (`HQ 1080p30 Surround`, `1080p`), which isn't read as part of the
+    /// file's, unless it reads as a title's (`30 Rock (2006) 1080p`), which
+    /// gives its tokens alone. The name counts only if it says a resolution,
+    /// as a word such as "Web" may be its title's. `names` and `folder` in
+    /// one, by default.
+    path,
     /// One name for every file (e.g., a HandBrake preset's).
     named: []const u8,
     /// A `quality-by` a newer device wrote, which this one can't apply (as
@@ -62,6 +72,7 @@ pub const QualityFrom = union(enum) {
     /// As stored: its `quality-by` and `rendition`.
     fn fromFields(by: []const u8, rendition: []const u8) QualityFrom {
         if (std.mem.eql(u8, by, "folder")) return .folder;
+        if (std.mem.eql(u8, by, "path")) return .path;
         if (by.len > 0) return .unknown;
         return if (rendition.len > 0) .{ .named = rendition } else .names;
     }
@@ -71,20 +82,46 @@ pub const QualityFrom = union(enum) {
         return switch (q) {
             .names => .{ "", "" },
             .folder => .{ "folder", "" },
+            .path => .{ "path", "" },
             .named => |n| .{ "", n },
             .unknown => null,
         };
     }
 };
 
-/// How a source's file is read: the path to parse, and its quality folder,
-/// if the source names qualities by folder.
+/// How a source's file is read: the path to parse, less its quality
+/// folder, if its quality is a folder's whole name.
 pub const Named = struct { path: []const u8, folder: ?[]const u8 };
 
-pub fn named(layout: Layout, rel: []const u8) Named {
-    if (layout.quality != .folder) return .{ .path = rel, .folder = null };
-    const slash = std.mem.indexOfScalar(u8, rel, '/') orelse return .{ .path = rel, .folder = null };
-    return .{ .path = rel[slash + 1 ..], .folder = rel[0..slash] };
+pub fn named(arena: std.mem.Allocator, layout: Layout, rel: []const u8) !Named {
+    const whole: Named = .{ .path = rel, .folder = null };
+    switch (layout.quality) {
+        .folder => {
+            const slash = std.mem.indexOfScalar(u8, rel, '/') orelse return whole;
+            return .{ .path = rel[slash + 1 ..], .folder = rel[0..slash] };
+        },
+        .path => {
+            const file_at = if (std.mem.lastIndexOfScalar(u8, rel, '/')) |s| s + 1 else return whole;
+            var scratch: [1024]u8 = undefined;
+            // The file's own name first, if it says a resolution: a word
+            // such as "Web" alone may be its title's ("Madame Web").
+            if (naming.parse(rel[file_at..], &scratch).quality) |q| if (naming.hasResolution(q)) return whole;
+            var end = file_at - 1;
+            while (true) {
+                const start = if (std.mem.lastIndexOfScalar(u8, rel[0..end], '/')) |s| s + 1 else 0;
+                const folder = rel[start..end];
+                if (naming.namesQuality(folder)) {
+                    // A title's folder's quality is its tokens', as the
+                    // file's would be (`naming.parse`).
+                    if (naming.readsAsTitle(folder)) return whole;
+                    return .{ .path = try std.mem.concat(arena, u8, &.{ rel[0..start], rel[end + 1 ..] }), .folder = folder };
+                }
+                if (start == 0) return whole;
+                end = start - 1;
+            }
+        },
+        .names, .named, .unknown => return whole,
+    }
 }
 
 pub const Source = struct {
@@ -261,7 +298,7 @@ pub fn seriesByFolder(arena: std.mem.Allocator, base: []const u8, layout: Layout
     var scratch: [1024]u8 = undefined;
     for (entries) |entry| {
         if (entry.is_dir) continue;
-        const rel = named(layout, relativeOrNull(arena, base, entry.url) orelse continue).path;
+        const rel = (try named(arena, layout, relativeOrNull(arena, base, entry.url) orelse continue)).path;
         if (!naming.isVideo(rel)) continue;
         const p = naming.parse(rel, &scratch);
         if (p.kind != .episode or p.title.len == 0) continue;
@@ -749,7 +786,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
             stats.skipped += 1;
             continue;
         }
-        const as = named(source.layout, rel);
+        const as = try named(arena, source.layout, rel);
         const path = as.path;
         if (!naming.isVideo(path)) {
             stats.skipped += 1;
@@ -990,7 +1027,7 @@ const Parents = struct {
 /// file's name says (e.g., `2160p-hevc-hdr`); else `-`, unknown.
 pub fn qualityOf(arena: std.mem.Allocator, layout: Layout, p: naming.Parsed, folder: ?[]const u8) ![]const u8 {
     switch (layout.quality) {
-        .folder => if (folder) |f| return normalize(arena, f),
+        .folder, .path => if (folder) |f| return normalize(arena, f),
         .named => |n| return normalize(arena, n),
         .names, .unknown => {},
     }
@@ -1372,29 +1409,6 @@ test "keys follow parsed identity" {
     try testing.expectEqualStrings("t/m/salt/2010/v/directors-cut", movie.item);
     const episode = try keys(a, naming.parse("Friends/Friends 423 The One with Ross's Wedding.m4v", &scratch));
     try testing.expectEqualStrings("t/s/friends/-/e/s04e23", episode.item);
-}
-
-test "qualities come from the source, or else from the file's name" {
-    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena_state.deinit();
-    const a = arena_state.allocator();
-    // Parses share nothing with each other but their scratch space.
-    var scratch: [3][512]u8 = undefined;
-    const sd = naming.parse("Movies/Alien (1979)/Alien (1979) - 720p.mkv", &scratch[0]);
-    const uhd = naming.parse("Movies/Alien (1979)/Alien (1979) - 4K HDR.mkv", &scratch[1]);
-    try testing.expectEqualStrings((try keys(a, sd)).item, (try keys(a, uhd)).item);
-    try testing.expectEqualStrings("720p", try qualityOf(a, .{}, sd, null));
-    try testing.expectEqualStrings("2160p-hdr", try qualityOf(a, .{}, uhd, null));
-    try testing.expectEqualStrings("very-fast-720p30", try qualityOf(a, .{ .quality = .{ .named = "Very Fast 720p30" } }, uhd, null));
-    try testing.expectEqualStrings("-", try qualityOf(a, .{}, naming.parse("Alien (1979).mkv", &scratch[2]), null));
-    // A source naming qualities by folder: the first folder is the quality,
-    // and isn't read as the file's name.
-    const by_folder: Layout = .{ .quality = .folder };
-    const as = named(by_folder, "HQ 1080p30 Surround/Firefly/Season 01/Firefly S01E02.m4v");
-    try testing.expectEqualStrings("Firefly/Season 01/Firefly S01E02.m4v", as.path);
-    try testing.expectEqualStrings("hq-1080p30-surround", try qualityOf(a, by_folder, naming.parse(as.path, &scratch[2]), as.folder));
-    try testing.expectEqual(@as(?[]const u8, null), named(by_folder, "Alien (1979).m4v").folder);
-    try testing.expectEqual(@as(?[]const u8, null), named(.{}, "HQ/Alien (1979).m4v").folder);
 }
 
 test "state: sources, aliases, progress, and members can be listed, set, and removed" {

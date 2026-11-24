@@ -225,8 +225,15 @@ fn sourceSkip(lib: *Library, arena: std.mem.Allocator, source: []const u8, skip:
     _ = try library.setSkip(try lib.main(), arena, lib.now(), source, skip);
 }
 
-/// Takes a source's files' quality from their names. Copies move at the
-/// next crawl.
+/// Takes a source's files' quality from the nearest of each file's name and
+/// its folders that says one (`QualityFrom.path`), as new sources do.
+/// Copies move at the next crawl.
+export fn cq_repo_quality_from_path(lib: *Library, source: [*:0]const u8) c_int {
+    return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom.path });
+}
+
+/// Takes a source's files' quality from their names, as sources added
+/// before names and folders were one did. Copies move at the next crawl.
 export fn cq_repo_quality_from_names(lib: *Library, source: [*:0]const u8) c_int {
     return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom.names });
 }

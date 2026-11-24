@@ -316,6 +316,72 @@ fn isExtraFolder(name: []const u8) bool {
     return false;
 }
 
+/// Whether a folder's name says a quality: a technical token (`1080p`,
+/// `HEVC`), a resolution with its frame rate (`1080p30`), or a frame's size
+/// (`960x640`), as HandBrake's presets' names do.
+pub fn namesQuality(name: []const u8) bool {
+    var words = mem.tokenizeAny(u8, name, " _[]()");
+    while (words.next()) |word| {
+        if (Technical.of(word) != null or framed(word)) return true;
+        var parts = mem.tokenizeScalar(u8, word, '.');
+        while (parts.next()) |part| if (Technical.of(part) != null or framed(part)) return true;
+    }
+    return false;
+}
+
+/// Whether a quality label (`1080p web h264`) says a resolution.
+pub fn hasResolution(label: []const u8) bool {
+    var words = mem.tokenizeAny(u8, label, " -");
+    while (words.next()) |w| if (Technical.of(w)) |t| if (t[0] == .resolution) return true;
+    return false;
+}
+
+/// `1080p30`, `2160p60`, `1080i25`; `960x640`.
+fn framed(word: []const u8) bool {
+    const digits = for (word, 0..) |c, i| {
+        if (!ascii.isDigit(c)) break i;
+    } else word.len;
+    if (digits < 3 or digits == word.len) return false;
+    const rest = word[digits + 1 ..];
+    if (rest.len == 0 or rest.len > 4) return false;
+    for (rest) |c| if (!ascii.isDigit(c)) return false;
+    return switch (ascii.toLower(word[digits])) {
+        'p', 'i' => rest.len <= 3,
+        'x' => rest.len >= 3,
+        else => false,
+    };
+}
+
+/// Whether a folder's name reads as a title's, with a year, a season, an
+/// episode, or a date (`30 Rock (2006) 1080p`, `30.Rock.S01.1080p.BluRay`),
+/// so a quality in it is only part of it.
+pub fn readsAsTitle(name: []const u8) bool {
+    var p: Parsed = .{};
+    var scratch: [1024]u8 = undefined;
+    var used: usize = 0;
+    scanName(&p, name, &scratch, &used);
+    if (p.year != null or p.season != null or p.episode != null or p.date != null) return true;
+    // A season pack's `S01`.
+    var words = mem.tokenizeAny(u8, name, " ._-[]()");
+    while (words.next()) |w| if (w.len >= 2 and w.len <= 3 and (w[0] == 's' or w[0] == 'S')) {
+        for (w[1..]) |c| {
+            if (!ascii.isDigit(c)) break;
+        } else return true;
+    };
+    return false;
+}
+
+test "a folder's name, a quality, or a title's" {
+    const t = std.testing;
+    for ([_][]const u8{ "1080p", "HQ 1080p30 Surround --encoder=x265", "HQ 2160p60 4K HEVC Surround", "Standard Definition H.264 480p", "iPhone & iPod Touch 960x640", "Very Fast 720p30", "Downloaded 720p" }) |n| try t.expect(namesQuality(n));
+    for ([_][]const u8{ "Video", "TV Shows", "30 Rock", "Season 01", "Sanctuary Moon (2018)", "1984" }) |n| try t.expect(!namesQuality(n));
+    try t.expect(readsAsTitle("30 Rock (2006) 1080p"));
+    try t.expect(readsAsTitle("30.Rock.S01.1080p.BluRay.x264-GRP"));
+    try t.expect(!readsAsTitle("HQ 1080p30 Surround --encoder=x265"));
+    try t.expect(!readsAsTitle("HQ 2160p60 4K HEVC Surround"));
+    try t.expect(!readsAsTitle("1080p"));
+}
+
 /// Whether a folder holds a season ("Season 01", "Specials").
 pub fn isSeasonFolder(name: []const u8) bool {
     return seasonFolder(name) != null;

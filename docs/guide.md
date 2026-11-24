@@ -126,11 +126,19 @@ Movies/All Systems Red (2017)/All Systems Red (2017) - 4K HDR.mkv
 Movies/Network.Effect.2020.1080p.BluRay.x264-GROUP.mkv
 ```
 
-A name that says nothing takes its folder's, or that folder's folder's, up to the source. Where a source's files are all one quality though nothing says so (everything one encoder preset made, say), say it for the whole source, or have each first folder within it name its quality:
+A name that says no resolution takes the nearest folder above it that says a quality, by the folder's whole name, so folders of qualities work at any depth:
 
-* **On the Mac:** in a source's sheet in Settings › Sources, Quality: From the Folder Under It, or Named.
+```
+Video/TV Shows/1080p/30 Rock/30 Rock 101 Pilot.mkv           1080p
+Movies/HQ 1080p30 Surround/Alien (1979).m4v                  HQ 1080p30 Surround
+TV Shows/30 Rock (2006) 1080p/30 Rock 101 Pilot.mkv          1080p (a title's folder gives only its tokens)
+```
+
+Where a source's files are all one quality though nothing says so (everything one encoder preset made, say), name it for the whole source:
+
+* **On the Mac:** in a source's sheet in Settings › Sources, Quality: Named. (A source added before shows From File Names or From the Folder Under It until you choose From Names and Folders.)
 * **On the iPhone:** on a source's page in Settings › Sources.
-* **On the command line:** `source add URL --quality NAME`, or `--quality-by folder`.
+* **On the command line:** `source add URL --quality NAME`; `source set SOURCE --quality-by path` moves an older source to names and folders.
 
 ### Refreshing
 

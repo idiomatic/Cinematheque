@@ -157,7 +157,7 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
                 continue;
             }
             if (!naming.isVideo(rel) or skippedPath(rel, source.layout.skip)) continue;
-            const p = try library.parseFile(arena, library.named(source.layout, rel).path, &series);
+            const p = try library.parseFile(arena, (try library.named(arena, source.layout, rel)).path, &series);
             if (p.kind == .extra or p.title.len == 0) continue;
             const k = try library.keys(arena, p);
             const is_episode = p.kind == .episode;

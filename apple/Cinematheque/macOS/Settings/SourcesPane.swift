@@ -165,7 +165,7 @@ private struct SourceSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var url = ""
     @State private var quality = ""
-    @State private var from = Source.QualityFrom.names
+    @State private var from = Source.QualityFrom.path
     /// The prefix of names to skip, none if empty.
     @State private var skip = ""
     /// For a folder of this Mac, the folder it's served from, which
@@ -201,6 +201,7 @@ private struct SourceSheet: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button(source == nil ? "Add" : "Save") {
                     let chosen: Source.Quality = switch from {
+                    case .path: .path
                     case .names: .names
                     case .folder: .folder
                     case .named: .named(quality)
@@ -214,7 +215,7 @@ private struct SourceSheet: View {
                         }
                     } else {
                         library.addSource(url, skip: skip.isEmpty ? nil : skip)
-                        if chosen != .names { library.setQuality(url, chosen) }
+                        if chosen != .path { library.setQuality(url, chosen) }
                         Task { await library.crawl() }
                     }
                     dismiss()
@@ -265,10 +266,12 @@ private struct SourceSheet: View {
             }
             Section {
                 Picker("Quality", selection: $from) {
-                    Text("From File Names").tag(Source.QualityFrom.names)
-                    Text("From the Folder Under It").tag(Source.QualityFrom.folder)
+                    Text("From Names and Folders").tag(Source.QualityFrom.path)
                     Text("Named").tag(Source.QualityFrom.named)
-                    // Kept as it is, unless another is chosen.
+                    // Kept as it is, unless another is chosen: one from
+                    // before names and folders were one, or a newer version's.
+                    if from == .names { Text("From File Names").tag(Source.QualityFrom.names) }
+                    if from == .folder { Text("From the Folder Under It").tag(Source.QualityFrom.folder) }
                     if from == .unknown { Text("Set by a Newer Version").tag(Source.QualityFrom.unknown) }
                 }
                 // Only for a name, as Settings show a choice's details.
@@ -277,7 +280,7 @@ private struct SourceSheet: View {
                 }
                 TextField("Skip Names Starting With", text: $skip, prompt: Text("None"))
             } footer: {
-                Text("If the videos' names don't say their quality, set it here so you can choose which quality plays: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them. To leave files out of the library, put them in folders whose names start with what Skip says; titles starting with it are left out too.")
+                Text("Each video's quality, so you can choose which plays, comes from its name, else the nearest folder above it that says one (as TV Shows/1080p/30 Rock/), taken whole (HQ 1080p30 Surround). If neither says it, name one for all of them. To leave files out of the library, put them in folders whose names start with what Skip says; titles starting with it are left out too.")
                     .foregroundStyle(.secondary)
             }
             // As it is now, so one removed leaves the list.

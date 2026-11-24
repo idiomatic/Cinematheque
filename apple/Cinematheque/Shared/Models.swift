@@ -196,11 +196,15 @@ nonisolated struct Source: Codable, Identifiable, Hashable {
     /// Where a source's files' quality comes from, as the core names it:
     /// their names, the first folder within it, one name, or a newer
     /// device's setting, which this one doesn't crawl by.
-    enum QualityFrom: String, Codable, Hashable { case names, folder, named, unknown }
+    /// `path`, the nearest of a file's name and folders that says one, is
+    /// the default; `names` and `folder` are sources' from before they were
+    /// one, kept until another's chosen.
+    enum QualityFrom: String, Codable, Hashable { case path, names, folder, named, unknown }
 
     /// Its quality setting, the name with it.
     var qualitySetting: Quality {
         switch quality_from {
+        case .path: .path
         case .names: .names
         case .folder: .folder
         case .named: .named(quality)
@@ -209,7 +213,7 @@ nonisolated struct Source: Codable, Identifiable, Hashable {
     }
 
     /// A quality setting: where it comes from, a name with `named`.
-    enum Quality: Hashable { case names, folder, named(String), unknown }
+    enum Quality: Hashable { case path, names, folder, named(String), unknown }
     let copies: Int
     var unavailable: [Unavailable] = []
     /// A device's downloads, which no one crawls (see the core's

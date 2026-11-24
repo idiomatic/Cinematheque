@@ -494,7 +494,7 @@ private struct SourcePage: View {
     let id: String
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
-    @State private var from = Source.QualityFrom.names
+    @State private var from = Source.QualityFrom.path
     @State private var quality = ""
     @State private var skip = ""
     @State private var removing: Source?
@@ -518,10 +518,12 @@ private struct SourcePage: View {
                 }
                 Section {
                     Picker("Quality", selection: $from) {
-                        Text("From File Names").tag(Source.QualityFrom.names)
-                        Text("From the Folder Under It").tag(Source.QualityFrom.folder)
+                        Text("From Names and Folders").tag(Source.QualityFrom.path)
                         Text("Named").tag(Source.QualityFrom.named)
-                        // Kept as it is, unless another is chosen.
+                        // Kept as it is, unless another is chosen: one from
+                        // before names and folders were one, or a newer version's.
+                        if from == .names { Text("From File Names").tag(Source.QualityFrom.names) }
+                        if from == .folder { Text("From the Folder Under It").tag(Source.QualityFrom.folder) }
                         if from == .unknown { Text("Set by a Newer Version").tag(Source.QualityFrom.unknown) }
                     }
                     .onChange(of: from) { saveQuality() }
@@ -533,7 +535,7 @@ private struct SourcePage: View {
                         }
                     }
                 } footer: {
-                    Text("If the videos' names don't say their quality, set it here so you can choose which quality plays: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them.")
+                    Text("Each video's quality, so you can choose which plays, comes from its name, else the nearest folder above it that says one (as TV Shows/1080p/30 Rock/), taken whole (HQ 1080p30 Surround). If neither says it, name one for all of them.")
                 }
                 // Its name a heading, too long to sit beside what's typed.
                 Section {
@@ -588,6 +590,7 @@ private struct SourcePage: View {
     private func saveQuality() {
         guard let source else { return }
         let chosen: Source.Quality = switch from {
+        case .path: .path
         case .names: .names
         case .folder: .folder
         case .named: .named(quality)
@@ -603,7 +606,7 @@ private struct AddServerSheet: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var url = ""
-    @State private var from = Source.QualityFrom.names
+    @State private var from = Source.QualityFrom.path
     @State private var quality = ""
     @State private var skip = ""
     @FocusState private var typing: Bool
@@ -625,8 +628,7 @@ private struct AddServerSheet: View {
                 }
                 Section {
                     Picker("Quality", selection: $from) {
-                        Text("From File Names").tag(Source.QualityFrom.names)
-                        Text("From the Folder Under It").tag(Source.QualityFrom.folder)
+                        Text("From Names and Folders").tag(Source.QualityFrom.path)
                         Text("Named").tag(Source.QualityFrom.named)
                     }
                     if from == .named {
@@ -659,9 +661,8 @@ private struct AddServerSheet: View {
         guard valid, let url = webAddress(url) else { return }
         library.addSource(url, skip: skip.isEmpty ? nil : skip)
         switch from {
-        case .folder: library.setQuality(url, .folder)
         case .named: library.setQuality(url, .named(quality))
-        case .names, .unknown: break
+        case .path, .names, .folder, .unknown: break
         }
         Task { await library.crawl() }
         dismiss()

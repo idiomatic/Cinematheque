@@ -88,6 +88,7 @@ int cq_repo_add(cq_library *library, const char *url, const char *skip);
 int cq_repo_skip(cq_library *library, const char *source, const char *skip);
 // Where a source's files take their quality from: their names, the first
 // folder within it, or one name for all.
+int cq_repo_quality_from_path(cq_library *library, const char *source);
 int cq_repo_quality_from_names(cq_library *library, const char *source);
 int cq_repo_quality_from_folder(cq_library *library, const char *source);
 int cq_repo_quality_named(cq_library *library, const char *source, const char *name);

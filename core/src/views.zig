@@ -122,7 +122,7 @@ pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
                 // The quality's name as its sources give it: its folder's, or
                 // the source's.
                 if (rp) |b| switch (b.layout.quality) {
-                    .folder => if (library.named(b.layout, h.path).folder) |f| {
+                    .folder, .path => if ((try library.named(arena, b.layout, h.path)).folder) |f| {
                         name = f;
                     },
                     .named => |n| name = n,

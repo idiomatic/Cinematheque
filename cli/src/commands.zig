@@ -226,27 +226,30 @@ fn qualitySetting(arena: std.mem.Allocator, layout: lib.Layout) ![]const u8 {
     return switch (layout.quality) {
         .names => "by name",
         .folder => "by folder",
+        .path => "by path",
         .named => |n| std.fmt.allocPrint(arena, "\"{s}\"", .{n}),
         .unknown => "set by a newer version",
     };
 }
 
 /// What `--quality-by` takes.
-const QualityBy = enum { folder, name };
+const QualityBy = enum { folder, name, path };
 
 /// Where a source's quality comes from, as `--quality-by` and `--quality`
 /// say, given what it was; null if they say nothing. By name keeps a name
 /// already given.
 fn qualityFrom(c: Command, by: ?QualityBy, was: lib.QualityFrom) ?lib.QualityFrom {
     if (by == .folder) return .folder;
-    if (c.args.get("--quality")) |n| return if (n.len > 0) .{ .named = n } else .names;
+    if (by == .path) return .path;
+    if (c.args.get("--quality")) |n| return if (n.len > 0) .{ .named = n } else .path;
     if (by == .name) return if (was == .named) was else .names;
     return null;
 }
 
 pub fn source(app: *App, c: Command) !void {
     const settings = &.{ "--quality", "--skip", "--quality-by" };
-    // `--quality-by folder` reads each file's quality from the first folder
+    // `--quality-by path` reads each file's quality from the nearest of its
+    // name and folders that says one; `folder`, from the first folder
     // within the source; `name`, from the source's name (`--quality`), or
     // else the file's.
     const by: ?QualityBy = if (c.args.get("--quality-by")) |v| std.meta.stringToEnum(QualityBy, v) orelse return error.Usage else null;
@@ -271,7 +274,7 @@ pub fn source(app: *App, c: Command) !void {
         try core.url.escape(app.arena, &typed, c.rest[0]);
         if (!std.mem.endsWith(u8, typed.items, "/")) try typed.append(app.arena, '/');
         var layout: lib.Layout = .{};
-        if (qualityFrom(c, by, .names)) |q| layout.quality = q;
+        if (qualityFrom(c, by, .path)) |q| layout.quality = q;
         if (c.args.get("--skip")) |v| layout.skip = v;
         try app.out.print("added source {s}\n", .{try lib.addSource(&r, app.now(), typed.items, layout)});
     } else if (c.is("set", 1, settings) and c.args.count() > 0) {
