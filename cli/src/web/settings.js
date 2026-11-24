@@ -152,19 +152,16 @@ async function settingsPage() {
 
   page.append(group("Library"));
 
-  // Sources, as the core orders and names them (by server and folders, a
-  // device's downloads by whose they are, last); each opened in a new
-  // window by the web's external-link symbol (the Mac's Open in Browser
-  // shows Safari's compass, macOS's own), and removed by its ⊖.
+  // Sources, as the core orders and names them (by server and folders),
+  // devices' downloads left out, as the apps leave them; each opened in a
+  // new window by the web's external-link symbol (the Mac's Open in
+  // Browser shows Safari's compass, macOS's own), and removed by its ⊖.
   const files = (n) => `${n.toLocaleString()} ${n === 1 ? "file" : "files"}`;
   const addServer = el("input", { type: "url", placeholder: "http://nas.local/videos/", "aria-label": "Server address" });
   page.append(section("Sources", "Folders and servers of videos. Cinematheque only reads them.",
     ...s.sources.map((src) => {
-      // Whose, by the device's name, else its address's host.
-      const name = src.managed ? `${src.owner || src.path[0]}’s downloads` : src.path.join(" › ");
-      const removing = src.managed
-        ? `Remove ${name}? If that device is still in use, it adds them back as it next starts; their files stay where they are.`
-        : `Remove ${name}? Its ${files(src.copies)} leave the library on every device; they stay where they are.`;
+      const name = src.path.join(" › ");
+      const removing = `Remove ${name}? Its ${files(src.copies)} leave the library on every device; they stay where they are.`;
       return el("div", { class: "source" },
         row(name, files(src.copies),
           el("a", { class: "icon", href: src.url, target: "_blank", rel: "noopener noreferrer", title: "Open in a New Window", "aria-label": `Open ${name} in a new window` }, symbol(external)),

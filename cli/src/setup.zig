@@ -412,10 +412,13 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
     const Unavailable = struct { dir: []const u8, since_ms: u64 };
     // Its path as players show it, and whose it is, by name, for a
     // device's downloads.
-    const Source = struct { id: []const u8, url: []const u8, path: []const []const u8, owner: ?[]const u8, managed: bool, copies: i64, unavailable: []const Unavailable };
+    const Source = struct { id: []const u8, url: []const u8, path: []const []const u8, copies: i64, unavailable: []const Unavailable };
     var sources: std.ArrayList(Source) = .empty;
     var media_added = false;
     for (try lib.sources(&r, arena)) |s| {
+        // Devices' downloads are theirs to manage (this one's under Kept),
+        // as the apps leave them out of Sources.
+        if (s.managed) continue;
         if (w.media) |m| if (std.mem.eql(u8, m.url, s.url)) {
             media_added = true;
         };
@@ -425,8 +428,6 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
             .id = try arena.dupe(u8, &s.id),
             .url = s.url,
             .path = try lib.shownPath(arena, s),
-            .owner = if (s.owner) |o| lib.nameOf(named, &hex(o)) else null,
-            .managed = s.managed,
             .copies = try lib.countCopies(&r, arena, s),
             .unavailable = gone.items,
         });

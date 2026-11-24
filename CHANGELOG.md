@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Web client: Settings' Sources leaves devices' downloads out, as the apps' do (its own are under Kept).
 * Command-line app: `serve` syncs as it starts, and leaves a library that removed it, as the apps do, its web client set up afresh; it went on serving the library's catalog and sources.
 * Devices by Address is gone from the apps' and the web client's Settings (and `cq_device_address_add` and `cq_device_address_forget` from the C interface): devices sync whenever they share a network. The command-line app's `device add URL` still reaches a device elsewhere, and addresses already added are still synced with.
 * Web client: Settings in the apps' order and groups (Names, Sharing, Library), its names This Server and You, as the apps' This iPhone and This Apple TV, and devices by address under Your Devices.
