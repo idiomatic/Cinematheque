@@ -4,8 +4,8 @@ import SwiftUI
 import SystemConfiguration
 
 /// Settings: the people who share the library, your devices (this Mac's
-/// sharing among them), named in place, where videos come from, and where
-/// downloads go; addresses are kept under Advanced.
+/// sharing among them, and devices by address), named in place, where
+/// videos come from, and where downloads go; nothing behind a toggle.
 struct ManageView: View {
     var body: some View {
         TabView {
@@ -30,21 +30,6 @@ struct RemoveButton: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .help(help)
-    }
-}
-
-/// A footer for the section above it that can't have one, as a collapsible
-/// section can't: a section of its own, empty but for the footer.
-struct Footer: View {
-    let text: String
-
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        Section {
-        } footer: {
-            Text(text)
-        }
     }
 }
 

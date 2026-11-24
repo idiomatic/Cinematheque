@@ -12,7 +12,6 @@ struct SourcesPane: View {
     /// A source to remove, once confirmed: removing one takes its copies
     /// from the library on every device.
     @State private var removing: Source?
-    @State private var advanced = false
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -75,19 +74,17 @@ struct SourcesPane: View {
                 editing = library.sources.first { $0.id == ids.first }
             }
             // For every device: a NAS's disks spin up for each look.
-            DisclosureGroup("Advanced", isExpanded: $advanced) {
-                VStack(alignment: .leading) {
-                    Picker("Look for videos", selection: Binding(get: { library.crawlEvery }, set: { library.setCrawlEvery($0) })) {
-                        ForEach(Library.crawlChoices, id: \.hours) { Text($0.name).tag($0.hours) }
-                    }
-                    .pickerStyle(.menu)
-                    .fixedSize()
-                    Text("Look more often to see new videos sooner, or less often to let a NAS's disks rest; each look wakes them. This applies to everyone in the library.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading) {
+                Picker("Look for videos", selection: Binding(get: { library.crawlEvery }, set: { library.setCrawlEvery($0) })) {
+                    ForEach(Library.crawlChoices, id: \.hours) { Text($0.name).tag($0.hours) }
                 }
-                .padding(.top, 4)
+                .pickerStyle(.menu)
+                .fixedSize()
+                Text("Look more often to see new videos sooner, or less often to let a NAS's disks rest; each look wakes them. This applies to everyone in the library.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
+            .padding(.top, 4)
             // At the pane's foot, as Settings' actions are; refreshing is
             // File › Refresh Library's.
             HStack {
@@ -158,8 +155,8 @@ struct SourcesPane: View {
 
 }
 
-/// Adding a source by its address, or editing one; where its files'
-/// quality comes from, and names to skip, are advanced.
+/// Adding a source by its address, or editing one: where its files'
+/// quality comes from, and names to skip.
 private struct SourceSheet: View {
     let source: Source?
     @Environment(Library.self) private var library
@@ -173,7 +170,6 @@ private struct SourceSheet: View {
     /// Choose… changes.
     @State private var path: String?
     @State private var choosing = false
-    @State private var advanced = false
     @FocusState private var typing: Bool
 
     var body: some View {
@@ -230,7 +226,6 @@ private struct SourceSheet: View {
                 from = source.quality_from
                 skip = source.skip
                 path = library.folder(of: source)?.path
-                advanced = from != .names || !skip.isEmpty
             }
         }
     }
@@ -266,7 +261,7 @@ private struct SourceSheet: View {
                     LabeledContent("Address", value: source.url.removingPercentEncoding ?? source.url)
                 }
             }
-            Section("Advanced", isExpanded: $advanced) {
+            Section {
                 Picker("Quality", selection: $from) {
                     Text("From File Names").tag(Source.QualityFrom.names)
                     Text("From the Folder Under It").tag(Source.QualityFrom.folder)
@@ -279,9 +274,9 @@ private struct SourceSheet: View {
                     TextField("Name", text: $quality, prompt: Text("4K HDR"))
                 }
                 TextField("Skip Names Starting With", text: $skip, prompt: Text("None"))
-            }
-            if advanced {
-                Footer("If the videos' names don't say their quality, set it here so you can choose which quality plays: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them. To leave files out of the library, put them in folders whose names start with what Skip says; titles starting with it are left out too.")
+            } footer: {
+                Text("If the videos' names don't say their quality, set it here so you can choose which quality plays: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them. To leave files out of the library, put them in folders whose names start with what Skip says; titles starting with it are left out too.")
+                    .foregroundStyle(.secondary)
             }
             // As it is now, so one removed leaves the list.
             if let current = library.sources.first(where: { $0.id == source?.id }), !current.unavailable.isEmpty {

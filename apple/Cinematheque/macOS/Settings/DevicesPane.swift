@@ -6,7 +6,6 @@ struct DevicesPane: View {
     @Environment(Library.self) private var library
     @State private var nearby: [NearbyDevice] = []
     @State private var sharing = true
-    @State private var advanced = false
     @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
     @State private var address = ""
 
@@ -37,7 +36,7 @@ struct DevicesPane: View {
             } footer: {
                 Text("To add a device, choose Join a Library on it, and enter the code it shows here. Choose Yours for your own device, or Someone New to give the person using it their own progress and watchlist.")
             }
-            Section("Advanced", isExpanded: $advanced) {
+            Section {
                 ForEach(nearby.filter(\.added)) { device in
                     LabeledContent {
                         RemoveButton(help: "Forget this address") {
@@ -58,14 +57,15 @@ struct DevicesPane: View {
                     Button("Add", action: addAddress)
                         .disabled(!validAddress)
                 }
+            } header: {
+                Text("Devices by Address")
+            } footer: {
+                Text(verbatim: "Add a device by address if it isn't found nearby, such as one at another home or behind another router: http://hal.example.com:8008.")
             }
-            if advanced {
-                Footer("Add a device by address if it isn't found nearby, such as one at another home or behind another router: http://hal.example.com:8008.")
-                Section {
-                    Toggle("Show sync activity", isOn: $showsSyncActivity)
-                } footer: {
-                    Text("Shows in the status bar when your devices last caught up with this Mac, to check that a change made elsewhere has arrived.")
-                }
+            Section {
+                Toggle("Show sync activity", isOn: $showsSyncActivity)
+            } footer: {
+                Text("Shows in the status bar when your devices last caught up with this Mac, to check that a change made elsewhere has arrived.")
             }
         }
         .formStyle(.grouped)
