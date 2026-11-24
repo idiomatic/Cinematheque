@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Downloads' progress counts only what's being fetched: a file left for want of room no longer fills the bar, as if it had come. The Mac's Downloads pane leaves out the space available when there's none.
 * Screenshots made again: series tiles showing their season to watch, and the mock library's longer Sanctuary Moon. The screenshot script answers macOS's Local Network prompt before sizing the Mac's window, as the prompt keeps it from resizing.
 * Mac: Settings' Devices and Sources line their names up, each row's symbol in one width.
 * The mock library's Sanctuary Moon has 28 seasons of 419 episodes, and Worldhoppers two of 12, as the Murderbot Diaries have them; its first six seasons and its special have art of their own.

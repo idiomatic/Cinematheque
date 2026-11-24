@@ -1111,20 +1111,30 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
     for (finished) |d| if (d.deletable) try spare.append(arena, d.held);
     var next_spare: usize = 0;
 
-    // Fetched, keeping the floor free.
+    // Fetched, keeping the floor free. How far it's come counts only what
+    // still needs fetching, a file left (for want of room, or held back)
+    // leaving the total rather than counting as done, so nothing fetched
+    // never reads as all of it.
     var total_mb: u64 = 0;
-    for (files.items) |f| total_mb += f.size / 1_000_000;
+    for (files.items) |f| {
+        const have = if (dir.statFile(io, f.path, .{})) |st| st.size else |_| 0;
+        if (have != f.size) total_mb += f.size / 1_000_000;
+    }
     if (counter) |c| {
         c.done.store(0, .monotonic);
         c.total.store(@intCast(@min(total_mb, std.math.maxInt(u32))), .monotonic);
     }
     for (files.items) |f| {
-        defer if (counter) |c| {
-            _ = c.done.fetchAdd(@intCast(@min(f.size / 1_000_000, std.math.maxInt(u32))), .monotonic);
-        };
+        const mb: u32 = @intCast(@min(f.size / 1_000_000, std.math.maxInt(u32)));
         const have = if (dir.statFile(io, f.path, .{})) |st| st.size else |_| 0;
+        // Fetched (or failed, or found here meanwhile): done.
+        var left = false;
+        defer if (counter) |c| if (have != f.size) {
+            if (left) _ = c.total.fetchSub(@min(mb, c.total.load(.monotonic)), .monotonic) else _ = c.done.fetchAdd(mb, .monotonic);
+        };
         if (have != f.size) if (hold) |h| if (h.load(.acquire)) {
             out.held += 1;
+            left = true;
             continue;
         };
         if (have != f.size) {
@@ -1142,6 +1152,7 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
             }
             if (freeBytes(arena, s.dir)) |free| if (free < need +| floor()) {
                 out.no_room += 1;
+                left = true;
                 continue;
             };
         }
