@@ -182,10 +182,18 @@ fn becameMember(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocato
         var r = try Replica.open(gpa, io, w.path, w.founder.?, w.store.identity);
         defer r.close();
         const device = try w.store.device();
-        if (lib.nameOf(try lib.names(&r, arena), &hex(device)) == null) {
+        const named = try lib.names(&r, arena);
+        if (lib.nameOf(named, &hex(device)) == null) {
             try w.writer.lock(io);
             defer w.writer.unlock(io);
             try lib.setName(&r, arena, web.now(io), device, w.host_name, try w.store.person());
+        }
+        // Its model too, for its person's other devices to show it by, as
+        // the apps record theirs.
+        if (core.model.this(io, arena)) |model| {
+            try w.writer.lock(io);
+            defer w.writer.unlock(io);
+            try lib.recordModel(&r, arena, web.now(io), device, model);
         }
     }
     if (w.downloads_dir) |dir| configureDownloads(w, io, gpa, arena, dir) catch |err| std.log.warn("keeping downloads in {s}: {t}", .{ dir, err });

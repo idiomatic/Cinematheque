@@ -51,6 +51,10 @@ extension Library {
         // Never a generic name ("iPhone", as iOS tells apps), which would
         // outrank the host's that pairing named it by.
         if !devices.contains(where: \.you), let own = shownName(device) { setName(.device, own); named = true }
+        // Its model, for its person's other devices to show it by (the core
+        // writes it only if it's changed).
+        if devices.first(where: \.you)?.model == nil { named = true }
+        check { cq_set_device_model($0, Platform.model) }
         if let person, !person.isEmpty, members.first(where: \.you)?.name == nil { setName(.person, person); named = true }
         // Naming itself is a new device's first write, with its certificate:
         // its devices hear of it now, not a minute on.

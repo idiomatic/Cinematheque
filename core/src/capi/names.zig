@@ -9,6 +9,7 @@ const store_ = @import("../store.zig");
 const sync = @import("../sync.zig");
 const discover = @import("../discover.zig");
 const pair = @import("../pair.zig");
+const model = @import("../model.zig");
 const Library = capi.Library;
 const json = capi.json;
 const status = capi.status;
@@ -37,6 +38,19 @@ fn setDeviceName(lib: *Library, arena: std.mem.Allocator, name: []const u8) !voi
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
     try library.setName(try lib.main(), arena, lib.now(), try lib.store.device(), name, try lib.store.person());
+}
+
+/// Records this device's model (an Apple identifier, as `iPhone14,4`, shown
+/// by its name; or a name), beside its name, for its person's other devices
+/// to show it by, unless it's recorded already.
+export fn cq_set_device_model(lib: *Library, model_: [*:0]const u8) c_int {
+    return status(lib, setDeviceModel, .{std.mem.span(model_)});
+}
+
+fn setDeviceModel(lib: *Library, arena: std.mem.Allocator, given: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    try library.recordModel(try lib.main(), arena, lib.now(), try lib.store.device(), model.shown(given));
 }
 
 /// What this device names itself as, told `name` by its platform, at `host`
@@ -80,7 +94,7 @@ fn devices(lib: *Library, arena: std.mem.Allocator) ![]const DeviceJson {
         // Those removed aren't this person's devices any more.
         const key = store_.parseKey(n.key) catch continue;
         if (try r.revoked(key) != null) continue;
-        try out.append(arena, .{ .key = n.key, .name = n.name, .you = std.mem.eql(u8, n.key, &this) });
+        try out.append(arena, .{ .key = n.key, .name = n.name, .you = std.mem.eql(u8, n.key, &this), .model = n.model, .kind = if (n.model) |m| model.kind(m) else null });
     };
     return out.items;
 }

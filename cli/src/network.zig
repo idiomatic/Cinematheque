@@ -103,6 +103,9 @@ pub fn serve(p: *App, c: Command) !void {
     const txt = if (founder != null) blk: {
         var r = try p.open();
         defer r.close();
+        // Its model, for its person's other devices to show it by, before
+        // anything else writes.
+        if (core.model.this(p.io, p.arena)) |model| try core.library.recordModel(&r, p.arena, p.now(), try p.store.device(), model);
         break :blk try core.sync.advertisement(p.arena, &r, try p.store.person(), try p.store.device());
     } else try core.discover.txtRecord(p.arena, &.{.{ "name", name }});
     // The media directory, if any, at `/media/`, leaving the root to the

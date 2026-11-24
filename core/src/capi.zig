@@ -249,7 +249,7 @@ pub fn enumFrom(comptime E: type, value: c_int) !E {
 }
 
 pub const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
-pub const DeviceJson = struct { key: []const u8, name: []const u8, you: bool };
+pub const DeviceJson = struct { key: []const u8, name: []const u8, you: bool, model: ?[]const u8 = null, kind: ?@import("model.zig").Kind = null };
 pub const NearbyJson = struct { url: []const u8, device: ?[]const u8, model: ?[]const u8 = null, host: ?[]const u8 = null, person: ?[]const u8, person_key: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
 pub const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
 pub const PairedJson = struct { person: []const u8, device: []const u8 };

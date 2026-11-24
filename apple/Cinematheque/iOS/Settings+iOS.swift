@@ -235,8 +235,19 @@ private struct DevicesPage: View {
         List {
             Section {
                 ForEach(library.devices.filter(\.you) + library.devices.filter { !$0.you }) { device in
+                    // Each by its kind's symbol, "This iPhone" or its model
+                    // under its name, as Apple's own list of devices has them.
                     Button { if !device.you { acting = device } } label: {
-                        LabeledContent(device.name, value: device.you ? "This iPhone" : "")
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(device.name)
+                                if let caption = device.you ? "This iPhone" : device.model {
+                                    Text(caption).font(.footnote).foregroundStyle(.secondary)
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: device.symbol)
+                        }
                     }
                     .foregroundStyle(.primary)
                     .swipeActions {

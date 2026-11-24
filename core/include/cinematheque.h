@@ -232,6 +232,9 @@ int cq_remove_device(cq_library *library, const char *device_key);
 int cq_remove_self(cq_library *library, const char *successor);
 int cq_set_person_name(cq_library *library, const char *name);
 int cq_set_device_name(cq_library *library, const char *name);
+// Records this device's model (an Apple identifier, shown by its name; or
+// a name), for its person's devices to show it by, unless it's recorded.
+int cq_set_device_model(cq_library *library, const char *model);
 // What this device names itself as, told name by its platform, at host: a
 // JSON string, or null if both are generic ("iPhone", "localhost").
 char *cq_shown_name(cq_library *library, const char *name, const char *host);

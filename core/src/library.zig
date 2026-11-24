@@ -1503,7 +1503,18 @@ pub const Name = struct {
     name: []const u8,
     /// A device's person; null for a person's own name.
     person: ?[]const u8 = null,
+    /// A device's model, as it says ("iPhone 13 mini"), if it has.
+    model: ?[]const u8 = null,
 };
+
+/// Records device `key`'s model (`model.shown`'s), beside its name,
+/// unless it's recorded so already, as a device does as it starts.
+pub fn recordModel(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [32]u8, model: []const u8) !void {
+    if (model.len == 0 or model.len > 200) return;
+    const hex = std.fmt.bytesToHex(key, .lower);
+    for (try names(replica, arena)) |n| if (std.mem.eql(u8, n.key, &hex)) if (n.model) |m| if (std.mem.eql(u8, m, model)) return;
+    try replica.write(wall_ms, try std.fmt.allocPrint(arena, "n/{s}", .{hex}), "model", model);
+}
 
 /// Names a person, or a device (with its person's key).
 pub fn setName(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [32]u8, name: []const u8, person: ?[32]u8) !void {
@@ -1530,6 +1541,9 @@ pub fn names(replica: *Replica, arena: std.mem.Allocator) ![]Name {
             n.name = value;
         } else if (std.mem.eql(u8, s.blob(1), "user")) {
             if (try ownedBy(replica, try replica.keyOf(s.int(3)), key, value)) n.person = value;
+        } else if (std.mem.eql(u8, s.blob(1), "model")) {
+            // As the device says of itself, as no other knows it.
+            if (std.mem.eql(u8, &std.fmt.bytesToHex(try replica.keyOf(s.int(3)), .lower), key)) n.model = value;
         }
     }
     return out.items;

@@ -227,7 +227,47 @@ struct Device: Codable, Identifiable, Hashable {
     let key: String
     let name: String
     let you: Bool
+    /// Its model, as it recorded it ("iPhone 13 mini"), if it has.
+    var model: String?
+    /// What kind of device it is, as the core tells from its model; nil
+    /// for one that hasn't said, or a kind newer than this build.
+    var kind: Kind?
     var id: String { key }
+
+    /// What kind of device one is, as the core names them.
+    enum Kind: String, Codable, Hashable {
+        case iphone, ipad, ipod, appletv, vision, macbook, imac, mac_mini, mac_studio, mac_pro, mac, pc
+
+        /// Its SF Symbol, as Apple's own lists of devices show them.
+        var symbol: String {
+            switch self {
+            case .iphone: "iphone"
+            case .ipad: "ipad"
+            case .ipod: "ipodtouch"
+            case .appletv: "appletv"
+            case .vision: "visionpro"
+            case .macbook: "laptopcomputer"
+            case .imac, .mac: "desktopcomputer"
+            case .mac_mini: "macmini"
+            case .mac_studio: "macstudio"
+            case .mac_pro: "macpro.gen3"
+            case .pc: "pc"
+            }
+        }
+    }
+
+    /// Its kind's symbol, or a display's for one of no kind known.
+    var symbol: String { kind?.symbol ?? "display" }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(String.self, forKey: .key)
+        name = try c.decode(String.self, forKey: .name)
+        you = try c.decode(Bool.self, forKey: .you)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        // One this build doesn't know is none, not a failure to read them all.
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)).flatMap { $0.flatMap(Kind.init(rawValue:)) }
+    }
 }
 
 /// A device found nearby, or added by address.

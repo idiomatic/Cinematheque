@@ -56,6 +56,43 @@ const placeholders = [_][]const u8{
     "None",
 };
 
+/// What kind of device a model is, for players to show it by a symbol of
+/// their own (an iPhone's, an Apple TV's, a laptop's).
+pub const Kind = enum { iphone, ipad, ipod, appletv, vision, macbook, imac, mac_mini, mac_studio, mac_pro, mac, pc };
+
+/// The kind of a model as `shown` gives it; a model not Apple's, as a PC's
+/// firmware names it, a PC; none for none.
+pub fn kind(model: []const u8) ?Kind {
+    const name = shown(model);
+    if (name.len == 0) return null;
+    // Longest first, where one starts another ("Mac mini" and "Mac").
+    const prefixes = [_]struct { []const u8, Kind }{
+        .{ "iPhone", .iphone },
+        .{ "iPad", .ipad },
+        .{ "iPod", .ipod },
+        .{ "Apple TV", .appletv },
+        .{ "Apple Vision", .vision },
+        .{ "MacBook", .macbook },
+        .{ "iMac", .imac },
+        .{ "Mac mini", .mac_mini },
+        .{ "Mac Studio", .mac_studio },
+        .{ "Mac Pro", .mac_pro },
+        .{ "Mac", .mac },
+    };
+    for (prefixes) |p| if (std.mem.startsWith(u8, name, p[0])) return p[1];
+    return .pc;
+}
+
+test "kind" {
+    try std.testing.expectEqual(Kind.iphone, kind("iPhone14,4").?);
+    try std.testing.expectEqual(Kind.appletv, kind("AppleTV14,1").?);
+    try std.testing.expectEqual(Kind.macbook, kind("MacBook Pro (14-inch, 2021)").?);
+    try std.testing.expectEqual(Kind.mac_mini, kind("Mac mini (M2, 2023)").?);
+    try std.testing.expectEqual(Kind.mac, kind("Mac14,15").?);
+    try std.testing.expectEqual(Kind.pc, kind("ThinkPad X1 Carbon").?);
+    try std.testing.expectEqual(null, kind(""));
+}
+
 /// Families, for identifiers newer than the table below.
 const families: std.StaticStringMap([]const u8) = .initComptime(.{
     .{ "iPhone", "iPhone" },
