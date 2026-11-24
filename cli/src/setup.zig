@@ -65,6 +65,7 @@ pub fn keepRefreshed(w: *Web, io: Io, gpa: std.mem.Allocator) Io.Cancelable!void
         defer w.refreshing.phase.store(.idle, .release);
         refresh(w, io, gpa, asked == .fully) catch |err| switch (err) {
             error.Canceled => return error.Canceled,
+            error.Removed => leaveRemoved(w, io, gpa),
             else => w.refreshing.say(io, "Refreshing failed: {t}", .{err}),
         };
     }
@@ -529,6 +530,13 @@ fn leave(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
         }
         if (!reached) return error.NoOneReached;
     }
+    try forgetLibrary(w, io, gpa, arena);
+    return web.sendJson(arena, request, true);
+}
+
+/// Forgets the library and this device's identity, as leaving does, so
+/// the web client sets it up afresh; its downloads' files stay.
+fn forgetLibrary(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator) !void {
     try w.state.lock(io);
     defer w.state.unlock(io);
     {
@@ -541,5 +549,15 @@ fn leave(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
     w.offering = false;
     w.downloads = false;
     try advertise(w, io, gpa, arena);
-    return web.sendJson(arena, request, true);
+}
+
+/// Leaves a library that removed this device, as the apps do once a device
+/// tells them (under a member's signature, so no one else can make it
+/// leave): it forgets it, and the web client sets it up afresh, to join
+/// again as a new device.
+pub fn leaveRemoved(w: *Web, io: Io, gpa: std.mem.Allocator) void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    std.log.warn("this device was removed from the library, so it leaves it; set it up again in a browser", .{});
+    forgetLibrary(w, io, gpa, arena_state.allocator()) catch |err| std.log.warn("leaving the library it was removed from: {t}", .{err});
 }

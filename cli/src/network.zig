@@ -131,6 +131,9 @@ pub fn serve(p: *App, c: Command) !void {
         if (founder != null) try keepDownloadsIn(p, d, host.port);
         browsers.downloads = founder != null;
     }
+    // Synced with at once, as the apps sync at launch: what changed while
+    // it was off arrives, and a device removed meanwhile hears so and leaves.
+    if (founder != null) browsers.changed.store(1, .release);
     var syncing: ?Io.Future(Io.Cancelable!void) = if (browsing) try p.io.concurrent(web.Web.keepInSync, .{ &browsers, p.io, p.gpa }) else null;
     defer if (syncing) |*f| f.cancel(p.io) catch {};
     var refreshing: ?Io.Future(Io.Cancelable!void) = if (browsing) try p.io.concurrent(setup.keepRefreshed, .{ &browsers, p.io, p.gpa }) else null;

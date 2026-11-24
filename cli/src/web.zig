@@ -119,11 +119,14 @@ pub const Web = struct {
             if (w.changed.cmpxchgStrong(at, 0, .acq_rel, .acquire) != null) continue;
             w.syncAll(io, gpa) catch |err| switch (err) {
                 error.Canceled => return error.Canceled,
+                error.Removed => setup.leaveRemoved(w, io, gpa),
                 else => std.log.warn("syncing after a change: {t}", .{err}),
             };
         }
     }
 
+    /// Syncs with every device found or added; `error.Removed` if one says
+    /// this device was removed from the library (see `setup.leaveRemoved`).
     pub fn syncAll(w: *Web, io: Io, gpa: std.mem.Allocator) !void {
         var arena_state = std.heap.ArenaAllocator.init(gpa);
         defer arena_state.deinit();
@@ -142,7 +145,11 @@ pub const Web = struct {
             try r.refresh();
             if (core.sync.exchange(arena, &client, &r, u, now(io))) |_| {
                 if (w.asleep.woke(io, u)) std.log.info("{s} answers again", .{u});
-            } else |err| if (!Asleep.unreachable_(err)) {
+            } else |err| if (err == error.Removed) {
+                // Told, under a member's signature, that this device was
+                // removed: no use syncing with the rest.
+                return error.Removed;
+            } else if (!Asleep.unreachable_(err)) {
                 std.log.warn("syncing with {s}: {t}", .{ u, err });
             } else if (w.asleep.fell(io, gpa, u)) {
                 std.log.info("{s} can't be reached ({t}), as a phone or tablet whose app is napping can't; it's synced with when it answers again", .{ u, err });
