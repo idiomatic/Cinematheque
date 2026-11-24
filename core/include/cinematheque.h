@@ -91,6 +91,9 @@ int cq_repo_skip(cq_library *library, const char *source, const char *skip);
 int cq_repo_quality_from_names(cq_library *library, const char *source);
 int cq_repo_quality_from_folder(cq_library *library, const char *source);
 int cq_repo_quality_named(cq_library *library, const char *source, const char *name);
+// Names a source (by ID) as its owner calls it ("TV Shows" for a folder its
+// address calls tv-shows); only its owner's naming counts.
+int cq_repo_name(cq_library *library, const char *source, const char *name);
 int cq_repo_remove(cq_library *library, const char *source);
 // Forgets an unavailable directory of a source, as if deleted.
 int cq_remove_unavailable(cq_library *library, const char *source, const char *dir);

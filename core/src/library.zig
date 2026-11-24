@@ -101,6 +101,10 @@ pub const Source = struct {
     /// When a device last crawled it whole (`crawled`, wall-clock
     /// milliseconds), so others who've synced since needn't again soon.
     crawled_ms: u64 = 0,
+    /// What its owner calls it (`name`), as a folder's own name ("TV
+    /// Shows") its address had to put otherwise (`/tv-shows/`); empty if
+    /// none. Taken only from its owner, as its address is.
+    name: []const u8 = "",
 
     /// Whether a device crawled it within `window_ms` of `wall_ms` (see
     /// `crawlWindow`): a refresh, having synced, skips it, as its copies
@@ -477,8 +481,10 @@ fn crawlFrom(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.h
 /// (`sourcePath`), devices' downloads last.
 pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
     var out: std.ArrayList(Source) = .empty;
-    // Each one's `quality-by` and `rendition`, read together once all are.
+    // Each one's `quality-by` and `rendition`, read together once all are;
+    // and its name's writer, checked against its owner once it's read.
     var stored: std.ArrayList([2][]const u8) = .empty;
+    var namers: std.ArrayList(?[32]u8) = .empty;
     const s = try replica.db.prepare("SELECT key, field, value, device FROM winners WHERE key >= 'r/' AND key < 'r0' ORDER BY key");
     defer s.finalize();
     while (try s.step()) {
@@ -487,6 +493,7 @@ pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
         if (out.items.len == 0 or !std.mem.eql(u8, &out.items[out.items.len - 1].id, key[2..18])) {
             try out.append(arena, .{ .id = key[2..18].*, .url = "", .layout = .{} });
             try stored.append(arena, .{ "", "" });
+            try namers.append(arena, null);
         }
         const r = &out.items[out.items.len - 1];
         const quality = &stored.items[stored.items.len - 1];
@@ -500,16 +507,24 @@ pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
         else if (std.mem.eql(u8, field, "skip")) r.layout.skip = value //
         else if (std.mem.eql(u8, field, "quality-by")) quality[0] = value //
         else if (std.mem.eql(u8, field, "managed")) r.managed = value.len > 0 //
+        else if (std.mem.eql(u8, field, "name")) {
+            r.name = value;
+            namers.items[namers.items.len - 1] = try replica.keyOf(s.int(3));
+        } //
         else if (std.mem.eql(u8, field, "crawled")) r.crawled_ms = std.fmt.parseInt(u64, value, 10) catch 0;
     }
-    for (out.items, stored.items) |*r, q| r.layout.quality = .fromFields(q[0], q[1]);
+    for (out.items, stored.items, namers.items) |*r, q, namer| {
+        r.layout.quality = .fromFields(q[0], q[1]);
+        const owned = r.owner != null and namer != null and std.mem.eql(u8, &r.owner.?, &namer.?);
+        if (!owned) r.name = "";
+    }
     // Dropped sources have no URL, and one whose URL isn't fit to fetch
     // from (as any member could write) is none.
     var kept: std.ArrayList(Source) = .empty;
     var shown: std.ArrayList([]const u8) = .empty;
     for (out.items) |r| if (url.fitForSource(r.url)) {
         try kept.append(arena, r);
-        try shown.append(arena, try std.ascii.allocLowerString(arena, try std.mem.join(arena, " › ", try sourcePath(arena, r.url))));
+        try shown.append(arena, try std.ascii.allocLowerString(arena, try std.mem.join(arena, " › ", try shownPath(arena, r))));
     };
     const Order = struct {
         list: []const Source,
@@ -543,6 +558,28 @@ pub fn sourcePath(arena: std.mem.Allocator, u: []const u8) ![]const []const u8 {
     return std.mem.concat(arena, []const u8, &.{ &.{host}, shown });
 }
 
+/// A source's path as players show it: `sourcePath`, its last folder named
+/// as its owner calls it, if it does (`firefly › Archive1841`, not
+/// `archive1841`).
+pub fn shownPath(arena: std.mem.Allocator, source: Source) ![]const []const u8 {
+    const parts = try sourcePath(arena, source.url);
+    if (source.name.len == 0 or parts.len < 2) return parts;
+    const out = try arena.dupe([]const u8, parts);
+    out[out.len - 1] = source.name;
+    return out;
+}
+
+/// Names a source as its owner calls it (see `Source.name`), unless it's
+/// named so already.
+pub fn setSourceName(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []const u8, name: []const u8) !void {
+    if (name.len > 255) return error.Invalid;
+    for (try sources(replica, arena)) |s| if (std.mem.eql(u8, &s.id, id)) {
+        if (std.mem.eql(u8, s.name, name)) return;
+        return replica.write(wall_ms, try std.fmt.allocPrint(arena, "r/{s}", .{id}), "name", name);
+    };
+    return error.NotFound;
+}
+
 test "a source's path, as a person reads it" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
@@ -555,6 +592,9 @@ test "a source's path, as a person reads it" {
     try std.testing.expectEqualStrings("sulaco › Video › TV Shows", try join(arena, "http://sulaco/Video/TV%20Shows/"));
     try std.testing.expectEqualStrings("art › Movies › 2160p", try join(arena, "http://art.local/Video/Movies/2160p/"));
     try std.testing.expectEqualStrings("firefly › youtube", try join(arena, "http://firefly.local:58208/youtube/"));
+    // Its last folder as its owner calls it, where its address couldn't.
+    const folder: Source = .{ .id = @splat('0'), .url = "http://firefly.local:8008/archive1841/", .layout = .{}, .name = "Archive1841" };
+    try std.testing.expectEqualStrings("firefly › Archive1841", try std.mem.join(arena, " › ", try shownPath(arena, folder)));
 }
 
 /// Removes `device`'s downloads (sources it marked as its own), as it's

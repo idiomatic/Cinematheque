@@ -429,7 +429,7 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
         try sources.append(arena, .{
             .id = try arena.dupe(u8, &s.id),
             .url = s.url,
-            .path = try lib.sourcePath(arena, s.url),
+            .path = try lib.shownPath(arena, s),
             .owner = if (s.owner) |o| lib.nameOf(named, &hex(o)) else null,
             .managed = s.managed,
             .copies = try lib.countCopies(&r, arena, s),

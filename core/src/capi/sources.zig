@@ -37,7 +37,7 @@ fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
     for (list, out) |rp, *o| o.* = .{
         .id = try arena.dupe(u8, &rp.id),
         .url = rp.url,
-        .path = try library.sourcePath(arena, rp.url),
+        .path = try library.shownPath(arena, rp),
         .owner = if (rp.owner) |key| try arena.dupe(u8, &std.fmt.bytesToHex(key, .lower)) else null,
         .quality_from = rp.layout.quality,
         .quality = switch (rp.layout.quality) {

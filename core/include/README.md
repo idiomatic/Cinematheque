@@ -100,6 +100,7 @@ A new device offers to be added and shows a code; a member's device, given the c
 | `cq_repo_quality_from_names(library, source)` | Takes a source's files' quality from their names; copies move at the next crawl |
 | `cq_repo_quality_from_folder(library, source)` | Takes it from the first folder within the source |
 | `cq_repo_quality_named(library, source, name)` | Names one quality for all its files |
+| `cq_repo_name(library, source, name)` | Names a source (by ID) as its owner calls it, as a folder's own name ("TV Shows", "Archive1841") its address had to put otherwise (`/tv-shows/`); `cq_repos`' `path` ends with it. Only its owner's naming counts; nothing's written if it's named so already |
 | `cq_repo_remove(library, source)` | Removes a source (by ID or URL) and its copies, for every device |
 | `cq_remove_unavailable(library, source, dir)` | Removes an unavailable directory's copies, as if deleted |
 

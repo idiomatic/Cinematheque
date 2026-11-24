@@ -145,13 +145,16 @@ extension Library {
     /// `firefly.local`), adds it, and crawls it.
     func addFolder(_ path: String, host: String) async {
         loadFolders()
-        let base = URL(fileURLWithPath: path).lastPathComponent
-            .lowercased().replacing(/[^a-z0-9]+/, with: "-").trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        var prefix = base.isEmpty ? "folder" : base
+        // The folder's own name, whole, as its address's path (encoded), so
+        // nothing's lost that would be read back: not a slug ("TV Shows",
+        // not tv-shows). Nothing hidden, as the server serves nothing
+        // starting with a dot.
+        let base = URL(fileURLWithPath: path).lastPathComponent.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        var prefix = base.isEmpty ? "Folder" : base
         var n = 2
         // Downloads have a prefix of their own.
         while folders.contains(where: { $0.prefix == prefix }) || prefix == Self.downloadsPrefix {
-            prefix = "\(base)-\(n)"
+            prefix = "\(base.isEmpty ? "Folder" : base) \(n)"
             n += 1
         }
         folders.append(Folder(prefix: prefix, path: path, url: ""))
@@ -160,7 +163,13 @@ extension Library {
             folders.removeLast()
             return
         }
-        folders[folders.count - 1].url = "http://\(host):\(port)/\(prefix)/"
+        // URLs' unreserved characters, ASCII's alone; the rest encoded.
+        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        guard let encoded = prefix.addingPercentEncoding(withAllowedCharacters: unreserved) else {
+            folders.removeLast()
+            return
+        }
+        folders[folders.count - 1].url = "http://\(host):\(port)/\(encoded)/"
         saveFolders()
         addSource(folders[folders.count - 1].url, skip: nil)
         await crawl()
@@ -215,9 +224,20 @@ extension Library {
             defaults.set(Int(port), forKey: "servingPort")
             report(.serve, nil)
             repoint(Int(port))
+            nameFolders()
             #if os(macOS)
             Task { await configureDownloads() }
             #endif
+        }
+    }
+
+    /// Names this device's folders' sources by the folders' own names
+    /// ("Archive1841", "TV Shows"), as their addresses can't put them, so
+    /// every device shows them so (the core writes only what's changed).
+    private func nameFolders() {
+        for folder in folders where !folder.url.isEmpty {
+            guard let source = sources.first(where: { $0.url == folder.url }), source.path.last != folder.name else { continue }
+            check { cq_repo_name($0, source.id, folder.name) }
         }
     }
 

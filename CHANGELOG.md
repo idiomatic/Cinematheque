@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* A folder on a Mac is shown by its own name on every device ("firefly › Archive1841", not "archive1841"): its address keeps its name whole, and its source records it (`cq_repo_name`), so folders added before, at slugs, are named too.
 * A file whose name says no quality takes its folder's, or that folder's folder's, up to its source, the nearest naming one: a drive laid out as a NAS's share (`Video/TV Shows/1080p/30 Rock/…`) reads as 1080p from its root, not Other.
 * Devices record their models (`cq_set_device_model`; `cq_devices` gives each one's model and kind), and the iPhone's Your Devices shows each by its kind's symbol, with "This iPhone" or its model under its name, as Apple's own list of devices does.
 * An iPhone or Apple TV no longer names itself "iPhone" or "Apple TV" at its first launch, as iOS and tvOS tell apps, over the host's name pairing gave it ("lint"). On the iPhone, Settings' Devices by Address moves under Your Devices; Skip Names Starting With is a heading over its field; and address fields start empty, with an example, taking an address without `http://`.

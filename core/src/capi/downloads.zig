@@ -246,6 +246,19 @@ fn sourceQuality(lib: *Library, arena: std.mem.Allocator, source: []const u8, qu
     _ = try library.setQualityFrom(try lib.main(), arena, lib.now(), source, quality);
 }
 
+/// Names a source (by ID) as its owner calls it, as a folder's own name its
+/// address had to put otherwise; only its owner's naming counts. Writes
+/// nothing if it's named so already.
+export fn cq_repo_name(lib: *Library, source: [*:0]const u8, name: [*:0]const u8) c_int {
+    return status(lib, sourceName, .{ std.mem.span(source), std.mem.span(name) });
+}
+
+fn sourceName(lib: *Library, arena: std.mem.Allocator, source: []const u8, name: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    try library.setSourceName(try lib.main(), arena, lib.now(), source, name);
+}
+
 /// Removes a source, by ID or URL, and the copies it held.
 export fn cq_repo_remove(lib: *Library, source: [*:0]const u8) c_int {
     return status(lib, sourceRemove, .{std.mem.span(source)});
