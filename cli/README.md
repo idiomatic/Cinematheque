@@ -26,7 +26,7 @@ cinematheque ls "All Systems Red"
 cinematheque show t/m/all-systems-red/2017
 ```
 
-`ls` prints each title's key, such as `t/m/all-systems-red/2017`; `show` prints everything about one: its versions or episodes, and where each copy is. What a source needs, and how to name files so titles are recognized, are in the [README](../README.md#preparing-a-source).
+`ls` prints each title's key, such as `t/m/all-systems-red/2017`; `show` prints everything about one: its versions or episodes, and where each copy is. What a source needs, and how to name files so titles are recognized, are in the [guide](../docs/guide.md#sources).
 
 ## Data directory
 

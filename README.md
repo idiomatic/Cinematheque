@@ -45,173 +45,29 @@ Every device keeps its own copy of the catalog, and of what you've watched, but 
 
 ## Getting it
 
-* **The Mac app** and **the command-line app** (for macOS and Linux) are on the [releases page](https://github.com/idiomatic/Cinematheque/releases), with what changed in each ([CHANGELOG.md](CHANGELOG.md)).
+* **The Mac app** and **the command-line app** (for macOS and Linux) are on the [releases page](https://github.com/idiomatic/Cinematheque/releases). They aren't notarized yet, so macOS asks before opening them the first time; the [guide](docs/guide.md#installing) says how, and what Linux needs.
 * **The Apple TV and iPhone apps** aren't released yet; build them with Xcode (see [For developers](#for-developers)).
-* **Without a screen,** on a home server or a NAS that runs Linux, the command-line app builds and shares a library, and can offer it to browsers (see the [guide](docs/guide.md#in-a-browser) and [cli/README.md](cli/README.md)).
-
-### Opening a download
-
-Check a download against its `.sha256` file:
-
-* macOS: `shasum -a 256 -c FILE.sha256`
-* Linux: `sha256sum -c FILE.sha256`
-
-Releases aren't notarized yet, so macOS stops them the first time:
-
-* **The Mac app:**
-  1. Unzip it, move Cinematheque.app to Applications, and open it.
-  2. When macOS says it can't check it for malicious software, choose Done.
-  3. In System Settings › Privacy & Security, under Security, choose Open Anyway beside Cinematheque, and confirm with your password.
-
-  Or clear the download's mark in Terminal, then open it as usual:
-
-  ```sh
-  xattr -dr com.apple.quarantine /Applications/Cinematheque.app
-  ```
-
-* **The command-line app on macOS:** clear the mark a browser's download leaves, then run it:
-
-  ```sh
-  tar -xzf cinematheque-*.tar.gz
-  xattr -d com.apple.quarantine cinematheque
-  ./cinematheque --version
-  ```
-
-* **The command-line app on Linux:** it needs SQLite and Avahi's library for DNS-SD, with Avahi's daemon running:
-  * Alpine: `apk add sqlite-libs avahi-compat-libdns_sd`
-  * Fedora: `dnf install sqlite-libs avahi-compat-libdns_sd`
-  * Debian, Ubuntu: `apt install libsqlite3-0 libavahi-compat-libdnssd1`
-
-When either app first reaches your network, macOS asks to let it find devices on your local network. Allow it, or it can't reach your NAS or your other devices (System Settings › Privacy & Security › Local Network changes it later).
 
 ## Getting started
 
-1. On first run, an app creates a library, or joins one by a code it shows (see [Sharing a library](#sharing-a-library)).
-2. Add a source, a folder or server of your videos (below). The library fills in as it looks through it.
+1. **Open the app** and create a library, or join one by the code it shows, from a device already in it.
+2. **Add a source,** a folder or server of your videos: in the Mac's Settings › Sources, Add Folder… or Add Server…; the library fills in as it looks through it.
 
-The Mac's Settings manage sources, people, and devices, so a household needs no command line. On a Mac, the app and the command-line app share one library, so either can manage it.
-
-### In a browser, quickly
-
-On a computer that stays on (a Linux server, a NAS that runs Linux, or a Mac), one command shares a folder of videos, with a web client to set it all up:
+Or, on a computer that stays on (a Linux server, a NAS that runs Linux, or a Mac), share a folder with a web client to set it all up, then open `http://localhost:8008/` in a browser there:
 
 ```sh
 cinematheque serve --media /srv/videos
 ```
 
-Then, in a browser on that computer, open `http://localhost:8008/`:
+## Using it
 
-1. Choose **Create a Library** (or **Join a Library**, to add the computer to one you have, by the code it shows).
-2. In Settings, choose **Add This Server's Folder**, then **Refresh Library**.
+The [guide](docs/guide.md) covers it all:
 
-A browser elsewhere on the network can't act as the server, as anyone reaching the port could: reach it through an SSH tunnel (`ssh -L 8008:localhost:8008 hal`), or, where everyone on the network may, start it with `--permissive`. The [guide](docs/guide.md#in-a-browser) has more: keeping it running, and what browsers play.
-
-## Preparing a source
-
-A source is a folder of videos your devices can reach over your network. The easiest is one you already have, as it is: Cinematheque never changes its files.
-
-### A folder
-
-* **On a Mac,** choose Add Folder… in Settings › Sources: a folder on the Mac, on a drive plugged into it, or on a NAS share mounted in Finder. While the app runs, it shares the folder with your other devices, which play from it.
-* **Anywhere else,** on macOS or Linux, the command-line app shares a folder, then adds it:
-
-  ```sh
-  cinematheque serve --media /srv/videos
-  cinematheque source add http://hal.local:8008/media/
-  ```
-
-### A web server
-
-If your videos are on a server that already serves files, such as a NAS's web server, Caddy, nginx, or Apache, add its address instead (Add Server… on the Mac).
-
-* **Seeking:** any server that lists its folders will do if players can seek within a file, as nearly all can. Python's built-in `http.server` can't: its videos are listed, but won't play.
-* **No listings?** Put a file named `INDEX` in the served folder, listing its files, and remake it whenever they change:
-
-  ```sh
-  find . -type f ! -name INDEX > INDEX
-  ```
-
-  It works on Linux, macOS, BSD, and most NAS shells. An `INDEX` is also the fastest way to read a large source; the command-line app's server makes one for you.
-
-### Naming
-
-Cinematheque understands the naming conventions of Plex, Jellyfin, and Kodi, and common download names. Titles are recognized best with the year, and series by their folders:
-
-```
-Movies/All Systems Red (2017).mkv
-Movies/All Systems Red (2017) - Director's Cut.mkv
-Movies/Network Effect (2020) {tmdb-12345}/Network Effect (2020).mkv
-TV Shows/Worldhoppers/Worldhoppers 102 The Wormhole.m4v
-TV Shows/Sanctuary Moon (2019)/Season 01/Sanctuary Moon - S01E01 - Pilot.mkv
-TV Shows/Worldhoppers/Worldhoppers The Lost Signal.m4v
-```
-
-Dated videos, as a channel's archive has them, are a series of a season a year and an episode a day:
-
-```
-Channels/Feed Watch/Feed Watch 2024-03-12 The Wormhole Explained [youtube-ID].mp4
-```
-
-The [guide](docs/guide.md#naming) covers specials, yt-dlp's names, and tidying names that don't agree.
-
-### Quality
-
-A file's quality comes from its name (its resolution, origin, codec, and dynamic range), so a title's qualities can sit side by side, and the apps' Quality picker chooses which to play:
-
-```
-Movies/All Systems Red (2017)/All Systems Red (2017) - 1080p.mkv
-Movies/All Systems Red (2017)/All Systems Red (2017) - 4K HDR.mkv
-Movies/Network.Effect.2020.1080p.BluRay.x264-GROUP.mkv
-```
-
-A folder whose files are all one quality, though their names don't say so (everything one encoder preset made, say), can be a source of its own, named for its quality:
-
-* on the Mac, under Advanced in Settings › Sources;
-* on the command line, with `source add --quality`.
-
-### Keeping it current
-
-* **Refreshing:** Refresh Library (⌘R on the Mac) looks through your sources for new videos.
-* **Unplugged drives:** a folder's videos stay in the library, dimmed, until it's back.
-* **Removing a source** removes its videos from the library on every device; its files stay where they are.
-
-More is in the [guide](docs/guide.md#refreshing).
-
-## Watching
-
-* **Browsing:** by cover art: movies, and each series by season.
-* **Playing** resumes where you left off, on any of your devices.
-* **Covers and descriptions** come from your sources: a `poster.jpg` beside a movie, else what your MP4 files carry.
-* **Lists** (a Watchlist, Favorites) are yours alone, unless you share one with everyone in the library.
-* **In a browser:** the command-line app, on a computer that stays on, offers the library to any browser on your network (see the [guide](docs/guide.md#in-a-browser)).
-
-More is in the [guide](docs/guide.md#watching).
-
-## Downloading
-
-On a Mac, download what you'll watch away from home, or keep on hand when the network is slow:
-
-* **Movies:** the Download button says its size.
-* **Series:** a season's Download menu chooses which episodes the Mac keeps as you watch: the Next one or few, or All.
-* **Where:** `~/Movies/Cinematheque`, unless Settings › Downloads says otherwise.
-* **Cleaning up:** watched episodes are deleted as their space is needed, but never the only copy.
-
-More is in the [guide](docs/guide.md#downloading).
-
-## Sharing a library
-
-1. On the new device, choose Join a Library. It shows a 6-digit code.
-2. On a device already in the library, enter the code, choosing whose device it is: yours, to use the library as yourself, or someone new's, who joins as a member.
-   * **A Mac:** in Settings › Devices › New Devices, then Yours or Someone New.
-   * **An Apple TV:** in Settings › Your Devices › Add a Device, or Settings › People › Add Someone.
-   * **The command-line app:** `cinematheque person pair CODE`, or `cinematheque member pair CODE`.
-
-Devices find each other on your network, and sync on their own while the apps run.
-
-* **The founder,** whoever created the library, can hand it over to another member.
-* **Removing** a member or a device stops their later changes everywhere; what they did before stands. Any member can remove another, but not the founder.
-
-More is in the [guide](docs/guide.md#sharing-a-library), and the command line's way in [cli/README.md](cli/README.md#sharing-a-library).
+* **[Sources](docs/guide.md#sources):** sharing a folder or adding a server, how to name files so titles are recognized ([Plex, Jellyfin, and Kodi's conventions](docs/guide.md#naming)), and [qualities](docs/guide.md#quality) side by side.
+* **[Watching](docs/guide.md#watching):** resuming anywhere, covers from your own files, and lists.
+* **[Downloading](docs/guide.md#downloading),** on a Mac, for away from home.
+* **[Sharing a library](docs/guide.md#sharing-a-library)** with your other devices, and with family and friends.
+* **[In a browser](docs/guide.md#in-a-browser),** from a computer that stays on.
 
 ## Privacy
 
