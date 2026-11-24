@@ -390,7 +390,7 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
         try members.append(arena, .{ .key = k, .name = lib.nameOf(named, k), .founder = std.mem.eql(u8, &m, &r.founder), .you = std.mem.eql(u8, &m, &me) });
     }
 
-    const Device = struct { key: []const u8, name: ?[]const u8, this: bool };
+    const Device = struct { key: []const u8, name: ?[]const u8, this: bool, seen: ?u64 = null };
     var devices: std.ArrayList(Device) = .empty;
     var seen: std.AutoArrayHashMapUnmanaged([32]u8, void) = .empty;
     try seen.put(arena, this, {});
@@ -406,7 +406,7 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
         if ((try seen.getOrPut(arena, d)).found_existing) continue;
         if (try r.revoked(d) != null) continue;
         const k = try arena.dupe(u8, &hex(d));
-        try devices.append(arena, .{ .key = k, .name = lib.nameOf(named, k), .this = false });
+        try devices.append(arena, .{ .key = k, .name = lib.nameOf(named, k), .this = false, .seen = try core.sync.lastSeen(&r, arena, d) });
     }
 
     const Unavailable = struct { dir: []const u8, since_ms: u64 };

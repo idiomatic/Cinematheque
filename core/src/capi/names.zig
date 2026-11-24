@@ -94,7 +94,7 @@ fn devices(lib: *Library, arena: std.mem.Allocator) ![]const DeviceJson {
         // Those removed aren't this person's devices any more.
         const key = store_.parseKey(n.key) catch continue;
         if (try r.revoked(key) != null) continue;
-        try out.append(arena, .{ .key = n.key, .name = n.name, .you = std.mem.eql(u8, n.key, &this), .model = n.model, .kind = if (n.model) |m| model.kind(m) else null });
+        try out.append(arena, .{ .key = n.key, .name = n.name, .you = std.mem.eql(u8, n.key, &this), .model = n.model, .kind = if (n.model) |m| model.kind(m) else null, .seen = try sync.lastSeen(r, arena, key) });
     };
     return out.items;
 }

@@ -129,7 +129,7 @@ async function settingsPage() {
     return r;
   });
   const devices = (s) => s.devices.map((d) => {
-    const r = row(nameOf(d, "Unnamed device"), d.this ? "This server" : "",
+    const r = row(nameOf(d, "Unnamed device"), d.this ? "This server" : seenText(d.seen),
       ...(d.this ? [] : [
         icon(pencil, "Rename…", `Rename ${nameOf(d, "the device")}…`, () => { const name = prompt("Name", d.name || ""); if (name) act("name-device", { key: d.key, name }); }),
         icon(minus, "Remove", `Remove ${nameOf(d, "the device")}`, () => remove(r, "device-remove", { key: d.key }, devicesNote, `Removed ${nameOf(d, "the device")}. It leaves the library as it next syncs, in a moment if it’s on; it can join again as a new device.`))]));
@@ -246,6 +246,16 @@ function button(label, onclick) {
 function field(label, value, save) {
   const input = el("input", { value: value || "", autocomplete: "off", onchange: () => input.value.trim() && save(input.value.trim()) });
   return el("label", { class: "row" }, el("span", { class: "name" }, label), input);
+}
+
+/// When a device last synced with this one, as "Seen 5 minutes ago", or
+/// "Not seen yet".
+function seenText(ms) {
+  if (!ms) return "Not seen yet";
+  const minutes = Math.round((Date.now() - ms) / 60000);
+  const ago = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const when = minutes < 1 ? "just now" : minutes < 60 ? ago.format(-minutes, "minute") : minutes < 1440 ? ago.format(-Math.round(minutes / 60), "hour") : ago.format(-Math.round(minutes / 1440), "day");
+  return `Seen ${when}`;
 }
 
 /// What went wrong, in words (an API failure is `name: status ErrorName`).

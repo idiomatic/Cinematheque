@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Settings, on every app and the web client, say when each of your devices was last seen: when it last synced with this one.
 * Mac: "Not enough space to download…" shows as soon as downloading finds it, rather than only once it ends, which syncing could put off for good.
 * Documentation: the README is short (what it is, getting it, getting started), and [docs/guide.md](docs/guide.md) the whole user guide, each fact once, the stale ones brought up to date.
 * Downloads' progress counts only what's being fetched: a file left for want of room no longer fills the bar, as if it had come. The Mac's Downloads pane leaves out the space available when there's none.

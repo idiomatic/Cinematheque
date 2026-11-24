@@ -232,7 +232,23 @@ struct Device: Codable, Identifiable, Hashable {
     /// What kind of device it is, as the core tells from its model; nil
     /// for one that hasn't said, or a kind newer than this build.
     var kind: Kind?
+    /// When it last synced with this device, either way, if it has.
+    var seen: Date?
     var id: String { key }
+
+    /// When it was last seen, as Settings says it: "Seen 5 minutes ago",
+    /// or "Not seen yet".
+    var seenText: String { seenAgo.map { "Seen \($0)" } ?? "Not seen yet" }
+
+    /// How long ago it was seen ("5 minutes ago", "just now"), if it has
+    /// been.
+    var seenAgo: String? {
+        guard let seen else { return nil }
+        guard Date.now.timeIntervalSince(seen) >= 60 else { return "just now" }
+        let when = RelativeDateTimeFormatter()
+        when.dateTimeStyle = .named
+        return when.localizedString(for: seen, relativeTo: .now)
+    }
 
     /// What kind of device one is, as the core names them.
     enum Kind: String, Codable, Hashable {
@@ -267,6 +283,8 @@ struct Device: Codable, Identifiable, Hashable {
         model = try c.decodeIfPresent(String.self, forKey: .model)
         // One this build doesn't know is none, not a failure to read them all.
         kind = (try? c.decodeIfPresent(String.self, forKey: .kind)).flatMap { $0.flatMap(Kind.init(rawValue:)) }
+        // Milliseconds since the epoch, as the core keeps it.
+        seen = try c.decodeIfPresent(Double.self, forKey: .seen).map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 }
 

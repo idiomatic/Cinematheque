@@ -408,6 +408,9 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         try request.respond("not a member\n", .{ .status = .forbidden });
         return true;
     }
+    // When this device last heard from it, for Settings to say; a local
+    // write, as the exchange may be only a pull.
+    noteSeen(&src, checked[0].device, now) catch {};
     const window = try arena.alloc(u8, flate.max_window_len);
 
     // The rest, sealed, gzipped.
@@ -552,6 +555,7 @@ fn exchangeNow(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, ur
     // DNS-SD renamed: nothing to sync.
     if (std.mem.eql(u8, &recipient, &dst.device())) return .{ .stats = .{} };
     const pulled = try pull(arena, client, dst, url, now_ms, recipient, &theirs);
+    try noteSeen(dst, recipient, now_ms);
     var out: Exchanged = .{ .stats = pulled.stats };
     const person = pulled.person orelse return out;
     if (!try dst.isMemberPerson(person)) return out;
@@ -562,6 +566,29 @@ fn exchangeNow(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, ur
 }
 
 const Pulled = struct { stats: replica_.Stats, person: ?[32]u8 };
+
+/// Where this device keeps when it last synced with each other device,
+/// either way (in its own `local`, which doesn't replicate, as writing it
+/// for every device to see would be an operation per sync).
+const seen_prefix = "seen:";
+
+/// Notes that this device synced with `device` at `now_ms`: it answered
+/// this one's sync, or this one answered its.
+pub fn noteSeen(r: *Replica, device: [32]u8, now_ms: u64) !void {
+    var key: [seen_prefix.len + 64]u8 = undefined;
+    var value: [20]u8 = undefined;
+    try r.setLocal(
+        std.fmt.bufPrint(&key, "{s}{s}", .{ seen_prefix, &std.fmt.bytesToHex(device, .lower) }) catch unreachable,
+        std.fmt.bufPrint(&value, "{d}", .{now_ms}) catch unreachable,
+    );
+}
+
+/// When this device last reached `device`, if it has.
+pub fn lastSeen(r: *Replica, arena: std.mem.Allocator, device: [32]u8) !?u64 {
+    var key: [seen_prefix.len + 64]u8 = undefined;
+    const text = try r.local(arena, std.fmt.bufPrint(&key, "{s}{s}", .{ seen_prefix, &std.fmt.bytesToHex(device, .lower) }) catch unreachable) orelse return null;
+    return std.fmt.parseInt(u64, text, 10) catch null;
+}
 
 /// Why the other device refused a request, as its answer names it: the
 /// clocks too far apart (`Stale`), or else `Refused`.

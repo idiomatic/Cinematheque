@@ -234,9 +234,8 @@ private struct DevicesPage: View {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(device.name)
-                                if let caption = device.you ? "This iPhone" : device.model {
-                                    Text(caption).font(.footnote).foregroundStyle(.secondary)
-                                }
+                                Text(device.you ? "This iPhone" : [device.model, device.seenText].compactMap { $0 }.joined(separator: " · "))
+                                    .font(.footnote).foregroundStyle(.secondary)
                             }
                         } icon: {
                             Image(systemName: device.symbol)
@@ -283,6 +282,9 @@ private struct DevicePage: View {
                     }
                     if let model = device.model {
                         LabeledContent("Model", value: model)
+                    }
+                    if !device.you {
+                        LabeledContent("Last Seen", value: device.seenAgo ?? "Not yet")
                     }
                 } footer: {
                     Text(device.you ? "This iPhone, by the name your other devices know it by." : "The name everyone in the library sees it by.")

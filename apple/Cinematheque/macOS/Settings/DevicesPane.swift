@@ -59,8 +59,11 @@ private struct DeviceRow: View {
             if device.you {
                 Text("This Mac")
             } else {
-                RemoveButton(help: "Remove from your devices") {
-                    withAnimation { library.removeDevice(device.key) }
+                HStack {
+                    Text(device.seenText).foregroundStyle(.secondary)
+                    RemoveButton(help: "Remove from your devices") {
+                        withAnimation { library.removeDevice(device.key) }
+                    }
                 }
             }
         } label: {

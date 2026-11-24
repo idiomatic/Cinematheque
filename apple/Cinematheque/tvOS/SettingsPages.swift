@@ -81,7 +81,7 @@ struct DevicesPage: View {
                     // This one first, as the one you're using.
                     ForEach(library.devices.filter(\.you) + library.devices.filter { !$0.you }) { device in
                         Button { if !device.you { acting = device } } label: {
-                            ValueLabel(title: device.name, value: device.you ? "This Apple TV" : "")
+                            ValueLabel(title: device.name, value: device.you ? "This Apple TV" : device.seenText)
                         }
                         .background {
                             KeyboardField(title: "Name", text: device.name, typing: Binding(get: { renaming == device.key }, set: { if !$0 { renaming = nil } })) {
