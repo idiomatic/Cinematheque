@@ -226,16 +226,26 @@ window() {
 }
 # Sizes the window as a person would, as SwiftUI sizes it again after the
 # app could: dragged by its toolbar's empty right end to X,Y, then by its
-# corner to W×H: `place X Y W H`, in points.
+# corner to W×H: `place X Y W H`, in points. The corner is taken 8 points
+# in, as macOS 27's rounded corners leave the bounds' last point outside
+# the window; and taken again, the Local Network prompt answered first,
+# until the window's that size (within a few points), as while the prompt
+# is up, which it may be at any moment of a launch, the window moves but
+# doesn't resize.
 place() {
     window
+    allow
     b=(${=win})
     $terrarium click $vm $(( (b[1] + b[3] - 200) * scale )),$(( (b[2] + 25) * scale )) --drag-to $(( ($1 + b[3] - 200) * scale )),$(( ($2 + 25) * scale )) --duration 600 > /dev/null
-    window
-    b=(${=win})
-    $terrarium click $vm $(( (b[1] + b[3] - 1) * scale )),$(( (b[2] + b[4] - 1) * scale )) --drag-to $(( (b[1] + $3 - 1) * scale )),$(( (b[2] + $4 - 1) * scale )) --duration 600 > /dev/null
-    window
-    b=(${=win})
+    for i in {1..5}; do
+        window
+        b=(${=win})
+        (( b[3] - $3 <= 4 && $3 - b[3] <= 4 && b[4] - $4 <= 4 && $4 - b[4] <= 4 )) && return
+        allow
+        $terrarium click $vm $(( (b[1] + b[3] - 8) * scale )),$(( (b[2] + b[4] - 8) * scale )) --drag-to $(( (b[1] + $3 - 8) * scale )),$(( (b[2] + $4 - 8) * scale )) --duration 600 > /dev/null
+    done
+    echo "error: the Mac app's window didn't size to $3×$4 (it's ${b[3]}×${b[4]})" >&2
+    exit 1
 }
 # Answers macOS's Local Network prompt if it's up, as it comes when it
 # will in a launch, until a build has been allowed: Allow, at its foot's
