@@ -11,7 +11,8 @@ import SwiftUI
 /// founder) you may remove; and adding someone, by their device's code.
 struct PeoplePage: View {
     @Environment(Library.self) private var library
-    @State private var adding = false
+    /// What adding someone last said (a wrong code, someone added).
+    @State private var adding: String?
     /// Someone to remove, once confirmed: they come back only as someone new.
     @State private var removing: Member?
     @FocusState private var focus: String?
@@ -28,15 +29,10 @@ struct PeoplePage: View {
                     }
                 }
                 .listRowInsets(SettingsView.rowInsets)
-                Section {
-                    Button { adding = true } label: { ValueLabel(title: "Add Someone", opens: true, value: "") }
-                        .explained("add", "Adds someone with their own progress and watchlist, by the code their device shows as it joins.", $focus)
-                }
-                .listRowInsets(SettingsView.rowInsets)
+                NewDevices.someone(focus: $focus, said: $adding)
             }
             .scrollClipDisabled()
         }
-        .navigationDestination(isPresented: $adding) { AddDevicePage.someone }
         // Hard to undo, so asked first.
         .confirmationDialog(
             "Remove \(removing?.name ?? "Them")?",
@@ -49,14 +45,12 @@ struct PeoplePage: View {
         } message: { _ in
             Text("They and their devices leave the library, and what they change from then on is refused. To come back, they join again as someone new; their watchlist and progress don't come back with them.")
         }
-        #if DEBUG
-        .onAppear { if Launch.adds { adding = true } }
-        #endif
     }
 
     private var explanation: String {
         guard let focus else { return SettingsRow.people.explanation }
-        return focus == "add" ? "Adds someone with their own progress and watchlist, by the code their device shows as it joins." : library.members.first { "member:" + $0.key == focus }.map(hint) ?? ""
+        if focus.hasPrefix(NewDevices.prefix) { return adding ?? NewDevices.someoneAbout }
+        return library.members.first { "member:" + $0.key == focus }.map(hint) ?? ""
     }
 
     private func removable(_ member: Member) -> Bool { !member.you && !member.founder }
@@ -72,7 +66,8 @@ struct PeoplePage: View {
 /// adding another, by its code.
 struct DevicesPage: View {
     @Environment(Library.self) private var library
-    @State private var adding = false
+    /// What adding a device last said (a wrong code, a device added).
+    @State private var adding: String?
     /// A device pressed: what to do with it, asked.
     @State private var acting: Device?
     /// The device whose name's keyboard is up.
@@ -98,15 +93,10 @@ struct DevicesPage: View {
                     }
                 }
                 .listRowInsets(SettingsView.rowInsets)
-                Section {
-                    Button { adding = true } label: { ValueLabel(title: "Add a Device", opens: true, value: "") }
-                        .explained("add", Self.adding, $focus)
-                }
-                .listRowInsets(SettingsView.rowInsets)
+                NewDevices.device(focus: $focus, said: $adding)
             }
             .scrollClipDisabled()
         }
-        .navigationDestination(isPresented: $adding) { AddDevicePage.device }
         .confirmationDialog(
             acting?.name ?? "",
             isPresented: Binding(get: { acting != nil }, set: { if !$0 { acting = nil } }),
@@ -119,16 +109,12 @@ struct DevicesPage: View {
         } message: { _ in
             Text("Removed, it leaves the library the next time it catches up, and comes back only by joining again.")
         }
-        #if DEBUG
-        .onAppear { if Launch.adds { adding = true } }
-        #endif
     }
-
-    static let adding = "Adds another of your devices, sharing your progress and watchlist, by the code it shows as it joins. Add only your own: each can act as you."
 
     private var explanation: String {
         guard let focus else { return SettingsRow.devices.explanation }
-        return focus == "add" ? Self.adding : library.devices.first { "device:" + $0.key == focus }.map(hint) ?? ""
+        if focus.hasPrefix(NewDevices.prefix) { return adding ?? NewDevices.deviceAbout }
+        return library.devices.first { "device:" + $0.key == focus }.map(hint) ?? ""
     }
 
     private func hint(_ device: Device) -> String {
@@ -225,85 +211,73 @@ struct SourcesPage: View {
     }
 }
 
-/// Adding a device: one nearby offering to be added (as it shows Join a
-/// Library), chosen, then the code it shows, typed. As this person's own
-/// (sharing their secret, so it can act as them: `device`), or someone
-/// new's (`someone`). Added, it goes back to the list, where the device now
-/// is; Cancel, or Back, goes back without adding one.
-struct AddDevicePage: View {
+/// Adding a device, as a section at the end of its page's list, as the
+/// Mac's Devices pane has New Devices: those nearby offering to be added
+/// (as they show Join a Library), each with what kind it is as its value;
+/// one pressed takes the code it shows on the full-screen keyboard's
+/// digits. As this person's own (sharing their secret, so it can act as
+/// them: `device`), or someone new's (`someone`). Added, it's listed above,
+/// and leaves this section as it stops offering. What it last said (a
+/// wrong code, a device added) is the page's explanation of its rows.
+struct NewDevices: View {
     let title: String
-    /// What to do, before anything's chosen.
-    let about: String
     /// Adds the device by its code, as whose it is.
     let add: (Library, NearbyDevice, String) async -> (Paired?, String?)
     /// Names the device added, and its person, if new.
     let welcome: (Library, Paired, NearbyDevice) -> Void
+    var focus: FocusState<String?>.Binding
+    @Binding var said: String?
+
+    /// Its rows' focus IDs' prefix, for the page's explanation.
+    static let prefix = "new:"
+    static let deviceAbout = "On your device, choose Join a Library, then choose it here and enter the code it shows. Add only your own: it can act as you, sharing your progress and watchlist."
+    static let someoneAbout = "On their device, have them choose Join a Library, then choose it here and enter the code it shows. They keep their own progress and watchlist."
 
     /// Another of this person's devices.
-    static var device: AddDevicePage {
-        AddDevicePage(
-            title: "Add a Device",
-            about: "On your device, choose Join a Library, then choose it here and enter the code it shows. Add only your own: it can act as you, sharing your progress and watchlist.",
-            add: { await $0.pairPerson($1, code: $2) },
-            welcome: { $0.welcome($1, from: $2) })
+    static func device(focus: FocusState<String?>.Binding, said: Binding<String?>) -> NewDevices {
+        NewDevices(title: "Add a Device", add: { await $0.pairPerson($1, code: $2) }, welcome: { $0.welcome($1, from: $2) }, focus: focus, said: said)
     }
 
     /// Someone new's device, who joins as a member.
-    static var someone: AddDevicePage {
-        AddDevicePage(
-            title: "Add Someone",
-            about: "On their device, have them choose Join a Library, then choose it here and enter the code it shows. They keep their own progress and watchlist.",
-            add: { await $0.pairMember($1, code: $2) },
-            welcome: { $0.welcomeMember($1, from: $2) })
+    static func someone(focus: FocusState<String?>.Binding, said: Binding<String?>) -> NewDevices {
+        NewDevices(title: "Add Someone", add: { await $0.pairMember($1, code: $2) }, welcome: { $0.welcomeMember($1, from: $2) }, focus: focus, said: said)
     }
 
     @Environment(Library.self) private var library
-    @Environment(\.dismiss) private var dismiss
     @State private var nearby: [NearbyDevice] = []
     /// The device whose code's keyboard is up.
     @State private var entering: String?
     @State private var pairing: NearbyDevice?
-    @State private var problem: String?
 
     private var offering: [NearbyDevice] { nearby.filter { $0.pairing != nil } }
 
     var body: some View {
-        SettingsPage(title: title, explanation: explanation) {
-            Form {
-                Section {
-                    ForEach(offering) { device in
-                        Button { problem = nil; entering = device.url } label: {
-                            // What kind of device it is as its value, at the row's
-                            // end, as the system's rows keep one height.
-                            ValueLabel(title: device.deviceName ?? "A New Device", opens: true, value: pairing?.url == device.url ? "Adding…" : device.model ?? "")
-                        }
-                        .disabled(pairing != nil)
-                        .background {
-                            KeyboardField(title: "The code \(device.deviceName ?? "it") shows", text: "", keyboard: .numberPad, typing: Binding(get: { entering == device.url }, set: { if !$0 { entering = nil } })) {
-                                pair(device, $0)
-                            }
-                            .unseen()
-                        }
-                        .accessibilityHint(explanation)
-                    }
-                    if offering.isEmpty {
-                        HStack(spacing: 20) {
-                            ProgressView()
-                            Text("Looking for new devices nearby…").foregroundStyle(.secondary)
-                        }
-                    }
+        Section {
+            ForEach(offering) { device in
+                Button { said = nil; entering = device.url } label: {
+                    // What kind of device it is as its value, at the row's
+                    // end, as the system's rows keep one height.
+                    ValueLabel(title: device.deviceName ?? "A New Device", opens: true, value: pairing?.url == device.url ? "Adding…" : device.model ?? "")
                 }
-                .listRowInsets(SettingsView.rowInsets)
-                // A way out that takes focus, as nothing else may (with no
-                // device found yet), and Back goes from what's focused.
-                Section {
-                    Button("Cancel") { dismiss() }
-                        .accessibilityHint("Goes back without adding anyone.")
+                .disabled(pairing != nil)
+                .background {
+                    KeyboardField(title: "The code \(device.deviceName ?? "it") shows", text: "", keyboard: .numberPad, typing: Binding(get: { entering == device.url }, set: { if !$0 { entering = nil } })) {
+                        pair(device, $0)
+                    }
+                    .unseen()
                 }
-                .listRowInsets(SettingsView.rowInsets)
+                .focused(focus, equals: Self.prefix + device.url)
             }
-            .scrollClipDisabled()
+            if offering.isEmpty {
+                HStack(spacing: 20) {
+                    ProgressView()
+                    Text("Looking for new devices nearby…").foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text(title).bold()
         }
+        .listRowInsets(SettingsView.rowInsets)
         .modifier(Nearby(devices: $nearby))
         #if DEBUG
         // `CINEMATHEQUE_PAIR`: a code for the device of the name given.
@@ -314,29 +288,24 @@ struct AddDevicePage: View {
         #endif
     }
 
-    private var explanation: String {
-        if let problem { return problem }
-        if let pairing { return "Adding \(pairing.deviceName ?? "the device")…" }
-        return about
-    }
-
     private func pair(_ device: NearbyDevice, _ typed: String) {
         let code = typed.filter(\.isNumber)
         guard code.count == CodeBoxes.length else {
-            problem = "The code is \(CodeBoxes.length) digits, as \(device.deviceName ?? "the device") shows it. Choose it again to enter it."
+            said = "The code is \(CodeBoxes.length) digits, as \(device.deviceName ?? "the device") shows it. Choose it again to enter it."
             return
         }
         pairing = device
-        problem = nil
+        said = "Adding \(device.deviceName ?? "the device")…"
         Task {
             let (joined, why) = await add(library, device, code)
             pairing = nil
             guard let joined else {
-                problem = why ?? "Couldn't add it."
+                said = why ?? "Couldn't add it."
                 return
             }
             welcome(library, joined, device)
-            dismiss()
+            nearby.removeAll { $0.id == device.id }
+            said = "Added \(device.deviceName ?? "it")."
         }
     }
 }

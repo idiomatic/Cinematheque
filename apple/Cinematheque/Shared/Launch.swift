@@ -62,16 +62,9 @@ enum Launch {
 
     /// `CINEMATHEQUE_PAGE`, once a launch (tvOS and iOS, on Settings): a page to
     /// open: `people`, `devices`, or `sources` (on iOS, `source`, the
-    /// first's own); or `add-device` or `add-someone`, the page for adding
-    /// one, from Devices or People.
+    /// first's own); `add-device` and `add-someone` open Devices and People,
+    /// which list the devices offering to be added.
     static var page: String? { once("CINEMATHEQUE_PAGE") }
-
-    /// Whether `CINEMATHEQUE_PAGE` is a page for adding, once a launch, for
-    /// the page it's from to open it.
-    static var adds: Bool {
-        guard taken.insert("adds").inserted else { return false }
-        return env["CINEMATHEQUE_PAGE"]?.hasPrefix("add-") == true
-    }
 
     /// `CINEMATHEQUE_PAIR` and `CINEMATHEQUE_PAIR_NAME`, once a launch (tvOS
     /// and iOS, adding a device or someone): the code to enter for the new

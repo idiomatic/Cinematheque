@@ -147,8 +147,11 @@ async function settingsPage() {
     return shownAgain();
   };
   page.append(group("Sharing"));
-  page.append(section("People", null, peopleList, peopleNote, pairing("Add Someone", "join", added, quiet)));
-  page.append(section("Your Devices", null, devicesList, devicesNote, pairing("Add a Device", "pair", added, quiet)));
+  // Devices offering to be added, listed in each section, as the apps
+  // list them.
+  const feed = nearbyFeed(page);
+  page.append(section("People", null, peopleList, peopleNote, newDevices("Add Someone", "join", feed, added, quiet)));
+  page.append(section("Your Devices", null, devicesList, devicesNote, newDevices("Add a Device", "pair", feed, added, quiet)));
 
   page.append(group("Library"));
 
@@ -196,14 +199,13 @@ async function settingsPage() {
 /// Symbols for buttons that show no words, drawn as the web's are, in the
 /// text's color: an external link, a square with an arrow leaving its
 /// corner (opening in a new window, as Material's `open_in_new` and SF
-/// Symbols' `arrow.up.right.square` show it); a pencil (renaming); a minus
-/// in a circle (removing from a list or the library, as macOS and iOS show
-/// it; a trash is for deleting, files leaving a disk, which nothing here
-/// does); and an × (forgetting what's known).
+/// Symbols' `arrow.up.right.square` show it); a pencil (renaming); and a
+/// minus in a circle (removing from a list or the library, as macOS and iOS
+/// show it; a trash is for deleting, files leaving a disk, which nothing
+/// here does).
 const external = '<path d="M13.5 4.5h6v6M19.5 4.5l-8 8M17.5 13.5v4.5a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5V8A1.5 1.5 0 0 1 6 6.5h4.5"/>';
 const minus = '<circle cx="12" cy="12" r="8.5"/><path d="M8 12h8"/>';
 const pencil = '<path d="M15.5 5.5l3 3M4.5 19.5l1-4 10.5-10.5 3 3L8.5 18.5z"/>';
-const xmark = '<path d="M7 7l10 10M17 7L7 17"/>';
 
 /// A row's action, a symbol alone: its name its tooltip, and what it acts
 /// on its spoken label, as rows' actions are; buttons that start a flow
@@ -263,101 +265,83 @@ function said(e) {
   }[why] || e.message;
 }
 
-/// Adding a new device by the code it shows: `kind` is `pair` (this
-/// person's) or `join` (a new member's). Opened by its button, which it
-/// takes the place of; it looks for new devices nearby again and again,
-/// each listed with a box for its code (a row kept as it's typed in, as
-/// the list changes around it), so one after another can be added, each
-/// told to `added` (which shows it), until Cancel (Done, once one's added)
-/// closes it, as a sheet's button does. One added isn't listed again, as
-/// it may advertise its offer a moment longer. `opened` is told as it opens.
-function pairing(label, kind, added, opened) {
-  const box = el("div", { class: "pairing", hidden: true });
-  // Escape closes it, as its × does, wherever focus is (its opening button
-  // hides, so focus leaves for the page), while it's open.
-  const escape = (e) => { if (e.key === "Escape" && box.isConnected) cancel(); };
-  const open = button(label, () => {
-    opened();
-    open.hidden = true;
-    box.hidden = false;
-    document.addEventListener("keydown", escape);
-    look();
-  });
-  // Which look is current, so one going on after Cancel stops; and the
-  // devices added since it opened, by address.
-  let looking = 0;
-  const taken = new Set();
-  const cancel = () => {
-    document.removeEventListener("keydown", escape);
-    looking++;
-    box.hidden = true;
-    box.replaceChildren();
-    open.hidden = false;
-    open.focus();
-  };
-  async function look() {
-    const mine = ++looking;
-    const status = el("p", { class: "dim", role: "status" }, "Looking for new devices nearby…");
-    // An × in its corner closes it, whether or not one's been added.
-    const close = icon(xmark, "Close", "Close", cancel);
-    close.classList.add("close");
-    // Said in place of looking, as a device is added.
-    let said = "";
-    const addedOne = (name) => {
-      said = `Added ${name || "a device"}.`;
-      status.textContent = said;
-    };
-    const list = el("div");
-    const rows = new Map();
-    // A device it can't find, by the address its command line prints.
-    const address = el("input", { type: "url", placeholder: "http://new.local:54863/pair", "aria-label": "Its address" });
-    const byAddress = codeRow(address, () => address.value, "", () => {
-      address.value = "";
-      addedOne("");
-    });
-    byAddress.hidden = true;
-    const toggle = button("Add by Address…", () => {
-      byAddress.hidden = false;
-      toggle.hidden = true;
-      address.focus();
-    });
-    box.replaceChildren(
-      close,
-      el("p", { class: "dim" }, `On ${kind === "pair" ? "your" : "their"} new device, choose Join a Library; it shows here, with a code to enter.`),
-      list, status, byAddress,
-      el("div", { class: "line" }, toggle));
-    taken.clear();
-    while (mine === looking && box.isConnected) {
-      const offering = await api("nearby").catch(() => null);
-      if (mine !== looking) return;
-      if (offering) {
-        const now = new Set(offering.map((o) => o.url));
-        // Gone ones go, but one being typed into stays.
-        for (const [url, row] of rows) if (!now.has(url) && !row.contains(document.activeElement)) {
-          row.remove();
-          rows.delete(url);
-        }
-        for (const o of offering) if (!rows.has(o.url) && !taken.has(o.url)) {
-          // Its name, and under it what kind of device it is, if it says.
-          const shown = el("span", { class: "name" }, o.name, o.model ? el("small", { class: "model" }, o.model) : null);
-          const row = codeRow(shown, () => o.url, o.name, () => {
-            taken.add(o.url);
-            row.remove();
-            rows.delete(o.url);
-            addedOne(o.name);
-          });
-          rows.set(o.url, row);
-          list.append(row);
-        }
-        status.textContent = said || (rows.size ? "" : "Looking for new devices nearby…");
+/// Devices offering to be added, polled while Settings shows (a look
+/// takes 2 seconds), for each list of them to take: People's and Your
+/// Devices', as the Mac's Devices pane lists New Devices.
+function nearbyFeed(page) {
+  const listeners = [];
+  (async () => {
+    let shown = false;
+    for (;;) {
+      if (!page.isConnected) {
+        if (shown) return;
+        await sleep(200);
+        continue;
       }
+      shown = true;
+      const offering = await api("nearby").catch(() => null);
+      if (offering && page.isConnected) for (const f of listeners) f(offering);
       await sleep(1000);
     }
-  }
+  })();
+  return { listen: (f) => listeners.push(f) };
+}
+
+/// Adding a device, in its section, as the apps' lists have it: those
+/// offering nearby (from `feed`), each with its name, what kind it is, and a
+/// box for its code; or one it can't find, by the address its command line
+/// prints. As this person's own (`pair`) or someone new's (`join`). Added,
+/// it's listed above (`added`); `quiet` clears what was said last.
+function newDevices(title, kind, feed, added, quiet) {
+  const status = el("p", { class: "dim", role: "status" }, "Looking for new devices nearby…");
+  // What was added last, said in place of looking.
+  let addedNote = "";
+  const addedOne = (name) => {
+    addedNote = `Added ${name || "a device"}.`;
+    status.textContent = addedNote;
+  };
+  const list = el("div");
+  const rows = new Map();
+  // The devices added, by address, so one still offering a moment isn't
+  // listed again.
+  const taken = new Set();
+  // A device it can't find, by the address its command line prints.
+  const address = el("input", { type: "url", placeholder: "http://new.local:54863/pair", "aria-label": "Its address" });
+  const byAddress = codeRow(address, () => address.value, "", () => {
+    address.value = "";
+    addedOne("");
+  });
+  byAddress.hidden = true;
+  const toggle = button("Add by Address…", () => {
+    byAddress.hidden = false;
+    toggle.hidden = true;
+    address.focus();
+  });
+  feed.listen((offering) => {
+    const now = new Set(offering.map((o) => o.url));
+    // Gone ones go, but one being typed into stays.
+    for (const [url, row] of rows) if (!now.has(url) && !row.contains(document.activeElement)) {
+      row.remove();
+      rows.delete(url);
+    }
+    for (const o of offering) if (!rows.has(o.url) && !taken.has(o.url)) {
+      // Its name, and under it what kind of device it is, if it says.
+      const shown = el("span", { class: "name" }, o.name, o.model ? el("small", { class: "model" }, o.model) : null);
+      const row = codeRow(shown, () => o.url, o.name, () => {
+        taken.add(o.url);
+        row.remove();
+        rows.delete(o.url);
+        addedOne(o.name);
+      });
+      rows.set(o.url, row);
+      list.append(row);
+    }
+    status.textContent = addedNote || (rows.size ? "" : "Looking for new devices nearby…");
+  });
   /// A device's row: its name (or a box for its address), and a box for
   /// its code; `onAdded` once it's added.
   function codeRow(name, url, named, onAdded) {
-    const code = el("input", { inputmode: "numeric", pattern: "[0-9]{6}", maxlength: 6, placeholder: "Code", "aria-label": "Code", class: "code-input", required: true });
+    const code = el("input", { inputmode: "numeric", pattern: "[0-9]{6}", maxlength: 6, placeholder: "Code", "aria-label": "Code", class: "code-input", required: true, oninput: () => { addedNote = ""; quiet(); } });
     return el("form", { class: "row", onsubmit: async (e) => {
       e.preventDefault();
       try {
@@ -371,7 +355,11 @@ function pairing(label, kind, added, opened) {
       }
     } }, typeof name === "string" ? el("span", { class: "name" }, name) : name, code, el("button", { type: "submit", class: "primary" }, "Add"));
   }
-  return el("div", {}, el("div", { class: "line" }, open), box);
+  return el("div", { class: "adding" },
+    el("h4", {}, title),
+    el("p", { class: "dim" }, `On ${kind === "pair" ? "your" : "their"} new device, choose Join a Library; it shows here, with a code to enter.`),
+    list, status, byAddress,
+    el("div", { class: "line" }, toggle));
 }
 
 /// How Refresh Library is going, in `line`.

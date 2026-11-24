@@ -393,13 +393,12 @@ body.outside #sidebar, body.outside header, body.outside #tabs, body.outside #st
 .settings .row input:not(.code-input) { flex: 0 1 260px; }
 .settings .line { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .settings .line input { flex: 1 1 260px; }
-/* Adding a device: a tinted sheet in its button's place, an × in its top
-   corner closing it. */
-.settings .pairing { position: relative; margin-top: 10px; padding: 4px 14px 14px; border-radius: 10px; background: var(--raised); }
-.settings .pairing > .close { position: absolute; top: 6px; right: 6px; }
-.settings .pairing > p.dim:first-of-type { padding-right: 32px; }
-.settings .pairing > p.dim { margin: 10px 0 4px; font-size: 13px; }
-.settings .pairing p:empty { display: none; }
+/* Adding a device, in its section under the list: a small heading, then
+   those offering nearby. */
+.settings .adding { margin-top: 14px; }
+.settings .adding h4 { margin: 0 0 2px; font-size: 15px; }
+.settings .adding > p.dim { margin: 4px 0; font-size: 13px; }
+.settings .adding p:empty { display: none; }
 .settings [hidden] { display: none; }
 .settings .row .name .model { display: block; font-size: 13px; color: var(--dim); }
 .settings .code-input { width: 6.5em; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; }
