@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Titles keep a word that's a scene token too ("Madame Web", "The Darjeeling Limited" were cut short), and a season folder naming its series (`Ahsoka Season 1`) holds that series' episodes, not a movie per episode.
 * A source's quality setting is one by default, From Names and Folders: each file's quality is the nearest of its name (if it says a resolution) and its folders that says one, a folder by its whole name (`Video/TV Shows/1080p/30 Rock/…` is 1080p; `Movies/HQ 1080p30 Surround/…` stays HQ 1080p30 Surround). Sources added before keep their setting until you choose it.
 * A device's own folders and downloads (the Mac's, and `serve --media` and `--downloads`) have port-free addresses (`cqdevice://` and the device's key), reached where the device says it serves: a new port is one write, not every copy removed and added again, as when another program took the Mac's port. Those the apps added by port move there once, keeping their copies, unavailable ones too.
 * Mac: a download plays (and shows as downloaded) from this Mac's own record of its file, so one whose source has gone, as an unplugged drive's whose source moved, is still found, with no writes to the shared library.

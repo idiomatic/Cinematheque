@@ -220,7 +220,7 @@ pub fn parse(path: []const u8, scratch: []u8) Parsed {
     // part of titles.
     if (p.episode == null and p.date == null and folders.len > 0) {
         var folder: Parsed = .{};
-        scanName(&folder, folders[folders.len - 1], scratch, &used);
+        scanName(&folder, seriesIn(folders[folders.len - 1]), scratch, &used);
         // Right after the series' title, a number is the code even when it
         // looks like a year ("South Park 1908", season 19), unless it's the
         // folder's own year.
@@ -247,11 +247,15 @@ pub fn parse(path: []const u8, scratch: []u8) Parsed {
         p.episode.? = p.episode.? * 100 + (std.fmt.parseInt(u16, d[8..10], 10) catch 0);
     };
     if (p.kind == .episode or season_folder != null) {
-        const series_index = if (season_folder) |i| (if (i > 0) i - 1 else null) else if (folders.len > 0) folders.len - 1 else null;
-        if (series_index) |i| {
+        // The series' folder: the season's, if it names the series
+        // ("Ahsoka Season 1"); else the one above it.
+        const series_name: ?[]const u8 = if (season_folder) |i|
+            (if (seasonName(folders[i]).?.series.len > 0) seasonName(folders[i]).?.series else if (i > 0) folders[i - 1] else null)
+        else if (folders.len > 0) folders[folders.len - 1] else null;
+        if (series_name) |name| {
             if (p.kind != .extra) p.kind = .episode;
             var folder: Parsed = .{};
-            scanName(&folder, folders[i], scratch, &used);
+            scanName(&folder, name, scratch, &used);
             if (folder.title.len > 0) p.title = folder.title;
             p.year = folder.year orelse p.year;
             p.tmdb = folder.tmdb orelse p.tmdb;
@@ -388,6 +392,41 @@ pub fn isSeasonFolder(name: []const u8) bool {
 }
 
 fn seasonFolder(name: []const u8) ?u16 {
+    return (seasonName(name) orelse return null).season;
+}
+
+/// A folder's name less its season, if it's a season folder naming its
+/// series ("Ahsoka Season 1" as "Ahsoka").
+fn seriesIn(name: []const u8) []const u8 {
+    const s = seasonName(name) orelse return name;
+    return if (s.series.len > 0) s.series else name;
+}
+
+/// A season folder's season, and the series' name if it starts with one
+/// ("Ahsoka Season 1", "Ahsoka.S01"; else empty).
+const SeasonName = struct { season: u16, series: []const u8 = "" };
+
+fn seasonName(name: []const u8) ?SeasonName {
+    if (bareSeason(name)) |s| return .{ .season = s };
+    // The series' name, then a season: its last word "Season", or "S01".
+    var end = name.len;
+    while (end > 0 and ascii.isDigit(name[end - 1])) end -= 1;
+    if (end == name.len or name.len - end > 4) return null;
+    const season = std.fmt.parseInt(u16, name[end..], 10) catch return null;
+    var mark = end;
+    while (mark > 0 and isSeparator(name[mark - 1])) mark -= 1;
+    var start = mark;
+    while (start > 0 and !isSeparator(name[start - 1])) start -= 1;
+    const word = name[start..mark];
+    const spaced = mark < end; // "Season 1"
+    if (start == 0) return null;
+    if (!ascii.eqlIgnoreCase(word, "season") and !(!spaced and ascii.eqlIgnoreCase(word, "s"))) return null;
+    const series = mem.trim(u8, name[0..start], " ._-");
+    if (series.len == 0) return null;
+    return .{ .season = season, .series = series };
+}
+
+fn bareSeason(name: []const u8) ?u16 {
     if (ascii.eqlIgnoreCase(name, "specials")) return 0;
     for ([_][]const u8{ "season ", "season.", "season_", "season", "s" }) |prefix| {
         if (name.len > prefix.len and ascii.startsWithIgnoreCase(name, prefix)) {
@@ -457,6 +496,10 @@ fn scanName(p: *Parsed, name: []const u8, scratch: []u8, used: *usize) void {
             continue;
         }
         const word = rest[0..wordEnd(rest)];
+        // A word that's English too ("Madame Web (2024)", "Spider in the
+        // Web") is a token only beside another ("WEB x264", "1080p.WEB"), or
+        // in parentheses ("House, MD (from DVD)").
+        if (plainWord(word) and !besideToken(name, i, word.len) and !bracketed(name, i)) continue;
         for (scene_tokens) |t| if (ascii.eqlIgnoreCase(word, t)) {
             if (word[0] >= '0' and word[0] <= '9' and ascii.endsWithIgnoreCase(word, "p") or ascii.eqlIgnoreCase(word, "4k"))
                 p.resolution = word;
@@ -540,6 +583,44 @@ fn qualityLabel(technical: *const [4]?[]const u8, scratch: []u8, used: *usize) ?
         used.* += text.len;
     };
     return if (used.* > start) scratch[start..used.*] else null;
+}
+
+/// Scene tokens that are words too, so a title may hold them.
+const plain_words = [_][]const u8{ "web", "dvd", "dv", "proper", "internal", "limited", "extended", "unrated", "atmos", "repack" };
+
+fn plainWord(word: []const u8) bool {
+    for (plain_words) |w| if (ascii.eqlIgnoreCase(word, w)) return true;
+    return false;
+}
+
+/// Whether the word at `name[at..][0..len]` has a scene token, not a plain
+/// word, just before or after it.
+fn besideToken(name: []const u8, at: usize, len: usize) bool {
+    var after = at + len;
+    while (after < name.len and isSeparator(name[after])) after += 1;
+    if (strongToken(name[after..][0..wordEnd(name[after..])])) return true;
+    var end = at;
+    while (end > 0 and isSeparator(name[end - 1])) end -= 1;
+    var start = end;
+    while (start > 0 and !isSeparator(name[start - 1])) start -= 1;
+    return strongToken(name[start..end]);
+}
+
+/// Whether `name[at]` is within parentheses or brackets.
+fn bracketed(name: []const u8, at: usize) bool {
+    var depth: isize = 0;
+    for (name[0..at]) |c| switch (c) {
+        '(', '[' => depth += 1,
+        ')', ']' => depth -= 1,
+        else => {},
+    };
+    return depth > 0;
+}
+
+fn strongToken(word: []const u8) bool {
+    if (word.len == 0 or plainWord(word)) return false;
+    for (scene_tokens) |t| if (ascii.eqlIgnoreCase(word, t)) return true;
+    return Technical.of(word) != null;
 }
 
 fn startsWithSceneToken(text: []const u8) bool {
@@ -711,4 +792,35 @@ fn cleanTitle(raw: []const u8, scratch: []u8, used: *usize) []const u8 {
     }
     used.* += trimmed.len;
     return mem.trim(u8, out, " ");
+}
+
+test "a title may hold a word that's a scene token too; a season folder may name its series" {
+    const t = std.testing;
+    var scratch: [1024]u8 = undefined;
+    var p = parse("Movies/Madame Web (2024).m4v", &scratch);
+    try t.expectEqualStrings("Madame Web", p.title);
+    try t.expect(p.quality == null);
+    p = parse("The Girl in the Spider's Web (2018).m4v", &scratch);
+    try t.expectEqualStrings("The Girl in the Spider's Web", p.title);
+    p = parse("Babylon 5/Babylon 5 206 Spider in the Web.m4v", &scratch);
+    try t.expectEqual(@as(?u16, 6), p.episode);
+    try t.expect(p.quality == null);
+    // Beside another token, it's one.
+    p = parse("Network.Effect.2020.1080p.WEB.x264-GROUP.mkv", &scratch);
+    try t.expectEqualStrings("Network Effect", p.title);
+    try t.expectEqualStrings("1080p web h264", p.quality.?);
+    p = parse("Some Movie WEB x264.mkv", &scratch);
+    try t.expectEqualStrings("Some Movie", p.title);
+    // A season folder naming its series, a compact code within it.
+    p = parse("Ultra HD Blu-ray Rip/Ahsoka Season 1/Ahsoka 101 Master and Apprentice.mkv", &scratch);
+    try t.expectEqual(Kind.episode, p.kind);
+    try t.expectEqualStrings("Ahsoka", p.title);
+    try t.expectEqual(@as(?u16, 1), p.season);
+    try t.expectEqual(@as(?u16, 1), p.episode);
+    p = parse("Andor.S02/Andor.S02E03.mkv", &scratch);
+    try t.expectEqualStrings("Andor", p.title);
+    try t.expectEqual(@as(?u16, 2), p.season);
+    // Not a season: a title ending in a number.
+    try t.expect(!isSeasonFolder("Babylon 5"));
+    try t.expect(isSeasonFolder("Season 01"));
 }
