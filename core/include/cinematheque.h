@@ -232,6 +232,9 @@ int cq_remove_device(cq_library *library, const char *device_key);
 int cq_remove_self(cq_library *library, const char *successor);
 int cq_set_person_name(cq_library *library, const char *name);
 int cq_set_device_name(cq_library *library, const char *name);
+// What this device names itself as, told name by its platform, at host: a
+// JSON string, or null if both are generic ("iPhone", "localhost").
+char *cq_shown_name(cq_library *library, const char *name, const char *host);
 char *cq_devices(cq_library *library);
 char *cq_nearby(cq_library *library);
 int cq_device_address_add(cq_library *library, const char *url);

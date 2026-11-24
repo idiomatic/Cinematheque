@@ -149,6 +149,14 @@ extension Library {
         if servingPort != nil { serve() }
     }
 
+    /// What this device names itself as, told `name` by its platform: that,
+    /// unless it's generic ("iPhone", as iOS tells apps); then its host's, as
+    /// other devices show it; else nil (see the core's `cq_shown_name`).
+    func shownName(_ name: String) -> String? {
+        guard !name.isEmpty else { return nil }
+        return decode(String?.self) { cq_shown_name($0, name, ProcessInfo.processInfo.hostName) } ?? nil
+    }
+
     /// Devices found nearby (listening for 2 seconds) and added by address.
     func nearby() async -> [NearbyDevice] {
         let data: Data? = await apart { handle in

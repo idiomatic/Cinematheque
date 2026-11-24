@@ -3,10 +3,10 @@ import SwiftUI
 
 /// The iPhone's settings, from Home's corner, as iOS's own apps' are: a
 /// grouped list in a sheet, each kind of thing a page of its own. Names;
-/// the library's people and your devices, each added by the code a device
-/// shows as it joins; its sources, servers added by address; how often to
-/// look for new videos; devices by address; and Leave This Library…. A
-/// Mac's folders stay on the Mac, as an iPhone shares none.
+/// the library's people and your devices (devices by address among them),
+/// each added by the code a device shows as it joins; its sources, servers
+/// added by address; how often to look for new videos; and Leave This
+/// Library…. A Mac's folders stay on the Mac, as an iPhone shares none.
 struct SettingsSheet: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
@@ -61,11 +61,6 @@ struct SettingsSheet: View {
                     Text("Library")
                 } footer: {
                     Text("Refresh to see videos just added, now. Looking less often lets a NAS's disks rest, as each look wakes them; this applies to everyone in the library.")
-                }
-                Section {
-                    NavigationLink("Devices by Address", value: SettingsPage.addresses)
-                } header: {
-                    Text("Advanced")
                 }
                 Section {
                     Button(leaving ? "Leaving…" : "Leave This Library…", role: .destructive, action: askToLeave)
@@ -262,6 +257,12 @@ private struct DevicesPage: View {
                     .onChange(of: sharing) { library.sharing = sharing }
             } footer: {
                 Text("While Cinematheque is open, your other devices catch up with this iPhone directly, so what you watch here reaches them at once.")
+            }
+            // As the Mac's Devices pane has them, under its Advanced.
+            Section {
+                NavigationLink("Devices by Address", value: SettingsPage.addresses)
+            } footer: {
+                Text("For a device that isn't found nearby, such as one at another home.")
             }
         }
         .navigationTitle("Your Devices")
@@ -496,20 +497,26 @@ private struct SourcePage: View {
                         if from == .unknown { Text("Set by a Newer Version").tag(Source.QualityFrom.unknown) }
                     }
                     .onChange(of: from) { saveQuality() }
-                    // Fields named by their placeholders, as iOS's forms'
-                    // are, so a long name doesn't squeeze what's typed.
                     if from == .named {
-                        TextField("Quality's Name, as 4K HDR", text: $quality)
-                            .onSubmit(saveQuality)
+                        LabeledContent("Name") {
+                            TextField("Name", text: $quality, prompt: Text("4K HDR"))
+                                .multilineTextAlignment(.trailing)
+                                .onSubmit(saveQuality)
+                        }
                     }
-                    TextField("Skip Names Starting With", text: $skip)
+                } footer: {
+                    Text("If the videos' names don't say their quality, set it here so you can choose which quality plays: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them.")
+                }
+                // Its name a heading, too long to sit beside what's typed.
+                Section {
+                    TextField("Skip", text: $skip, prompt: Text("None"))
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .onSubmit { library.setSkip(source.id, skip) }
                 } header: {
-                    Text("Advanced")
+                    Text("Skip Names Starting With")
                 } footer: {
-                    Text("If the videos' names don't say their quality, set it here so you can choose which quality plays: from the folder each is in, just under this one (as Movies/HQ 1080p/Alien.m4v), or one name for all of them. Names starting with what Skip says are left out.")
+                    Text("Folders and files whose names start with this are left out of the library, and titles that do too.")
                 }
                 if !source.unavailable.isEmpty {
                     Section {
@@ -567,7 +574,7 @@ private struct SourcePage: View {
 private struct AddServerSheet: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
-    @State private var url = "http://"
+    @State private var url = ""
     @State private var from = Source.QualityFrom.names
     @State private var quality = ""
     @State private var skip = ""
@@ -577,7 +584,7 @@ private struct AddServerSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Server Address", text: $url)
+                    TextField("Server Address", text: $url, prompt: Text(verbatim: "http://nas.local/Video/Movies/"))
                         .keyboardType(.URL)
                         .textContentType(.URL)
                         .autocorrectionDisabled()
@@ -586,8 +593,7 @@ private struct AddServerSheet: View {
                         .submitLabel(.done)
                         .onSubmit(add)
                 } footer: {
-                    // Verbatim, so its example isn't made a link.
-                    Text(verbatim: "The address of a folder of videos on a server, as a browser would open it, such as http://nas.local/Video/Movies/.")
+                    Text("The address of a folder of videos on a server, as a browser would open it.")
                 }
                 Section {
                     Picker("Quality", selection: $from) {
@@ -596,13 +602,15 @@ private struct AddServerSheet: View {
                         Text("Named").tag(Source.QualityFrom.named)
                     }
                     if from == .named {
-                        TextField("Quality's Name, as 4K HDR", text: $quality)
+                        LabeledContent("Name") {
+                            TextField("Name", text: $quality, prompt: Text("4K HDR")).multilineTextAlignment(.trailing)
+                        }
                     }
-                    TextField("Skip Names Starting With", text: $skip)
+                }
+                Section("Skip Names Starting With") {
+                    TextField("Skip", text: $skip, prompt: Text("None"))
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                } header: {
-                    Text("Advanced")
                 }
             }
             .navigationTitle("Add Server")
@@ -617,10 +625,10 @@ private struct AddServerSheet: View {
         }
     }
 
-    private var valid: Bool { URL(web: url) != nil && !(from == .named && quality.isEmpty) }
+    private var valid: Bool { webAddress(url) != nil && !(from == .named && quality.isEmpty) }
 
     private func add() {
-        guard valid else { return }
+        guard valid, let url = webAddress(url) else { return }
         library.addSource(url, skip: skip.isEmpty ? nil : skip)
         switch from {
         case .folder: library.setQuality(url, .folder)
@@ -655,13 +663,14 @@ private struct AddressesPage: View {
                 }
                 HStack {
                     TextField("Device Address", text: $address, prompt: Text(verbatim: "http://hal.local:8008/"))
+                        .textContentType(.URL)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .onSubmit(add)
                     Button("Add", action: add)
                         .buttonStyle(.borderless)
-                        .disabled(URL(web: address) == nil)
+                        .disabled(webAddress(address) == nil)
                 }
             } footer: {
                 Text(verbatim: "Add a device by address if it isn't found nearby, such as one at another home or behind another router: http://hal.example.com:8008/. This iPhone syncs with it too.")
@@ -672,8 +681,8 @@ private struct AddressesPage: View {
     }
 
     private func add() {
-        guard URL(web: address) != nil else { return }
-        library.addDeviceAddress(address)
+        guard let url = webAddress(address) else { return }
+        library.addDeviceAddress(url)
         address = ""
         Task { nearby = await library.nearby() }
     }
@@ -682,6 +691,15 @@ private struct AddressesPage: View {
         library.forgetDeviceAddress(url)
         Task { nearby = await library.nearby() }
     }
+}
+
+/// An address as typed, made a web address: `http://` put first if it names
+/// no scheme ("nas.local/Video/Movies/"); nil if it isn't one even so.
+private func webAddress(_ typed: String) -> String? {
+    let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    let address = trimmed.contains("://") ? trimmed : "http://" + trimmed
+    return URL(web: address) != nil ? address : nil
 }
 
 private extension View {

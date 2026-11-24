@@ -48,7 +48,9 @@ extension Library {
         // to refresh, and no library to look for videos for.
         guard hasLibrary else { return }
         var named = false
-        if !devices.contains(where: \.you), !device.isEmpty { setName(.device, device); named = true }
+        // Never a generic name ("iPhone", as iOS tells apps), which would
+        // outrank the host's that pairing named it by.
+        if !devices.contains(where: \.you), let own = shownName(device) { setName(.device, own); named = true }
         if let person, !person.isEmpty, members.first(where: \.you)?.name == nil { setName(.person, person); named = true }
         // Naming itself is a new device's first write, with its certificate:
         // its devices hear of it now, not a minute on.

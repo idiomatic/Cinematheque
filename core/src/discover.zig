@@ -104,9 +104,10 @@ pub const Service = struct {
         return model;
     }
 
-    /// The names devices give apps in place of their own.
+    /// The names devices give apps in place of their own, and the host's a
+    /// device may know itself by (`localhost`).
     fn generic(name: []const u8) bool {
-        for ([_][]const u8{ "Apple TV", "iPhone", "iPad" }) |g| if (std.mem.eql(u8, name, g)) return true;
+        for ([_][]const u8{ "Apple TV", "iPhone", "iPad", "localhost" }) |g| if (std.mem.eql(u8, name, g)) return true;
         return false;
     }
 };
@@ -119,6 +120,7 @@ test "a device is shown by its host's name when it advertises a generic one" {
     try std.testing.expectEqualStrings("lint", (try (Service{ .name = "", .host = "lint.local.", .port = 1, .txt = txt }).shownName(arena)).?);
     try std.testing.expectEqualStrings("Not Your AppleTV", (try (Service{ .name = "", .host = "Not-Your-AppleTV.local", .port = 1, .txt = txt }).shownName(arena)).?);
     try std.testing.expectEqual(null, try (Service{ .name = "", .host = "iPhone.local.", .port = 1, .txt = txt }).shownName(arena));
+    try std.testing.expectEqual(null, try (Service{ .name = "", .host = "localhost", .port = 1, .txt = txt }).shownName(arena));
     const named = try txtRecord(arena, &.{.{ "name", "Den" }});
     try std.testing.expectEqualStrings("Den", (try (Service{ .name = "", .host = "lint.local.", .port = 1, .txt = named }).shownName(arena)).?);
     // Its model, unless its name says so already.

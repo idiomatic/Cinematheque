@@ -39,6 +39,20 @@ fn setDeviceName(lib: *Library, arena: std.mem.Allocator, name: []const u8) !voi
     try library.setName(try lib.main(), arena, lib.now(), try lib.store.device(), name, try lib.store.person());
 }
 
+/// What this device names itself as, told `name` by its platform, at `host`
+/// (its own, as `localhost` or `lint.local`), as JSON: `name`, unless it's
+/// generic, as iOS and tvOS tell apps only "iPhone" or "Apple TV"; then its
+/// host's, by the rule other devices show it by (`Service.shownName`); else
+/// null, so it keeps the name pairing gave it.
+export fn cq_shown_name(lib: *Library, name: [*:0]const u8, host: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, shownName, .{ std.mem.span(name), std.mem.span(host) });
+}
+
+fn shownName(_: *Library, arena: std.mem.Allocator, name: []const u8, host: []const u8) !?[]const u8 {
+    const s: discover.Service = .{ .name = "", .host = host, .port = 0, .txt = try discover.txtRecord(arena, &.{.{ "name", name }}) };
+    return s.shownName(arena);
+}
+
 /// Names another device, `device`, as its person's, `person` (as one just
 /// paired, until it names itself); any member may.
 export fn cq_name(lib: *Library, device: [*:0]const u8, person: [*:0]const u8, name: [*:0]const u8) c_int {

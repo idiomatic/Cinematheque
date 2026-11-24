@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* An iPhone or Apple TV no longer names itself "iPhone" or "Apple TV" at its first launch, as iOS and tvOS tell apps, over the host's name pairing gave it ("lint"). On the iPhone, Settings' Devices by Address moves under Your Devices; Skip Names Starting With is a heading over its field; and address fields start empty, with an example, taking an address without `http://`.
 * iPhone: an icon, the Mac's and the Apple TV's red gradient and film stack, drawn by draw-icons.swift.
 * iPhone: Settings, as iOS's own apps' are: names; people and your devices, each added by the code a device shows (those offering nearby listed with their models); sources, servers added by address, each with its quality, names to skip, and unavailable folders; Refresh Library, Look for New Videos, and Show Sync Activity; devices by address; and Leave This Library….
 * Web client: Add Someone's and Add a Device's panel closes by an × in its corner, or Escape, in place of Cancel and Done.
