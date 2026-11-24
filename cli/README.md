@@ -66,7 +66,7 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 
 * `member list` prints the members' keys, marking the founder and you.
 * `member pair CODE [URL]` adds a new device offering a code as a new member's, admitting its person, and sends it the library's founder.
-* `device list` prints this person's devices (named or not). `device remove DEVICE` removes one: its later writes are refused, and when it next syncs it's told so, signed, and prints that it should `library leave`, which forgets the library and its identity so it can pair again as a new device.
+* `device list` prints this person's devices (named or not). `device remove DEVICE` removes one: its later writes are refused, and when it next syncs it's told so, signed, and prints that it should `library leave`, which forgets the library and its identity so it can pair again as a new device. Leaving of its own accord, `library leave` first removes this device and syncs, so another device hears of it, as the apps' Leave This Library does (`--to PERSON` handing the library over, if this person founded it and has no other device). `person set --name NAME` and `device set [DEVICE] --name NAME` name this person and their devices, as everyone sees them.
 * `member remove PERSON` removes a member, but not the founder. Their devices' writes up to what this device has seen stand; later ones are refused everywhere.
 
 ### Sources and crawling

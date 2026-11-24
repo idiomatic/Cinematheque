@@ -15,6 +15,8 @@ print them; SOURCE is a source's ID or URL; DEVICE, a device's key, as
 device list prints it.
 
   person show                  print this person's key
+  person set --name NAME       name this person, as everyone in the
+                               library sees them
   person pair                  on a new device, show a code (and the port
                                it listens on), and wait for a member's
                                device to add this one, as another of theirs
@@ -30,9 +32,12 @@ device list prints it.
                                count, digest, and how often it's crawled
   library create               create a library, founded by this person
   library join                 on a new device, as person pair
-  library leave                forget the library and this device's
-                               identity, as a device removed from it must,
-                               to pair again as a new device
+  library leave [--to PERSON]  remove this device from the library and
+                               sync, so another device hears of it, then
+                               forget the library and this device's
+                               identity, to pair again as a new device;
+                               --to hands the library over first, if this
+                               person founded it and has no other device
   library set --crawl EVERY    how often refreshes crawl the sources: 1,
                                3, 24 (the default), or 168 hours, or
                                manually (only crawl does), for every device
@@ -55,6 +60,9 @@ device list prints it.
   device remove DEVICE         remove one of this person's other devices:
                                what it writes from now on is refused, and
                                it's told so when it next syncs
+  device set [DEVICE] --name NAME
+                               name this device, or another of this
+                               person's, as everyone in the library sees it
 
   source list                  list sources
   source show SOURCE           show a source

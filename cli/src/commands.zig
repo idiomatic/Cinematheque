@@ -22,6 +22,12 @@ pub fn person(app: *App, c: Command) !void {
         try network.offerPairing(app);
     } else if (c.is("pair", 1, &.{}) or c.is("pair", 2, &.{})) {
         _ = try pairWith(app, c, .pair);
+    } else if (c.is("set", 0, &.{"--name"}) and c.args.get("--name") != null) {
+        // The name everyone in the library sees this person by.
+        var r = try app.open();
+        defer r.close();
+        try lib.setName(&r, app.arena, app.now(), try app.person(), c.args.get("--name").?, null);
+        try app.out.print("named this person {s}\n", .{c.args.get("--name").?});
     } else return error.Usage;
 }
 
@@ -94,16 +100,59 @@ pub fn library(app: *App, c: Command) !void {
         var r = try app.open();
         defer r.close();
         try app.out.print("created library {s}\n", .{std.fmt.bytesToHex(r.library, .lower)});
-    } else if (c.is("leave", 0, &.{})) {
-        // As a device removed from the library must, to pair again.
-        try app.store.forget(app.arena);
-        try app.out.print("left the library; this device will pair again as a new one\n", .{});
+    } else if (c.is("leave", 0, &.{"--to"})) {
+        try leave(app, c.args.get("--to"));
     } else if (c.is("handover", 1, &.{"--leave"})) {
         var r = try app.open();
         defer r.close();
         try r.handOver(app.now(), try parseKey(c.rest[0]), !c.args.has("--leave"));
         try app.out.print("handed over to {s}\n", .{c.rest[0]});
     } else return error.Usage;
+}
+
+/// Leaves the library, as the apps' Leave This Library does: removes this
+/// device (handing the library over first, to `to`, if this person founded
+/// it and this is their only device) and syncs, so another device takes the
+/// removal, then forgets the library and this device's identity, to pair
+/// again as a new device. With no one else in it, or once the library has
+/// removed this device, it only forgets.
+fn leave(app: *App, to: ?[]const u8) !void {
+    told: {
+        var r = app.open() catch |err| switch (err) {
+            error.NoLibrary => break :told,
+            else => return err,
+        };
+        defer r.close();
+        const me = try app.person();
+        var others: usize = 0;
+        for (try r.devicesOf(app.arena, me)) |d| {
+            if (!std.mem.eql(u8, &d, &r.device()) and try r.revoked(d) == null) others += 1;
+        }
+        const members = try r.members(app.arena);
+        if (members.len == 1 and others == 0) break :told;
+        const founding = std.mem.eql(u8, &me, &r.founder) and others == 0 and members.len > 1;
+        const successor: ?[32]u8 = if (to) |s| try parseKey(s) else null;
+        if (founding and successor == null) return error.NeedsSuccessor;
+        // Written once: leaving again, after no one could be reached, only
+        // syncs.
+        try r.removeSelf(app.now(), if (founding) successor else null);
+        const found = try core.sync.everyDevice(app.io, app.arena, &r, try app.store.serviceName(app.arena));
+        var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
+        defer client.deinit();
+        for (found.urls) |u| {
+            // A device that took the removal, or that had already removed
+            // this one, is enough.
+            if (core.sync.exchange(app.arena, &client, &r, u, app.now())) |_| {
+                break :told;
+            } else |err| switch (err) {
+                error.Removed => break :told,
+                else => try app.out.print("{s}: {s}\n", .{ u, @errorName(err) }),
+            }
+        }
+        return error.NoOneReached;
+    }
+    try app.store.forget(app.arena);
+    try app.out.print("left the library; this device will pair again as a new one\n", .{});
 }
 
 pub fn member(app: *App, c: Command) !void {
@@ -155,6 +204,19 @@ pub fn device(app: *App, c: Command) !void {
         defer r.close();
         try r.revokeDevice(app.now(), try parseKey(c.rest[0]));
         try app.out.print("removed {s}\n", .{c.rest[0]});
+    } else if ((c.is("set", 0, &.{"--name"}) or c.is("set", 1, &.{"--name"})) and c.args.get("--name") != null) {
+        // The name everyone in the library sees one of this person's
+        // devices by: this one, unless another is given.
+        var r = try app.open();
+        defer r.close();
+        const me = try app.person();
+        const which = if (c.rest.len == 1) try parseKey(c.rest[0]) else try app.store.device();
+        const mine = for (try r.devicesOf(app.arena, me)) |d| {
+            if (std.mem.eql(u8, &d, &which)) break try r.revoked(d) == null;
+        } else std.mem.eql(u8, &which, &(try app.store.device()));
+        if (!mine) return error.NotYourDevice;
+        try lib.setName(&r, app.arena, app.now(), which, c.args.get("--name").?, me);
+        try app.out.print("named {s} {s}\n", .{ hex(which), c.args.get("--name").? });
     } else return error.Usage;
 }
 
