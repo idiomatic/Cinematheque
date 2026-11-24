@@ -43,7 +43,7 @@ extension Library {
         // Syncing before writing anything: a device whose replica was lost
         // (as tvOS may purge one) learns its own writes back, and so where
         // its numbering left off, before it writes again.
-        let synced = await long("Catching up", results: noteReceived) { cq_sync($0) }
+        let synced = await long("Catching up", results: noteReceived, unreported: Self.unreachable) { cq_sync($0) }
         // Told while catching up that it was removed, it left: nothing more
         // to refresh, and no library to look for videos for.
         guard hasLibrary else { return }
@@ -283,7 +283,7 @@ extension Library {
     func refreshFully() async { await refresh { cq_crawl_full($0) } }
 
     private func refresh(crawling crawl: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async {
-        let synced = await long("Looking for new videos", results: noteReceived) { cq_sync($0) }
+        let synced = await long("Looking for new videos", results: noteReceived, unreported: Self.unreachable) { cq_sync($0) }
         let crawled = await crawlSources(crawl)
         report(.refresh, synced ?? crawled)
         #if os(macOS)

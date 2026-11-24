@@ -739,6 +739,16 @@ pub const Replica = struct {
         }
     }
 
+    /// Every stream cut off (removed devices', and their private streams'),
+    /// by its key in hex.
+    pub fn revokedStreams(replica: *Replica, arena: std.mem.Allocator) ![]const []const u8 {
+        const s = try replica.db.prepare("SELECT field FROM winners WHERE key = 'revoked' AND length(value) = 8");
+        defer s.finalize();
+        var out: std.ArrayList([]const u8) = .empty;
+        while (try s.step()) try out.append(arena, try arena.dupe(u8, s.blob(0)));
+        return out.items;
+    }
+
     /// Where a stream of a removed device was cut off, if it was.
     pub fn revoked(replica: *Replica, stream: Device) !?u64 {
         const s = replica.select_winner;

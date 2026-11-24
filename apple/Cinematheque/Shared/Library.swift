@@ -431,6 +431,12 @@ final class Library {
         return "\(what) failed for \(first.name ?? host)\(more): \(reason(first.error))."
     }
 
+    /// Errors that say only that a device couldn't be reached: a phone
+    /// whose app is suspended or closed, a computer asleep. Syncing leaves
+    /// them unsaid, as a device away is no problem; it's synced with when
+    /// it's back.
+    static let unreachable: Set<String> = ["ConnectionRefused", "ConnectionTimedOut", "Timeout", "HostUnreachable", "NetworkUnreachable", "UnknownHostName", "ConnectionResetByPeer"]
+
     /// The core's error, as a person reads it.
     nonisolated static func reason(_ error: String) -> String {
         switch error {
@@ -473,7 +479,7 @@ final class Library {
 
     /// Runs a long operation off the main thread; returns why it failed, if
     /// it did.
-    func long(_ what: String, results: ((Data) -> Void)? = nil, _ body: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async -> String? {
+    func long(_ what: String, results: ((Data) -> Void)? = nil, unreported: Set<String> = [], _ body: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async -> String? {
         guard let handle, activity == nil, !leavingLibrary else { return nil }
         activity = what
         // Show what the operation commits as it commits it (titles once
@@ -509,7 +515,7 @@ final class Library {
             let results = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
             let failed = results.compactMap { r in
                 (r["error"] as? String).map { (url: r["url"] as? String ?? "", name: r["name"] as? String ?? names[r["url"] as? String ?? ""], error: $0) }
-            }
+            }.filter { !unreported.contains($0.error) }
             return (Library.describe(failed, what), data)
         }.value
         if let data { results?(data) }

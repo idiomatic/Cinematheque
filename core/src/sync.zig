@@ -85,6 +85,25 @@ pub fn isOwn(name: []const u8, own: []const u8) bool {
     return true;
 }
 
+/// Whether a device advertised as `name` (`cinematheque-` and its key's
+/// first 8 hex digits, as `Store.serviceName` makes it, DNS-SD's " (2)"
+/// perhaps after) is one of `removed` (keys in hex).
+fn isRemoved(name: []const u8, cut_off: []const []const u8) bool {
+    const prefix = "cinematheque-";
+    if (!std.mem.startsWith(u8, name, prefix) or name.len < prefix.len + 8) return false;
+    const key = name[prefix.len..][0..8];
+    for (cut_off) |hex| if (std.mem.startsWith(u8, hex, key)) return true;
+    return false;
+}
+
+test "a removed device's announcement is told by its key's start" {
+    const cut_off: []const []const u8 = &.{"6c30b441c95f147fc1911d8a095fa74f648cd004e089c763e9ab19dea6757d7c"};
+    try std.testing.expect(isRemoved("cinematheque-6c30b441", cut_off));
+    try std.testing.expect(isRemoved("cinematheque-6c30b441 (2)", cut_off));
+    try std.testing.expect(!isRemoved("cinematheque-41651ef5", cut_off));
+    try std.testing.expect(!isRemoved("somethingelse", cut_off));
+}
+
 test "a device's own name, as DNS-SD may rename it" {
     try std.testing.expect(isOwn("cinematheque-6c30b441", "cinematheque-6c30b441"));
     try std.testing.expect(isOwn("cinematheque-6c30b441 (2)", "cinematheque-6c30b441"));
@@ -151,9 +170,13 @@ pub fn nearby(io: Io, arena: std.mem.Allocator, r: *Replica, own: []const u8) !D
     var urls: std.ArrayList([]const u8) = .empty;
     var names: std.StringHashMapUnmanaged([]const u8) = .empty;
     const mine = std.fmt.bytesToHex(r.library, .lower);
+    const cut_off = try r.revokedStreams(arena);
     for (try discover.browse(io, arena, 2000)) |s| {
         if (s.host.len == 0 or isOwn(s.name, own)) continue;
         if (!std.mem.eql(u8, s.get("library") orelse "", &mine)) continue;
+        // A removed device's announcement (as one gone back to setup may
+        // still make, stale), no use syncing with.
+        if (isRemoved(s.name, cut_off)) continue;
         const u = foundUrl(arena, s) catch continue;
         try urls.append(arena, u);
         if (s.get("name")) |n| if (n.len > 0) try names.put(arena, u, n);

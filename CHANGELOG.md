@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Syncing skips a removed device still announced on the network (as one gone back to setup may be), and the apps no longer report a device that can't be reached as they catch up ("nothing answered there"), as a phone whose app is closed can't be.
 * Web client: Settings' Sources leaves devices' downloads out, as the apps' do (its own are under Kept).
 * Command-line app: `serve` syncs as it starts, and leaves a library that removed it, as the apps do, its web client set up afresh; it went on serving the library's catalog and sources.
 * Devices by Address is gone from the apps' and the web client's Settings (and `cq_device_address_add` and `cq_device_address_forget` from the C interface): devices sync whenever they share a network. The command-line app's `device add URL` still reaches a device elsewhere, and addresses already added are still synced with.
