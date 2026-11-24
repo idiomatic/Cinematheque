@@ -472,8 +472,10 @@ pub fn localFiles(replica: *Replica, arena: std.mem.Allocator) ![]LocalFile {
 pub const floor_bytes: u64 = 20_000_000_000;
 
 /// `floor_bytes`, unless `CINEMATHEQUE_DOWNLOAD_FLOOR` gives another (in
-/// bytes), for testing on a small disk, such as a VM's.
+/// bytes), for testing on a small disk, such as a VM's; none in unit tests,
+/// so they pass whatever the computer's free space.
 pub fn floor() u64 {
+    if (@import("builtin").is_test) return 0;
     const text = std.c.getenv("CINEMATHEQUE_DOWNLOAD_FLOOR") orelse return floor_bytes;
     return std.fmt.parseInt(u64, std.mem.span(text), 10) catch floor_bytes;
 }
