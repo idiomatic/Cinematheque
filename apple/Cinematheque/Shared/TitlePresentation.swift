@@ -376,11 +376,11 @@ struct ListPrompt: Identifiable {
 /// Answers the library's requests about lists, from wherever they came:
 /// a list's name (on tvOS, the full-screen keyboard at once, as Settings'
 /// names, an alert's field bringing up the keyboard over it; on iOS, a
-/// sheet, as Reminders' Add List, a menu holding no field; on the Mac, an
-/// alert), and deleting one, confirmed first, as it's for good.
+/// sheet, as Reminders' Add List, a menu holding no field; on the Mac, the
+/// browser makes it, named in place in the sidebar), and deleting one,
+/// confirmed first, as it's for good.
 struct ListRequests: ViewModifier {
     @Environment(Library.self) private var library
-    @State private var name = ""
 
     func body(content: Content) -> some View {
         let renaming: UserList? = if case .rename(let list) = library.listPrompt?.kind { list } else { nil }
@@ -395,14 +395,6 @@ struct ListRequests: ViewModifier {
             .sheet(isPresented: prompting) {
                 ListNameSheet(title: renaming == nil ? "New List" : "Rename List", action: renaming == nil ? "Create" : "Rename", name: renaming?.name ?? "") { answer($0) }
             }
-            #else
-            .alert(renaming == nil ? "New List" : "Rename List", isPresented: prompting) {
-                TextField("Name", text: $name)
-                Button("Cancel", role: .cancel) {}
-                Button(renaming == nil ? "Create" : "Rename") { answer(name) }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .onChange(of: library.listPrompt?.id) { name = renaming?.name ?? "" }
             #endif
             .confirmationDialog("Delete “\(library.deletingList?.name ?? "")”?", isPresented: Binding(get: { library.deletingList != nil }, set: { if !$0 { library.deletingList = nil } }), titleVisibility: .visible) {
                 Button("Delete List", role: .destructive) {

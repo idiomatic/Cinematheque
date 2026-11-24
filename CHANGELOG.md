@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Mac: a tile's Lists › New List… names the new list in place in the sidebar, with the title on it, rather than in an alert.
 * Mac and web client: a series' "{n} seasons" no longer counts its specials as a season.
 * A series' tile shows the cover of its season to watch (the first not watched through), not always its first season's, in every app and the web client; its progress bar still counts the whole series.
 * iPhone: no more alerts for names and codes. A new device's code is typed in a field under it; New List names the list in place at the top of the Lists tab; a list is renamed by its page's title; New List… from a title's Lists menu is a small sheet.

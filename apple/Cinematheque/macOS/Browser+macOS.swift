@@ -341,6 +341,12 @@ struct Browser: View {
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { _, height in gridHeight = height }
                 .focusedSceneValue(\.find, FindAction(window: window) { searchFocus() })
                 .focusedSceneValue(\.newList, NewListAction(window: window) { newList() })
+                // A tile's Lists › New List…, made here, named in place.
+                .onChange(of: library.listPrompt?.id) {
+                    guard let prompt = library.listPrompt, case .create(let keys) = prompt.kind else { return }
+                    library.listPrompt = nil
+                    newList(adding: keys)
+                }
                 .focusedSceneValue(\.shownList, shownList)
                 .focusedSceneValue(\.shelfOrder, $orders[shelf ?? .inProgress])
                 .focusedSceneValue(\.inspecting, $inspecting)
@@ -440,11 +446,25 @@ struct Browser: View {
     /// Makes a list, "New List" (numbered if that's taken), shows it, and
     /// edits its name in place.
     private func newList() {
-        let names = Set(library.myLists.map(\.name))
-        let name = (1...).lazy.map { $0 == 1 ? "New List" : "New List \($0)" }.first { !names.contains($0) }!
-        guard let id = library.createList(named: name) else { return }
+        guard let id = makeList() else { return }
         shelf = .list(id)
         renaming = id
+    }
+
+    /// Makes a list with `keys` on it (as a tile's Lists › New List… asks)
+    /// and edits its name in place in the sidebar, the shelf shown staying,
+    /// rather than asking its name in an alert.
+    private func newList(adding keys: [String]) {
+        guard let id = makeList() else { return }
+        for key in keys { library.setListed(key, on: id, true) }
+        renaming = id
+    }
+
+    /// A new list, "New List" (numbered if that's taken); its ID.
+    private func makeList() -> String? {
+        let names = Set(library.myLists.map(\.name))
+        let name = (1...).lazy.map { $0 == 1 ? "New List" : "New List \($0)" }.first { !names.contains($0) }!
+        return library.createList(named: name)
     }
 
     /// Whether the sidebar has a shelf: its own, or a list there is.
