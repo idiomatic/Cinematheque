@@ -42,4 +42,13 @@ struct Looking: View {
         }
     }
 }
+
+extension View {
+    /// A row's symbol in one width, whatever its own (a laptop's is wider
+    /// than a phone's), so the rows' names line up, as an iOS list lines
+    /// them up and a Mac form doesn't.
+    func rowSymbol() -> some View {
+        frame(width: 24)
+    }
+}
 #endif

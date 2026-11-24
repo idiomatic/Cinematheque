@@ -26,6 +26,7 @@ struct SourcesPane: View {
                             Text(folder.name) + Text(unavailable ? "  unavailable on this Mac" : "  on this Mac").foregroundStyle(.secondary)
                         } icon: {
                             Image(systemName: unavailable ? "folder.badge.questionmark" : "folder")
+                                .rowSymbol()
                         }
                         .help(unavailable ? "\(folder.path) isn't there; its titles are dimmed until it's back" : folder.path)
                     } else {
@@ -34,6 +35,7 @@ struct SourcesPane: View {
                             Text(source.displayName) + Text(source.unavailable.isEmpty ? "" : "  \(source.unavailable.count == 1 ? "a folder" : "\(source.unavailable.count) folders") unavailable").foregroundStyle(.secondary)
                         } icon: {
                             Image(systemName: "server.rack")
+                                .rowSymbol()
                         }
                         .lineLimit(1)
                         .truncationMode(.middle)

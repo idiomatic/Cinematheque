@@ -73,6 +73,7 @@ private struct DeviceRow: View {
             } icon: {
                 // Its kind's symbol, as Apple's own lists of devices show it.
                 Image(systemName: device.symbol).foregroundStyle(.secondary)
+                    .rowSymbol()
             }
         }
         .onAppear { name = device.name }

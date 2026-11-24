@@ -4,6 +4,8 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Mac: Settings' Devices and Sources line their names up, each row's symbol in one width.
+* The mock library's Sanctuary Moon has 28 seasons of 419 episodes, and Worldhoppers two of 12, as the Murderbot Diaries have them; its first six seasons and its special have art of their own.
 * Apple TV, iPhone, and Mac: an episode's or version's watched mark lines up down the list, whatever the width of each runtime.
 * Mac: a tile's Lists › New List… names the new list in place in the sidebar, with the title on it, rather than in an alert.
 * Mac and web client: a series' "{n} seasons" no longer counts its specials as a season.

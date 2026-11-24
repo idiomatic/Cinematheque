@@ -70,12 +70,13 @@ stamp() { TZ=UTC touch -t ${2//-/}1200 -- $1 }
 # A cover: its path (in DIRECTORY, or absolute), size, top and bottom
 # colors, title, the line under it, and its date. Its art, if mock-art/
 # has an image named for the title (and a season's line: `worldhoppers-
-# season-1.jpg`), is drawn beneath the title; else the colors are.
+# season-1.jpg`, or `sanctuary-moon-specials.jpg`), is drawn beneath the
+# title; else the colors are.
 covers=()
 poster() {
     [[ $pass == cover ]] || return 0
     local out=$1 name=$6
-    [[ $7 == Season* ]] && name+=" $7"
+    [[ $7 == (Season*|Specials) ]] && name+=" $7"
     name=${(L)name//[^[:alnum:]]/-}
     local art=$here/mock-art/$name.jpg
     [[ -e $art ]] || art=
@@ -137,9 +138,26 @@ episode() {
     else
         file=$(printf 'Series/%s/Season %02d/%s S%02dE%02d 1080p.mp4' $show $1 $show $1 $2)
     fi
-    video $file $4 $color $3 - title $5 description $6 synopsis $6 genre $genre date $3 \
+    # Quoted, as an episode named only by its number has an empty title.
+    video $file $4 $color $3 - title "$5" description "$6" synopsis "$6" genre $genre date $3 \
         show $show network $network season_number $1 episode_sort $2
 }
+# A season's run of episodes, weekly: season, how many, the first's air
+# date, and minutes; each named as `names` has it (`SEASON:EPISODE`, a
+# title and a description, tab-separated), else by its number alone.
+typeset -A names
+run() {
+    local season=$1 count=$2 first=$3 minutes=$4 day n named
+    zmodload zsh/datetime
+    strftime -r -s first %Y-%m-%d $first
+    for n in {1..$count}; do
+        # Noon, so no time zone moves it a day.
+        strftime -s day %Y-%m-%d $(( first + 43200 + (n - 1) * 604800 ))
+        named=${names[$season:$n]-}
+        episode $season $n $day $minutes "${named%%$'\t'*}" "${named#*$'\t'}"
+    done
+}
+
 # An episode of a dated series (a season a year): air date, minutes, title,
 # and description.
 dated() {
@@ -178,36 +196,63 @@ catalog() {
     movie "Quiet Orbit (2022)" "Quiet Orbit" 2022-02-11 101 d4789c Romance \
         "Two station engineers fall for each other one maintenance shift at a time."
 
-    # The long-running one: a season's cover beside it, one in its folder,
-    # and one taking the series'.
+    # The long-running one, as long as the Murderbot Diaries have it: 28
+    # seasons (Murderbot's favorite arc is the 28th's), 419 episodes, weekly
+    # from late 2018 (the books reach episode 397, and the TV series'
+    # Murderbot finds itself missing 420 on), 15 a season and the last 14;
+    # the first four of the first three seasons named, the rest by number.
+    # The first six seasons' covers beside them or in their folders, the
+    # special's in its folder, and the rest taking the series'.
     series "The Rise and Fall of Sanctuary Moon" Drama "Ringside Media" 1d6f73
-    poster "Series/$show/poster.jpg" $tall 1d6f73 2b1048 $show "" 2019-03-04
-    poster "Series/$show/season01-poster.jpg" $square 1d6f73 0c2c3a "Sanctuary Moon" "Season 1" 2019-03-04
-    poster "Series/$show/Season 02/poster.jpg" $square 2b1048 12061f "Sanctuary Moon" "Season 2" 2020-02-03
-    episode 1 1 2019-03-04 42 "Arrival Day" "A new administrator steps off the shuttle and into a feud older than the station."
-    episode 1 2 2019-03-11 42 "Dock Seven" "A cargo manifest doesn't add up, and the night shift knows why."
-    episode 1 3 2019-03-18 42 "The Solicitor's Offer" "An off-world lawyer makes the colony an offer it can't afford to refuse."
-    episode 1 4 2019-03-25 42 "Eclipse Party" "The moon goes dark for an hour, and someone uses every minute of it."
-    episode 2 1 2020-02-03 42 "Aftermath" "The colony counts what the eclipse cost, and who isn't answering."
-    episode 2 2 2020-02-10 42 "Two Captains" "Rival haulers dock on the same morning, each with a claim on one berth."
-    episode 2 3 2020-02-17 42 "The Hydroponics Affair" "A failing crop, a forged signature, and a romance nobody saw coming."
-    episode 2 4 2020-02-24 42 "Lockdown" "A breach alarm seals the habitat ring with the wrong people inside."
+    poster "Series/$show/poster.jpg" $tall 1d6f73 2b1048 $show "" 2018-11-05
+    poster "Series/$show/season01-poster.jpg" $square 1d6f73 0c2c3a "Sanctuary Moon" "Season 1" 2018-11-05
+    poster "Series/$show/Season 02/poster.jpg" $square 2b1048 12061f "Sanctuary Moon" "Season 2" 2019-02-18
+    poster "Series/$show/season03-poster.jpg" $square 1d4f6f 0a1c2a "Sanctuary Moon" "Season 3" 2019-06-03
+    poster "Series/$show/Season 04/poster.jpg" $square 1d6f4a 0a2a1c "Sanctuary Moon" "Season 4" 2019-09-16
+    poster "Series/$show/season05-poster.jpg" $square 8a1d24 2a0a0c "Sanctuary Moon" "Season 5" 2019-12-30
+    poster "Series/$show/Season 06/poster.jpg" $square 3a2a6f 0c0a1f "Sanctuary Moon" "Season 6" 2020-04-13
+    poster "Series/$show/Specials/poster.jpg" $square c9772a 0a2a2a "Sanctuary Moon" Specials 2020-12-21
+    names=(
+        1:1 "Arrival Day"$'\t'"A new administrator steps off the shuttle and into a feud older than the station."
+        1:2 "Dock Seven"$'\t'"A cargo manifest doesn't add up, and the night shift knows why."
+        1:3 "The Solicitor's Offer"$'\t'"An off-world lawyer makes the colony an offer it can't afford to refuse."
+        1:4 "Eclipse Party"$'\t'"The moon goes dark for an hour, and someone uses every minute of it."
+        2:1 "Aftermath"$'\t'"The colony counts what the eclipse cost, and who isn't answering."
+        2:2 "Two Captains"$'\t'"Rival haulers dock on the same morning, each with a claim on one berth."
+        2:3 "The Hydroponics Affair"$'\t'"A failing crop, a forged signature, and a romance nobody saw coming."
+        2:4 "Lockdown"$'\t'"A breach alarm seals the habitat ring with the wrong people inside."
+        3:1 "New Management"$'\t'"A takeover bid arrives by courier, signed by a name long thought dead."
+        3:2 "The Long Shift"$'\t'"The medical bay runs out of everything but patience."
+        3:3 "Inheritance"$'\t'"A will is read aloud, and half the station walks out."
+        3:4 "Moonfall"$'\t'"The administrator makes a choice that will echo for seasons."
+    )
+    zmodload zsh/datetime
+    local season start
+    strftime -r -s start %Y-%m-%d 2018-11-05
+    for season in {1..28}; do
+        strftime -s day %Y-%m-%d $(( start + 43200 + (season - 1) * 15 * 604800 ))
+        run $season $(( season < 28 ? 15 : 14 )) $day 42
+    done
     episode 0 1 2020-12-21 44 "A Station Holiday" "The colony gathers for a festival broadcast, its feuds set aside for one night."
-    episode 3 1 2021-01-11 42 "New Management" "A takeover bid arrives by courier, signed by a name long thought dead."
-    episode 3 2 2021-01-18 42 "The Long Shift" "The medical bay runs out of everything but patience."
-    episode 3 3 2021-01-25 42 "Inheritance" "A will is read aloud, and half the station walks out."
-    episode 3 4 2021-02-01 42 "Moonfall" "The administrator makes a choice that will echo for seasons."
 
+    # Two seasons of 12, so its 20th episode (a major character's death)
+    # and its 24th (their return) are there, as in Artificial Condition;
+    # the first three of each named.
     series Worldhoppers Adventure "Outer Feeds" d9622b
     poster "Series/$show/poster.jpg" $tall d9622b 5a1208 Worldhoppers "" 2022-05-02
     poster "Series/$show/season01-poster.jpg" $square d9622b 6e1f0b Worldhoppers "Season 1" 2022-05-02
     poster "Series/$show/season02-poster.jpg" $square e0a030 7a3a08 Worldhoppers "Season 2" 2023-06-05
-    episode 1 1 2022-05-02 45 "First Jump" "A survey crew's untested drive lands them a long way from home."
-    episode 1 2 2022-05-09 45 "The Glass Desert" "A planet of mirrors shows the crew more than their reflections."
-    episode 1 3 2022-05-16 45 "Signal Lost" "With the beacon dead, the crew votes on whether to keep going."
-    episode 2 1 2023-06-05 45 "Second Jump" "Repairs done, the crew tries the drive again, against advice."
-    episode 2 2 2023-06-12 45 "Tidewater" "A world of endless ocean hides a city beneath its waves."
-    episode 2 3 2023-06-19 45 "Homeward" "A course for home appears in the logs, and nobody put it there."
+    names=(
+        1:1 "First Jump"$'\t'"A survey crew's untested drive lands them a long way from home."
+        1:2 "The Glass Desert"$'\t'"A planet of mirrors shows the crew more than their reflections."
+        1:3 "Signal Lost"$'\t'"With the beacon dead, the crew votes on whether to keep going."
+        2:1 "Second Jump"$'\t'"Repairs done, the crew tries the drive again, against advice."
+        2:2 "Tidewater"$'\t'"A world of endless ocean hides a city beneath its waves."
+        2:3 "Homeward"$'\t'"A course for home appears in the logs, and nobody put it there."
+    )
+    run 1 12 2022-05-02 45
+    run 2 12 2023-06-05 45
+    names=()
 
     # A miniseries, its cover square.
     series "Timestream Defenders Orion" "Science Fiction" "Archive Channel" 3c5fd6
@@ -272,7 +317,7 @@ $cq $d crawl
 moon=t/s/the-rise-and-fall-of-sanctuary-moon/-
 hoppers=t/s/worldhoppers/-
 watched() { for item; do $cq $d progress set $item --watched > /dev/null; done }
-watched $moon/e/s01e0{1..4} $moon/e/s02e0{1,2} $hoppers/e/s01e01 t/m/wormhole-drift/2024/v/- \
+watched $moon/e/s01e{01..15} $moon/e/s02e0{1,2} $hoppers/e/s01e01 t/m/wormhole-drift/2024/v/- \
     t/s/timestream-defenders-orion/-/e/s01e0{1..4}
 $cq $d progress set $moon/e/s02e03 1260 2520 > /dev/null
 $cq $d progress set $hoppers/e/s01e02 1500 2700 > /dev/null
