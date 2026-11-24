@@ -65,9 +65,8 @@ extension Library {
     /// Changes what this Mac keeps (its own, never synced), reading back
     /// its downloads alone: the whole catalog read again, on the main
     /// thread, held a pop-up's choice for a second on a large library.
-    private func changeKept(_ body: (OpaquePointer) -> Int32) {
-        guard let handle else { return }
-        reportChange(body(handle.pointer) != 0 ? String(cString: cq_error()) : nil)
+    private func changeKept(_ body: @escaping (OpaquePointer) -> Int32) {
+        check(body)
         reloadDownloads()
     }
 

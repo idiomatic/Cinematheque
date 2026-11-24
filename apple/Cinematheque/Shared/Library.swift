@@ -88,6 +88,10 @@ final class Library {
     /// core's own (`apart`), which leaving waits out (the core refuses to
     /// leave while one's open).
     private var callsApart = 0
+    /// Changes the writer refused as busy (a sync's exchange or a crawl's
+    /// source under way), in the order made, to make once it's free, as a
+    /// change waits out what holds it rather than being lost.
+    @ObservationIgnored private var waiting: [(OpaquePointer) -> Int32] = []
 
     /// Reads the library again, unless nothing has changed since it was
     /// last read; assigns only what differs, so views showing the rest
@@ -525,11 +529,39 @@ final class Library {
     }
 
     /// Changes the library by `body`, reporting why it couldn't, if it
-    /// couldn't.
-    func check(_ body: (OpaquePointer) -> Int32) {
+    /// couldn't; or, if a long operation holds the writer, once it lets
+    /// go, after any change already waiting.
+    func check(_ body: @escaping (OpaquePointer) -> Int32) {
         guard let handle else { return }
         dirty = true
-        reportChange(body(handle.pointer) != 0 ? String(cString: cq_error()) : nil)
+        guard waiting.isEmpty else { return waiting.append(body) }
+        let failure = body(handle.pointer) == 0 ? nil : String(cString: cq_error())
+        guard failure != "Busy" else {
+            waiting.append(body)
+            Task { await makeWaiting() }
+            return
+        }
+        reportChange(failure)
+    }
+
+    /// Makes the changes waiting, in order, as the writer frees, then reads
+    /// the library back; drops them if the library's left meanwhile.
+    private func makeWaiting() async {
+        while !waiting.isEmpty {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard let handle, !leavingLibrary else { return waiting.removeAll() }
+            while let body = waiting.first {
+                let failure = body(handle.pointer) == 0 ? nil : String(cString: cq_error())
+                if failure == "Busy" { break }
+                waiting.removeFirst()
+                dirty = true
+                reportChange(failure)
+            }
+        }
+        reloadSoon()
+        #if os(macOS)
+        reloadDownloads()
+        #endif
     }
 
     /// Reports why a change failed (the core's error), or with none,
@@ -540,7 +572,7 @@ final class Library {
     }
 
     /// As `check`, then reloads what changed, off the main thread.
-    func checkAndReload(_ body: (OpaquePointer) -> Int32) {
+    func checkAndReload(_ body: @escaping (OpaquePointer) -> Int32) {
         check(body)
         reloadSoon()
     }
