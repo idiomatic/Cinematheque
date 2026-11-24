@@ -27,8 +27,10 @@ export fn cq_status(lib: *Library) ?[*:0]u8 {
 
 fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
     const person = try arena.dupe(u8, &std.fmt.bytesToHex(try lib.store.person(), .lower));
+    // This device's key, for its own sources' addresses (`cqdevice://`).
+    const device = try arena.dupe(u8, &std.fmt.bytesToHex(try lib.store.device(), .lower));
     const paired = lib.store.paired();
-    const r = lib.main() catch return .{ .person = person, .paired = paired, .library = null, .founder = null, .members = 0, .others = 0 };
+    const r = lib.main() catch return .{ .person = person, .device = device, .paired = paired, .library = null, .founder = null, .members = 0, .others = 0 };
     const me = try lib.store.person();
     const this = try lib.store.device();
     var others: std.AutoArrayHashMapUnmanaged([32]u8, void) = .empty;
@@ -45,6 +47,7 @@ fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
     }
     return .{
         .person = person,
+        .device = device,
         .paired = paired,
         .library = try arena.dupe(u8, &std.fmt.bytesToHex(r.library, .lower)),
         .founder = try arena.dupe(u8, &std.fmt.bytesToHex(r.founder, .lower)),

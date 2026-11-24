@@ -177,7 +177,14 @@ nonisolated struct Source: Codable, Identifiable, Hashable {
     }
 
     let id: String
+    /// What it is: a server's address, or a device's own folder's,
+    /// port-free (`cqdevice://<its key>/<path>`).
     let url: String
+    /// Where it's reached now: its `url`, or for a device's own folder,
+    /// where that device says it serves (none until it has).
+    let address: String?
+    /// Its address if it has one, else what it is: shown, and opened.
+    var reached: String { address ?? url }
     /// Its server, then its folders, as a person reads them, as the core
     /// gives them: `displayName`'s parts.
     let path: [String]
@@ -324,7 +331,8 @@ nonisolated struct Paired: Decodable {
 struct Folder: Codable, Identifiable, Hashable {
     let prefix: String
     let path: String
-    /// The source's URL, as added.
+    /// The source's URL, as added: port-free (`cqdevice://`), or as
+    /// builds before wrote it (by its port) until it's moved there.
     var url: String
     var id: String { prefix }
     var name: String { URL(fileURLWithPath: path).lastPathComponent }
@@ -332,6 +340,8 @@ struct Folder: Codable, Identifiable, Hashable {
 
 struct Status: Codable, Equatable {
     let person: String
+    /// This device's key, for its own folders' addresses (`cqdevice://`).
+    let device: String
     /// Acting as the person of another of the person's devices.
     let paired: Bool
     let library: String?

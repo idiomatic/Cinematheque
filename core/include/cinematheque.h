@@ -95,6 +95,8 @@ int cq_repo_quality_named(cq_library *library, const char *source, const char *n
 // address calls tv-shows); only its owner's naming counts.
 int cq_repo_name(cq_library *library, const char *source, const char *name);
 int cq_repo_remove(cq_library *library, const char *source);
+int cq_repo_move(cq_library *library, const char *source, const char *url);
+int cq_set_served(cq_library *library, const char *served);
 // Forgets an unavailable directory of a source, as if deleted.
 int cq_remove_unavailable(cq_library *library, const char *source, const char *dir);
 // Looks up the names of the servers of urls, so copy racing's first race

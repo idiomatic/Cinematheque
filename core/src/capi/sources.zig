@@ -25,7 +25,7 @@ export fn cq_repos(lib: *Library) ?[*:0]u8 {
 }
 
 const AbsenceJson = struct { dir: []const u8, since: u64 };
-const SourceJson = struct { id: []const u8, url: []const u8, path: []const []const u8, owner: ?[]const u8, quality_from: std.meta.Tag(library.QualityFrom), quality: []const u8, skip: []const u8, copies: i64, unavailable: []const AbsenceJson, managed: bool };
+const SourceJson = struct { id: []const u8, url: []const u8, address: ?[]const u8, path: []const []const u8, owner: ?[]const u8, quality_from: std.meta.Tag(library.QualityFrom), quality: []const u8, skip: []const u8, copies: i64, unavailable: []const AbsenceJson, managed: bool };
 
 fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
     var connection = try long.reader(lib, arena);
@@ -37,6 +37,7 @@ fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
     for (list, out) |rp, *o| o.* = .{
         .id = try arena.dupe(u8, &rp.id),
         .url = rp.url,
+        .address = rp.at(),
         .path = try library.shownPath(arena, rp),
         .owner = if (rp.owner) |key| try arena.dupe(u8, &std.fmt.bytesToHex(key, .lower)) else null,
         .quality_from = rp.layout.quality,

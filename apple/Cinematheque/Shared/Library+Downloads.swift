@@ -96,7 +96,7 @@ extension Library {
         let held = Self.tiles(of: (loaded?.held ?? []).map(\.item) + (loaded?.files ?? []).map(\.item))
         if held != downloadedTiles { downloadedTiles = held }
         if let d = downloads, let id = d.source, let dir = d.dir, let source = sources.first(where: { $0.id == id }) {
-            Playback.downloads = .init(source: id, base: source.url, dir: dir)
+            Playback.downloads = source.address.map { .init(source: id, base: $0, dir: dir) }
         } else {
             Playback.downloads = nil
         }
@@ -246,19 +246,16 @@ extension Library {
         }
     }
 
-    /// Tells the core where downloads are kept and served (on the port this
-    /// Mac serves on, or last did); a source served at another address
-    /// before (another port) is removed, its copies recorded afresh as
-    /// reconciling finds the files.
+    /// Tells the core where downloads are kept and served, by their
+    /// port-free address (`ownAddress`), reached where this Mac serves; a
+    /// source kept by its port before is moved there once, its copies with
+    /// it.
     func configureDownloads(dir: String? = nil) async {
-        guard hasLibrary else { return }
-        let port = servingPort ?? UserDefaults.standard.integer(forKey: "servingPort")
-        guard port > 0 else { return }
+        guard hasLibrary, let url = ownAddress("/\(Self.downloadsPrefix)/") else { return }
         let path = dir ?? downloadsDir
         try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
-        let url = "http://\(Self.localHost):\(port)/\(Self.downloadsPrefix)/"
         if let id = downloads?.source, let old = sources.first(where: { $0.id == id }), old.url != url {
-            removeSource(old.id)
+            checkAndReload { cq_repo_move($0, old.id, url) }
         }
         // Off the main thread, as it waits its turn to write.
         await changeApart { cq_downloads_configure($0, path, url) }

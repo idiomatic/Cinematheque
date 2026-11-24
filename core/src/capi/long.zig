@@ -133,6 +133,10 @@ fn crawlAndDescribe(lib: *Library, arena: std.mem.Allocator, r: *Replica, list: 
             o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .skipped = .downloads };
             continue;
         }
+        if (rp.at() == null) {
+            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .skipped = .away };
+            continue;
+        }
         try lib.writer.lock(lib.io());
         defer lib.writer.unlock(lib.io());
         try r.refresh();

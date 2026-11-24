@@ -123,12 +123,27 @@ pub fn serve(p: *App, c: Command) !void {
     };
     try host.start();
     browsers.host = &host;
-    // Settings may add it as a source: it, and no other folder.
-    if (media) |m| browsers.media = .{ .dir = m, .url = try std.fmt.allocPrint(p.arena, "http://{s}.local:{d}/{s}/", .{ name, host.port, media_prefix }) };
+    // Where it serves its own sources now: one field, should its port have
+    // changed, rather than every copy (their addresses are port-free).
+    if (founder != null) {
+        var r = try p.open();
+        defer r.close();
+        try core.library.recordServed(&r, p.arena, p.now(), try p.store.device(), try std.fmt.allocPrint(p.arena, "http://{s}.local:{d}/", .{ name, host.port }));
+    }
+    // Settings may add it as a source: it, and no other folder; by its
+    // port-free address, one added before by its port moved there once.
+    if (media) |m| {
+        const path = "/" ++ media_prefix ++ "/";
+        browsers.media = .{ .dir = m, .url = if (founder != null) blk: {
+            var r = try p.open();
+            defer r.close();
+            break :blk try core.library.ownSource(&r, p.arena, p.now(), try p.store.device(), path);
+        } else try core.url.deviceSource(p.arena, try p.store.device(), path) };
+    }
     if (downloads) |d| {
         browsers.downloads_dir = d;
         // Else once there's a library.
-        if (founder != null) try keepDownloadsIn(p, d, host.port);
+        if (founder != null) try keepDownloadsIn(p, d);
         browsers.downloads = founder != null;
     }
     // Synced with at once, as the apps sync at launch: what changed while
@@ -158,14 +173,12 @@ pub fn serve(p: *App, c: Command) !void {
 pub const downloads_prefix = "downloads";
 
 /// Makes `dir` where this device keeps downloads, served at
-/// `/downloads/` on `port`, as the Mac app keeps its own. A device keeping
-/// them elsewhere already (as the Mac app does, sharing its data directory)
-/// is left as it is, as two places would each forget the other's files;
-/// the same directory served at another address (another port) is that
-/// source removed, and its files recorded afresh as reconciling finds them.
-fn keepDownloadsIn(p: *App, dir: []const u8, port: u16) !void {
-    const name = try advertisedName(p);
-    const url = try std.fmt.allocPrint(p.arena, "http://{s}.local:{d}/{s}/", .{ name, port, downloads_prefix });
+/// `/downloads/`, as the Mac app keeps its own: by its port-free address
+/// (`cqdevice://`), reached where it serves now (`recordServed`), one kept
+/// before by its port moved there once. A device keeping them elsewhere
+/// already (as the Mac app does, sharing its data directory) is left as it
+/// is, as two places would each forget the other's files.
+fn keepDownloadsIn(p: *App, dir: []const u8) !void {
     var r = try p.open();
     defer r.close();
     if (try core.download.settings(&r, p.arena)) |s| {
@@ -174,8 +187,8 @@ fn keepDownloadsIn(p: *App, dir: []const u8, port: u16) !void {
             try p.out.flush();
             return error.DownloadsElsewhere;
         }
-        if (!std.mem.eql(u8, s.source.url, url)) _ = try core.library.removeSource(&r, p.arena, p.now(), &s.source.id);
     }
+    const url = try core.library.ownSource(&r, p.arena, p.now(), try p.store.device(), "/" ++ downloads_prefix ++ "/");
     try core.download.configure(&r, p.arena, p.now(), dir, url);
 }
 

@@ -506,12 +506,12 @@ private struct SourcePage: View {
             if let source {
                 Section {
                     LabeledContent("Address") {
-                        Text(source.url.removingPercentEncoding ?? source.url)
+                        Text(source.reached.removingPercentEncoding ?? source.reached)
                             .lineLimit(2)
                             .truncationMode(.middle)
                             .textSelection(.enabled)
                     }
-                    if let url = URL(web: source.url) {
+                    if let url = URL(web: source.reached) {
                         Link("Open in Safari", destination: url)
                     }
                     LabeledContent("Videos", value: source.copies.formatted())

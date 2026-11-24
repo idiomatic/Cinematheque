@@ -105,6 +105,17 @@ pub const Source = struct {
     /// Shows") its address had to put otherwise (`/tv-shows/`); empty if
     /// none. Taken only from its owner, as its address is.
     name: []const u8 = "",
+    /// Where it's reached: its `url`, or for a device's own source
+    /// (`cqdevice://`), where its device serves it now; null if that device
+    /// hasn't said, so it can't be reached (crawled, played, fetched).
+    address: ?[]const u8 = null,
+
+    /// Where it's reached now: its address; or, read without one, its URL
+    /// if that's an ordinary one; null for a device's own source its device
+    /// hasn't said where it serves.
+    pub fn at(source: Source) ?[]const u8 {
+        return source.address orelse if (url.device(source.url) == null) source.url else null;
+    }
 
     /// Whether a device crawled it within `window_ms` of `wall_ms` (see
     /// `crawlWindow`): a refresh, having synced, skips it, as its copies
@@ -398,6 +409,88 @@ pub fn removeSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, w
     return held.items.len;
 }
 
+/// Moves a source (by ID or URL) to another address: the new takes its
+/// settings (but `managed`, which a device's downloads' configuring marks
+/// again), name, crawl time, unavailable directories, every copy, and the
+/// crawl snapshot, and the old is removed, in one transaction; so its
+/// videos stay where they are, unavailable ones too. It writes every copy
+/// twice, so it's for once, as a device's own sources move to their
+/// port-free address (`cqdevice://`), which then stays as its port changes.
+/// Returns the new ID; moving to where it is changes nothing.
+pub fn moveSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, which: []const u8, to: []const u8) ![16]u8 {
+    const source = try findSource(replica, arena, which);
+    var escaped: std.ArrayList(u8) = .empty;
+    try url.escape(arena, &escaped, to);
+    if (!std.mem.endsWith(u8, escaped.items, "/")) try escaped.append(arena, '/');
+    const target = escaped.items;
+    if (!url.fitForSource(target)) return error.BadAddress;
+    const id = sourceId(target);
+    if (std.mem.eql(u8, &id, &source.id)) return id;
+    const old_key = try std.fmt.allocPrint(arena, "r/{s}", .{source.id});
+    const new_key = try std.fmt.allocPrint(arena, "r/{s}", .{id});
+    const Field = struct { name: []const u8, value: []const u8 };
+    var settings: std.ArrayList(Field) = .empty;
+    {
+        const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND length(value) > 0");
+        defer s.finalize();
+        try s.bindText(1, old_key);
+        while (try s.step()) {
+            const name = s.blob(0);
+            if (std.mem.eql(u8, name, "url") or std.mem.eql(u8, name, "managed")) continue;
+            try settings.append(arena, .{ .name = try arena.dupe(u8, name), .value = try arena.dupe(u8, s.blob(1)) });
+        }
+    }
+    const old_field = try std.fmt.allocPrint(arena, "held:{s}", .{source.id});
+    const new_field = try std.fmt.allocPrint(arena, "held:{s}", .{id});
+    var copies: std.ArrayList(Field) = .empty;
+    {
+        const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND length(value) > 0");
+        defer s.finalize();
+        try s.bindText(1, old_field);
+        while (try s.step()) try copies.append(arena, .{ .name = try arena.dupe(u8, s.blob(0)), .value = try arena.dupe(u8, s.blob(1)) });
+    }
+    try replica.begin();
+    errdefer replica.rollback();
+    try replica.write(wall_ms, new_key, "url", target);
+    for (settings.items) |f| try replica.write(wall_ms, new_key, f.name, f.value);
+    for (copies.items) |c| {
+        try replica.write(wall_ms, c.name, new_field, c.value);
+        try replica.write(wall_ms, c.name, old_field, "");
+    }
+    for ([_][]const u8{ "url", "rendition", "skip" }) |f| try replica.write(wall_ms, old_key, f, "");
+    try replica.commit();
+    if (try replica.local(arena, try snapshotKey(arena, source.id))) |snapshot| {
+        try replica.setLocal(try snapshotKey(arena, id), snapshot);
+        try replica.removeLocal(try snapshotKey(arena, source.id));
+    }
+    return id;
+}
+
+/// This device's own source served at `path` (`/Archive1841/`) by its
+/// `.local` name and port, as the apps wrote them before port-free
+/// addresses (`cqdevice://`), if there is one: to move there once
+/// (`moveSource`). One added by hand at another host (an IP address,
+/// `localhost`) is the person's choice, and stays.
+pub fn portBound(replica: *Replica, arena: std.mem.Allocator, device: [32]u8, path: []const u8) !?Source {
+    for (try sources(replica, arena)) |s| {
+        if (s.owner == null or !std.mem.eql(u8, &s.owner.?, &device) or url.device(s.url) != null) continue;
+        const uri = std.Uri.parse(s.url) catch continue;
+        const host = try (uri.host orelse continue).toRawMaybeAlloc(arena);
+        if (!std.ascii.endsWithIgnoreCase(host, ".local")) continue;
+        if (std.mem.eql(u8, try uri.path.toRawMaybeAlloc(arena), path)) return s;
+    }
+    return null;
+}
+
+/// Brings this device's own source served at `path` to its port-free
+/// address (`cqdevice://` and its key), moving one written with a host and
+/// port there once; returns the address.
+pub fn ownSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, device: [32]u8, path: []const u8) ![]const u8 {
+    const address = try url.deviceSource(arena, device, path);
+    if (try portBound(replica, arena, device, path)) |old| _ = try moveSource(replica, arena, wall_ms, &old.id, address);
+    return address;
+}
+
 /// How many copies a source holds.
 pub fn countCopies(replica: *Replica, arena: std.mem.Allocator, source: Source) !i64 {
     return (try copyCounts(replica, arena)).get(&source.id) orelse 0;
@@ -456,7 +549,7 @@ fn crawlFrom(replica: *Replica, io: Io, arena: std.mem.Allocator, client: *std.h
     const key = try snapshotKey(arena, source.id);
     var entries: std.ArrayList(crawl.Entry) = .empty;
     const start = Io.Timestamp.now(io, .awake);
-    const result = try crawl.crawl(io, arena, client, source.url, .{
+    const result = try crawl.crawl(io, arena, client, source.at() orelse return error.DeviceAway, .{
         .workers = workers,
         .prev = prev,
         .entries = &entries,
@@ -522,9 +615,21 @@ pub fn sources(replica: *Replica, arena: std.mem.Allocator) ![]Source {
     // from (as any member could write) is none.
     var kept: std.ArrayList(Source) = .empty;
     var shown: std.ArrayList([]const u8) = .empty;
-    for (out.items) |r| if (url.fitForSource(r.url)) {
-        try kept.append(arena, r);
-        try shown.append(arena, try std.ascii.allocLowerString(arena, try std.mem.join(arena, " › ", try shownPath(arena, r))));
+    // Devices' own sources reached where each serves them now; one is
+    // only its device's to write, as any member could otherwise aim
+    // devices at another's paths.
+    var served: ?[]const Name = null;
+    for (out.items) |*r| if (url.fitForSource(r.url)) {
+        if (url.device(r.url)) |d| {
+            if (r.owner == null or !std.mem.eql(u8, &r.owner.?, &d.key)) continue;
+            if (served == null) served = try names(replica, arena);
+            const hex = std.fmt.bytesToHex(d.key, .lower);
+            r.address = for (served.?) |n| {
+                if (std.mem.eql(u8, n.key, &hex)) break if (n.served) |at| try url.reach(arena, at, d.path) else null;
+            } else null;
+        } else r.address = r.url;
+        try kept.append(arena, r.*);
+        try shown.append(arena, try std.ascii.allocLowerString(arena, try std.mem.join(arena, " › ", try shownPath(arena, r.*))));
     };
     const Order = struct {
         list: []const Source,
@@ -562,7 +667,8 @@ pub fn sourcePath(arena: std.mem.Allocator, u: []const u8) ![]const []const u8 {
 /// as its owner calls it, if it does (`firefly › Archive1841`, not
 /// `archive1841`).
 pub fn shownPath(arena: std.mem.Allocator, source: Source) ![]const []const u8 {
-    const parts = try sourcePath(arena, source.url);
+    // A device's own source by where it's served now, its host's name.
+    const parts = try sourcePath(arena, source.address orelse source.url);
     if (source.name.len == 0 or parts.len < 2) return parts;
     const out = try arena.dupe([]const u8, parts);
     out[out.len - 1] = source.name;
@@ -632,11 +738,13 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
     var fields: std.StringHashMapUnmanaged(void) = .empty; // title and item fields to ensure
     var titles_seen: std.ArrayList(struct { key: []const u8, name: []const u8, year: ?u16 }) = .empty;
     var items_seen: std.ArrayList(struct { key: []const u8, p: naming.Parsed }) = .empty;
-    const series = try seriesByFolder(arena, source.url, source.layout, entries);
+    // The entries are as crawled, where it's reached.
+    const base = source.at() orelse return error.DeviceAway;
+    const series = try seriesByFolder(arena, base, source.layout, entries);
     for (entries) |entry| {
         if (entry.is_dir) continue;
         stats.files += 1;
-        const rel = relativeOrNull(arena, source.url, entry.url) orelse continue;
+        const rel = relativeOrNull(arena, base, entry.url) orelse continue;
         if (skipped(rel, source.layout.skip)) {
             stats.skipped += 1;
             continue;
@@ -691,7 +799,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
     var with_files: std.StringHashMapUnmanaged(void) = .empty;
     try listed.put(arena, "", {});
     for (entries) |entry| {
-        const rel = relativeOrNull(arena, source.url, entry.url) orelse continue;
+        const rel = relativeOrNull(arena, base, entry.url) orelse continue;
         if (entry.is_dir) {
             try listed.put(arena, std.mem.trimEnd(u8, rel, "/"), {});
         } else {
@@ -1373,6 +1481,10 @@ pub const Name = struct {
     person: ?[]const u8 = null,
     /// A device's model, as it says ("iPhone 13 mini"), if it has.
     model: ?[]const u8 = null,
+    /// Where a device serves its own sources (`cqdevice://`, see url.zig)
+    /// now, as it says (`http://firefly.local:58275/`): one field, written
+    /// again as its port changes, rather than every copy of theirs.
+    served: ?[]const u8 = null,
 };
 
 /// Records device `key`'s model (`model.shown`'s), beside its name,
@@ -1382,6 +1494,16 @@ pub fn recordModel(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, ke
     const hex = std.fmt.bytesToHex(key, .lower);
     for (try names(replica, arena)) |n| if (std.mem.eql(u8, n.key, &hex)) if (n.model) |m| if (std.mem.eql(u8, m, model)) return;
     try replica.write(wall_ms, try std.fmt.allocPrint(arena, "n/{s}", .{hex}), "model", model);
+}
+
+/// Records where device `key` serves its own sources now (`Name.served`),
+/// unless it's recorded so already, as a device does as it starts serving:
+/// one field as its port changes, its sources' addresses unchanged.
+pub fn recordServed(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [32]u8, served: []const u8) !void {
+    if (!url.fitForSource(served) or url.device(served) != null or !std.mem.endsWith(u8, served, "/")) return error.BadAddress;
+    const hex = std.fmt.bytesToHex(key, .lower);
+    for (try names(replica, arena)) |n| if (std.mem.eql(u8, n.key, &hex)) if (n.served) |s| if (std.mem.eql(u8, s, served)) return;
+    try replica.write(wall_ms, try std.fmt.allocPrint(arena, "n/{s}", .{hex}), "served", served);
 }
 
 /// Names a person, or a device (with its person's key).
@@ -1412,6 +1534,10 @@ pub fn names(replica: *Replica, arena: std.mem.Allocator) ![]Name {
         } else if (std.mem.eql(u8, s.blob(1), "model")) {
             // As the device says of itself, as no other knows it.
             if (std.mem.eql(u8, &std.fmt.bytesToHex(try replica.keyOf(s.int(3)), .lower), key)) n.model = value;
+        } else if (std.mem.eql(u8, s.blob(1), "served")) {
+            // Its own word alone, as another's could aim its sources
+            // anywhere.
+            if (std.mem.eql(u8, &std.fmt.bytesToHex(try replica.keyOf(s.int(3)), .lower), key)) n.served = value;
         }
     }
     return out.items;

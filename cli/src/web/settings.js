@@ -167,7 +167,9 @@ async function settingsPage() {
       const removing = `Remove ${name}? Its ${files(src.copies)} leave the library on every device; they stay where they are.`;
       return el("div", { class: "source" },
         row(name, files(src.copies),
-          el("a", { class: "icon", href: src.url, target: "_blank", rel: "noopener noreferrer", title: "Open in a New Window", "aria-label": `Open ${name} in a new window` }, symbol(external)),
+          // Where it's reached: a device's own folder where it serves now,
+          // none (dimmed) until it says.
+          el("a", { class: "icon", href: src.address ?? undefined, "aria-disabled": src.address ? undefined : "true", target: "_blank", rel: "noopener noreferrer", title: "Open in a New Window", "aria-label": `Open ${name} in a new window` }, symbol(external)),
           icon(minus, "Remove…", `Remove ${name}…`, () => confirm(removing) && act("source-remove", { id: src.id }))),
       ...src.unavailable.map((u) => row(`/${u.dir} is unavailable`, `since ${new Date(u.since_ms).toLocaleDateString()}`,
         icon(minus, "Remove Videos", `Remove the videos in /${u.dir}`, () => act("unavailable-remove", { id: src.id, dir: u.dir })))));

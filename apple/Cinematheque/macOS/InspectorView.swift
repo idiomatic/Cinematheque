@@ -834,10 +834,7 @@ extension Library {
             guard let g = groups[key] else { continue }
             if let folder = folder(of: g.source) {
                 guard !unavailableFolders.contains(folder.prefix) else { continue }
-                let files = g.copies.compactMap { copy -> URL? in
-                    guard let path = String(copy.url.dropFirst(folder.url.count)).removingPercentEncoding else { return nil }
-                    return URL(fileURLWithPath: folder.path).within(path)
-                }
+                let files = g.copies.compactMap { Library.file(of: $0, in: folder, at: g.source) }
                 out.append(.init(id: key, title: "\(g.short) — \(folder.name)", symbol: "folder", inFinder: true) { NSWorkspace.shared.activateFileViewerSelecting(files) })
             } else if let listing = URL(web: g.copies[0].url)?.deletingLastPathComponent() {
                 out.append(.init(id: key, title: "\(g.short) — \(g.source.displayName)", symbol: "safari", inFinder: false) { NSWorkspace.shared.open(listing) })

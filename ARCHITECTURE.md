@@ -90,7 +90,7 @@ So a stream's batches are admitted if its certificate names a member: whole, or 
 * anything but its person's private data on a private stream;
 * an operation of the wrong kind for its key, or a `members` count but 1 or an even one;
 * an operation dated more than a day ahead;
-* a source's `url` that its ID doesn't hash, or not from the device whose `url` is held; its `managed` but from that device;
+* a source's `url` that its ID doesn't hash, or not from the device whose `url` is held; its `managed` but from that device (and a device's own folder, `cqdevice://<key>/…`, is no source but from that device, as any member could otherwise aim devices at another's paths; nor is its `served` but its own, both ignored as read, not refused);
 * a shared list's field (`l/<owner>/<id>`) not from one of its owner's devices, or not its `name`, a mode change, or a title;
 * a cutoff (`revoked`) of the founder's devices but from the founder's own, or the device itself, else not 8 bytes; and between cutoffs, the lower wins, so a removal can't be undone;
 * a certificate (`c/<stream key>`) but a device's own `user` one, or a `private` one naming its writer's person when the receiver holds none naming another, so no member can claim another's private stream and be sent its data.
@@ -194,7 +194,7 @@ The library ([library.zig](core/src/library.zig), [review.zig](core/src/review.z
 | `r/<source>` | `url`, `rendition` (its files' quality, the field's name kept as data), `quality-by` (`folder`: each file's quality is the first folder within the source), `skip`; `managed` (`1` for a device's downloads, which no one crawls); `crawled`, when a device last crawled it whole, in ms (refreshes not asked for skip it within the library's interval, `settings`' `crawl`, give or take a 24th of it); `absent:<directory>` (relative to it, empty for the whole of it), when a directory that held files was found empty (an unplugged drive's mount point), in ms, or empty once it's back, deleted, forgotten, or a year on | Adding or changing a source; crawls; forgetting |
 | `settings` | `crawl`: how often refreshes not asked for crawl the sources, in hours (`1`, `3`, `24`, `168`; empty, 24), or `0`, only when asked | Settings |
 | `aliases` | `<title key>`: the title key it's an alias of, or empty | Review |
-| `n/<hex>` | `name`; for a device, `user` (its person's key, hex) | Naming |
+| `n/<hex>` | `name`; for a device, `user` (its person's key, hex), `model` (its own), and `served` (its own: where it serves its own folders, `cqdevice://<hex>/…`, now, `http://firefly.local:58275/`) | Naming; serving |
 | `p/<person hex>/<item key>` | `position`, `duration` (ms; empty in the first 10 seconds), `watched` (`1`, `0`, or empty) | Playing, by hand (private) |
 | `p/<person hex>/watchlist` | `<title key>` or `<title key>#<season>`: `1`, a placeholder (`w`, its name, its note, tab-separated), or empty | The watchlist (private) |
 | `p/<person hex>/lists` | `<list ID>`: its name, or empty once deleted | Lists (private) |

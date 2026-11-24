@@ -39,7 +39,7 @@ struct SourcesPane: View {
                         }
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .help(source.url.removingPercentEncoding ?? source.url)
+                        .help(source.reached.removingPercentEncoding ?? source.reached)
                     }
                 }
                 TableColumn("Videos") { Text($0.copies.formatted()).monospacedDigit() }
@@ -115,7 +115,7 @@ struct SourcesPane: View {
         // share's (e.g., /Volumes/Shared).
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
             guard case .success(let url) = result else { return }
-            Task { await library.addFolder(url.path, host: Library.localHost) }
+            Task { await library.addFolder(url.path) }
         }
         .fileDialogMessage("Choose a folder of videos to share with your devices.")
         .fileDialogConfirmationLabel("Add")
@@ -129,14 +129,14 @@ struct SourcesPane: View {
     }
 
     private func canOpen(_ source: Source) -> Bool {
-        guard let folder = library.folder(of: source) else { return URL(web: source.url) != nil }
+        guard let folder = library.folder(of: source) else { return URL(web: source.reached) != nil }
         return !library.unavailableFolders.contains(folder.prefix)
     }
 
     private func open(_ source: Source) {
         if let folder = library.folder(of: source) {
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folder.path)
-        } else if let url = URL(web: source.url) {
+        } else if let url = URL(web: source.reached) {
             NSWorkspace.shared.open(url)
         }
     }
@@ -260,7 +260,7 @@ private struct SourceSheet: View {
                 }
             } else if let source {
                 Section {
-                    LabeledContent("Address", value: source.url.removingPercentEncoding ?? source.url)
+                    LabeledContent("Address", value: source.reached.removingPercentEncoding ?? source.reached)
                 }
             }
             Section {

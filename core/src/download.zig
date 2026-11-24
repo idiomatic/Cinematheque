@@ -72,7 +72,7 @@ pub const Planner = struct {
         // Copies come from anywhere but a device's downloads, which a
         // player knows it has (and another can't be sure is awake).
         var bases: std.StringHashMapUnmanaged([]const u8) = .empty;
-        for (try library.sources(replica, arena)) |rp| if (!rp.managed) try bases.put(arena, try arena.dupe(u8, &rp.id), rp.url);
+        for (try library.sources(replica, arena)) |rp| if (!rp.managed) try bases.put(arena, try arena.dupe(u8, &rp.id), rp.at() orelse continue);
         return .{ .d = d, .bases = bases };
     }
 
@@ -739,7 +739,7 @@ fn answered(io: Io, arena: std.mem.Allocator, client: *std.http.Client, replica:
         var parts = std.mem.splitScalar(u8, s.blob(1), '\t');
         const path = parts.first();
         if ((std.fmt.parseInt(u64, parts.next() orelse "", 10) catch continue) != h.size or !safe(path)) continue;
-        try urls.append(arena, try art.fileUrl(arena, source.url, path));
+        try urls.append(arena, try art.fileUrl(arena, source.at() orelse continue, path));
     }
     // Each within a minute, as a server that never answers would hold
     // reconciling (and the space it's freeing) for good.

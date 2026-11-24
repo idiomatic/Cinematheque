@@ -55,7 +55,7 @@ Others are the system's or the network's (`ConnectionRefused`, `ConnectionTimedO
 
 | Function | What it does |
 |---|---|
-| `cq_status(library)` | This device: `person` (its person's key), `paired` (acting as another of its person's devices), `library` (the library's ID, or null), `founder` (the founder's person key, or null), `members` (how many), `others` (how many other devices its person has, not removed), and `crawl_every` (the library's interval in hours, 0 for only when asked) |
+| `cq_status(library)` | This device: `person` (its person's key), `device` (its own key, for its own folders' port-free addresses, `cqdevice://<key>/<path>`), `paired` (acting as another of its person's devices), `library` (the library's ID, or null), `founder` (the founder's person key, or null), `members` (how many), `others` (how many other devices its person has, not removed), and `crawl_every` (the library's interval in hours, 0 for only when asked) |
 | `cq_found(library)` | Creates a library, founded by this person |
 | `cq_members(library)` | The members: an array of `{key, name, founder, you}`, `name` null if unset |
 | `cq_member_add(library, person_key)` | Adds a person as a member |
@@ -92,7 +92,7 @@ A new device offers to be added and shows a code; a member's device, given the c
 
 | Function | What it does |
 |---|---|
-| `cq_repos(library)` | *Any thread,* on a connection of its own (counting copies reads every one). The sources, by the path they show, devices' downloads last: an array of `{id, url, path, owner, quality_from, quality, skip, copies, managed, unavailable}`: `path`, its server and folders as a person reads them, to join with " › " (the host without `.local` or its port, then its folders, a NAS's shared one left out where there are more than two); `owner`, the key of the device that wrote its address (whose downloads, if `managed`); `quality_from` where its files' quality comes from (`"names"`, `"folder"`, `"named"`, or `"unknown"`, a newer device's setting, by which this one doesn't crawl it), and `quality` the name, if named; `managed` for a device's downloads; `unavailable` its unavailable directories, `{dir, since}` (`dir` relative to the source, empty for the whole of it; `since` in milliseconds since the epoch) |
+| `cq_repos(library)` | *Any thread,* on a connection of its own (counting copies reads every one). The sources, by the path they show, devices' downloads last: an array of `{id, url, address, path, owner, quality_from, quality, skip, copies, managed, unavailable}`: `url`, what it is (a device's own folder's `cqdevice://<its key>/<path>`, whatever its port); `address`, where it's reached now (for a device's own folder, where its device says it serves; null until it has); `path`, its server and folders as a person reads them, to join with " › " (the host without `.local` or its port, then its folders, a NAS's shared one left out where there are more than two); `owner`, the key of the device that wrote its address (whose downloads, if `managed`); `quality_from` where its files' quality comes from (`"names"`, `"folder"`, `"named"`, or `"unknown"`, a newer device's setting, by which this one doesn't crawl it), and `quality` the name, if named; `managed` for a device's downloads; `unavailable` its unavailable directories, `{dir, since}` (`dir` relative to the source, empty for the whole of it; `since` in milliseconds since the epoch) |
 | `cq_repo_add(library, url, skip)` | Adds a source by URL, as typed (percent-encoded, a `/` added at its end), with a prefix of names to skip (NULL for the default); its files' quality is from their names until set |
 | `cq_repo_skip(library, source, skip)` | Sets the prefix of names to skip; applied at the next crawl |
 | `cq_repo_quality_from_names(library, source)` | Takes a source's files' quality from their names; copies move at the next crawl |
@@ -100,13 +100,15 @@ A new device offers to be added and shows a code; a member's device, given the c
 | `cq_repo_quality_named(library, source, name)` | Names one quality for all its files |
 | `cq_repo_name(library, source, name)` | Names a source (by ID) as its owner calls it, as a folder's own name ("TV Shows", "Archive1841") its address had to put otherwise (`/tv-shows/`); `cq_repos`' `path` ends with it. Only its owner's naming counts; nothing's written if it's named so already |
 | `cq_repo_remove(library, source)` | Removes a source (by ID or URL) and its copies, for every device |
+| `cq_repo_move(library, source, url)` | Moves a source (by ID or URL) to another address, keeping its copies (unavailable ones too), settings, and name: once, as a device's own folders and downloads move to their port-free address (`cqdevice://`) |
+| `cq_set_served(library, served)` | Records where this device serves its own sources now (`http://firefly.local:58275/`): one field as its port changes, its sources (`cqdevice://<its key>/…`, reached there) unchanged |
 | `cq_remove_unavailable(library, source, dir)` | Removes an unavailable directory's copies, as if deleted |
 
 ## Crawling, syncing, and describing
 
 | Function | What it does |
 |---|---|
-| `cq_crawl(library)` | *Long.* Crawls every source but devices' downloads, committing each as it goes, then describes what's new (covers and metadata), prioritized titles first. Returns an array, one per source, of `{url, files, titles, covers, error, crawl_ms, total_ms, requests, reused, changed, skipped}`: `error` null or why its crawl failed; `skipped` null, or why it wasn't crawled (`"lately"`, `"manual"`, or `"downloads"`, a device's own); `titles` added; `covers` always 0; listing's and the whole crawl's times; listings read and reused; copies added, changed, or removed |
+| `cq_crawl(library)` | *Long.* Crawls every source but devices' downloads, committing each as it goes, then describes what's new (covers and metadata), prioritized titles first. Returns an array, one per source, of `{url, files, titles, covers, error, crawl_ms, total_ms, requests, reused, changed, skipped}`: `error` null or why its crawl failed; `skipped` null, or why it wasn't crawled (`"lately"`, `"manual"`, `"downloads"`, a device's own, or `"away"`, a device's own folder whose device hasn't said where it serves); `titles` added; `covers` always 0; listing's and the whole crawl's times; listings read and reused; copies added, changed, or removed |
 | `cq_crawl_full(library)` | *Long.* As `cq_crawl`, listing every directory afresh, so files rewritten in place (retagged) are seen |
 | `cq_crawl_due(library)` | *Long.* As `cq_crawl`, for a refresh not asked for, once synced: skips sources a device crawled within the library's interval, give or take a 24th of it (`skipped` `"lately"`), or every source, if it's crawled only when asked (`"manual"`) |
 | `cq_crawl_every(library, hours)` | Sets the library's interval, for every device: 1, 3, 24 (the default), or 168 hours, or 0 for only when asked |

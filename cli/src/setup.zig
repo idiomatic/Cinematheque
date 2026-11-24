@@ -91,7 +91,9 @@ fn refresh(w: *Web, io: Io, gpa: std.mem.Allocator, fully: bool) !void {
     var failed: usize = 0;
     for (sources) |rp| {
         defer _ = state.done.fetchAdd(1, .acq_rel);
-        if (rp.managed) continue;
+        // Never crawled; or a device's own folder its device hasn't said
+        // where it serves, as good as away.
+        if (rp.managed or rp.at() == null) continue;
         // The writer held for each source's crawl, as the apps hold it, so
         // a page's writes wait out one source, not all of them.
         try w.writer.lock(io);
@@ -196,6 +198,12 @@ fn becameMember(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocato
             defer w.writer.unlock(io);
             try lib.recordModel(&r, arena, web.now(io), device, model);
         }
+        // Where it serves its own sources (port-free), as `serve` records.
+        if (w.host) |host| {
+            try w.writer.lock(io);
+            defer w.writer.unlock(io);
+            try lib.recordServed(&r, arena, web.now(io), device, try std.fmt.allocPrint(arena, "http://{s}.local:{d}/", .{ w.host_name, host.port }));
+        }
     }
     if (w.downloads_dir) |dir| configureDownloads(w, io, gpa, arena, dir) catch |err| std.log.warn("keeping downloads in {s}: {t}", .{ dir, err });
     try advertise(w, io, gpa, arena);
@@ -206,14 +214,14 @@ fn becameMember(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocato
 /// --downloads` does (see network.zig), once there's a library to record
 /// them in. With `state` held.
 fn configureDownloads(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, dir: []const u8) !void {
-    const host = w.host orelse return;
-    const url = try std.fmt.allocPrint(arena, "http://{s}.local:{d}/downloads/", .{ w.host_name, host.port });
+    _ = w.host orelse return;
     var r = try Replica.open(gpa, io, w.path, w.founder.?, w.store.identity);
     defer r.close();
     if (try core.download.settings(&r, arena)) |s| {
         if (!std.mem.eql(u8, s.dir, dir)) return error.DownloadsElsewhere;
-        if (!std.mem.eql(u8, s.source.url, url)) _ = try lib.removeSource(&r, arena, web.now(io), &s.source.id);
     }
+    // Port-free, as `serve --downloads` keeps them (see network.zig).
+    const url = try lib.ownSource(&r, arena, web.now(io), r.device(), "/downloads/");
     try core.download.configure(&r, arena, web.now(io), dir, url);
     w.downloads = true;
 }
@@ -412,7 +420,7 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
     const Unavailable = struct { dir: []const u8, since_ms: u64 };
     // Its path as players show it, and whose it is, by name, for a
     // device's downloads.
-    const Source = struct { id: []const u8, url: []const u8, path: []const []const u8, copies: i64, unavailable: []const Unavailable };
+    const Source = struct { id: []const u8, url: []const u8, address: ?[]const u8, path: []const []const u8, copies: i64, unavailable: []const Unavailable };
     var sources: std.ArrayList(Source) = .empty;
     var media_added = false;
     for (try lib.sources(&r, arena)) |s| {
@@ -427,6 +435,7 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
         try sources.append(arena, .{
             .id = try arena.dupe(u8, &s.id),
             .url = s.url,
+            .address = s.at(),
             .path = try lib.shownPath(arena, s),
             .copies = try lib.countCopies(&r, arena, s),
             .unavailable = gone.items,

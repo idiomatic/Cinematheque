@@ -44,7 +44,7 @@ fn sourceBases(r: *Replica, arena: std.mem.Allocator) !std.StringHashMapUnmanage
 
 fn coverJson(arena: std.mem.Allocator, bases: std.StringHashMapUnmanaged(library.Source), c: art.Cover) !?CoverJson {
     const rp = bases.get(c.source) orelse return null;
-    return .{ .url = try art.fileUrl(arena, rp.url, c.path), .offset = c.offset, .length = c.length, .stamp = c.stamp };
+    return .{ .url = try art.fileUrl(arena, rp.at() orelse return null, c.path), .offset = c.offset, .length = c.length, .stamp = c.stamp };
 }
 
 pub const CopyJson = struct { url: []const u8, size: u64, mtime: []const u8, source: []const u8, unavailable: bool };
@@ -118,7 +118,7 @@ pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
             var name = rn.label;
             for (rn.copies.items, copies) |h, *c| {
                 const rp = bases.get(h.source);
-                c.* = .{ .url = if (rp) |b| try art.fileUrl(arena, b.url, h.path) else "", .size = h.size, .mtime = h.mtime, .source = h.source, .unavailable = h.unavailable };
+                c.* = .{ .url = if (rp) |b| (if (b.at()) |base| try art.fileUrl(arena, base, h.path) else "") else "", .size = h.size, .mtime = h.mtime, .source = h.source, .unavailable = h.unavailable };
                 // The quality's name as its sources give it: its folder's, or
                 // the source's.
                 if (rp) |b| switch (b.layout.quality) {

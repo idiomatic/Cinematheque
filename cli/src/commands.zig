@@ -328,7 +328,7 @@ pub fn title(app: *App, c: Command) !void {
         defer r.close();
         const d = try lib.detail(&r, app.arena, c.rest[0]) orelse return error.NoSuchTitle;
         var urls: std.StringHashMapUnmanaged([]const u8) = .empty;
-        for (try lib.sources(&r, app.arena)) |rp| try urls.put(app.arena, try app.arena.dupe(u8, &rp.id), rp.url);
+        for (try lib.sources(&r, app.arena)) |rp| try urls.put(app.arena, try app.arena.dupe(u8, &rp.id), rp.at() orelse continue);
         try out.print("{s}", .{d.name});
         if (d.year) |y| try out.print(" ({d})", .{y});
         try out.print("  {s}\n", .{d.key});
@@ -530,6 +530,10 @@ fn crawlAndDescribe(app: *App, r: *core.replica.Replica, workers: usize, sources
     for (sources) |rp| {
         if (rp.managed) {
             try app.out.print("{s}: a device's downloads, not crawled\n", .{rp.url});
+            continue;
+        }
+        if (rp.at() == null) {
+            try app.out.print("{s}: its device hasn't said where it serves it, not crawled\n", .{rp.url});
             continue;
         }
         const s = try crawler(r, app.io, app.arena, &client, app.now(), rp, workers);

@@ -139,16 +139,18 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
     var candidates: std.StringArrayHashMapUnmanaged(std.ArrayList(Job)) = .empty;
     for (crawled) |c| {
         const source = c.source;
+        // Its entries are as crawled, where it's reached.
+        const base = source.at() orelse continue;
         // Images by their path, lowercased, for sidecars.
         var images: std.StringHashMapUnmanaged(ImageFile) = .empty;
         var targets: std.StringArrayHashMapUnmanaged(Target) = .empty;
         // How many titles each directory holds, so a `poster.jpg` is taken
         // as a movie's only where it's the only one there.
         var titles_in: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) = .empty;
-        const series = try library.seriesByFolder(arena, source.url, source.layout, c.entries);
+        const series = try library.seriesByFolder(arena, base, source.layout, c.entries);
         for (c.entries) |entry| {
-            if (entry.is_dir or !std.mem.startsWith(u8, entry.url, source.url)) continue;
-            const rel = url.decode(try arena.dupe(u8, entry.url[source.url.len..])) catch continue;
+            if (entry.is_dir or !std.mem.startsWith(u8, entry.url, base)) continue;
+            const rel = url.decode(try arena.dupe(u8, entry.url[base.len..])) catch continue;
             const stamp = try std.fmt.allocPrint(arena, "{d}\t{s}", .{ entry.size, entry.mtime });
             if (isImage(rel)) {
                 try images.put(arena, try std.ascii.allocLowerString(arena, rel), .{ .path = rel, .stamp = stamp });
@@ -227,8 +229,10 @@ pub const Write = struct { key: []const u8, field: []const u8, value: []const u8
 fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, writes: *std.ArrayList(Write), stats: *Stats) !void {
     const t = job.target;
     const source = job.source;
+    // A device's own source whose device hasn't said where: next crawl.
+    const base = source.at() orelse return;
     if (job.placeholder_for) |c| {
-        const bytes = fetch(arena, client, try fileUrl(arena, source.url, c.path), c.offset, c.length) catch |err| {
+        const bytes = fetch(arena, client, try fileUrl(arena, base, c.path), c.offset, c.length) catch |err| {
             if (unreachable_(err)) return; // to try again next crawl
             return writePlaceholder(arena, writes, t, null, stats);
         };
@@ -237,7 +241,7 @@ fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, wri
     const stamp = try job.readStamp(arena);
     if (job.sidecar) |s| {
         const size = std.fmt.parseInt(u64, s.stamp[0 .. std.mem.indexOfScalar(u8, s.stamp, '\t') orelse 0], 10) catch 0;
-        const bytes = fetch(arena, client, try fileUrl(arena, source.url, s.path), 0, size) catch |err| blk: {
+        const bytes = fetch(arena, client, try fileUrl(arena, base, s.path), 0, size) catch |err| blk: {
             if (unreachable_(err)) return; // to try again next crawl
             break :blk null;
         };
@@ -251,7 +255,7 @@ fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, wri
             try writes.append(arena, .{ .key = t.title_key, .field = t.field, .value = try (Cover{ .source = &source.id, .path = t.path, .offset = 0, .length = 0, .stamp = stamp }).format(arena) });
         return;
     }
-    const info = mp4.read(arena, client, try fileUrl(arena, source.url, t.path)) catch |err| {
+    const info = mp4.read(arena, client, try fileUrl(arena, base, t.path)) catch |err| {
         stats.failed += 1;
         if (unreachable_(err)) return; // to try again next crawl
         // A file that can't be read as an MP4 is remembered as without a
@@ -596,7 +600,7 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
     const source = try library.findSource(replica, arena, source_id);
     // A file that isn't an MP4, or can't be read, is marked described too,
     // so it isn't read again; a network failure is tried again later.
-    const info = mp4.read(arena, client, try fileUrl(arena, source.url, path)) catch |err| if (unreachable_(err)) return err else mp4.Info{};
+    const info = mp4.read(arena, client, try fileUrl(arena, source.at() orelse return error.ConnectionRefused, path)) catch |err| if (unreachable_(err)) return err else mp4.Info{};
     const title_end = library.pastTitle(item_key, "/e/") orelse library.pastTitle(item_key, "/v/") orelse item_key.len;
     var writes: std.ArrayList(Write) = .empty;
     try appendInfo(arena, &writes, .{

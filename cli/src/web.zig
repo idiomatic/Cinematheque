@@ -573,7 +573,7 @@ fn withinSources(r: *Replica, arena: std.mem.Allocator, urls: []const []const u8
     const sources = try core.library.sources(r, arena);
     for (urls) |u| {
         for (sources) |s| {
-            if (core.url.within(s.url, u)) break;
+            if (core.url.within(s.at() orelse continue, u)) break;
         } else return false;
     }
     return true;

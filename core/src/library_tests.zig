@@ -22,6 +22,8 @@ const crawlWindow = library.crawlWindow;
 const countCopies = library.countCopies;
 const removeUnavailable = library.removeUnavailable;
 const unavailableDirs = library.unavailableDirs;
+const moveSource = library.moveSource;
+const recordServed = library.recordServed;
 
 test "a crawl records when it was, so refreshes not asked for skip it for a day" {
     const io = std.testing.io;
@@ -193,4 +195,67 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
     stats = (try Fresh.crawl(&r, io, arena, &client, 12_000, share)).ingest;
     try t.expectEqual(@as(usize, 0), stats.unavailable);
     try t.expectEqual(@as(usize, 0), (try unavailableDirs(&r, arena, &share.id)).len);
+}
+
+test "a device's own source, moved to its port-free address once, keeps its copies, reached where it serves" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const replica_ = @import("replica.zig");
+    const url = @import("url.zig");
+    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
+    defer r.close();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "a");
+    try tmp.dir.createDirPath(io, "b");
+    try tmp.dir.writeFile(io, .{ .sub_path = "a/Alien (1979).mp4", .data = "x" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "b/Brazil (1985).mkv", .data = "x" });
+    const root = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = root, .index = false }} } };
+    try server.start();
+    defer server.stop();
+    _ = try addSource(&r, 1000, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{ .quality = .{ .named = "1080p" }, .skip = "." });
+    const source = (try sources(&r, arena))[0];
+    var client: std.http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    const t = std.testing;
+    _ = try crawlSourceAfresh(&r, io, arena, &client, 2000, source, 1);
+    // b unplugged: its copy kept, marked unavailable.
+    try tmp.dir.deleteFile(io, "b/Brazil (1985).mkv");
+    _ = try crawlSourceAfresh(&r, io, arena, &client, 3000, source, 1);
+
+    // Moved once to this device's port-free address: unreached until the
+    // device says where it serves.
+    const me = r.device();
+    // Added by hand at an IP address, it isn't the apps' to move.
+    try t.expect(try library.portBound(&r, arena, me, "/") == null);
+    const id = try moveSource(&r, arena, 4000, &source.id, try url.deviceSource(arena, me, "/"));
+    var now = try sources(&r, arena);
+    try t.expectEqual(@as(usize, 1), now.len);
+    try t.expectEqualSlices(u8, &id, &now[0].id);
+    try t.expect(now[0].at() == null);
+    try t.expectEqualStrings(".", now[0].layout.skip);
+    try t.expectEqual(@as(i64, 2), try countCopies(&r, arena, now[0]));
+    try t.expectEqual(@as(usize, 1), (try unavailableDirs(&r, arena, &id)).len);
+    // Said, it's reached there; a port changing is one field, the source
+    // the same; and it crawls as before, its copies unchanged.
+    try recordServed(&r, arena, 5000, me, "http://127.0.0.1:1/");
+    try recordServed(&r, arena, 6000, me, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}));
+    now = try sources(&r, arena);
+    try t.expectEqualSlices(u8, &id, &now[0].id);
+    try t.expectEqualStrings(try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), now[0].at().?);
+    const stats = (try crawlSourceAfresh(&r, io, arena, &client, 7000, now[0], 1)).ingest;
+    try t.expectEqual(@as(usize, 0), stats.copies_added + stats.copies_changed + stats.copies_removed);
+    try t.expectEqual(@as(i64, 2), try countCopies(&r, arena, now[0]));
+    // One the apps wrote, at this device's `.local` name and port, moves
+    // to its port-free address once, and then stays.
+    _ = try addSource(&r, 9000, "http://firefly.local:58275/downloads/", .{ .quality = .names });
+    const own = try library.ownSource(&r, arena, 10000, me, "/downloads/");
+    try t.expectEqualStrings(try url.deviceSource(arena, me, "/downloads/"), own);
+    try t.expect(try library.portBound(&r, arena, me, "/downloads/") == null);
+    try t.expectEqual(@as(usize, 2), (try sources(&r, arena)).len);
 }

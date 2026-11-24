@@ -277,8 +277,10 @@ pub const CrawlJson = struct {
 
 /// Why a crawl skipped a source: a device crawled it within the library's
 /// interval (`cq_crawl_due`), the library's sources are looked in only when
-/// asked (`cq_crawl_due`), or it's a device's downloads, never crawled.
-pub const Skipped = enum { lately, manual, downloads };
+/// asked (`cq_crawl_due`), it's a device's downloads, never crawled, or
+/// it's a device's own folder (`cqdevice://`) whose device hasn't said where
+/// it serves (`away`), as a device away is no failure.
+pub const Skipped = enum { lately, manual, downloads, away };
 pub const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, sent: usize = 0, @"error": ?[]const u8 };
 pub const HeardJson = struct { device: []const u8, name: ?[]const u8, operations: usize, at: u64 };
 
@@ -311,7 +313,7 @@ pub const Heard = struct {
         return .{ .device = key, .name = library.nameOf(named, key), .operations = operations, .at = at };
     }
 };
-pub const StatusJson = struct { person: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize, others: usize, crawl_every: u64 = library.default_crawl_hours };
+pub const StatusJson = struct { person: []const u8, device: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize, others: usize, crawl_every: u64 = library.default_crawl_hours };
 
 /// How far a long operation has come, in steps of its phase (sources
 /// crawled, movies and seasons described, devices synced); read from any

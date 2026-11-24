@@ -63,17 +63,76 @@ test "escape a typed URL" {
 }
 
 /// Whether `text` may be a source's address: an http or https URL with a
-/// host, of printable ASCII (spaces escaped), without a query or fragment.
-/// A source's address replicates from any member, so a device checks it
+/// host, or a device's own (`cqdevice://` and its key, see `device`), of
+/// printable ASCII (spaces escaped), without a query or fragment. A
+/// source's address replicates from any member, so a device checks it
 /// before fetching from it, or opening it: else a member could aim other
 /// devices' requests anywhere, in any form.
 pub fn fitForSource(text: []const u8) bool {
     for (text) |c| if (c <= 0x20 or c >= 0x7f or c == '\\') return false;
     if (std.mem.indexOfAny(u8, text, "?#") != null) return false;
+    if (std.mem.startsWith(u8, text, device_scheme ++ "://")) return device(text) != null;
     const uri = std.Uri.parse(text) catch return false;
     if (!std.ascii.eqlIgnoreCase(uri.scheme, "http") and !std.ascii.eqlIgnoreCase(uri.scheme, "https")) return false;
     const host = uri.host orelse return false;
     return componentText(host).len > 0;
+}
+
+/// A device's own source, by its key rather than its host and port
+/// (`cqdevice://<key, 64 hex digits>/<path>`): the folders a device serves,
+/// and its downloads, whose address would change with its port, which
+/// changes as another program takes it, and with it the source's ID, so
+/// every copy would be written again. Reached at the device's `served`
+/// address (`library.Name`), which it writes as it serves.
+pub const device_scheme = "cqdevice";
+
+/// A device source's device and path within it (from its `/`), if `text`
+/// is one.
+pub fn device(text: []const u8) ?struct { key: [32]u8, path: []const u8 } {
+    const prefix = device_scheme ++ "://";
+    if (!std.mem.startsWith(u8, text, prefix)) return null;
+    const rest = text[prefix.len..];
+    if (rest.len < 64 + 1 or rest[64] != '/') return null;
+    for (rest[0..64]) |c| if (!std.ascii.isDigit(c) and !(c >= 'a' and c <= 'f')) return null;
+    var key: [32]u8 = undefined;
+    _ = std.fmt.hexToBytes(&key, rest[0..64]) catch return null;
+    return .{ .key = key, .path = rest[64..] };
+}
+
+/// A device's own source's address: its key and the path it serves a
+/// folder at (`/Archive1841/`).
+pub fn deviceSource(arena: std.mem.Allocator, key: [32]u8, path: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(arena, "{s}://{s}{s}", .{ device_scheme, &std.fmt.bytesToHex(key, .lower), path });
+}
+
+/// Where a device source is reached: its device's `served` address (an
+/// http URL ending in `/`) and the path within it; null if `served` isn't
+/// fit to fetch from.
+pub fn reach(arena: std.mem.Allocator, served: []const u8, path: []const u8) !?[]const u8 {
+    if (!std.mem.endsWith(u8, served, "/") or !fitForSource(served) or std.mem.startsWith(u8, served, device_scheme)) return null;
+    const joined = try std.fmt.allocPrint(arena, "{s}{s}", .{ served, path[1..] });
+    return if (fitForSource(joined)) joined else null;
+}
+
+test "a device's own source, by its key" {
+    const t = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const key: [32]u8 = @splat(0xab);
+    const text = try deviceSource(arena, key, "/Archive1841/");
+    try t.expect(fitForSource(text));
+    const d = device(text).?;
+    try t.expectEqualSlices(u8, &key, &d.key);
+    try t.expectEqualStrings("/Archive1841/", d.path);
+    try t.expectEqualStrings("http://firefly.local:58275/Archive1841/", (try reach(arena, "http://firefly.local:58275/", d.path)).?);
+    // Not a whole key, upper case, or no path: none.
+    try t.expect(!fitForSource("cqdevice://abab/x/"));
+    try t.expect(!fitForSource("cqdevice://" ++ @as([64]u8, @splat('A')) ++ "/x/"));
+    try t.expect(!fitForSource("cqdevice://" ++ @as([64]u8, @splat('a'))));
+    // Reached only at an http address.
+    try t.expect(try reach(arena, "file:///etc/", "/x/") == null);
+    try t.expect(try reach(arena, "http://h:1", "/x/") == null);
 }
 
 fn componentText(c: std.Uri.Component) []const u8 {

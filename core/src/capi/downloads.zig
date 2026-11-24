@@ -271,3 +271,31 @@ fn sourceRemove(lib: *Library, arena: std.mem.Allocator, source: []const u8) !vo
     defer lib.writer.unlock(lib.io());
     _ = try library.removeSource(try lib.main(), arena, lib.now(), source);
 }
+
+/// Moves a source, by ID or URL, to another address, its copies, settings,
+/// and unavailable folders with it (see `library.moveSource`): once, as a
+/// device's own folders and downloads move to its port-free address
+/// (`cqdevice://`).
+export fn cq_repo_move(lib: *Library, source: [*:0]const u8, url: [*:0]const u8) c_int {
+    return status(lib, sourceMove, .{ std.mem.span(source), std.mem.span(url) });
+}
+
+fn sourceMove(lib: *Library, arena: std.mem.Allocator, source: []const u8, url: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    _ = try library.moveSource(try lib.main(), arena, lib.now(), source, url);
+}
+
+/// Records where this device serves its own sources now (`served`, an
+/// http URL ending in `/`, as `http://firefly.local:58275/`), unless it's
+/// recorded so already: one field as its port changes, rather than every
+/// copy of its sources (`cqdevice://`, reached there).
+export fn cq_set_served(lib: *Library, served: [*:0]const u8) c_int {
+    return status(lib, setServed, .{std.mem.span(served)});
+}
+
+fn setServed(lib: *Library, arena: std.mem.Allocator, served: []const u8) !void {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    try library.recordServed(try lib.main(), arena, lib.now(), try lib.store.device(), served);
+}

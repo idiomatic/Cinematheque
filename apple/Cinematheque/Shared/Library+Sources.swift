@@ -66,7 +66,7 @@ extension Library {
         // The sources' servers' names, looked up now, so the first play's
         // copy racing finds them answered.
         if let handle {
-            let urls = sources.map(\.url)
+            let urls = sources.compactMap(\.address)
             Task.detached { withCStrings(urls) { cq_race_warm(handle.pointer, $0, $1) } }
         }
         #if os(macOS)
@@ -121,12 +121,26 @@ extension Library {
         for copy in item.qualities.flatMap(\.copies) where !copy.unavailable {
             // A folder not there now (a share unmounted), though no crawl has
             // noticed yet, holds nothing to show.
-            guard let folder = folders.first(where: { !$0.url.isEmpty && copy.url.hasPrefix($0.url) && !unavailableFolders.contains($0.prefix) }),
-                  let path = String(copy.url.dropFirst(folder.url.count)).removingPercentEncoding,
-                  let file = URL(fileURLWithPath: folder.path).within(path) else { continue }
+            guard let source = sources.first(where: { $0.id == copy.source }), let folder = folder(of: source),
+                  !unavailableFolders.contains(folder.prefix), let file = Self.file(of: copy, in: folder, at: source) else { continue }
             return file
         }
         return nil
+    }
+
+    /// A copy's file in this device's folder, as its source is reached (the
+    /// copy's URL as served now).
+    static func file(of copy: TitleDetail.Copy, in folder: Folder, at source: Source) -> URL? {
+        guard let base = source.address, copy.url.hasPrefix(base),
+              let path = String(copy.url.dropFirst(base.count)).removingPercentEncoding else { return nil }
+        return URL(fileURLWithPath: folder.path).within(path)
+    }
+
+    /// This device's own folder's address, served at `path` (`/TV%20Shows/`),
+    /// port-free: by this device's key, reached where it says it serves, so
+    /// a new port is one field, not every copy written again.
+    func ownAddress(_ path: String) -> String? {
+        status.map { "cqdevice://\($0.device)\(path)" }
     }
 
     /// An item's file on this device: downloaded (the one that plays, as a
@@ -140,10 +154,9 @@ extension Library {
         folders.first { $0.url == source.url }
     }
 
-    /// Serves a folder of this device as a source at `http://HOST:PORT/
-    /// NAME/` (`host` being this device's name on the network, e.g.,
-    /// `firefly.local`), adds it, and crawls it.
-    func addFolder(_ path: String, host: String) async {
+    /// Serves a folder of this device as a source at `/NAME/`, by its
+    /// port-free address (`ownAddress`), adds it, and crawls it.
+    func addFolder(_ path: String) async {
         loadFolders()
         // The folder's own name, whole, as its address's path (encoded), so
         // nothing's lost that would be read back: not a slug ("TV Shows",
@@ -159,17 +172,14 @@ extension Library {
         }
         folders.append(Folder(prefix: prefix, path: path, url: ""))
         serve()
-        guard let port = servingPort else {
-            folders.removeLast()
-            return
-        }
         // URLs' unreserved characters, ASCII's alone; the rest encoded.
         let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-        guard let encoded = prefix.addingPercentEncoding(withAllowedCharacters: unreserved) else {
+        guard servingPort != nil, let encoded = prefix.addingPercentEncoding(withAllowedCharacters: unreserved),
+              let url = ownAddress("/\(encoded)/") else {
             folders.removeLast()
             return
         }
-        folders[folders.count - 1].url = "http://\(host):\(port)/\(encoded)/"
+        folders[folders.count - 1].url = url
         saveFolders()
         addSource(folders[folders.count - 1].url, skip: nil)
         await crawl()
@@ -199,8 +209,9 @@ extension Library {
 
     /// Serves this library to devices (their syncs, so this device's changes,
     /// such as progress, reach them), and this device's folders, while the
-    /// app runs, on the port it served on last, so folders' addresses stay
-    /// put.
+    /// app runs, on the port it served on last (so devices that knew it
+    /// find it there); where it got another, it says so (`cq_set_served`),
+    /// its folders' addresses, port-free, unchanged.
     func serve() {
         guard let handle, hasLibrary else { return }
         loadFolders()
@@ -223,7 +234,13 @@ extension Library {
             servingPort = Int(port)
             defaults.set(Int(port), forKey: "servingPort")
             report(.serve, nil)
-            repoint(Int(port))
+            #if os(macOS)
+            // Where its own folders and downloads are reached (the core
+            // writes it only if it's changed); folders added by their port,
+            // before, moved to their port-free addresses once.
+            check { cq_set_served($0, "http://\(Self.localHost):\(port)/") }
+            #endif
+            portFree()
             nameFolders()
             #if os(macOS)
             Task { await configureDownloads() }
@@ -257,19 +274,19 @@ extension Library {
         servingPort = nil
     }
 
-    /// Moves this device's folders' sources to the port it got, if it
-    /// had to take another (another program had the last one).
-    private func repoint(_ port: Int) {
-        for (i, folder) in folders.enumerated() {
-            guard var parts = URLComponents(string: folder.url), parts.port != nil, parts.port != port else { continue }
-            parts.port = port
-            guard let moved = parts.string else { continue }
-            let old = sources.first { $0.url == folder.url }
-            addSource(moved, skip: old?.skip)
-            if let old { setQuality(moved, old.qualitySetting); removeSource(old.id) }
-            folders[i].url = moved
+    /// Moves this device's folders' sources, added by their host and port
+    /// by builds before, to their port-free addresses, once, their copies
+    /// (unavailable ones too) and settings with them; after which a new
+    /// port changes none of them.
+    private func portFree() {
+        var moved = false
+        for (i, folder) in folders.enumerated() where !folder.url.isEmpty && !folder.url.hasPrefix("cqdevice://") {
+            guard let path = URLComponents(string: folder.url)?.percentEncodedPath, let url = ownAddress(path) else { continue }
+            if let old = sources.first(where: { $0.url == folder.url }) { checkAndReload { cq_repo_move($0, old.id, url) } }
+            folders[i].url = url
+            moved = true
         }
-        saveFolders()
+        if moved { saveFolders() }
     }
 
     /// Syncs with devices found or added, then crawls every source: what
@@ -335,10 +352,11 @@ extension Library {
             let changed: Int?
             let skipped: Skipped?
         }
-        enum Skipped: String, Decodable { case lately, manual, downloads }
+        enum Skipped: String, Decodable { case lately, manual, downloads, away }
         guard let sources = try? JSONDecoder().decode([Crawled].self, from: data) else { return }
-        // Those skipped (crawled lately, only on Refresh Library, or a
-        // device's downloads) aren't worth a line each.
+        // Those skipped (crawled lately, only on Refresh Library, a
+        // device's downloads, or a device's folder whose device hasn't said
+        // where it serves) aren't worth a line each.
         for s in sources where s.skipped == nil {
             if let error = s.error {
                 crawlLog.notice("Crawled \(Self.logged(s.url), privacy: .public): failed, \(error, privacy: .public)")
