@@ -193,17 +193,21 @@ extension Library {
         return seasons.filter { $0.season != 0 } + seasons.filter { $0.season == 0 }
     }
 
-    /// What a series' seasons come to, in order (as `seasons` gives them):
-    /// "3 seasons"; a dated series' years, "2024–2026", or "2026"; of one
-    /// season but the first, its name; nothing for a first alone (a
-    /// miniseries, or one cut short).
+    /// What a series' seasons come to, in order (as `seasons` gives them),
+    /// specials not counted as one: "3 seasons"; a dated series' years,
+    /// "2024–2026", or "2026"; of one season but the first, its name;
+    /// nothing for a first alone (a miniseries, or one cut short); of
+    /// specials alone, "Specials".
     static func seasonsCaption(_ seasons: [Tile]) -> String {
         let numbered = seasons.compactMap(\.season).filter { $0 != 0 }
         if let first = numbered.first, let last = numbered.last, first >= 1000 {
             return first == last ? String(first) : "\(first)–\(last)"
         }
-        guard seasons.count == 1 else { return "\(seasons.count) seasons" }
-        return seasons[0].season == 1 ? "" : seasons[0].seasonName ?? ""
+        switch numbered.count {
+        case 0: return seasons.isEmpty ? "" : "Specials"
+        case 1: return numbered[0] == 1 ? "" : "Season \(numbered[0])"
+        default: return "\(numbered.count) seasons"
+        }
     }
 
     /// The season to start on: the first not watched through, else the

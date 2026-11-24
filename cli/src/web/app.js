@@ -312,18 +312,19 @@ function seasonsInOrder(seasons) {
   return [...sorted.filter((t) => t.season !== 0), ...sorted.filter((t) => t.season === 0)];
 }
 
-/// What a series' seasons (in order) come to, as the Mac's tile says it:
-/// "3 seasons"; a dated series' years, "2024–2026"; of one season but the
-/// first, its name; nothing for a first alone (a miniseries, or one cut
-/// short).
+/// What a series' seasons (in order) come to, as the Mac's tile says it,
+/// specials not counted as one: "3 seasons"; a dated series' years,
+/// "2024–2026"; of one season but the first, its name; nothing for a first
+/// alone (a miniseries, or one cut short); of specials alone, "Specials".
 function seasonsCaption(seasons) {
   const numbered = seasons.map((t) => t.season).filter((s) => s !== 0);
   if (numbered.length && numbered[0] >= 1000) {
     const first = numbered[0], last = numbered.at(-1);
     return first === last ? String(first) : `${first}–${last}`;
   }
-  if (seasons.length !== 1) return `${seasons.length} seasons`;
-  return seasons[0].season === 1 ? "" : seasonName(seasons[0].season);
+  if (!numbered.length) return seasons.length ? seasonName(0) : "";
+  if (numbered.length === 1) return numbered[0] === 1 ? "" : seasonName(numbered[0]);
+  return `${numbered.length} seasons`;
 }
 
 /// Whether the Series shelf shows a tile per series, opening its seasons in
