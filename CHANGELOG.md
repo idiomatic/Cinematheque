@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Web client: Settings in the apps' order and groups (Names, Sharing, Library), its names This Server and You, as the apps' This iPhone and This Apple TV, and devices by address under Your Devices.
 * Mac: Settings hides nothing behind Advanced toggles: Sources' Look for videos, a source's quality and names to skip, and Devices' devices by address and Show sync activity always show.
 * A folder on a Mac is shown by its own name on every device ("firefly › Archive1841", not "archive1841"): its address keeps its name whole, and its source records it (`cq_repo_name`), so folders added before, at slugs, are named too.
 * A file whose name says no quality takes its folder's, or that folder's folder's, up to its source, the nearest naming one: a drive laid out as a NAS's share (`Video/TV Shows/1080p/30 Rock/…`) reads as 1080p from its root, not Other.

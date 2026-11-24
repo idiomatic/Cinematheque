@@ -94,9 +94,10 @@ async function settingsPage() {
   // Names.
   const you = s.members.find((m) => m.you);
   const thisDevice = s.devices.find((d) => d.this);
-  page.append(section("Names", "Names everyone in the library sees.",
-    field("Your name", you.name, (name) => act("name-person", { key: you.key, name })),
-    field("This server’s name", thisDevice.name || standing.host, (name) => act("name-device", { key: thisDevice.key, name }))));
+  // In the apps' order and groups (Names, Sharing, Library), on one page.
+  page.append(group("Names"), section(null, "Names everyone in the library sees.",
+    field("This Server", thisDevice.name || standing.host, (name) => act("name-device", { key: thisDevice.key, name })),
+    field("You", you.name, (name) => act("name-person", { key: you.key, name }))));
 
   // People, and this person's devices: their lists shown again in place as
   // one's added (while adding goes on) or removed, a note under each saying
@@ -145,8 +146,17 @@ async function settingsPage() {
     quiet();
     return shownAgain();
   };
+  page.append(group("Sharing"));
   page.append(section("People", null, peopleList, peopleNote, pairing("Add Someone", "join", added, quiet)));
   page.append(section("Your Devices", null, devicesList, devicesNote, pairing("Add a Device", "pair", added, quiet)));
+
+  // Under Your Devices, as the apps have them: devices by address.
+  const address = el("input", { type: "url", placeholder: "http://hal.local:8008/", "aria-label": "Device address" });
+  page.append(section("Devices by Address", "Devices this one can’t find on the network, which it syncs with too; on this server only.",
+    ...s.addresses.map((u) => row(u, "", icon(xmark, "Forget", `Forget ${u}`, () => act("address-forget", { url: u })))),
+    el("form", { class: "line", onsubmit: (e) => { e.preventDefault(); act("address-add", { url: address.value }); } }, address, el("button", { type: "submit" }, "Add Address"))));
+
+  page.append(group("Library"));
 
   // Sources, as the core orders and names them (by server and folders, a
   // device's downloads by whose they are, last); each opened in a new
@@ -186,12 +196,6 @@ async function settingsPage() {
   }
   if (s.refreshing.phase !== "idle") followRefresh(refreshing);
 
-  // Advanced: devices by address.
-  const address = el("input", { type: "url", placeholder: "http://hal.local:8008/", "aria-label": "Device address" });
-  page.append(section("Devices by Address", "Devices this one can’t find on the network, which it syncs with too; on this server only.",
-    ...s.addresses.map((u) => row(u, "", icon(xmark, "Forget", `Forget ${u}`, () => act("address-forget", { url: u })))),
-    el("form", { class: "line", onsubmit: (e) => { e.preventDefault(); act("address-add", { url: address.value }); } }, address, el("button", { type: "submit" }, "Add Address"))));
-
   // Leaving.
   page.append(section("Leave This Library", "This server forgets the library, and can then create or join one afresh. What it added stays in the library.",
     el("div", { class: "line" }, button("Leave This Library…", () => leaveLibrary(s)))));
@@ -224,9 +228,16 @@ function symbol(shapes) {
   return holder;
 }
 
-/// A settings section: its heading, an explanation, and its rows.
+/// A settings section: its heading (none for a group's only one), an
+/// explanation, and its rows.
 function section(name, note, ...rows) {
-  return el("section", {}, el("h2", {}, name), note ? el("p", { class: "dim" }, note) : null, ...rows);
+  return el("section", {}, name ? el("h3", {}, name) : null, note ? el("p", { class: "dim" }, note) : null, ...rows);
+}
+
+/// A group of sections' heading, as the apps' Settings head theirs: Names,
+/// Sharing, Library.
+function group(name) {
+  return el("h2", { class: "group" }, name);
 }
 
 /// A row: what it is, a note at its end, and what's done to it.

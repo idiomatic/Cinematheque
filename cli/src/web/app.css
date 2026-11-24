@@ -378,7 +378,11 @@ body.outside #sidebar, body.outside header, body.outside #tabs, body.outside #st
    done to it. */
 .settings { max-width: 720px; padding-bottom: 48px; }
 .settings section { margin: 28px 0; }
-.settings h2 { font-size: 17px; margin: 0 0 4px; }
+.settings h3 { font-size: 17px; margin: 0 0 4px; }
+/* A group's heading, as the apps' Settings head theirs: small, in
+   capitals, dimmed. */
+.settings h2.group:first-child { margin-top: 0; }
+.settings h2.group { margin: 40px 0 -12px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
 .settings section > p.dim { margin: 0 0 10px; font-size: 13px; }
 .settings .row {
   display: flex; align-items: center; gap: 10px; padding: 8px 0;
