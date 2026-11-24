@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Mac: Settings' Devices shows each device by its kind's symbol (an iPhone, an Apple TV, a laptop…), not all as a desktop computer.
 * Apple TV and web client: adding a device or someone is a section of Your Devices or People, listing the devices offering nearby, as the iPhone and the Mac have it, not a page or panel of its own.
 * `CINEMATHEQUE_DNSSD` sets the service type devices announce and look for; the mock library's tools use `_cinemock._tcp`, so its devices and a person's own never see each other, or each other's offers to pair.
 * iPhone: adding a device or someone is a section of Your Devices or People, as the Mac's Devices pane has New Devices, not a page of its own. The launch option `CINEMATHEQUE_PAIR` now takes the device's name too (`CINEMATHEQUE_PAIR_NAME`), never entering its code for another.

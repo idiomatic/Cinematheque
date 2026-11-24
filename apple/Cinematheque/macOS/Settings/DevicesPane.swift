@@ -71,7 +71,8 @@ private struct DeviceRow: View {
                     .onSubmit(rename)
                     .help("Rename")
             } icon: {
-                Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
+                // Its kind's symbol, as Apple's own lists of devices show it.
+                Image(systemName: device.symbol).foregroundStyle(.secondary)
             }
         }
         .onAppear { name = device.name }
