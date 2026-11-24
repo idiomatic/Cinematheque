@@ -87,6 +87,10 @@ pub const Library = struct {
     /// Set while a stream plays (`cq_downloads_hold`): no download begins.
     hold: std.atomic.Value(bool) = .init(false),
     download_mb: std.atomic.Value(u32) = .init(0),
+    /// Files the last pass of reconciling left for want of room, said while
+    /// reconciling goes on (as syncing asks it to run again, it may not end
+    /// for a while).
+    no_room: std.atomic.Value(u32) = .init(0),
 
     pub fn onServed(context: ?*anyopaque, device: [32]u8, operations: usize) void {
         const lib: *Library = @ptrCast(@alignCast(context.?));

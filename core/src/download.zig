@@ -988,8 +988,9 @@ pub fn sizesOf(replica: *Replica, arena: std.mem.Allocator, key: []const u8, cho
 /// watched (`title`, and `choice`, as `Choice.parse` takes it), and
 /// `ahead`, the episodes (full item keys) they come to now; `free` bytes
 /// on its volume, if known, and the `floor` kept free; and, from `live`,
-/// whether reconciling is `running`, with `done_mb` of `total_mb`, and the
-/// file it's `fetching` (`item`, its `size`, and the bytes `done`).
+/// whether reconciling is `running`, with `done_mb` of `total_mb`, the
+/// files its last pass left for want of room (`no_room`), and the file it's
+/// `fetching` (`item`, its `size`, and the bytes `done`).
 pub const Report = struct {
     dir: ?[]const u8,
     source: ?[]const u8,
@@ -1002,6 +1003,7 @@ pub const Report = struct {
     running: bool,
     done_mb: u32,
     total_mb: u32,
+    no_room: u32,
     fetching: ?FetchingReport,
 };
 pub const HeldReport = struct { item: []const u8, size: u64, only: bool };
@@ -1013,6 +1015,7 @@ pub const Live = struct {
     running: bool = false,
     done_mb: u32 = 0,
     total_mb: u32 = 0,
+    no_room: u32 = 0,
     fetching: ?*Fetching = null,
 };
 
@@ -1047,6 +1050,7 @@ pub fn report(io: Io, replica: *Replica, arena: std.mem.Allocator, live: Live) !
         .running = live.running,
         .done_mb = live.done_mb,
         .total_mb = live.total_mb,
+        .no_room = live.no_room,
         .fetching = if (fetching) |f| .{ .item = f.item, .done = f.done, .size = f.size } else null,
     };
 }

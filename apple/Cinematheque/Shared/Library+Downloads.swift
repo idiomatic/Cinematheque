@@ -41,6 +41,8 @@ extension Library {
         let running: Bool
         let done_mb: Int
         let total_mb: Int
+        /// Files the last pass of reconciling left for want of room.
+        let no_room: Int
         /// The file being fetched: its item's full key, size, and bytes here.
         struct Fetching: Decodable, Equatable {
             let item: String
@@ -74,6 +76,9 @@ extension Library {
         let loaded = decode(Downloads.self) { cq_downloads($0) }
         guard loaded != downloads else { return }
         downloads = loaded
+        // Said as soon as a pass finds it, as reconciling may go on a while
+        // (each sync asks it to run again), not only once it ends.
+        if let loaded, loaded.running, loaded.no_room > 0 { reportNoRoom(loaded.no_room) }
         // Assigned only if it differs: every tile reads it, for its mark,
         // and any assignment redraws them all (half a second, on a large
         // library), as a series' choice or a download's progress changes
@@ -296,8 +301,7 @@ extension Library {
             reloadSoon()
             let result = data.flatMap { try? JSONDecoder().decode(Result.self, from: $0) }
             if let result, result.no_room > 0 {
-                let floor = (downloads?.floor ?? 0).formatted(.byteCount(style: .file))
-                report(.download, "Not enough space to download \(result.no_room == 1 ? "one more file" : "\(result.no_room) more files"): Cinematheque keeps \(floor) free.")
+                reportNoRoom(result.no_room)
             } else if let result, result.failed > 0, let error = result.error {
                 report(.download, "Downloading failed: \(error.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.lowercased()).")
             } else {
@@ -306,5 +310,11 @@ extension Library {
         }
     }
 
+
+    /// Says how many files are left for want of room.
+    private func reportNoRoom(_ files: Int) {
+        let floor = (downloads?.floor ?? 0).formatted(.byteCount(style: .file))
+        report(.download, "Not enough space to download \(files == 1 ? "one more file" : "\(files) more files"): Cinematheque keeps \(floor) free.")
+    }
 }
 #endif

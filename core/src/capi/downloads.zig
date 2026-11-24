@@ -120,6 +120,7 @@ fn downloads(lib: *Library, arena: std.mem.Allocator) !download.Report {
         .running = lib.reconciling.load(.acquire),
         .done_mb = lib.downloaded_mb.load(.monotonic),
         .total_mb = lib.download_mb.load(.monotonic),
+        .no_room = lib.no_room.load(.monotonic),
         .fetching = &lib.fetching,
     });
 }
@@ -169,6 +170,7 @@ fn reconcile(lib: *Library, arena: std.mem.Allocator) !ReconciledJson {
             out.deleted += done.deleted;
             out.failed = done.failed;
             out.no_room = done.no_room;
+            lib.no_room.store(@intCast(@min(done.no_room, std.math.maxInt(u32))), .monotonic);
             out.held = done.held;
             out.@"error" = done.@"error";
         }

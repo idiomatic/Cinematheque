@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Mac: "Not enough space to download…" shows as soon as downloading finds it, rather than only once it ends, which syncing could put off for good.
 * Documentation: the README is short (what it is, getting it, getting started), and [docs/guide.md](docs/guide.md) the whole user guide, each fact once, the stale ones brought up to date.
 * Downloads' progress counts only what's being fetched: a file left for want of room no longer fills the bar, as if it had come. The Mac's Downloads pane leaves out the space available when there's none.
 * Screenshots made again: series tiles showing their season to watch, and the mock library's longer Sanctuary Moon. The screenshot script answers macOS's Local Network prompt before sizing the Mac's window, as the prompt keeps it from resizing.
