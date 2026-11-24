@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Apple TV, iPhone, and Mac: an episode's or version's watched mark lines up down the list, whatever the width of each runtime.
 * Mac: a tile's Lists › New List… names the new list in place in the sidebar, with the title on it, rather than in an alert.
 * Mac and web client: a series' "{n} seasons" no longer counts its specials as a season.
 * A series' tile shows the cover of its season to watch (the first not watched through), not always its first season's, in every app and the web client; its progress bar still counts the whole series.

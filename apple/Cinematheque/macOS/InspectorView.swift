@@ -150,7 +150,7 @@ struct InspectorView: View {
             Text("Episodes").font(.headline)
                 .padding(.bottom, 6)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                ItemRow(item: item, detail: detail, quality: quality) {
+                ItemRow(item: item, detail: detail, quality: quality, widest: items.widestRuntime) {
                     if let request = Playback.request(detail, items: items, from: index, quality: quality) { play(request) }
                 }
                 Divider()
@@ -164,7 +164,7 @@ struct InspectorView: View {
             Text("Versions").font(.headline)
                 .padding(.bottom, 6)
             ForEach(detail.items) { item in
-                ItemRow(item: item, detail: detail, quality: quality) {
+                ItemRow(item: item, detail: detail, quality: quality, widest: detail.items.widestRuntime) {
                     if let request = Playback.request(detail, items: [item], from: 0, quality: quality) { play(request) }
                 }
                 Divider()
@@ -429,6 +429,9 @@ private struct ItemRow: View {
     let item: TitleDetail.Item
     let detail: TitleDetail
     let quality: String?
+    /// Its list's widest runtime, the width its own keeps, so the marks
+    /// line up.
+    let widest: String?
     let play: () -> Void
     @Environment(Library.self) private var library
 
@@ -447,9 +450,7 @@ private struct ItemRow: View {
                     Spacer()
                     DownloadMark(key: "\(detail.key)/\(item.key)")
                     if item.watched { WatchedMark() }
-                    if let runtime = item.runtime {
-                        Text(runtime).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                    }
+                    RuntimeText(runtime: item.runtime, widest: widest).font(.caption).foregroundStyle(.secondary)
                 }
                 if item.inProgress, item.duration > 0 {
                     ProgressView(value: Double(item.position), total: Double(item.duration)).controlSize(.mini)

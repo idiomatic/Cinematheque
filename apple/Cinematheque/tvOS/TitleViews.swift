@@ -60,7 +60,7 @@ struct MovieView: View {
                                 Button {
                                     playing = Playback.request(detail, items: [item], from: 0, quality: detail.quality(for: [item], chosen: quality))
                                 } label: {
-                                    ItemLine(item: item, name: item.label)
+                                    ItemLine(item: item, name: item.label, widest: detail.items.widestRuntime)
                                 }
                             }
                         }
@@ -183,7 +183,7 @@ struct SeasonView: View {
                                 Button {
                                     playing = Playback.request(detail, items: items, from: index, quality: detail.quality(for: items, chosen: quality))
                                 } label: {
-                                    ItemLine(item: item)
+                                    ItemLine(item: item, widest: items.widestRuntime)
                                 }
                             }
                         }

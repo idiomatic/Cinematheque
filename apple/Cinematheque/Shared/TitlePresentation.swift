@@ -51,6 +51,28 @@ extension TitleDetail.Item {
     var inProgress: Bool { !watched && position > 0 }
 }
 
+extension [TitleDetail.Item] {
+    /// The longest runtime among them, for each row to keep its width, so
+    /// the marks before it line up down a list (`RuntimeText`).
+    var widestRuntime: String? { compactMap(\.runtime).max { $0.count < $1.count } }
+}
+
+/// An item's runtime at its row's end, as wide as its list's widest
+/// (`widest`), right-aligned, so the marks before it line up whatever each
+/// runtime's width.
+struct RuntimeText: View {
+    let runtime: String?
+    let widest: String?
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            if let widest { Text(widest).hidden() }
+            if let runtime { Text(runtime) }
+        }
+        .monospacedDigit()
+    }
+}
+
 enum Runtime {
     /// "44m", "1h 49m", or under a minute, "40s".
     static func format(_ ms: Int) -> String? {
@@ -191,12 +213,14 @@ struct WatchedToggle: View {
 struct ItemLine: View {
     let item: TitleDetail.Item
     var name: String? = nil
+    /// Its list's widest runtime, the width its own keeps.
+    var widest: String? = nil
 
     var body: some View {
         LabeledContent {
             HStack {
                 if item.watched { WatchedMark() }
-                if let runtime = item.runtime { Text(runtime) }
+                RuntimeText(runtime: item.runtime, widest: widest)
             }
         } label: {
             Label {

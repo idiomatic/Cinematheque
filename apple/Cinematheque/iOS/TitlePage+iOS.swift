@@ -66,7 +66,7 @@ struct TitlePage: View {
                                 Button {
                                     playing = Playback.request(detail, items: shown.isSeries ? items : [item], from: shown.isSeries ? index : 0, quality: detail.quality(for: items, chosen: quality))
                                 } label: {
-                                    ItemLine(item: item)
+                                    ItemLine(item: item, widest: items.widestRuntime)
                                         .padding(.vertical, 10)
                                         .contentShape(.rect)
                                 }
