@@ -14,12 +14,11 @@ case $PLATFORM_NAME in
     iphonesimulator) os=ios; platform=ios-simulator; version=$IPHONEOS_DEPLOYMENT_TARGET; abi=-simulator ;;
     *) print -u2 "error: no core for $PLATFORM_NAME"; exit 1 ;;
 esac
-# Release builds' core is ReleaseSafe, as releases' are; Debug builds' is
-# Zig's Debug, unoptimized, as it builds several times faster.
-case $CONFIGURATION in
-    Debug) optimize=() ;;
-    *) optimize=(--release=safe) ;;
-esac
+# Every build's core is ReleaseSafe, as releases' are, Debug builds' too,
+# though Zig's Debug builds several times faster: Zig 0.17's std panics in
+# Debug as a connection attempt interrupted reconnects (EISCONN; see
+# DEVELOPMENT.md), where ReleaseSafe fails that attempt alone.
+optimize=(--release=safe)
 out="$DERIVED_FILE_DIR/core"
 libs=()
 cd "$SRCROOT/../core"
