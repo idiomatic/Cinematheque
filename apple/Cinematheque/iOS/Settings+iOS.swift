@@ -77,8 +77,6 @@ struct SettingsSheet: View {
                 switch page {
                 case .people: PeoplePage()
                 case .devices: DevicesPage()
-                case .addSomeone: AddDevicePage.someone
-                case .addDevice: AddDevicePage.device
                 case .sources: SourcesPage()
                 case .source(let id): SourcePage(id: id)
                 }
@@ -89,9 +87,9 @@ struct SettingsSheet: View {
         .onAppear {
             switch Launch.page {
             case "people": path = [.people]
-            case "add-someone": path = [.people, .addSomeone]
+            case "add-someone": path = [.people]
             case "devices": path = [.devices]
-            case "add-device": path = [.devices, .addDevice]
+            case "add-device": path = [.devices]
             case "sources": path = [.sources]
             case "source": path = [.sources] + (library.sources.first { !$0.managed }.map { [.source($0.id)] } ?? [])
             default: break
@@ -141,7 +139,7 @@ struct SettingsSheet: View {
 
 /// A page of Settings, pushed on its stack.
 enum SettingsPage: Hashable {
-    case people, devices, addSomeone, addDevice, sources, source(String)
+    case people, devices, sources, source(String)
 }
 
 /// A name, typed in place, as iOS's forms take text; saved as it's
@@ -197,9 +195,7 @@ private struct PeoplePage: View {
             } footer: {
                 Text("Each keeps their own progress and lists. Press someone to remove them, with their devices.")
             }
-            Section {
-                NavigationLink("Add Someone", value: SettingsPage.addSomeone)
-            }
+            NewDevices.someone
         }
         .navigationTitle("People")
         // Hard to undo, so asked first.
@@ -259,9 +255,7 @@ private struct DevicesPage: View {
             } footer: {
                 Text("Your devices share your progress and lists. Press one to rename it, or to remove it if you've given it away or no longer use it.")
             }
-            Section {
-                NavigationLink("Add a Device", value: SettingsPage.addDevice)
-            }
+            NewDevices.device
             Section {
                 Toggle("Share While Open", isOn: $sharing)
                     .onChange(of: sharing) { library.sharing = sharing }
@@ -296,12 +290,13 @@ private struct DevicesPage: View {
     }
 }
 
-/// Adding a device: one nearby offering to be added (as it shows Join a
-/// Library), with what kind it is under its name, chosen, then the code it
-/// shows, typed. As this person's own (sharing their secret, so it can act
-/// as them: `device`), or someone new's (`someone`). Added, it goes back to
-/// the list, where the device now is.
-private struct AddDevicePage: View {
+/// Adding a device, in its page's list, as the Mac's Devices pane has New
+/// Devices: those nearby offering to be added (as they show Join a
+/// Library), with what kind each is under its name; one chosen asks for the
+/// code it shows. As this person's own (sharing their secret, so it can act
+/// as them: `device`), or someone new's (`someone`). Added, it's listed
+/// above, with the rest, and leaves this section as it stops offering.
+private struct NewDevices: View {
     let title: String
     /// What to do, before anything's chosen.
     let about: String
@@ -311,68 +306,68 @@ private struct AddDevicePage: View {
     let welcome: (Library, Paired, NearbyDevice) -> Void
 
     /// Another of this person's devices.
-    static var device: AddDevicePage {
-        AddDevicePage(
+    static var device: NewDevices {
+        NewDevices(
             title: "Add a Device",
-            about: "On your device, choose Join a Library, then choose it here and enter the code it shows. Add only your own: it can act as you, sharing your progress and lists.",
+            about: "On your device, choose Join a Library; it shows here, then enter the code it shows. Add only your own: it can act as you, sharing your progress and lists.",
             add: { await $0.pairPerson($1, code: $2) },
             welcome: { $0.welcome($1, from: $2) })
     }
 
     /// Someone new's device, who joins as a member.
-    static var someone: AddDevicePage {
-        AddDevicePage(
+    static var someone: NewDevices {
+        NewDevices(
             title: "Add Someone",
-            about: "On their device, have them choose Join a Library, then choose it here and enter the code it shows. They keep their own progress and lists.",
+            about: "On their device, have them choose Join a Library; it shows here, then enter the code it shows. They keep their own progress and lists.",
             add: { await $0.pairMember($1, code: $2) },
             welcome: { $0.welcomeMember($1, from: $2) })
     }
 
     @Environment(Library.self) private var library
-    @Environment(\.dismiss) private var dismiss
     @State private var nearby: [NearbyDevice] = []
     /// The device whose code is asked for.
     @State private var entering: NearbyDevice?
     @State private var code = ""
     @State private var pairing: NearbyDevice?
     @State private var problem: String?
+    @State private var added: String?
 
     private var offering: [NearbyDevice] { nearby.filter { $0.pairing != nil } }
 
     var body: some View {
-        List {
-            Section {
-                ForEach(offering) { device in
-                    Button {
-                        problem = nil
-                        code = ""
-                        entering = device
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(device.deviceName ?? "A New Device")
-                                if let model = device.model {
-                                    Text(model).font(.footnote).foregroundStyle(.secondary)
-                                }
+        Section {
+            ForEach(offering) { device in
+                Button {
+                    problem = nil
+                    added = nil
+                    code = ""
+                    entering = device
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(device.deviceName ?? "A New Device")
+                            if let model = device.model {
+                                Text(model).font(.footnote).foregroundStyle(.secondary)
                             }
-                            Spacer()
-                            if pairing?.url == device.url { ProgressView() }
                         }
-                    }
-                    .foregroundStyle(.primary)
-                    .disabled(pairing != nil)
-                }
-                if offering.isEmpty {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text("Looking for new devices nearby…").foregroundStyle(.secondary)
+                        Spacer()
+                        if pairing?.url == device.url { ProgressView() }
                     }
                 }
-            } footer: {
-                if let problem { Text(problem).foregroundStyle(.red) } else { Text(about) }
+                .foregroundStyle(.primary)
+                .disabled(pairing != nil)
             }
+            if offering.isEmpty {
+                HStack(spacing: 12) {
+                    ProgressView()
+                    Text("Looking for new devices nearby…").foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text(title)
+        } footer: {
+            if let problem { Text(problem).foregroundStyle(.red) } else { Text(added ?? about) }
         }
-        .navigationTitle(title)
         .modifier(Nearby(devices: $nearby))
         .alert("Enter the Code", isPresented: Binding(get: { entering != nil }, set: { if !$0 { entering = nil } }), presenting: entering) { device in
             TextField("Code", text: $code)
@@ -383,9 +378,10 @@ private struct AddDevicePage: View {
             Text("The \(CodeBoxes.length)-digit code \(device.deviceName ?? "the device") shows.")
         }
         #if DEBUG
-        // `CINEMATHEQUE_PAIR`: a code for the first device found.
-        .task(id: offering.first?.url) {
-            if let device = offering.first, let code = Launch.pair { pair(device, code) }
+        // `CINEMATHEQUE_PAIR`: a code for the device of the name given.
+        .task(id: offering.map(\.url)) {
+            guard let given = Launch.pair(among: offering.map(\.deviceName)) else { return }
+            if let device = offering.first(where: { $0.deviceName == given.name }) { pair(device, given.code) }
         }
         #endif
     }
@@ -406,7 +402,9 @@ private struct AddDevicePage: View {
                 return
             }
             welcome(library, joined, device)
-            dismiss()
+            // Gone from here as it stops offering, it's listed above.
+            nearby.removeAll { $0.id == device.id }
+            added = "Added \(device.deviceName ?? "it")."
         }
     }
 }

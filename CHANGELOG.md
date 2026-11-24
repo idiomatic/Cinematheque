@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* iPhone: adding a device or someone is a section of Your Devices or People, as the Mac's Devices pane has New Devices, not a page of its own. The launch option `CINEMATHEQUE_PAIR` now takes the device's name too (`CINEMATHEQUE_PAIR_NAME`), never entering its code for another.
 * Syncing skips a removed device still announced on the network (as one gone back to setup may be), and the apps no longer report a device that can't be reached as they catch up ("nothing answered there"), as a phone whose app is closed can't be.
 * Web client: Settings' Sources leaves devices' downloads out, as the apps' do (its own are under Kept).
 * Command-line app: `serve` syncs as it starts, and leaves a library that removed it, as the apps do, its web client set up afresh; it went on serving the library's catalog and sources.

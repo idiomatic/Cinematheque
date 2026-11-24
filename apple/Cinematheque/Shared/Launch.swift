@@ -73,9 +73,15 @@ enum Launch {
         return env["CINEMATHEQUE_PAGE"]?.hasPrefix("add-") == true
     }
 
-    /// `CINEMATHEQUE_PAIR`, once a launch (tvOS and iOS, adding a device or
-    /// someone): the code to enter for the first new device found.
-    static var pair: String? { once("CINEMATHEQUE_PAIR") }
+    /// `CINEMATHEQUE_PAIR` and `CINEMATHEQUE_PAIR_NAME`, once a launch (tvOS
+    /// and iOS, adding a device or someone): the code to enter for the new
+    /// device found by that name, never another (a real device offering
+    /// nearby, say); none without a name.
+    static func pair(among names: [String?]) -> (name: String, code: String)? {
+        guard let name = env["CINEMATHEQUE_PAIR_NAME"], !name.isEmpty, names.contains(name) else { return nil }
+        guard let code = once("CINEMATHEQUE_PAIR") else { return nil }
+        return (name, code)
+    }
 
     /// `CINEMATHEQUE_SERVER`, once a launch (tvOS and iOS, on Sources): an
     /// address to add, as Add Server does.
