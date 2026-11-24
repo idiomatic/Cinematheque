@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Apps: an MKV or ISO, which Apple's players can't play, opens in VLC if it's installed (Play says "Play in VLC"), on the Mac, iPhone, and Apple TV.
 * Screenshots made again, with the mock library's art for Sanctuary Moon's seasons 7 to 12.
 * Command-line app: `person set --name` and `device set --name` name this person and their devices; `library leave` removes this device and syncs before forgetting, as the apps' Leave This Library does (`--to` handing the library over if need be).
 * Settings, on every app and the web client, say when each of your devices was last seen: when it last synced with this one.

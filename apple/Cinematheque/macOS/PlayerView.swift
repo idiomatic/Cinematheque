@@ -9,6 +9,8 @@ struct PlayAction {
     let newWindow: (PlayRequest) -> Void
 
     @MainActor func callAsFunction(_ request: PlayRequest) {
+        // A copy Apple's player can't play, to VLC, if it's installed.
+        if VLC.handOff(request) { return }
         if NSEvent.modifierFlags.contains(.command) { newWindow(request) } else { inWindow(request) }
     }
 }

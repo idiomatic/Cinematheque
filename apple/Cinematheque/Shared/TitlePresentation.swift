@@ -103,6 +103,21 @@ extension Playback {
         if next.episode != nil { return "\(verb) \(next.label)" }
         return verb
     }
+
+    /// Whether Apple's players play a copy, by its format: MP4, M4V, or
+    /// MOV, not MKV or ISO.
+    static func playsNatively(_ url: URL) -> Bool {
+        ["mp4", "m4v", "mov"].contains(url.pathExtension.lowercased())
+    }
+
+    /// Play's label, saying so if it opens VLC (its first copy one Apple's
+    /// players can't play, and VLC installed), which starts at the
+    /// beginning, as where it stops isn't seen.
+    @MainActor static func playLabel(_ next: TitleDetail.Item?, in detail: TitleDetail, quality: String?) -> String {
+        guard let next, let first = copies(next, quality: quality, in: detail).copies.first.flatMap({ URL(string: $0.url) }),
+              !playsNatively(first), VLC.installed else { return playLabel(next) }
+        return next.episode != nil ? "Play \(next.label) in VLC" : "Play in VLC"
+    }
 }
 
 /// Which quality a player plays: one in a format it plays (MP4, MOV, or
@@ -112,7 +127,7 @@ enum QualityChoice {
     static func best(_ items: [TitleDetail.Item]) -> String? {
         let limit = Platform.displayHeight >= 2160 ? 2160 : 1080
         let qualities = items.flatMap(\.qualities)
-        let playable = qualities.filter { r in r.copies.contains { isPlayable($0.url) } }
+        let playable = qualities.filter { r in r.copies.contains { URL(string: $0.url).map(Playback.playsNatively) ?? false } }
         return (playable.isEmpty ? qualities : playable).max { score($0.height, limit) < score($1.height, limit) }?.label
     }
 
@@ -137,10 +152,6 @@ enum QualityChoice {
         var out: [String: String] = [:]
         for q in items.lazy.flatMap(\.qualities) where labels.contains(q.label) && out[q.label] == nil { out[q.label] = q.short }
         return out
-    }
-
-    private static func isPlayable(_ url: String) -> Bool {
-        ["mp4", "m4v", "mov"].contains((URL(string: url)?.pathExtension ?? "").lowercased())
     }
 
     /// The highest resolution up to the limit, then those above it, least

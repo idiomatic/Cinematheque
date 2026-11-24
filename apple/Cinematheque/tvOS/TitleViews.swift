@@ -43,7 +43,7 @@ struct MovieView: View {
                                 playing = Playback.next(in: detail, season: nil, quality: quality)?.fromBeginning
                             }
                         }
-                        Button(Playback.playLabel(Playback.nextItem(detail, season: nil)), systemImage: "play.fill") {
+                        Button(Playback.playLabel(Playback.nextItem(detail, season: nil), in: detail, quality: quality), systemImage: "play.fill") {
                             playing = Playback.next(in: detail, season: nil, quality: quality)
                         }
                         .focused($playFocused)
@@ -165,7 +165,7 @@ struct SeasonView: View {
                                     playing = Playback.next(in: detail, season: shown.season, quality: quality)?.fromBeginning
                                 }
                             }
-                            Button(Playback.playLabel(Playback.nextItem(detail, season: shown.season)), systemImage: "play.fill") {
+                            Button(Playback.playLabel(Playback.nextItem(detail, season: shown.season), in: detail, quality: quality), systemImage: "play.fill") {
                                 playing = Playback.next(in: detail, season: shown.season, quality: quality)
                             }
                             .focused($focus, equals: .play)

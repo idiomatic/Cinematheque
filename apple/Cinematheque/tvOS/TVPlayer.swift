@@ -66,6 +66,12 @@ struct PlaysFullScreen: ViewModifier {
                 // Pressing Play again over the black (focus stays on the
                 // page's Play beneath it) doesn't start it over.
                 guard asked == nil || !warming else { return }
+                // A copy Apple's player can't play, to VLC, if it's
+                // installed: the page stays (or shows, if it was black).
+                if let asked, VLC.handOff(asked) {
+                    request = nil
+                    return abandon()
+                }
                 starting?.cancel()
                 starting = asked.map { request in Task { await start(request) } }
             }

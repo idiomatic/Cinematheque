@@ -34,6 +34,11 @@
 		</dict>
 	</array>
 #endif
+	<!-- Asking whether VLC is installed, for copies Apple players cannot play (VLC.swift). -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>vlc-x-callback</string>
+	</array>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_cinematheque._tcp</string>

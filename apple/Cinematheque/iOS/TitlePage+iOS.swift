@@ -37,7 +37,7 @@ struct TitlePage: View {
                         Button {
                             playing = Playback.next(in: detail, season: shown.season, quality: quality)
                         } label: {
-                            Label(Playback.playLabel(next), systemImage: "play.fill").frame(maxWidth: .infinity)
+                            Label(Playback.playLabel(next, in: detail, quality: quality), systemImage: "play.fill").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
                         if next?.inProgress == true {
@@ -100,7 +100,10 @@ struct TitlePage: View {
             #endif
         }
         .task(id: shown.season) { if shown.isSeries { await library.describeItems(of: tile.key, season: shown.season) } }
-        .fullScreenCover(item: $playing) { PhonePlayer(request: $0) }
+        // A copy Apple's player can't play goes to VLC, if it's installed,
+        // and no cover shows.
+        .fullScreenCover(item: Binding(get: { playing.flatMap { VLC.takes($0) ? nil : $0 } }, set: { playing = $0 })) { PhonePlayer(request: $0) }
+        .onChange(of: playing) { if let request = playing, VLC.handOff(request) { playing = nil } }
     }
 }
 

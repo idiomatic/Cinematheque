@@ -114,7 +114,7 @@ struct InspectorView: View {
             Button {
                 if let request = Playback.next(in: detail, season: tile.season, quality: quality) { play(request) }
             } label: {
-                Label(Playback.playLabel(next), systemImage: "play.fill")
+                Label(Playback.playLabel(next, in: detail, quality: quality), systemImage: "play.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -367,7 +367,7 @@ struct SeriesInspectorView: View {
                             Button {
                                 if let request = Playback.next(in: detail, season: up?.season) { play(request) }
                             } label: {
-                                Label(Playback.playLabel(next), systemImage: "play.fill")
+                                Label(Playback.playLabel(next, in: detail, quality: nil), systemImage: "play.fill")
                                     .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.borderedProminent)
