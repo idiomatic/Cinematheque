@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* iPhone: no more alerts for names and codes. A new device's code is typed in a field under it; New List names the list in place at the top of the Lists tab; a list is renamed by its page's title; New List… from a title's Lists menu is a small sheet.
 * iPhone: each of Your Devices opens a page of its own, to rename it in place or remove it, instead of asking in a dialog and an alert.
 * Apps: debug builds build the core ReleaseSafe too, so Zig's standard library failing a connection attempt no longer crashes them.
 * Apps: a change made while a sync or crawl holds the library (a name, a watched mark, progress) waits its turn and is made once it's free, instead of failing with "Couldn't change the library while it's busy". Syncing holds it for one device at a time, not all of them.

@@ -385,13 +385,32 @@ private struct SeasonsPage: View {
     }
 }
 
-/// Each list, a row apiece, then New List.
+/// Each list, a row apiece; New List names a new one in place, at the top,
+/// as Files names a new folder.
 private struct ListsView: View {
     @Environment(Library.self) private var library
+    /// Whether a new list is being named, and its name so far.
+    @State private var naming = false
+    @State private var name = ""
+    @FocusState private var typing: Bool
+    #if DEBUG
+    /// `CINEMATHEQUE_PAGE`'s list (`list:<id>`), opened at launch.
+    @State private var opened: ListOf?
+    #endif
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
+                if naming {
+                    TextField("New List", text: $name, prompt: Text("New List"))
+                        .font(.title2.bold())
+                        .submitLabel(.done)
+                        .focused($typing)
+                        .onSubmit(create)
+                        .onAppear { typing = true }
+                        .onChange(of: typing) { if !typing { create() } }
+                        .padding(.horizontal)
+                }
                 ForEach(library.lists) { list in
                     Carousel(title: list.shownName, tiles: Shelf.list(list.id).tiles(in: library), list: list.id, shared: list.isShared)
                 }
@@ -399,19 +418,36 @@ private struct ListsView: View {
             .padding(.vertical)
         }
         .overlay {
-            if library.lists.isEmpty {
+            if library.lists.isEmpty, !naming {
                 ContentUnavailableView("No Lists", systemImage: "star", description: Text("Make a list to keep titles in, as a watchlist or favorites."))
             }
         }
         .navigationTitle("Lists")
         .toolbar {
-            Button("New List", systemImage: "plus") { library.listPrompt = .init(kind: .create(adding: [])) }
+            Button("New List", systemImage: "plus") { naming = true }
+                .disabled(naming)
         }
+        #if DEBUG
+        .navigationDestination(item: $opened) { ListPage(id: $0.id) }
+        .onAppear {
+            if let page = Launch.page, page.hasPrefix("list:") { opened = ListOf(id: String(page.dropFirst("list:".count))) }
+        }
+        #endif
+    }
+
+    /// Makes the list named, unless it's blank, which drops it.
+    private func create() {
+        guard naming else { return }
+        naming = false
+        let named = name.trimmingCharacters(in: .whitespaces)
+        name = ""
+        if !named.isEmpty { _ = library.createList(named: named) }
     }
 }
 
-/// One list, whole, as a grid; renaming, sharing, and deleting it from its
-/// navigation bar's menu, if it's this person's own.
+/// One list, whole, as a grid; if it's this person's own, renamed in place
+/// by its title, as Files renames a document, and shared or deleted from
+/// the title's menu.
 private struct ListPage: View {
     let id: String
     @Environment(Library.self) private var library
@@ -420,24 +456,32 @@ private struct ListPage: View {
     var body: some View {
         let shelf = Shelf.list(id)
         let list = library.lists.first { $0.id == id }
-        CoverGrid(tiles: shelf.tiles(in: library), empty: shelf.empty)
-            .navigationTitle(shelf.name(in: library))
-            .toolbar {
-                if let list, list.isMine {
-                    Menu("List", systemImage: "ellipsis.circle") {
-                        Button("Rename…", systemImage: "pencil") { library.listPrompt = .init(kind: .rename(list)) }
-                        if list.isShared {
-                            Button("Stop Sharing", systemImage: "person.2.slash") { library.stopSharingList(list.id) }
-                        } else {
-                            Button("Share…", systemImage: "person.2") { library.sharingList = list }
-                        }
-                        Button("Delete List…", systemImage: "trash", role: .destructive) { library.deletingList = list }
-                    }
-                }
-            }
+        let grid = CoverGrid(tiles: shelf.tiles(in: library), empty: shelf.empty)
             .onChange(of: list == nil) { _, gone in
                 if gone { dismiss() }
             }
+        if let list, list.isMine {
+            grid
+                .navigationTitle(Binding(get: { list.name }, set: { rename(list, $0) }))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarTitleMenu {
+                    RenameButton()
+                    if list.isShared {
+                        Button("Stop Sharing", systemImage: "person.2.slash") { library.stopSharingList(list.id) }
+                    } else {
+                        Button("Share…", systemImage: "person.2") { library.sharingList = list }
+                    }
+                    Button("Delete List…", systemImage: "trash", role: .destructive) { library.deletingList = list }
+                }
+        } else {
+            grid.navigationTitle(shelf.name(in: library))
+        }
+    }
+
+    /// A blank name, or the same, is no change.
+    private func rename(_ list: UserList, _ typed: String) {
+        let named = typed.trimmingCharacters(in: .whitespaces)
+        if !named.isEmpty, named != list.name { library.renameList(list.id, to: named) }
     }
 }
 

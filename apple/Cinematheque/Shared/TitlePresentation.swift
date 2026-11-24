@@ -374,9 +374,10 @@ struct ListPrompt: Identifiable {
 }
 
 /// Answers the library's requests about lists, from wherever they came:
-/// a list's name, in an alert with a field (on tvOS, the full-screen
-/// keyboard at once, as Settings' names, an alert's field bringing up the
-/// keyboard over it), and deleting one, confirmed first, as it's for good.
+/// a list's name (on tvOS, the full-screen keyboard at once, as Settings'
+/// names, an alert's field bringing up the keyboard over it; on iOS, a
+/// sheet, as Reminders' Add List, a menu holding no field; on the Mac, an
+/// alert), and deleting one, confirmed first, as it's for good.
 struct ListRequests: ViewModifier {
     @Environment(Library.self) private var library
     @State private var name = ""
@@ -389,6 +390,10 @@ struct ListRequests: ViewModifier {
             .background {
                 KeyboardField(title: renaming == nil ? "New List" : "Rename List", text: renaming?.name ?? "", typing: prompting) { answer($0) }
                     .unseen()
+            }
+            #elseif os(iOS)
+            .sheet(isPresented: prompting) {
+                ListNameSheet(title: renaming == nil ? "New List" : "Rename List", action: renaming == nil ? "Create" : "Rename", name: renaming?.name ?? "") { answer($0) }
             }
             #else
             .alert(renaming == nil ? "New List" : "Rename List", isPresented: prompting) {
@@ -429,6 +434,53 @@ struct ListRequests: ViewModifier {
         }
     }
 }
+
+#if os(iOS)
+/// A list's name, in a small sheet: typed, with the keyboard up, and made
+/// by Return or `action`; Cancel leaves it.
+private struct ListNameSheet: View {
+    let title: String
+    let action: String
+    @State var name: String
+    let done: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var typing: Bool
+
+    init(title: String, action: String, name: String, done: @escaping (String) -> Void) {
+        self.title = title
+        self.action = action
+        _name = State(initialValue: name)
+        self.done = done
+    }
+
+    private var blank: Bool { name.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Name", text: $name, prompt: Text("Watchlist"))
+                    .focused($typing)
+                    .submitLabel(.done)
+                    .onSubmit(finish)
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button(action, action: finish).disabled(blank) }
+            }
+            .onAppear { typing = true }
+        }
+        .presentationDetents([.height(200)])
+    }
+
+    private func finish() {
+        guard !blank else { return }
+        done(name)
+        dismiss()
+    }
+}
+#endif
 
 #if os(tvOS) || os(iOS)
 /// The quality a title page plays in, by short names (the Apple TV's and

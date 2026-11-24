@@ -305,8 +305,8 @@ private struct DevicePage: View {
 
 /// Adding a device, in its page's list, as the Mac's Devices pane has New
 /// Devices: those nearby offering to be added (as they show Join a
-/// Library), with what kind each is under its name; one chosen asks for the
-/// code it shows. As this person's own (sharing their secret, so it can act
+/// Library), with what kind each is under its name; one chosen opens a
+/// field under it for the code it shows, its last digit adding it. As this person's own (sharing their secret, so it can act
 /// as them: `device`), or someone new's (`someone`). Added, it's listed
 /// above, with the rest, and leaves this section as it stops offering.
 private struct NewDevices: View {
@@ -338,9 +338,10 @@ private struct NewDevices: View {
 
     @Environment(Library.self) private var library
     @State private var nearby: [NearbyDevice] = []
-    /// The device whose code is asked for.
+    /// The device whose code is asked for, in a field under it.
     @State private var entering: NearbyDevice?
     @State private var code = ""
+    @FocusState private var typingCode: Bool
     @State private var pairing: NearbyDevice?
     @State private var problem: String?
     @State private var added: String?
@@ -354,7 +355,8 @@ private struct NewDevices: View {
                     problem = nil
                     added = nil
                     code = ""
-                    entering = device
+                    // Again, it closes.
+                    entering = entering?.url == device.url ? nil : device
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -369,6 +371,20 @@ private struct NewDevices: View {
                 }
                 .foregroundStyle(.primary)
                 .disabled(pairing != nil)
+                // Its code, typed in place on the number pad; the last digit
+                // adds it.
+                if entering?.url == device.url {
+                    TextField("Code", text: $code, prompt: Text("The \(CodeBoxes.length)-digit code it shows"))
+                        .keyboardType(.numberPad)
+                        .focused($typingCode)
+                        .disabled(pairing != nil)
+                        .onAppear { typingCode = true }
+                        .onChange(of: code) {
+                            let digits = String(code.filter(\.isNumber).prefix(CodeBoxes.length))
+                            if digits != code { code = digits }
+                            if digits.count == CodeBoxes.length { pair(device, digits) }
+                        }
+                }
             }
             if offering.isEmpty {
                 HStack(spacing: 12) {
@@ -382,14 +398,6 @@ private struct NewDevices: View {
             if let problem { Text(problem).foregroundStyle(.red) } else { Text(added ?? about) }
         }
         .modifier(Nearby(devices: $nearby))
-        .alert("Enter the Code", isPresented: Binding(get: { entering != nil }, set: { if !$0 { entering = nil } }), presenting: entering) { device in
-            TextField("Code", text: $code)
-                .keyboardType(.numberPad)
-            Button("Add") { pair(device, code) }
-            Button("Cancel", role: .cancel) {}
-        } message: { device in
-            Text("The \(CodeBoxes.length)-digit code \(device.deviceName ?? "the device") shows.")
-        }
         #if DEBUG
         // `CINEMATHEQUE_PAIR`: a code for the device of the name given.
         .task(id: offering.map(\.url)) {
@@ -402,7 +410,7 @@ private struct NewDevices: View {
     private func pair(_ device: NearbyDevice, _ typed: String) {
         let code = typed.filter(\.isNumber)
         guard code.count == CodeBoxes.length else {
-            problem = "The code is \(CodeBoxes.length) digits, as \(device.deviceName ?? "the device") shows it. Choose it again to enter it."
+            problem = "The code is \(CodeBoxes.length) digits, as \(device.deviceName ?? "the device") shows it."
             return
         }
         pairing = device
@@ -411,9 +419,12 @@ private struct NewDevices: View {
             let (joined, why) = await add(library, device, code)
             pairing = nil
             guard let joined else {
+                // Cleared, to type again.
+                self.code = ""
                 problem = why ?? "Couldn't add it."
                 return
             }
+            entering = nil
             welcome(library, joined, device)
             // Gone from here as it stops offering, it's listed above.
             nearby.removeAll { $0.id == device.id }
