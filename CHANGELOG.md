@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Devices by Address is gone from the apps' and the web client's Settings (and `cq_device_address_add` and `cq_device_address_forget` from the C interface): devices sync whenever they share a network. The command-line app's `device add URL` still reaches a device elsewhere, and addresses already added are still synced with.
 * Web client: Settings in the apps' order and groups (Names, Sharing, Library), its names This Server and You, as the apps' This iPhone and This Apple TV, and devices by address under Your Devices.
 * Mac: Settings hides nothing behind Advanced toggles: Sources' Look for videos, a source's quality and names to skip, and Devices' devices by address and Show sync activity always show.
 * A folder on a Mac is shown by its own name on every device ("firefly › Archive1841", not "archive1841"): its address keeps its name whole, and its source records it (`cq_repo_name`), so folders added before, at slugs, are named too.

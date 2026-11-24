@@ -87,8 +87,6 @@ A new device offers to be added and shows a code; a member's device, given the c
 | `cq_name(library, device_key, person_key, name)` | Names another device, as `person_key`'s (one just paired, until it names itself) |
 | `cq_devices(library)` | This person's named devices, not removed: an array of `{key, name, you, model, kind}`: `model` as the device recorded it (or null), and `kind`, what kind of device that is, for a symbol to show it by: `iphone`, `ipad`, `ipod`, `appletv`, `vision`, `macbook`, `imac`, `mac_mini`, `mac_studio`, `mac_pro`, `mac`, or `pc` (or null) |
 | `cq_nearby(library)` | *Long* (it listens for 2 seconds). Devices found by DNS-SD, other than this one, then those added by address: an array of `{url, device, model, host, person, person_key, ours, member, added, pairing}`: `url` to sync or pair with; `model`, what kind of device, as one offering to be added says (or null); `device` and `person`, their names (or null): the device's as it advertised itself, or by its host where that's generic (an iPhone's "iPhone", at `lint.local.`, as "lint"); `host`, as DNS-SD resolved it (an Apple TV's own name, as tvOS tells apps only "Apple TV"); `person_key`; `ours` (of this library); `member` (its person is one); `added` (by address); and `pairing` (`"new"` for a new device offering to be added, else null) |
-| `cq_device_address_add(library, url)` | Adds a device's address, such as one off the network, which syncing then reaches too; on this device only |
-| `cq_device_address_forget(library, url)` | Forgets an address added |
 
 ## Sources
 

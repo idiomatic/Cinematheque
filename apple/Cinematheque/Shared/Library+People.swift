@@ -157,7 +157,8 @@ extension Library {
         return decode(String?.self) { cq_shown_name($0, name, ProcessInfo.processInfo.hostName) } ?? nil
     }
 
-    /// Devices found nearby (listening for 2 seconds) and added by address.
+    /// Devices found nearby (listening for 2 seconds), and any added by
+    /// address with the command-line app's.
     func nearby() async -> [NearbyDevice] {
         let data: Data? = await apart { handle in
             guard let text = cq_nearby(handle) else { return nil }
@@ -166,11 +167,5 @@ extension Library {
         } ?? nil
         return data.flatMap { try? JSONDecoder().decode([NearbyDevice].self, from: $0) } ?? []
     }
-
-    /// Adds a device by address (e.g., one off the network).
-    func addDeviceAddress(_ url: String) { check { cq_device_address_add($0, url) } }
-
-    /// Forgets an address added.
-    func forgetDeviceAddress(_ url: String) { check { cq_device_address_forget($0, url) } }
 
 }

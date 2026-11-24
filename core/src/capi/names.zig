@@ -183,21 +183,4 @@ fn nearby(lib: *Library, arena: std.mem.Allocator) ![]const NearbyJson {
     return out.items;
 }
 
-/// Adds a device by address, such as one off the network, which syncing
-/// then reaches too; on this device only.
-export fn cq_device_address_add(lib: *Library, target: [*:0]const u8) c_int {
-    return status(lib, addAddress, .{std.mem.span(target)});
-}
 
-fn addAddress(lib: *Library, arena: std.mem.Allocator, target: []const u8) !void {
-    _ = try sync.addAddress(try lib.main(), arena, target);
-}
-
-/// Forgets an address added; on this device only.
-export fn cq_device_address_forget(lib: *Library, target: [*:0]const u8) c_int {
-    return status(lib, forgetAddress, .{std.mem.span(target)});
-}
-
-fn forgetAddress(lib: *Library, arena: std.mem.Allocator, target: []const u8) !void {
-    _ = try sync.forgetAddress(try lib.main(), arena, target);
-}

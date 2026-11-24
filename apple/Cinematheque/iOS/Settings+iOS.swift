@@ -3,8 +3,8 @@ import SwiftUI
 
 /// The iPhone's settings, from Home's corner, as iOS's own apps' are: a
 /// grouped list in a sheet, each kind of thing a page of its own. Names;
-/// the library's people and your devices (devices by address among them),
-/// each added by the code a device shows as it joins; its sources, servers
+/// the library's people and your devices, each added by the code a device
+/// shows as it joins; its sources, servers
 /// added by address; how often to look for new videos; and Leave This
 /// Library…. A Mac's folders stay on the Mac, as an iPhone shares none.
 struct SettingsSheet: View {
@@ -81,7 +81,6 @@ struct SettingsSheet: View {
                 case .addDevice: AddDevicePage.device
                 case .sources: SourcesPage()
                 case .source(let id): SourcePage(id: id)
-                case .addresses: AddressesPage()
                 }
             }
         }
@@ -142,7 +141,7 @@ struct SettingsSheet: View {
 
 /// A page of Settings, pushed on its stack.
 enum SettingsPage: Hashable {
-    case people, devices, addSomeone, addDevice, sources, source(String), addresses
+    case people, devices, addSomeone, addDevice, sources, source(String)
 }
 
 /// A name, typed in place, as iOS's forms take text; saved as it's
@@ -268,12 +267,6 @@ private struct DevicesPage: View {
                     .onChange(of: sharing) { library.sharing = sharing }
             } footer: {
                 Text("While Cinematheque is open, your other devices catch up with this iPhone directly, so what you watch here reaches them at once.")
-            }
-            // As the Mac's Devices pane has them, under its Advanced.
-            Section {
-                NavigationLink("Devices by Address", value: SettingsPage.addresses)
-            } footer: {
-                Text("For a device that isn't found nearby, such as one at another home.")
             }
         }
         .navigationTitle("Your Devices")
@@ -648,59 +641,6 @@ private struct AddServerSheet: View {
         }
         Task { await library.crawl() }
         dismiss()
-    }
-}
-
-/// Devices this one syncs with by address, as one it can't find nearby (at
-/// another home, or behind another router); on this iPhone only.
-private struct AddressesPage: View {
-    @Environment(Library.self) private var library
-    @State private var nearby: [NearbyDevice] = []
-    @State private var address = ""
-
-    var body: some View {
-        List {
-            Section {
-                ForEach(nearby.filter(\.added)) { device in
-                    HStack {
-                        Text(device.url).lineLimit(1).truncationMode(.middle)
-                        Spacer()
-                        Button("Forget") { forget(device.url) }
-                            .buttonStyle(.borderless)
-                    }
-                    .swipeActions {
-                        Button("Forget", role: .destructive) { forget(device.url) }
-                    }
-                }
-                HStack {
-                    TextField("Device Address", text: $address, prompt: Text(verbatim: "http://hal.local:8008/"))
-                        .textContentType(.URL)
-                        .keyboardType(.URL)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .onSubmit(add)
-                    Button("Add", action: add)
-                        .buttonStyle(.borderless)
-                        .disabled(webAddress(address) == nil)
-                }
-            } footer: {
-                Text(verbatim: "Add a device by address if it isn't found nearby, such as one at another home or behind another router: http://hal.example.com:8008/. This iPhone syncs with it too.")
-            }
-        }
-        .navigationTitle("Devices by Address")
-        .task { nearby = await library.nearby() }
-    }
-
-    private func add() {
-        guard let url = webAddress(address) else { return }
-        library.addDeviceAddress(url)
-        address = ""
-        Task { nearby = await library.nearby() }
-    }
-
-    private func forget(_ url: String) {
-        library.forgetDeviceAddress(url)
-        Task { nearby = await library.nearby() }
     }
 }
 

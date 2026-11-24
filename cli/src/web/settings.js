@@ -150,12 +150,6 @@ async function settingsPage() {
   page.append(section("People", null, peopleList, peopleNote, pairing("Add Someone", "join", added, quiet)));
   page.append(section("Your Devices", null, devicesList, devicesNote, pairing("Add a Device", "pair", added, quiet)));
 
-  // Under Your Devices, as the apps have them: devices by address.
-  const address = el("input", { type: "url", placeholder: "http://hal.local:8008/", "aria-label": "Device address" });
-  page.append(section("Devices by Address", "Devices this one can’t find on the network, which it syncs with too; on this server only.",
-    ...s.addresses.map((u) => row(u, "", icon(xmark, "Forget", `Forget ${u}`, () => act("address-forget", { url: u })))),
-    el("form", { class: "line", onsubmit: (e) => { e.preventDefault(); act("address-add", { url: address.value }); } }, address, el("button", { type: "submit" }, "Add Address"))));
-
   page.append(group("Library"));
 
   // Sources, as the core orders and names them (by server and folders, a

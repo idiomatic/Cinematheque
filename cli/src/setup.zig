@@ -16,7 +16,7 @@ const Replica = core.replica.Replica;
 const names = [_][]const u8{
     "setup-create",  "setup-join",    "setup-join-stop",    "settings",       "nearby",         "pair",
     "name-person",   "name-device",   "member-remove",      "device-remove",  "source-add",     "source-add-media",
-    "source-remove", "unavailable-remove", "crawl-every",   "address-add",    "address-forget", "refresh",
+    "source-remove", "unavailable-remove", "crawl-every",   "refresh",
     "refresh-fully", "leave",
 };
 
@@ -352,12 +352,6 @@ fn change(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, nam
         const p = try std.json.parseFromSliceLeaky(struct { hours: u64 }, arena, body, .{});
         if (std.mem.indexOfScalar(u64, &.{ 0, 1, 3, 24, 168 }, p.hours) == null) return error.BadRequest;
         try lib.setCrawlEvery(&r, at, p.hours);
-    } else if (std.mem.eql(u8, name, "address-add")) {
-        const p = try std.json.parseFromSliceLeaky(struct { url: []const u8 }, arena, body, .{});
-        _ = try core.sync.addAddress(&r, arena, p.url);
-    } else if (std.mem.eql(u8, name, "address-forget")) {
-        const p = try std.json.parseFromSliceLeaky(struct { url: []const u8 }, arena, body, .{});
-        _ = try core.sync.forgetAddress(&r, arena, p.url);
     } else return error.NotFound;
     // For the other devices.
     w.changed.store(@intCast(at), .release);
@@ -442,7 +436,6 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
         .devices = devices.items,
         .sources = sources.items,
         .crawl_every = (try lib.crawlEvery(&r, arena)) orelse 0,
-        .addresses = try core.sync.addedAddresses(&r, arena),
         .media = if (w.media) |m| .{ .dir = m.dir, .added = media_added } else null,
         .refreshing = .{
             .phase = w.refreshing.phase.load(.acquire),

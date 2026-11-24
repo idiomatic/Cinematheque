@@ -7,7 +7,6 @@ struct DevicesPane: View {
     @State private var nearby: [NearbyDevice] = []
     @State private var sharing = true
     @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
-    @State private var address = ""
 
     var body: some View {
         Form {
@@ -37,32 +36,6 @@ struct DevicesPane: View {
                 Text("To add a device, choose Join a Library on it, and enter the code it shows here. Choose Yours for your own device, or Someone New to give the person using it their own progress and watchlist.")
             }
             Section {
-                ForEach(nearby.filter(\.added)) { device in
-                    LabeledContent {
-                        RemoveButton(help: "Forget this address") {
-                            library.forgetDeviceAddress(device.url)
-                            Task { nearby = await library.nearby() }
-                        }
-                    } label: {
-                        Text(device.url).lineLimit(1).truncationMode(.middle)
-                    }
-                }
-                // As Add Server… takes a server's: the field's name its
-                // prompt, the example in the text below.
-                HStack {
-                    TextField("Device Address", text: $address, prompt: Text("Device Address"))
-                        .labelsHidden()
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(addAddress)
-                    Button("Add", action: addAddress)
-                        .disabled(!validAddress)
-                }
-            } header: {
-                Text("Devices by Address")
-            } footer: {
-                Text(verbatim: "Add a device by address if it isn't found nearby, such as one at another home or behind another router: http://hal.example.com:8008.")
-            }
-            Section {
                 Toggle("Show sync activity", isOn: $showsSyncActivity)
             } footer: {
                 Text("Shows in the status bar when your devices last caught up with this Mac, to check that a change made elsewhere has arrived.")
@@ -71,15 +44,6 @@ struct DevicesPane: View {
         .formStyle(.grouped)
         .modifier(Nearby(devices: $nearby))
         .onAppear { sharing = library.sharing }
-    }
-
-    private var validAddress: Bool { URL(web: address) != nil }
-
-    private func addAddress() {
-        guard validAddress else { return }
-        library.addDeviceAddress(address)
-        address = ""
-        Task { nearby = await library.nearby() }
     }
 }
 

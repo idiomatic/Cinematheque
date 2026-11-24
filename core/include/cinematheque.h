@@ -225,8 +225,7 @@ void cq_stop_serving(cq_library *library);
 // Names, shown in place of keys: this person's or this device's; this
 // person's named devices; devices found nearby (long: it
 // listens for 2 seconds) and added by address, with their names, whether
-// they're of this library and their people members; and adding a device
-// by address, or forgetting one, on this device only.
+// they're of this library and their people members.
 int cq_name(cq_library *library, const char *device_key, const char *person_key, const char *name);
 int cq_remove_device(cq_library *library, const char *device_key);
 // Removes this device from the library, as it leaves: handing it over to
@@ -243,8 +242,6 @@ int cq_set_device_model(cq_library *library, const char *model);
 char *cq_shown_name(cq_library *library, const char *name, const char *host);
 char *cq_devices(cq_library *library);
 char *cq_nearby(cq_library *library);
-int cq_device_address_add(cq_library *library, const char *url);
-int cq_device_address_forget(cq_library *library, const char *url);
 
 // What this build is: {"version", "revision", "mode", "zig"}, as /version
 // serves it.
