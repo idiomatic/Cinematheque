@@ -10,7 +10,7 @@ When each routine task was last done, and the commit it looked at (or made), so 
 | --- | --- | --- | --- |
 | Security audit | 2026-11-20 | `8d96a14` | Its fixes through `8fc7843`; the limits it left under [What members are trusted with](#sync) |
 | Code review | 2026-11-22 | `1f012f1` | Since the audit; its high and medium findings fixed through `a18e45d`, its low ones since, one left as a limit under [What members are trusted with](#sync) |
-| Screenshots | 2026-11-24 | `e35f8d2` | [tools/screenshots.sh](tools/screenshots.sh): every player and the hero, on the mock library's 28 seasons; the loop (`video`) as of `773bebf` |
+| Screenshots | 2026-11-24 | `bc0fcd4` | [tools/screenshots.sh](tools/screenshots.sh): every player and the hero, on the mock library's 28 seasons; the loop (`video`) as of `773bebf` |
 
 ## Practice
 

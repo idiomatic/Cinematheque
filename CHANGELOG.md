@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Screenshots made again, with the mock library's art for Sanctuary Moon's seasons 7 to 12.
 * Command-line app: `person set --name` and `device set --name` name this person and their devices; `library leave` removes this device and syncs before forgetting, as the apps' Leave This Library does (`--to` handing the library over if need be).
 * Settings, on every app and the web client, say when each of your devices was last seen: when it last synced with this one.
 * Mac: "Not enough space to download…" shows as soon as downloading finds it, rather than only once it ends, which syncing could put off for good.
