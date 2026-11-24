@@ -333,7 +333,8 @@ function groupsSeries() {
   return localStorage.getItem("groupsSeries") !== "false";
 }
 
-/// A series' tile, standing for it: its first season's cover, marked as
+/// A series' tile, standing for it: its season to watch's cover (the first
+/// not watched through, else the first), marked as
 /// the whole series is (on a list if any season is, watched if every one
 /// is, else its progress over them all); its name, and under it what its
 /// seasons come to, with its year, if its name has one, at that line's end
@@ -344,7 +345,8 @@ function seriesTileView(s) {
   const seasons = s.seasons;
   const elapsed = seasons.reduce((n, t) => n + (t.elapsed || 0), 0);
   const runtime = seasons.reduce((n, t) => n + (t.runtime || 0), 0);
-  const whole = { ...seasons[0], watched: seasons.every((t) => t.watched), progress: runtime ? elapsed / runtime : 0 };
+  const at = Math.max(0, seasons.findIndex((t) => !t.watched));
+  const whole = { ...seasons[at], watched: seasons.every((t) => t.watched), progress: runtime ? elapsed / runtime : 0 };
   const lists = library.mine.filter((l) => seasons.some((t) => l.titles.has(listKey(t))));
   const caption = seasonsCaption(seasons);
   const year = s.year ? el("span", { class: "year" }, String(s.year)) : null;

@@ -161,19 +161,21 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
 
 extension Library {
     /// One tile per title, as the Apple TV shows them: a series' standing
-    /// for the whole series, with its progress over every season's
-    /// running time, and watched once every season is.
+    /// for the whole series, with the cover of its season to watch, its
+    /// progress over every season's running time, and watched once every
+    /// season is.
     func perTitle(_ tiles: [Tile]) -> [Tile] {
         // Grouped once, as shelves redraw with each reload.
         let bySeries = tiles.contains(where: \.isSeries) ? Dictionary(grouping: self.tiles.filter(\.isSeries), by: \.key) : [:]
         return tiles.oneEach.map { tile in
             guard tile.isSeries else { return tile }
             let seasons = bySeries[tile.key] ?? []
+            let shown = Self.nextSeason(Self.seasons(of: tile.key, in: seasons)) ?? tile
             let elapsed = seasons.reduce(0) { $0 + $1.elapsed }
             let runtime = seasons.reduce(0) { $0 + $1.runtime }
             return Tile(
                 key: tile.key, name: tile.name, year: tile.year, kind: tile.kind, season: tile.season,
-                cover: tile.cover, thumb: tile.thumb,
+                cover: shown.cover, thumb: shown.thumb,
                 watched: seasons.allSatisfy(\.watched),
                 progress: runtime > 0 ? Double(elapsed) / Double(runtime) : 0,
                 elapsed: elapsed, runtime: runtime,
