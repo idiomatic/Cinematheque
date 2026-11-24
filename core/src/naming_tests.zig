@@ -69,7 +69,8 @@ const cases = [_]Case{
     .{ .path = "Friends/Friends 423 The One with Ross's Wedding.m4v", .kind = .episode, .title = "Friends", .season = 4, .episode = 23 },
     .{ .path = "The Big Bang Theory/The Big Bang Theory 1213 The Confirmation Polarization.m4v", .kind = .episode, .title = "The Big Bang Theory", .season = 12, .episode = 13 },
     .{ .path = "Entourage (2004)/Entourage 317 Return of the King.m4v", .kind = .episode, .title = "Entourage", .year = 2004, .season = 3, .episode = 17 },
-    .{ .path = "House, MD (from DVD)/House, M.D. 212 Distractions.m4v", .kind = .episode, .title = "House, MD", .season = 2, .episode = 12 },
+    // Its quality from its folder's name, as its file's says none.
+    .{ .path = "House, MD (from DVD)/House, M.D. 212 Distractions.m4v", .kind = .episode, .title = "House, MD", .season = 2, .episode = 12, .quality = "dvd" },
     .{ .path = "Call the Midwife/Call the Midwife 609 Christmas Special 2017.m4v", .kind = .episode, .title = "Call the Midwife", .season = 6, .episode = 9 },
     .{ .path = "All Creatures Great and Small (2020)/All Creatures Great and Small (2020) 101 You've Got to Dream.m4v", .kind = .episode, .title = "All Creatures Great and Small", .year = 2020, .season = 1, .episode = 1 },
     .{ .path = "South Park/South Park 1908 Sponsored Content.m4v", .kind = .episode, .title = "South Park", .season = 19, .episode = 8 },
@@ -122,6 +123,24 @@ test "a deep path keeps its file, not its first folders" {
     const p = parse_.parse("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/Alien (1979).mkv", &scratch);
     try std.testing.expectEqualStrings("Alien", p.title);
     try std.testing.expectEqual(@as(?u16, 1979), p.year);
+}
+
+test "a name saying no quality takes the nearest folder's that does" {
+    var scratch: [512]u8 = undefined;
+    // A drive's root, laid out as a NAS's share.
+    var p = parse_.parse("Video/TV Shows/1080p/30 Rock/30 Rock 101 Pilot.mkv", &scratch);
+    try std.testing.expectEqualStrings("1080p", p.quality.?);
+    try std.testing.expectEqualStrings("30 Rock", p.title);
+    // The nearest: a title's own folder before the folder above it.
+    p = parse_.parse("Movies/2160p/Alien (1979) 1080p x265/Alien (1979).mkv", &scratch);
+    try std.testing.expectEqualStrings("1080p hevc", p.quality.?);
+    try std.testing.expectEqualStrings("Alien", p.title);
+    // The file's own first.
+    p = parse_.parse("Movies/2160p/Alien (1979) - 720p.mkv", &scratch);
+    try std.testing.expectEqualStrings("720p", p.quality.?);
+    // None anywhere: none.
+    p = parse_.parse("Movies/Alien (1979)/Alien (1979).mkv", &scratch);
+    try std.testing.expectEqual(@as(?[]const u8, null), p.quality);
 }
 
 fn check(case: Case, p: parse_.Parsed) !void {

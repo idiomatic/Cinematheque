@@ -203,6 +203,16 @@ pub fn parse(path: []const u8, scratch: []u8) Parsed {
         scanName(&t, stem[0..open], scratch, &used);
         p.title = t.title;
     };
+    // A name that says no quality takes its folder's, or that folder's
+    // folder's, and so up to the source, the nearest naming one
+    // (`TV Shows/1080p/30 Rock/30 Rock 101 Pilot.mkv`).
+    if (p.quality == null) {
+        var i = folders.len;
+        while (i > 0 and p.quality == null) {
+            i -= 1;
+            p.quality = nameQuality(folders[i], scratch, &used);
+        }
+    }
 
     // Kodi's compact episode code, `Show 317 Title` for season 3, episode
     // 17 (`1213` for 12 and 13), read only right after the series' title
@@ -387,13 +397,7 @@ fn scanName(p: *Parsed, name: []const u8, scratch: []u8, used: *usize) void {
             title_end = @min(title_end, i);
             break;
         };
-        if (Technical.of(word)) |t| {
-            // A remux outranks the disc it came from, and Dolby Vision the
-            // HDR10 it carries for players without it.
-            const held = technical[@intFromEnum(t[0])];
-            const outranked = held != null and (std.mem.eql(u8, held.?, "remux") or std.mem.eql(u8, held.?, "dv"));
-            if (!outranked) technical[@intFromEnum(t[0])] = t[1];
-        }
+        noteTechnical(&technical, word);
     }
     p.quality = qualityLabel(&technical, scratch, used);
     if (part_at) |pa| {
@@ -420,6 +424,28 @@ fn scanName(p: *Parsed, name: []const u8, scratch: []u8, used: *usize) void {
         if (label.len > 0 and !startsWithSceneToken(label)) p.edition = label;
     };
     p.title = cleanTitle(name[0..title_end], scratch, used);
+}
+
+/// The quality a name's technical tokens describe, as `scanName` reads a
+/// file's, or null if it has none: for a folder's name.
+fn nameQuality(name: []const u8, scratch: []u8, used: *usize) ?[]const u8 {
+    var technical: [4]?[]const u8 = .{ null, null, null, null };
+    var i: usize = 0;
+    while (i < name.len) : (i += 1) {
+        if (i > 0 and !isSeparator(name[i - 1])) continue;
+        noteTechnical(&technical, name[i..][0..wordEnd(name[i..])]);
+    }
+    return qualityLabel(&technical, scratch, used);
+}
+
+/// Notes what `word` says of a quality, if it's a technical token: a remux
+/// outranks the disc it came from, and Dolby Vision the HDR10 it carries
+/// for players without it.
+fn noteTechnical(technical: *[4]?[]const u8, word: []const u8) void {
+    const t = Technical.of(word) orelse return;
+    const held = technical[@intFromEnum(t[0])];
+    const outranked = held != null and (std.mem.eql(u8, held.?, "remux") or std.mem.eql(u8, held.?, "dv"));
+    if (!outranked) technical[@intFromEnum(t[0])] = t[1];
 }
 
 /// Whether every word of `text` is a technical or scene token.
