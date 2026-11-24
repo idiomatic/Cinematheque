@@ -201,7 +201,7 @@ catalog() {
     # from late 2018 (the books reach episode 397, and the TV series'
     # Murderbot finds itself missing 420 on), 15 a season and the last 14;
     # the first four of the first three seasons named, the rest by number.
-    # The first six seasons' covers beside them or in their folders, the
+    # The first twelve seasons' covers beside them or in their folders, the
     # special's in its folder, and the rest taking the series'.
     series "The Rise and Fall of Sanctuary Moon" Drama "Ringside Media" 1d6f73
     poster "Series/$show/poster.jpg" $tall 1d6f73 2b1048 $show "" 2018-11-05
@@ -211,6 +211,12 @@ catalog() {
     poster "Series/$show/Season 04/poster.jpg" $square 1d6f4a 0a2a1c "Sanctuary Moon" "Season 4" 2019-09-16
     poster "Series/$show/season05-poster.jpg" $square 8a1d24 2a0a0c "Sanctuary Moon" "Season 5" 2019-12-30
     poster "Series/$show/Season 06/poster.jpg" $square 3a2a6f 0c0a1f "Sanctuary Moon" "Season 6" 2020-04-13
+    poster "Series/$show/season07-poster.jpg" $square 2f5a63 0a171c "Sanctuary Moon" "Season 7" 2020-07-27
+    poster "Series/$show/Season 08/poster.jpg" $square 2a6f6a 0a1f1d "Sanctuary Moon" "Season 8" 2020-11-09
+    poster "Series/$show/season09-poster.jpg" $square b3702a 3a1f0a "Sanctuary Moon" "Season 9" 2021-02-22
+    poster "Series/$show/Season 10/poster.jpg" $square a8701d 0d0f1a "Sanctuary Moon" "Season 10" 2021-06-07
+    poster "Series/$show/season11-poster.jpg" $square 4f8a72 101c18 "Sanctuary Moon" "Season 11" 2021-09-20
+    poster "Series/$show/Season 12/poster.jpg" $square 1d3a6f 070c1f "Sanctuary Moon" "Season 12" 2022-01-03
     poster "Series/$show/Specials/poster.jpg" $square c9772a 0a2a2a "Sanctuary Moon" Specials 2020-12-21
     names=(
         1:1 "Arrival Day"$'\t'"A new administrator steps off the shuttle and into a feud older than the station."
