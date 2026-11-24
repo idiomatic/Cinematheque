@@ -10,7 +10,7 @@ All notable changes to Cinematheque are recorded here.
 * Settings, on every app and the web client, say when each of your devices was last seen: when it last synced with this one.
 * Mac: "Not enough space to download…" shows as soon as downloading finds it, rather than only once it ends, which syncing could put off for good.
 * Documentation: the README is short (what it is, getting it, getting started), and [docs/guide.md](docs/guide.md) the whole user guide, each fact once, the stale ones brought up to date.
-* Downloads' progress counts only what's being fetched: a file left for want of room no longer fills the bar, as if it had come. The Mac's Downloads pane leaves out the space available when there's none.
+* Downloads' progress counts only what's being fetched: a file left for want of room no longer fills the bar, as if it had come. The Mac's Downloads pane says only what's downloaded and the space free, leaving the space available for downloads to the Download menus.
 * Screenshots made again: series tiles showing their season to watch, and the mock library's longer Sanctuary Moon. The screenshot script answers macOS's Local Network prompt before sizing the Mac's window, as the prompt keeps it from resizing.
 * Mac: Settings' Devices and Sources line their names up, each row's symbol in one width.
 * The mock library's Sanctuary Moon has 28 seasons of 419 episodes, and Worldhoppers two of 12, as the Murderbot Diaries have them; its first twelve seasons and its special have art of their own.
