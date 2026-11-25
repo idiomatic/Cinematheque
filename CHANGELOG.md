@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* A download whose copies are away (an unplugged drive, a server off) waits quietly for them to come back, not "Downloading failed: not found."
 * Downloads, and the web client's relay of a file to a browser, run at the drive's or network's speed: a deadline on every read, canceled as each came, held a download from a Mac's own drive to 8 MB/s; now one watchdog gives each mebibyte its minute.
 * Titles keep a word that's a scene token too ("Madame Web", "The Darjeeling Limited" were cut short), and a season folder naming its series (`Ahsoka Season 1`) holds that series' episodes, not a movie per episode.
 * A source's quality setting is one by default, From Names and Folders: each file's quality is the nearest of its name (if it says a resolution) and its folders that says one, a folder by its whole name (`Video/TV Shows/1080p/30 Rock/…` is 1080p; `Movies/HQ 1080p30 Surround/…` stays HQ 1080p30 Surround). Sources added before keep their setting until you choose it.

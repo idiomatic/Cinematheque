@@ -34,6 +34,7 @@ test {
     _ = naming;
     _ = @import("naming_tests.zig");
     _ = @import("library_tests.zig");
+    _ = @import("download_tests.zig");
     _ = library;
     _ = review;
     _ = serve;

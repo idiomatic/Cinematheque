@@ -897,6 +897,10 @@ pub const Reconciled = struct {
     kept: usize = 0,
     deleted: usize = 0,
     failed: usize = 0,
+    /// Files whose copies are all away (not found, or their servers out of
+    /// reach: a drive unplugged, a server off), left for the next pass,
+    /// unsaid, as being away is no failure.
+    away: usize = 0,
     /// Files left for want of space (keeping `floor_bytes` free).
     no_room: usize = 0,
     /// Files left while held (a stream playing), for when it isn't.
@@ -1244,6 +1248,10 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
             if (err == error.Unwanted) continue;
             // Stopped for now (as the device leaves): nothing after it.
             if (err == error.Stopped) break;
+            if (away(err)) {
+                out.away += 1;
+                continue;
+            }
             out.failed += 1;
             out.@"error" = @errorName(err);
             continue;
@@ -1258,6 +1266,15 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
         try locked(writer, io, replica, wall_ms, copy, s.source, value);
     }
     return out;
+}
+
+/// Whether a copy's failing says only that it's away for now: not found
+/// (as a drive unplugged lists nothing), or its server out of reach.
+fn away(err: anyerror) bool {
+    return switch (err) {
+        error.NotFound, error.ConnectionRefused, error.ConnectionResetByPeer, error.ConnectionTimedOut, error.NetworkUnreachable, error.HostUnreachable, error.TemporaryNameServerFailure, error.UnknownHostName, error.NameServerFailure, error.Timeout => true,
+        else => false,
+    };
 }
 
 /// Whether an item (its full key) is still wanted: by hand, or as one of
@@ -1343,48 +1360,6 @@ pub fn remove(io: Io, arena: std.mem.Allocator, replica: *Replica, writer: ?*Io.
         if (covers(wanted[title_end + 1 ..], below, exact)) try replica.removeLocal(k);
     }
     return out.deleted;
-}
-
-test "a title's, season's, or item's files, in the quality most have" {
-    const testing = std.testing;
-    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    const founder: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(testing.allocator, testing.io, ":memory:", founder, .from(@splat(1)));
-    defer r.close();
-    const id = try library.addSource(&r, 1, "http://nas/tv/", .{});
-    const held_field = try std.fmt.allocPrint(arena, "held:{s}", .{&id});
-    try r.write(2, "t/s/firefly/-", "name", "Firefly");
-    try r.write(2, "t/s/firefly/-/e/s01e01/r/720p", held_field, "Firefly/S01E01 720p.mkv\t100\t1");
-    try r.write(2, "t/s/firefly/-/e/s01e01/r/1080p", held_field, "Firefly/S01E01 1080p.mkv\t200\t1");
-    try r.write(2, "t/s/firefly/-/e/s01e02/r/1080p", held_field, "Firefly/S01E02 1080p.mkv\t200\t1");
-    try r.write(2, "t/s/firefly/-/e/s02e01/r/1080p", held_field, "Firefly/S02E01 1080p.mkv\t200\t1");
-    try r.write(2, "t/s/firefly/-/e/s01e03/r/1080p", held_field, "../../etc/passwd\t200\t1");
-
-    const season = try plan(&r, arena, "t/s/firefly/-/e/s01", null);
-    try testing.expectEqual(2, season.len);
-    try testing.expectEqualStrings("Firefly/S01E01 1080p.mkv", season[0].path);
-    try testing.expectEqualStrings("http://nas/tv/Firefly/S01E01%201080p.mkv", season[0].urls[0]);
-    try testing.expectEqual(3, (try plan(&r, arena, "t/s/firefly/-", null)).len);
-    const one = try plan(&r, arena, "t/s/firefly/-/e/s01e01", "720p");
-    try testing.expectEqual(1, one.len);
-    try testing.expectEqual(100, one[0].size);
-    // Those without 720p come in the nearest quality: none lower, so 1080p.
-    const all = try plan(&r, arena, "t/s/firefly/-", "720p");
-    try testing.expectEqual(3, all.len);
-    try testing.expectEqualStrings("1080p", all[1].quality);
-    // A version with parts and a whole file: its key, the whole alone; a
-    // version of parts alone, its parts.
-    try r.write(2, "t/m/gandhi/1982/v/-/r/1080p", held_field, "Gandhi (1982).m4v\t300\t1");
-    try r.write(2, "t/m/gandhi/1982/v/-/p/1/r/1080p", held_field, "Gandhi (1982) - Part 1.m4v\t150\t1");
-    try r.write(2, "t/m/gandhi/1982/v/-/p/2/r/1080p", held_field, "Gandhi (1982) - Part 2.m4v\t150\t1");
-    try r.write(2, "t/m/gandhi/1982/v/extended/p/1/r/1080p", held_field, "Gandhi (1982) - Extended Part 1.m4v\t150\t1");
-    try r.write(2, "t/m/gandhi/1982/v/extended/p/2/r/1080p", held_field, "Gandhi (1982) - Extended Part 2.m4v\t150\t1");
-    try testing.expectEqual(1, (try plan(&r, arena, "t/m/gandhi/1982/v/-", null)).len);
-    try testing.expectEqual(2, (try plan(&r, arena, "t/m/gandhi/1982/v/extended", null)).len);
-    try testing.expectEqual(5, (try plan(&r, arena, "t/m/gandhi/1982", null)).len);
-    try testing.expectError(error.NotFound, plan(&r, arena, "t/s/serenity/2005", null));
 }
 
 test "fetches a file, resuming a part, and keeps one whole" {
@@ -1477,6 +1452,10 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     const s = (try settings(&r, arena)).?;
     try std.testing.expect(s.source.managed);
     try want(&r, arena, "t/m/alien/1979", "");
+    // Wanted, its only copy on a drive unplugged: away, not failed.
+    try r.write(2, "t/m/brazil/1985", "name", "Brazil");
+    try r.write(2, "t/m/brazil/1985/v/-/r/-", nas_field, "Brazil (1985).mp4\t1234\t1");
+    try want(&r, arena, "t/m/brazil/1985", "");
     try setNext(&r, arena, "t/s/firefly/-", .{ .next = 2 });
     // Episode 1 watched: 2 and 3 are next.
     try library.markWatched(&r, arena, 4, keys[1]);
@@ -1487,6 +1466,9 @@ test "reconciling keeps what's wanted and the next episodes, and drops watched d
     defer memory.deinit(gpa);
     var done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 5, null, null);
     try std.testing.expectEqual(3, done.fetched);
+    try std.testing.expectEqual(1, done.away);
+    try std.testing.expectEqual(0, done.failed);
+    try r.removeLocal(want_prefix ++ "t/m/brazil/1985/v/-");
     const copy = try held(&r, arena, s.source);
     try std.testing.expectEqual(3, copy.len);
     try std.testing.expectEqualStrings("t/m/alien/1979/v/-", copy[0].item);
