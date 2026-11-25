@@ -1,147 +1,19 @@
 #if os(tvOS)
 import SwiftUI
 
-/// The Apple TV's settings, a section's page: its name and its person's;
-/// the library's people, your devices, and its sources, each a page for
-/// adding and removing them, as the Mac's panes; Refresh Library; and
-/// Leave This Library…, which returns to setup, to pair again as another's
-/// device or join another library. A Mac's folders, and what sets a
-/// source's quality, stay on the Mac.
-struct SettingsView: View {
-    @Environment(Library.self) private var library
-    @State private var leaving = Leaving()
-    /// The name whose keyboard is up.
-    @State private var naming: SettingsRow?
-    /// The page open, if one is.
-    @State private var page: Page?
-    enum Page: Hashable { case people, devices, sources, interval }
-    /// The focused row, whose explanation shows under the picture.
-    @FocusState private var focus: SettingsRow?
+// The Apple TV's Settings' shell, as tvOS's Settings app lays out its
+// pages; the pages are shared with the iPhone (SettingsPages.swift).
 
-    private var me: Member? { library.members.first(where: \.you) }
+extension SettingsView {
     /// The system's rows' text (and headings') inset in its plate, wider
     /// than a form's.
     static let rowInsets = EdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
-
-    var body: some View {
-        SettingsPage(explanation: explanation) { list }
-    }
-
-    /// What the focused row does; a problem leaving, whatever's focused.
-    private var explanation: String {
-        if leaving.underWay { return "Leaving…" }
-        if let problem = leaving.problem { return problem }
-        return focus?.explanation ?? ""
-    }
-
-    private var list: some View {
-        Form {
-            Section {
-                nameRow("This Apple TV", library.devices.first(where: \.you)?.name, .device, save: library.setDeviceName)
-                    .settingsRow(.device, $focus)
-                nameRow("You", me?.name, .person, save: library.setPersonName)
-                    .settingsRow(.person, $focus)
-            } header: {
-                Text("Names").bold()
-            }
-            .listRowInsets(Self.rowInsets)
-            Section {
-                pageRow("People", library.members.count, .people)
-                    .settingsRow(.people, $focus)
-                pageRow("Your Devices", library.devices.count, .devices)
-                    .settingsRow(.devices, $focus)
-            } header: {
-                Text("Sharing").bold()
-            }
-            .listRowInsets(Self.rowInsets)
-            Section {
-                pageRow("Sources", library.sources.filter { !$0.managed }.count, .sources)
-                    .settingsRow(.sources, $focus)
-                Button("Refresh Library") {
-                    Task { await library.refresh() }
-                }
-                .disabled(library.activity != nil || leaving.underWay)
-                .settingsRow(.refresh, $focus)
-                Button { page = .interval } label: {
-                    ValueLabel(title: "Look for New Videos", opens: true, value: Library.crawlChoices.first { $0.hours == library.crawlEvery }?.name ?? "")
-                }
-                .settingsRow(.interval, $focus)
-            } header: {
-                Text("Library").bold()
-            }
-            .listRowInsets(Self.rowInsets)
-            Section {
-                Button("Leave This Library…", role: .destructive, action: leaving.ask)
-                    .disabled(leaving.underWay)
-                    .settingsRow(.leave, $focus)
-            }
-            .listRowInsets(Self.rowInsets)
-        }
-        // Narrowed, it would clip a focused row, which grows past its edges.
-        .scrollClipDisabled()
-        .navigationDestination(item: $page) { page in
-            switch page {
-            case .people: PeoplePage()
-            case .devices: DevicesPage()
-            case .sources: SourcesPage()
-            case .interval: IntervalPage()
-            }
-        }
-        .confirmsLeaving(leaving)
-    }
-
-    /// A row opening a page, with how many it lists.
-    private func pageRow(_ title: String, _ count: Int, _ opens: Page) -> some View {
-        Button { page = opens } label: {
-            ValueLabel(title: title, opens: true, value: count.formatted())
-        }
-    }
-
-    /// A name: pressing it brings up the full-screen keyboard at once,
-    /// holding the name (an unseen UIKit field's: a SwiftUI field in a row
-    /// draws a plate of its own in the row's and crowds the name); saved as
-    /// it's submitted (a blank one ignored), and Back leaves it as it was.
-    private func nameRow(_ title: String, _ name: String?, _ which: SettingsRow, save: @escaping (String) -> Void) -> some View {
-        Button { naming = which } label: {
-            // A chevron, as the system's Name row has, though a keyboard opens.
-            ValueLabel(title: title, opens: true, value: name ?? "Unnamed")
-        }
-        .background {
-            KeyboardField(title: title, text: name ?? "", typing: Binding(get: { naming == which }, set: { if !$0 { naming = nil } })) {
-                save($0)
-            }
-            .unseen()
-        }
-    }
 }
 
-/// A row of Settings, by what it does.
-enum SettingsRow: Hashable {
-    case device, person, people, devices, sources, refresh, interval, leave
-
-    /// Shown under the picture as the row's focused, and read by VoiceOver
-    /// as its hint, since what's shown only on focus it never reaches.
-    var explanation: String {
-        switch self {
-        case .device: "A name your other devices know this Apple TV by, so you can tell it apart from them."
-        case .person: "Your name, so others in the library know whose devices are whose."
-        case .people: "Share the library with the people you watch with: each keeps their own progress and watchlist. Add someone, or remove them."
-        case .devices: "Add your other devices, such as an Apple TV in another room, so they share your progress and watchlist; rename or remove them."
-        case .sources: "The servers that hold your videos, such as a NAS. Add one by its address, or remove one."
-        case .refresh: "Added videos to a server or folder? Refresh to see them now, rather than waiting for the next look."
-        case .interval: "Look more often to see new videos sooner, or less often to let a NAS's disks rest; each look wakes them."
-        case .leave: "Takes this Apple TV out of the library, to join another or give it to someone. Its videos stay where they are."
-        }
-    }
-}
-
-private extension View {
-    /// A row of Settings, followed by focus for its explanation, which is
-    /// its hint too.
-    func settingsRow(_ row: SettingsRow, _ focus: FocusState<SettingsRow?>.Binding) -> some View {
-        focused(focus, equals: row)
-            .accessibilityHint(row.explanation)
-    }
+/// What the focused row of a page does, set by its `explained` rows.
+@MainActor @Observable
+final class Explanation {
+    var text: String?
 }
 
 /// A row's title and value, as tvOS's Settings draws them: side by side,
@@ -222,35 +94,37 @@ private struct PathText: View {
     }
 }
 
-/// Look for New Videos' choices, as tvOS's Settings lists a setting's: the
-/// current one checked and focused first; choosing one sets it and goes
-/// back.
-private struct IntervalPage: View {
-    @Environment(Library.self) private var library
+/// A setting's choices, as tvOS's Settings lists them: the current one
+/// checked and focused first; choosing one sets it and goes back.
+struct ChoicePage<Value: Hashable>: View {
+    let title: String
+    let explanation: String
+    let choices: [(name: String, value: Value)]
+    @Binding var selection: Value
     @Environment(\.dismiss) private var dismiss
-    @FocusState private var focus: Int?
+    @FocusState private var focus: Value?
 
     var body: some View {
-        SettingsPage(title: "Look for New Videos", explanation: SettingsRow.interval.explanation) {
+        SettingsPage(title: title, explanation: explanation) {
             Form {
                 Section {
-                    ForEach(Library.crawlChoices, id: \.hours) { choice in
+                    ForEach(choices, id: \.value) { choice in
                         Button {
-                            library.setCrawlEvery(choice.hours)
+                            selection = choice.value
                             dismiss()
                         } label: {
                             LabeledContent(choice.name) {
-                                if choice.hours == library.crawlEvery { Image(systemName: "checkmark") }
+                                if choice.value == selection { Image(systemName: "checkmark") }
                             }
                         }
-                        .focused($focus, equals: choice.hours)
-                        .accessibilityAddTraits(choice.hours == library.crawlEvery ? .isSelected : [])
+                        .focused($focus, equals: choice.value)
+                        .accessibilityAddTraits(choice.value == selection ? .isSelected : [])
                     }
                 }
                 .listRowInsets(SettingsView.rowInsets)
             }
             .scrollClipDisabled()
-            .defaultFocus($focus, library.crawlEvery)
+            .defaultFocus($focus, selection)
         }
     }
 }
@@ -260,13 +134,15 @@ private struct IntervalPage: View {
 /// little below the middle of the left 55%, and low under it, 40% of the
 /// screen wide, what the focused row does; the list from there to 4% short
 /// of the right edge, in the system's row text size (`.headline`), under
-/// a subpage's title.
+/// a subpage's title. What it explains is its focused row's, else
+/// `explanation`.
 struct SettingsPage<List: View>: View {
     /// A subpage's title, at the top in the middle, as the system's are
     /// (SwiftUI's navigation title sits lower and pushes the list down).
     var title: String?
-    let explanation: String
+    var explanation = ""
     @ViewBuilder let list: List
+    @State private var focused = Explanation()
 
     private static var left: CGFloat { 1060 / 1920 }
     private static var listWidth: CGFloat { 780 / 1920 }
@@ -299,6 +175,7 @@ struct SettingsPage<List: View>: View {
                         .frame(width: width * pictureWidth)
                         .position(x: pane.size.width / 2, y: pane.size.height * pictureCenter)
                         .accessibilityHidden(true)
+                    let explanation = focused.text ?? self.explanation
                     Text(explanation)
                         // VoiceOver reads it as each row's hint instead.
                         .accessibilityHidden(true)
@@ -314,6 +191,7 @@ struct SettingsPage<List: View>: View {
                 .ignoresSafeArea(edges: .vertical)
                 .frame(width: width * Self.left)
                 list
+                    .environment(focused)
                     .formStyle(.grouped)
                     // Centered on the screen's height while it fits, as
                     // the system's, from its top once it scrolls: its
@@ -353,12 +231,11 @@ extension KeyboardField {
 
 /// A UIKit text field, unseen, whose keyboard comes up full screen as
 /// `typing` turns on, holding `text`; `submit` takes what's typed when it's
-/// submitted, not when it's dismissed. Its `keyboard` is digits for a
-/// pairing code, or for an address, one without capitals or corrections.
+/// submitted, not when it's dismissed; its keyboard is `input`'s.
 struct KeyboardField: UIViewRepresentable {
     let title: String
     let text: String
-    var keyboard: UIKeyboardType = .default
+    var input = TextInput.name
     @Binding var typing: Bool
     let submit: (String) -> Void
 
@@ -366,8 +243,12 @@ struct KeyboardField: UIViewRepresentable {
         let field = UITextField()
         field.delegate = context.coordinator
         field.returnKeyType = .done
-        field.keyboardType = keyboard
-        if keyboard != .default {
+        field.keyboardType = switch input {
+        case .name, .verbatim: .default
+        case .address: .URL
+        case .code: .numberPad
+        }
+        if input != .name {
             field.autocapitalizationType = .none
             field.autocorrectionType = .no
             field.spellCheckingType = .no
