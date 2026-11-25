@@ -68,6 +68,11 @@ struct CinemathequeApp: App {
                             .keyboardShortcut("r", modifiers: [.command, .option])
                     }
                     .disabled(!library.hasLibrary || library.activity != nil)
+                // Reading every episode's details, until done or unchecked.
+                Toggle("Describe All Episodes", isOn: Binding(get: { library.describingEpisodes }, set: { on in
+                    if on { library.describeEpisodes() } else { library.stopDescribing() }
+                }))
+                .disabled(!library.hasLibrary)
             }
         }
         #endif

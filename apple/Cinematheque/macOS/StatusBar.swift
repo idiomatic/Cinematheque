@@ -42,7 +42,9 @@ struct StatusBar: View {
 
     static let height: CGFloat = 30
 
-    private var sticky: Bool { library.problem != nil || library.activity != nil || library.episodeSteps != nil || hovering }
+    // Not the sweep of episodes, asked for and long: it's shown as the
+    // pointer nears, not kept up.
+    private var sticky: Bool { library.problem != nil || library.activity != nil || hovering }
     private var visible: Bool { fresh || sticky }
 
     /// The widest scroll bar's column, which the bar fades out before, so
