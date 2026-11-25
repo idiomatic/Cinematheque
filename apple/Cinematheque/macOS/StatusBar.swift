@@ -46,9 +46,15 @@ struct StatusBar: View {
     private var sticky: Bool { library.problem != nil || library.activity != nil || hovering }
     private var visible: Bool { fresh || sticky }
 
+    /// The widest scroll bar's column, which the bar fades out before, so
+    /// the grid's scroll bar, shown always or while scrolling, runs the
+    /// window's height through it; and the fade's own width.
+    private static let scroller = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+    private static let fade: CGFloat = 24
+
     var body: some View {
         VStack(spacing: 0) {
-            Divider()
+            Color.clear.frame(height: 1)
             HStack(spacing: 8) {
                 if let problem = library.problem {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
@@ -85,9 +91,25 @@ struct StatusBar: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
+            // What it says ends before the fade, whole.
+            .padding(.trailing, Self.fade + Self.scroller)
             .frame(height: Self.height - 1)
         }
-        .background(.bar)
+        // Its divider and background alone fade out.
+        .background {
+            VStack(spacing: 0) {
+                Divider()
+                Rectangle().fill(.bar)
+            }
+            .mask {
+                HStack(spacing: 0) {
+                    Rectangle()
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: Self.fade)
+                    Color.clear.frame(width: Self.scroller)
+                }
+            }
+        }
         .opacity(visible ? 1 : 0)
         .allowsHitTesting(visible)
         .animation(.easeInOut(duration: 0.6), value: visible)

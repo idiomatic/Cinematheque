@@ -332,7 +332,12 @@ struct Browser: View {
                 // What the window's least width leaves it beside the
                 // sidebar and the inspector, its toolbar's room.
                 .navigationSplitViewColumnWidth(min: 480, ideal: 640)
-                .overlay(alignment: .bottom) { StatusBar(counts: counts, hovering: nearBottom) }
+                // To the window's edge, faded out before the widest scroll
+                // bar's column, so the grid's scroll bar, shown always or
+                // while scrolling, runs the window's height through it.
+                .overlay(alignment: .bottom) {
+                    StatusBar(counts: counts, hovering: nearBottom)
+                }
                 // Pointing near the bottom brings back a faded status bar.
                 .onContinuousHover { phase in
                     let near = if case .active(let point) = phase { point.y > gridHeight - StatusBar.height * 1.5 } else { false }
