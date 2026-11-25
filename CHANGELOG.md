@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Covers: a season whose first episode's MP4 has no cover takes the next one that has (another quality's, or the next episode's), as Black Sails' and Homeland's did; and of files alike, a server's is preferred to a Mac's own drive's, whose covers go missing as it's unplugged (Andor's second season).
 * Covers: a drive crawled alone (as it's plugged in, or added) no longer replaces covers described from another source's MP4s with its MKVs' none; and a cover described from an MKV gives way to an MP4 crawled beside it. Refresh Library brings back covers lost so.
 * A drive plugged in or unplugged is noticed at once: the Mac app hears it from macOS, front or not (it looked every 5 seconds, and only while in front), and `serve --media` sees the mount table change within 2 seconds, on Linux too, its `INDEX` built afresh and its media crawled.
 * Mac: a folder of its own that goes (a drive unplugged) or comes back is looked through at once, so its videos show as unavailable, and Play passes over them, right away, on every device, and downloads waiting on it start when it's back. The Download menu marks a quality whose copies are all unavailable with a clock ("when Archive1841 is back"), still to be chosen, and a quality chosen and still coming is canceled in its place in the menu, the others offered beside it; and a season's trash button cancels its episodes still coming, even before any is here.
