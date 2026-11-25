@@ -58,23 +58,18 @@ pub fn syncEvery(p: *App) !void {
     try exchangeAll(p, &r, try core.sync.everyDevice(p.io, p.arena, &r, try serviceName(p)));
 }
 
-/// `serve [--port PORT] [--media DIR] [--downloads DIR] [--no-web]
+/// `serve [--port PORT] [--media DIR] [--no-web]
 /// [--permissive]`: serves on `PORT`, or on `default_port` if none, falling
 /// back to any free port if that's taken, and advertises the port it got;
 /// the web client too, unless `--no-web`, which sets up a library if this
 /// device has none yet.
 pub fn serve(p: *App, c: Command) !void {
     if (c.rest.len > 0) return error.Usage;
-    try c.args.only(&.{ "--port", "--media", "--no-web", "--downloads", "--permissive" });
+    try c.args.only(&.{ "--port", "--media", "--no-web", "--permissive" });
     const browsing = !c.args.has("--no-web");
     if (!browsing and c.args.has("--permissive")) return error.Usage;
     const port = try c.args.port();
     const media = c.args.get("--media");
-    // This device's downloads, kept there (made first, so its path is whole).
-    const downloads: ?[]const u8 = if (c.args.get("--downloads")) |d| blk: {
-        try Io.Dir.cwd().createDirPath(p.io, d);
-        break :blk try Io.Dir.cwd().realPathFileAlloc(p.io, d, p.arena);
-    } else null;
     // With the web client, a library can be made or joined from it.
     const creator: ?[32]u8 = p.store.creator(p.arena) catch |err| switch (err) {
         error.NoLibrary => if (browsing) null else return err,
@@ -109,11 +104,9 @@ pub fn serve(p: *App, c: Command) !void {
         break :blk try core.sync.advertisement(p.arena, &r, try p.store.person(), try p.store.device());
     } else try core.discover.txtRecord(p.arena, &.{.{ "name", name }});
     // The media directory, if any, at `/media/`, leaving the root to the
-    // web client; and downloads at `/downloads/`, listed live, as they
-    // change.
+    // web client.
     var mounts: std.ArrayList(core.serve.Mount) = .empty;
     if (media) |m| try mounts.append(p.arena, .{ .prefix = media_prefix, .path = m });
-    if (downloads) |d| try mounts.append(p.arena, .{ .prefix = downloads_prefix, .path = d, .index = false });
     var host: core.host.Host = .{
         .io = p.io,
         .gpa = p.gpa,
@@ -136,12 +129,6 @@ pub fn serve(p: *App, c: Command) !void {
         const path = "/" ++ media_prefix ++ "/";
         browsers.media = .{ .dir = m, .url = try core.url.deviceSource(p.arena, try p.store.device(), path) };
     }
-    if (downloads) |d| {
-        browsers.downloads_dir = d;
-        // Else once there's a library.
-        if (creator != null) try keepDownloadsIn(p, d);
-        browsers.downloads = creator != null;
-    }
     // Synced with at once, as the apps sync at launch: what changed while
     // it was off arrives, and a device removed meanwhile hears so and leaves.
     if (creator != null) browsers.changed.store(1, .release);
@@ -149,15 +136,12 @@ pub fn serve(p: *App, c: Command) !void {
     defer if (syncing) |*f| f.cancel(p.io) catch {};
     var refreshing: ?Io.Future(Io.Cancelable!void) = if (browsing) try p.io.concurrent(setup.keepRefreshed, .{ &browsers, p.io, p.gpa }) else null;
     defer if (refreshing) |*f| f.cancel(p.io) catch {};
-    var fetching: ?Io.Future(Io.Cancelable!void) = if (downloads != null) try p.io.concurrent(web.Web.keepDownloads, .{ &browsers, p.io, p.gpa }) else null;
-    defer if (fetching) |*f| f.cancel(p.io) catch {};
     var watching: ?Io.Future(Io.Cancelable!void) = if (media != null) try p.io.concurrent(web.Web.watchVolumes, .{ &browsers, p.io, p.gpa }) else null;
     defer if (watching) |*f| f.cancel(p.io) catch {};
     const with_media = if (media != null) " with media from " else "";
     if (creator) |f| {
         try p.out.print("serving library {s} on port {d}{s}{s}, as {s}\n", .{ &std.fmt.bytesToHex(core.replica.libraryId(f), .lower), host.port, with_media, media orelse "", host.name });
     } else try p.out.print("serving on port {d}{s}{s}, as {s}, with no library yet\n", .{ host.port, with_media, media orelse "", host.name });
-    if (downloads) |d| try p.out.print("keeping downloads in {s}\n", .{d});
     if (browsing) {
         // As other computers on the network reach it: `firefly.local`.
         try p.out.print("web client at http://{s}.local:{d}/\n", .{ name, host.port });
@@ -166,28 +150,6 @@ pub fn serve(p: *App, c: Command) !void {
     }
     try p.out.flush();
     try host.wait();
-}
-
-pub const downloads_prefix = "downloads";
-
-/// Makes `dir` where this device keeps downloads, served at
-/// `/downloads/`, as the Mac app keeps its own: by its port-free address
-/// (`cqdevice://`), reached where it serves now (`recordServed`), one kept
-/// before by its port moved there once. A device keeping them elsewhere
-/// already (as the Mac app does, sharing its data directory) is left as it
-/// is, as two places would each forget the other's files.
-fn keepDownloadsIn(p: *App, dir: []const u8) !void {
-    var r = try p.open();
-    defer r.close();
-    if (try core.download.settings(&r, p.arena)) |s| {
-        if (!std.mem.eql(u8, s.dir, dir)) {
-            try p.out.print("this device keeps its downloads in {s}\n", .{s.dir});
-            try p.out.flush();
-            return error.DownloadsElsewhere;
-        }
-    }
-    const url = try core.url.deviceSource(p.arena, try p.store.device(), "/" ++ downloads_prefix ++ "/");
-    try core.download.configure(&r, p.arena, p.now(), dir, url);
 }
 
 pub fn offerPairing(p: *App) !void {

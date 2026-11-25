@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Command-line app: `serve --downloads` and the web client's Keep (its Keep buttons, a season's Keep choice, and the Kept shelf) are gone; only the Mac app keeps downloads for other devices. Download, to the browser's computer, stays.
 * Sync: a device that took a removed device's later writes before hearing of the removal gets back what they overwrote by pulling everything once, in place of repair's own exchange; requests no longer carry a repair digest.
 * Older builds' ways are dropped, so every device updates together: sync answers are always salted (requests no longer carry a flags byte); sources' old quality settings (From File Names, From the Folder Under It; the command-line app's `--quality-by`) and the one-time move of a device's own sources to port-free addresses (`cq_repo_move`) are gone; and the apps no longer rewrite an older build's bad certificate on opening, nor the Apple TV its Keychain's seeds.
 * Every member is equal: the library's creator can be removed like anyone, and leaving never asks who takes over. Handing a library over (`library handover`, `library leave --to`) is gone, and `cq_remove_self` takes no successor. Update every device together: an older one still refuses others' removal of the creator's devices.

@@ -191,10 +191,10 @@ Devices find each other on your network, and sync on their own while the apps ru
 The command-line app serves a web client, so you set up, browse, and play the library in a browser, with nothing installed. It runs on a computer that stays on: a home server, a NAS that runs Linux, or a Mac.
 
 1. **Get the command-line app** onto that computer (see [Installing](#installing)).
-2. **Serve it,** with a folder of videos (`--media`), and if you like, a folder to keep downloads in for your other devices (`--downloads`):
+2. **Serve it,** with a folder of videos (`--media`):
 
    ```sh
-   cinematheque serve --media /srv/videos --downloads /srv/kept
+   cinematheque serve --media /srv/videos
    ```
 
 3. **Open it in a browser on that computer:** `http://localhost:8008/`. From another computer, reach it through an SSH tunnel, which counts as that computer's own: `ssh -L 8008:localhost:8008 hal`, then open `http://localhost:8008/` there.
@@ -208,6 +208,5 @@ What to know:
 
 * **Only a browser on that computer** acts as it (or one through an SSH tunnel to it), as anyone who could reach the port could otherwise act as you; any other is told so. On a network where everyone may, start it with `--permissive`. `--no-web` turns the web client off. It answers only by an IP address, a `.local` or single-word name, or `localhost`, so another website can't use it from your browser.
 * **Download** brings a movie or an episode to the browser's own computer.
-* **Keep** (with `--downloads`) has the server keep a title, as the Mac downloads one, so your other devices play it from there.
 * **Changes** (what's watched, your lists) reach your other devices a few seconds after you stop making them.
 * **More,** for the curious: [cli/README.md](../cli/README.md#in-a-browser).

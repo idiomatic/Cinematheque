@@ -176,8 +176,7 @@ fn finishJoining(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocat
 }
 
 /// Once this device has a library: named by its computer's name, if it has
-/// no name yet, as the apps name themselves; its downloads kept, if asked
-/// for; advertised as the library's; and synced at once, so a library
+/// no name yet, as the apps name themselves; advertised as the library's; and synced at once, so a library
 /// joined arrives. With `state` held.
 fn becameMember(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator) !void {
     {
@@ -204,25 +203,8 @@ fn becameMember(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocato
             try lib.recordServed(&r, arena, web.now(io), device, try std.fmt.allocPrint(arena, "http://{s}.local:{d}/", .{ w.host_name, host.port }));
         }
     }
-    if (w.downloads_dir) |dir| configureDownloads(w, io, gpa, arena, dir) catch |err| std.log.warn("keeping downloads in {s}: {t}", .{ dir, err });
     try advertise(w, io, gpa, arena);
     w.changed.store(@intCast(web.now(io)), .release);
-}
-
-/// Keeps downloads in `dir`, served at `/downloads/`, as `serve
-/// --downloads` does (see network.zig), once there's a library to record
-/// them in. With `state` held.
-fn configureDownloads(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, dir: []const u8) !void {
-    _ = w.host orelse return;
-    var r = try Replica.open(gpa, io, w.path, w.creator.?, w.store.identity);
-    defer r.close();
-    if (try core.download.settings(&r, arena)) |s| {
-        if (!std.mem.eql(u8, s.dir, dir)) return error.DownloadsElsewhere;
-    }
-    // Port-free, as `serve --downloads` keeps them (see network.zig).
-    const url = try core.url.deviceSource(arena, r.device(), "/downloads/");
-    try core.download.configure(&r, arena, web.now(io), dir, url);
-    w.downloads = true;
 }
 
 /// Advertises this device as it is now: its library's, with its names; a
@@ -423,8 +405,8 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
     var sources: std.ArrayList(Source) = .empty;
     var media_added = false;
     for (try lib.sources(&r, arena)) |s| {
-        // Devices' downloads are theirs to manage (this one's under Kept),
-        // as the apps leave them out of Sources.
+        // Devices' downloads are theirs to manage, as the apps leave them
+        // out of Sources.
         if (s.managed) continue;
         if (w.media) |m| if (std.mem.eql(u8, m.url, s.url)) {
             media_added = true;
@@ -538,7 +520,7 @@ fn leave(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
 }
 
 /// Forgets the library and this device's identity, as leaving does, so
-/// the web client sets it up afresh; its downloads' files stay.
+/// the web client sets it up afresh.
 fn forgetLibrary(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator) !void {
     try w.state.lock(io);
     defer w.state.unlock(io);
@@ -550,7 +532,6 @@ fn forgetLibrary(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocat
         w.creator = null;
     }
     w.offering = false;
-    w.downloads = false;
     try advertise(w, io, gpa, arena);
 }
 

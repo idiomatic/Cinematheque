@@ -1,4 +1,4 @@
-// Routing: #home, #movies, #series, #watching, #watched, #kept, #lists,
+// Routing: #home, #movies, #series, #watching, #watched, #lists,
 // #lists/<id>, #search, #settings, #title/<key>[/<season>]: each page an address of
 // its own, so Back retraces them, and a title opens in a new tab or is
 // bookmarked.
@@ -71,7 +71,7 @@ async function route(how) {
       const season = segments.length > 4 ? Number(segments[4]) : null;
       // Cleared first, so a problem the page finds stays.
       shelfStatus = "";
-      show(keepingLine());
+      show("");
       shelfTitle.textContent = "";
       parts = await titlePage(key, season);
       // Another route shown meanwhile: nothing of this one's.
@@ -103,7 +103,7 @@ async function route(how) {
       shelfTitle.textContent = shelf === "list" ? "" : shelfNames[shelf];
       parts = reused ? reused.nodes : shelves[shelf]();
       shelfStatus = counts(shelf);
-      show(keepingLine() || shelfStatus);
+      show(shelfStatus);
     }
   } catch (e) {
     if (mine !== showing) return;
@@ -137,7 +137,6 @@ const shelfNames = {
   series: "Series",
   watching: "Watching",
   watched: "Watched",
-  kept: "Kept",
   lists: "Lists",
   search: "Search",
 };
@@ -148,13 +147,13 @@ function orderKey() {
 }
 
 /// Marks the shelf shown in the sidebar, and its tab in the tab bar (a
-/// list's page the Lists tab's; Watching's, Watched's, and Kept's Home's,
+/// list's page the Lists tab's; Watching's and Watched's Home's,
 /// whose rows and links lead to them); a title's page, the shelf it was
 /// opened from.
 function markShown() {
   const at = shownShelf === "title" ? lastShelf : shownHash;
   markCurrent("#sidebar [data-shelf]", (a) => a.dataset.shelf === at);
-  const tab = !at ? null : at.startsWith("lists") ? "lists" : ["watching", "watched", "kept", "settings"].includes(at) ? "home" : at;
+  const tab = !at ? null : at.startsWith("lists") ? "lists" : ["watching", "watched", "settings"].includes(at) ? "home" : at;
   markCurrent("#tabs [data-tab]", (a) => a.dataset.tab === tab);
 }
 

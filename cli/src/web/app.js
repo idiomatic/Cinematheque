@@ -65,7 +65,7 @@ async function refresh() {
 }
 
 async function reload() {
-  const [got, kept] = await Promise.all([api("tiles"), api("downloads").catch(() => ({ enabled: false }))]);
+  const got = await api("tiles");
   const lists = got.lists.map((l) => ({ ...l, titles: new Set(l.titles) }));
   // This person's own, which they change, and mark titles as on a list;
   // then other members' shared ones, shown, but theirs to change.
@@ -79,7 +79,6 @@ async function reload() {
   // The sidebar's: this person's lists, then other members' shared ones.
   sidebarLists.replaceChildren(...lists.map((l) => el("a", { href: `#lists/${l.id}`, "data-shelf": `lists/${l.id}` }, listLabel(l))));
   markShown();
-  noteDownloads(kept);
 }
 
 // Tiles.
@@ -588,7 +587,7 @@ const shelves = {
   home: () => {
     const going = matching(library.tiles.filter(onShelf.watching));
     const parts = [el("nav", { class: "shelf-links", "aria-label": "More shelves" },
-      el("a", { href: "#watched" }, "Watched"), downloads.enabled ? el("a", { href: "#kept" }, "Kept") : null, el("a", { href: "#settings" }, "Settings"))];
+      el("a", { href: "#watched" }, "Watched"), el("a", { href: "#settings" }, "Settings"))];
     if (going.length) parts.push(...carousel("Continue Watching", ordered(going, { by: "watched" }), "#watching"));
     for (const l of library.lists) parts.push(...listRow(l));
     return parts.length > 1 ? parts : [...parts, empty("Nothing in progress or on your lists yet.")];
@@ -642,11 +641,6 @@ const shelves = {
   watched: () => {
     const t = onShelfOrdered("watched");
     return t.length ? shelfGrid(t) : [empty("What you've watched shows here.")];
-  },
-  // What the server keeps, as the Mac's Downloaded shelf has what it does.
-  kept: () => {
-    const t = onShelfOrdered("kept");
-    return t.length ? shelfGrid(t) : [empty("What you keep on the server shows here.")];
   },
 };
 
@@ -789,7 +783,6 @@ const onShelf = {
   watching: (t) => t.started && !t.watched,
   search: () => true,
   watched: (t) => t.watched,
-  kept: (t) => heldTile(t),
 };
 
 /// How many a shelf holds, for the status line, as the Mac's says it:
@@ -933,13 +926,12 @@ async function titlePage(key, season) {
   // The season, unless its pop-up says which.
   const facts = [isSeries && seasons.length < 2 ? seasonName(season) : null, detail.year, detail.fields.genre, detail.fields.network,
     !isSeries && items[0]?.fields.duration ? formatTime(Number(items[0].fields.duration)) : null].filter(Boolean).join(" · ");
-  const sizes = await keepSizes(detail, items, isSeries ? season : null, quality);
   const body = [
     el("h1", {}, detail.name),
     facts ? el("div", { class: "facts" }, facts) : null,
     qualityRow,
     actions,
-    keepRow(detail, items, isSeries ? season : null, quality, sizes),
+    isSeries ? null : downloadRow(items, quality),
     !isSeries && items.length === 1 ? progressRow(detail, items[0]) : null,
     detail.fields.description && !isSeries ? el("p", { class: "description" }, detail.fields.description) : null,
   ];
@@ -958,7 +950,7 @@ async function titlePage(key, season) {
     el("button", { class: "play", type: "button", "aria-label": "Play", disabled: !quality, onclick: () => play(n) }, "▶"),
     el("span", { class: "title" }, itemTitle(detail, item)),
     el("span", { class: "time" }, item.watched ? watchedMark() : null, isSeries && item.fields.duration ? formatTime(Number(item.fields.duration)) : ""),
-    itemControls(detail, [item], quality),
+    el("span", { class: "item-downloads" }, downloadButton(item, quality)),
     isSeries ? progressRow(detail, item) : null,
     isSeries && item.fields.description ? el("span", { class: "desc" }, item.fields.description) : null,
   ))));
@@ -995,215 +987,16 @@ async function describe(detail, items) {
 }
 
 // Downloading a file to this computer, through the server, which reaches
-// sources this browser may not; and keeping one on the server (its
-// downloads, with `serve --downloads`, as the Mac keeps its own), named
-// only in passing, as the computer in hand is what a person minds.
+// sources this browser may not.
 
-/// What the server last said of what it keeps (its downloads).
-let downloads = { enabled: false };
-/// The shelf's counts, for the status line once nothing's being kept.
+/// The shelf's counts, for the status line.
 let shelfStatus = "";
-/// Controls showing what's kept, updated in place as it changes.
-const watching = new Set();
 
-function noteDownloads(kept) {
-  downloads = kept.enabled ? { enabled: true, device: kept.device, ...kept.report } : { enabled: false };
-  document.querySelector('#sidebar a[data-shelf="kept"]').hidden = !downloads.enabled;
-  for (const update of watching) update();
-  if (!problemShown) show(keepingLine() || shelfStatus);
-  pollDownloads();
-}
-
-/// Asks again every 2 seconds while anything's coming or waits to.
-let polling = null;
-function pollDownloads() {
-  clearTimeout(polling);
-  if (!downloads.enabled || !(downloads.running || pending())) return;
-  polling = setTimeout(async () => {
-    try { noteDownloads(await api("downloads")); } catch { pollDownloads(); }
-  }, 2000);
-}
-
-/// Whether anything wanted (by hand, or a series' next) isn't held yet.
-function pending() {
-  const held = new Set(downloads.held.map((h) => h.item));
-  return downloads.ahead.some((k) => !held.has(k)) || downloads.wanted.some((w) => !held.has(w.key));
-}
-
-/// "Keeping on the server… 120 of 900 MB", while it comes.
-function keepingLine() {
-  if (!downloads.enabled || !downloads.running || !downloads.total_mb) return "";
-  return `Keeping on the server… ${downloads.done_mb.toLocaleString()} of ${downloads.total_mb.toLocaleString()} MB`;
-}
-
-/// Where it stands for these items (full keys): held, coming (with how
-/// far, if under way), or neither.
-function stateOf(keys) {
-  if (!downloads.enabled || !keys.length) return {};
-  const held = keys.map((k) => downloads.held.find((h) => h.item === k));
-  if (held.every(Boolean)) return { held: true, only: held.some((h) => h.only), size: held.reduce((s, h) => s + h.size, 0) };
-  const fetching = downloads.fetching && keys.includes(downloads.fetching.item) ? downloads.fetching : null;
-  const wanted = keys.some((k) => downloads.wanted.some((w) => w.key === k) || downloads.ahead.includes(k));
-  return { coming: wanted || !!fetching, fetching };
-}
-
-/// Whether a tile has anything held: a movie's, or a season's episodes.
-function heldTile(tile) {
-  if (!downloads.enabled) return false;
-  const season = tile.season == null ? null : String(tile.season).padStart(2, "0");
-  return downloads.held.some((h) => {
-    if (!h.item.startsWith(tile.key + "/")) return false;
-    if (season == null) return true;
-    const rest = h.item.slice(tile.key.length);
-    return rest.startsWith(`/e/s${season}e`) || rest.startsWith(`/e/s${season}-`);
-  });
-}
-
-function bytes(n) {
-  return n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`;
-}
-
-/// What keeping may take: free space, less what the server keeps free.
-function available() { return downloads.free == null ? null : Math.max(0, downloads.free - downloads.floor); }
-
-function sizeNote(size) {
-  const room = available();
-  const fits = room == null || size.needed <= room;
-  return { text: bytes(size.size), fits, title: room == null ? "" : `${fits ? "" : "Won't fit: "}${bytes(room)} available on ${downloads.device}` };
-}
-
-/// What a movie's Keep keeps, as the Mac's Download downloads: the version
-/// Play plays (of parts, all of them).
-function keepTarget(detail, items) {
+/// A movie's Download, as the Mac's: the version Play plays, if it's one
+/// file, not parts.
+function downloadRow(items, quality) {
   const item = items.find((i) => i.next) || items[0];
-  if (!item) return null;
-  const part = item.key.indexOf("/p/");
-  if (part >= 0) {
-    const version = item.key.slice(0, part);
-    if (!items.some((i) => i.key === version)) {
-      return { key: `${detail.key}/${version}`, items: items.filter((i) => i.key.startsWith(version + "/p/")) };
-    }
-  }
-  return { key: `${detail.key}/${item.key}`, items: [item] };
-}
-
-/// What keeping would come to, fetched before the page is drawn, so no
-/// size arrives to move what's beside it: a movie's (what its Keep keeps,
-/// in `quality`), or a season's choices of episodes.
-async function keepSizes(detail, items, season, quality) {
-  if (!downloads.enabled) return null;
-  if (season == null) {
-    const target = keepTarget(detail, items);
-    return target ? api("download-sizes?" + new URLSearchParams({ key: target.key, quality: quality ?? "" })).catch(() => null) : null;
-  }
-  return api("download-sizes?" + new URLSearchParams({ key: detail.key, choices: JSON.stringify(seasonChoices.slice(1).map((c) => c[0])) })).catch(() => null);
-}
-
-/// A title page's: for a movie of one file, Download, to this computer;
-/// and keeping it on the server (a movie's Keep, or a season's choice of
-/// episodes, as the Mac's Download has them).
-function keepRow(detail, items, season, quality, sizes) {
-  const parts = [];
-  const target = season == null ? keepTarget(detail, items) : null;
-  if (target && target.items.length === 1) parts.push(downloadButton(target.items[0], quality));
-  if (downloads.enabled) {
-    if (season != null) parts.push(seasonChoice(detail, sizes));
-    else if (target) parts.push(keepControls(target.items.map((i) => `${detail.key}/${i.key}`), target.key, quality, sizes?.[0]));
-  }
-  return parts.length ? el("div", { class: "downloads" }, parts) : null;
-}
-
-/// Keeping on the server, one button taking each turn in place, as the
-/// Mac's download rows hold theirs (nothing appears or disappears), with
-/// its size throughout: Keep; then, while the file comes, Keeping (a round
-/// gauge in its slot, turning while it waits its turn), which under the
-/// pointer is Cancel; then Kept, tinted, with a check, which under the
-/// pointer is Delete. Every label is stacked in its place, so it's as wide as the
-/// widest. Deleting the only copy is asked first; so is any, on a screen
-/// without a pointer to show Delete first. Smaller in an episode's row.
-function keepControls(keys, key, quality, size, small = false) {
-  const note = size && sizeNote(size);
-  const slot = el("span", { class: "slot", "aria-hidden": "true" });
-  // Its size in every turn, as it's always the same file.
-  const sized = (word) => note ? `${word} · ${note.text}` : word;
-  const labels = el("span", { class: "labels" },
-    el("span", { class: "idle" }, sized("Keep")),
-    el("span", { class: "coming" }, sized("Keeping")),
-    el("span", { class: "cancel" }, sized("Cancel")),
-    el("span", { class: "kept" }, sized("Kept")),
-    el("span", { class: "delete" }, sized("Delete")));
-  let state = {};
-  const button = el("button", { type: "button", class: small ? "keep small" : "keep", onclick: () => {
-    if (state.held) {
-      const ask = state.only ? "The server holds the only copy. Delete it anyway? It can't be had again."
-        : !hovers ? `Delete it from ${downloads.device}?` : null;
-      if (ask && !confirm(ask)) return;
-      change("download-remove", { key });
-    } else if (state.coming) {
-      change("download-remove", { key });
-    } else {
-      change("download", { key, quality: quality ?? "" });
-    }
-  } }, slot, labels);
-  watch(button, () => {
-    state = stateOf(keys);
-    const f = state.fetching;
-    button.dataset.state = state.held ? "kept" : state.coming ? "coming" : "idle";
-    button.classList.toggle("warn", !state.held && !state.coming && !!note && !note.fits);
-    slot.replaceChildren(...(state.held ? [el("span", { class: "check" }, "✓"), el("span", { class: "bin" }, "✕")]
-      : state.coming ? [ring(f?.size ? f.done / f.size : null)] : []));
-    button.title = state.held ? `Kept on ${downloads.device}${state.only ? " (the only copy)" : ""}; delete it`
-      : f?.size ? `Coming to ${downloads.device}: ${bytes(f.done)} of ${bytes(f.size)}; cancel it`
-      : state.coming ? `Waiting its turn to come to ${downloads.device}; cancel it`
-      : note?.title || `Keep on ${downloads.device}`;
-  });
-  return button;
-}
-
-/// Whether the pointer can hover, to show Cancel and Delete before they're
-/// pressed.
-const hovers = matchMedia("(hover: hover)").matches;
-
-/// A round gauge, filled to `fraction` (0 to 1), or turning, if null.
-function ring(fraction) {
-  const svg = (tag, attrs) => {
-    const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
-    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
-    return e;
-  };
-  const r = 6, round = 2 * Math.PI * r;
-  const g = svg("svg", { viewBox: "0 0 16 16", class: fraction == null ? "ring turning" : "ring" });
-  g.append(svg("circle", { cx: 8, cy: 8, r, class: "track" }),
-    svg("circle", { cx: 8, cy: 8, r, class: "fill", "stroke-dasharray": round, "stroke-dashoffset": round * (1 - (fraction ?? 0.25)) }));
-  return g;
-}
-
-/// A season's choices of episodes to keep.
-const seasonChoices = [["0", "Nothing"], ["1", "Next"], ["3", "Next 3"], ["10", "Next 10"], ["all", "All"]];
-
-/// A season's choice of episodes to keep on the server, with what each
-/// would come to.
-function seasonChoice(detail, sizes) {
-  const current = () => downloads.next.find((n) => n.title === detail.key)?.choice ?? "0";
-  const label = ([value, name]) => {
-    const s = sizes?.find((x) => x.choice === value);
-    if (!s) return name;
-    const note = sizeNote(s);
-    return `${name} · ${note.text}${note.fits ? "" : " (won't fit)"}`;
-  };
-  const select = el("select", { "aria-label": "Keep", title: `Episodes to keep on ${downloads.device} as you watch`,
-    onchange: (e) => change("download-next", { title: detail.key, choice: e.target.value === "0" ? "" : e.target.value }) },
-  seasonChoices.map((c) => el("option", { value: c[0] }, label(c))));
-  const box = el("label", { class: "download" }, "Keep ", select);
-  watch(box, () => { select.value = current(); });
-  return box;
-}
-
-/// An episode's or version's own: Download, to this computer, and keeping
-/// it on the server.
-function itemControls(detail, items, quality) {
-  const keys = items.map((i) => `${detail.key}/${i.key}`);
-  return el("span", { class: "item-downloads" }, downloadButton(items[0], quality), downloads.enabled ? keepControls(keys, keys[0], quality, null, true) : null);
+  return item && !item.key.includes("/p/") ? el("div", { class: "downloads" }, downloadButton(item, quality)) : null;
 }
 
 /// Downloading an item's file to this computer: from the chosen quality's
@@ -1220,23 +1013,6 @@ function downloadButton(item, quality) {
   } }, "Download");
 }
 
-/// Keeps `update` called as what's kept changes, while `box` is shown.
-function watch(box, update) {
-  const run = () => { if (!box.isConnected && box.dataset.shown) watching.delete(run); else update(); };
-  update();
-  requestAnimationFrame(() => { box.dataset.shown = "1"; });
-  watching.add(run);
-}
-
-/// A change to what the server keeps, then what it comes to.
-async function change(name, body) {
-  try {
-    await api(name, body);
-    noteDownloads(await api("downloads"));
-  } catch (e) {
-    problem(e.message);
-  }
-}
 
 // Playing.
 

@@ -53,9 +53,6 @@ pub const Web = struct {
     /// Counted up as the computer's volumes change, for the server to build
     /// the media's `INDEX` afresh (`watchVolumes`).
     volumes: std.atomic.Value(u32) = .init(0),
-    /// Where `serve --downloads` keeps them, configured once there's a
-    /// library, and the port it serves on.
-    downloads_dir: ?[]const u8 = null,
     /// This device's offer to be added, as a new device, while setup shows
     /// its code (`offering`), answered at `/pair` on this port; with `state`
     /// held. Kept, not freed, once done, as an answer may still be using it.
@@ -78,18 +75,8 @@ pub const Web = struct {
     /// Whether a source's server has been unreachable for a cover yet, said
     /// once, so a page of placeholders without covers says why.
     unreachable_said: std.atomic.Value(bool) = .init(false),
-    /// The name this device goes by on the network, for pages to say where
-    /// its downloads go.
+    /// The name this device goes by on the network.
     host_name: []const u8 = "",
-    /// Whether this device keeps downloads (`serve --downloads`), which
-    /// pages may then ask for; and reconciling them: asked to run again
-    /// (something wanted, deleted, or watched), running, and how far.
-    downloads: bool = false,
-    reconcile_again: std.atomic.Value(bool) = .init(true),
-    reconciling: std.atomic.Value(bool) = .init(false),
-    done_mb: std.atomic.Value(u32) = .init(0),
-    total_mb: std.atomic.Value(u32) = .init(0),
-    fetching: core.download.Fetching = .{},
 
     /// Frees what serving gathered.
     pub fn deinit(w: *Web, gpa: std.mem.Allocator) void {
@@ -158,38 +145,12 @@ pub const Web = struct {
                 std.log.info("{s} can't be reached ({t}), as a phone or tablet whose app is napping can't; it's synced with when it answers again", .{ u, err });
             }
         }
-        // What's watched elsewhere moves a series' next episodes along.
-        w.reconcile_again.store(true, .release);
     }
-
-    /// While serving with downloads: brings them in line with what's kept
-    /// whenever asked (a page's change), and every 10 minutes, as what's
-    /// watched on other devices moves a series' next episodes along.
-    pub fn keepDownloads(w: *Web, io: Io, gpa: std.mem.Allocator) Io.Cancelable!void {
-        var last: u64 = 0;
-        while (true) {
-            try io.sleep(.fromMilliseconds(500), .awake);
-            const t = now(io);
-            if (!w.reconcile_again.swap(false, .acq_rel) and t -| last < reconcile_every_ms) continue;
-            last = t;
-            // Nothing to keep until there's a library.
-            if (w.creator == null) continue;
-            w.reconciling.store(true, .release);
-            defer w.reconciling.store(false, .release);
-            w.reconcile(io, gpa) catch |err| switch (err) {
-                error.Canceled => return error.Canceled,
-                else => std.log.warn("downloading: {t}", .{err}),
-            };
-        }
-    }
-
-    const reconcile_every_ms = 10 * 60 * 1000;
 
     /// While serving media: as the computer's volumes change (a drive
     /// plugged in or out under it), its `INDEX` is built afresh and it's
     /// crawled at once, so its copies are marked unavailable (one field),
-    /// or available again, for every device, and downloads waiting on it
-    /// come. The mount table is read every 2 seconds, one small read
+    /// or available again, for every device. The mount table is read every 2 seconds, one small read
     /// however many drives, as `Io` has no way to wait on the kernel's
     /// notice of it.
     pub fn watchVolumes(w: *Web, io: Io, gpa: std.mem.Allocator) Io.Cancelable!void {
@@ -205,8 +166,7 @@ pub const Web = struct {
                 error.Canceled => return error.Canceled,
                 else => std.log.warn("looking through the media: {t}", .{err}),
             };
-            // Downloads waiting on it, and other devices told.
-            w.reconcile_again.store(true, .release);
+            // Other devices told.
             w.changed.store(@intCast(now(io)), .release);
         }
     }
@@ -235,19 +195,6 @@ pub const Web = struct {
         _ = try core.art.run(io, &r, arena, &client, now(io), plan.jobs, .{ .workers = 16, .writer = &w.writer });
     }
 
-    fn reconcile(w: *Web, io: Io, gpa: std.mem.Allocator) !void {
-        var arena_state = std.heap.ArenaAllocator.init(gpa);
-        defer arena_state.deinit();
-        const arena = arena_state.allocator();
-        var r = try open(w, io, gpa);
-        defer r.close();
-        var client: http.Client = .{ .allocator = gpa, .io = io };
-        defer client.deinit();
-        const done = try core.download.reconcile(io, gpa, arena, &client, &w.racing, &r, &w.writer, now(io), .{ .done = &w.done_mb, .total = &w.total_mb, .fetching = &w.fetching }, null);
-        // Its copies, for other devices to play from.
-        if (done.fetched + done.deleted > 0) w.changed.store(@intCast(now(io)), .release);
-        if (done.failed > 0) std.log.warn("downloading: {d} failed: {s}", .{ done.failed, done.@"error" orelse "?" });
-    }
 };
 
 fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.Server.Request, peer: Io.net.IpAddress) anyerror!bool {
@@ -488,28 +435,6 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     }
     if (get and std.mem.eql(u8, name, "cover")) return cover(w, io, gpa, arena, request, q);
     if (get and std.mem.eql(u8, name, "file")) return file(w, io, gpa, arena, request, q);
-    if (get and std.mem.eql(u8, name, "downloads")) {
-        if (!w.downloads) return sendJson(arena, request, .{ .enabled = false });
-        var r = try open(w, io, gpa);
-        defer r.close();
-        return sendJson(arena, request, .{
-            .enabled = true,
-            .device = w.host_name,
-            .report = try core.download.report(io, &r, arena, .{
-                .running = w.reconciling.load(.acquire),
-                .done_mb = w.done_mb.load(.monotonic),
-                .total_mb = w.total_mb.load(.monotonic),
-                .fetching = &w.fetching,
-            }),
-        });
-    }
-    if (get and std.mem.eql(u8, name, "download-sizes")) {
-        if (!w.downloads) return error.NotFound;
-        var r = try open(w, io, gpa);
-        defer r.close();
-        const choices = try std.json.parseFromSliceLeaky([]const []const u8, arena, try param(arena, q, "choices") orelse "[\"\"]", .{});
-        return sendJson(arena, request, try core.download.sizes(&r, arena, try param(arena, q, "key") orelse return error.BadRequest, choices, try param(arena, q, "quality")));
-    }
     if (request.head.method != .POST) return error.NotFound;
 
     var body_buf: [4096]u8 = undefined;
@@ -583,29 +508,9 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
         // Every member's to see, or this person's alone again.
         const p = try std.json.parseFromSliceLeaky(struct { id: []const u8, on: bool }, arena, body, .{});
         if (p.on) try core.lists.share(io, &r, arena, now(io), p.id) else try core.lists.stopSharing(io, &r, arena, now(io), p.id);
-    } else if (std.mem.eql(u8, name, "download") or std.mem.eql(u8, name, "download-remove") or std.mem.eql(u8, name, "download-next")) {
-        // This device's downloads, which it fetches as it reconciles.
-        if (!w.downloads) return error.NotFound;
-        if (std.mem.eql(u8, name, "download")) {
-            const p = try std.json.parseFromSliceLeaky(struct { key: []const u8, quality: []const u8 = "" }, arena, body, .{});
-            try core.download.want(&r, arena, p.key, p.quality);
-        } else if (std.mem.eql(u8, name, "download-remove")) {
-            const p = try std.json.parseFromSliceLeaky(struct { key: []const u8 }, arena, body, .{});
-            // The writer's held already.
-            _ = try core.download.remove(io, arena, &r, null, now(io), p.key);
-        } else {
-            const p = try std.json.parseFromSliceLeaky(struct { title: []const u8, choice: []const u8 }, arena, body, .{});
-            const choice = core.download.Choice.parse(p.choice);
-            if (choice == null and p.choice.len > 0 and !std.mem.eql(u8, p.choice, "0")) return error.BadRequest;
-            try core.download.setNext(&r, arena, p.title, choice);
-        }
-        // The file under way, if any, asked again whether it's wanted.
-        w.fetching.recheck();
     } else return error.NotFound;
     // This person's, for their other devices.
     w.changed.store(@intCast(now(io)), .release);
-    // Downloads wanted, and a series' next episodes, move with any of it.
-    if (w.downloads) w.reconcile_again.store(true, .release);
     if (created) |id| return sendJson(arena, request, id);
     return sendJson(arena, request, true);
 }

@@ -194,7 +194,6 @@ fn explain(err: anyerror) []const u8 {
         error.BadAddress => "that isn't a web address (http:// or https://, with a host)",
         error.TooMany => "the server lists far more than any library holds",
         error.TooDeep => "the server's folders nest too deeply",
-        error.DownloadsElsewhere => "this device keeps its downloads in another directory (as the Mac app does, sharing its data directory): give that one with --downloads, or serve from another data directory (--data)",
         else => @errorName(err),
     };
 }

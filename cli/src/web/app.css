@@ -254,45 +254,12 @@ a[aria-disabled="true"] { opacity: 0.4; cursor: default; pointer-events: none; }
 .episodes .time { color: var(--dim); font-size: 13px; }
 .episodes .desc { grid-column: 2 / 5; color: var(--dim); font-size: 13px; }
 .episodes .progress { grid-column: 2 / 5; margin: 0; }
-/* Downloads: to this device, and saving here; quieter than what plays. */
+/* Download, to this computer; quieter than what plays. */
 .downloads { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: -4px 0 16px; max-width: 80ch; }
-.download { display: inline-flex; gap: 8px; align-items: center; color: var(--dim); }
-.download select { padding: 4px 8px; font-size: 13px; }
-/* Keep: one button through its turns, its labels stacked in one place so
-   it's as wide as the widest, the one for its turn shown (and under the
-   pointer, what pressing does: Cancel, Delete); its slot, a round gauge
-   while it comes, then a check. */
-.keep .slot { display: inline-grid; place-items: center; width: 1em; height: 1em; margin-right: 8px; vertical-align: -0.125em; }
-.keep .slot > * { grid-area: 1 / 1; }
-.keep[data-state="kept"] .bin,
-.keep[data-state="kept"]:is(:hover, :focus-visible) .check { visibility: hidden; }
-.keep[data-state="kept"]:is(:hover, :focus-visible) .bin { visibility: visible; }
-.keep .labels { display: inline-grid; }
-.keep .labels > span { grid-area: 1 / 1; visibility: hidden; text-align: left; }
-.keep[data-state="idle"] .idle,
-.keep[data-state="coming"]:not(:hover, :focus-visible) .coming,
-.keep[data-state="coming"]:is(:hover, :focus-visible) .cancel,
-.keep[data-state="kept"]:not(:hover, :focus-visible) .kept,
-.keep[data-state="kept"]:is(:hover, :focus-visible) .delete { visibility: visible; }
-/* Kept: still a button (pressing it deletes), tinted with the accent, as
-   settled, until the pointer shows what it does. */
-.keep[data-state="kept"] { background: color-mix(in srgb, var(--accent) 12%, Canvas); border-color: color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent); }
-.keep[data-state="kept"]:is(:hover, :focus-visible),
-.keep[data-state="coming"]:is(:hover, :focus-visible) { color: #ff453a; border-color: color-mix(in srgb, #ff453a 50%, transparent); }
-.keep[data-state="coming"] .labels { color: var(--dim); }
-.keep[data-state="coming"]:is(:hover, :focus-visible) .labels { color: inherit; }
-.keep.small { padding: 3px 10px; font-size: 13px; }
-.ring { width: 1em; height: 1em; transform: rotate(-90deg); }
-.ring circle { fill: none; stroke-width: 2.5; }
-.ring .track { stroke: color-mix(in srgb, CanvasText 15%, transparent); }
-.ring .fill { stroke: var(--accent); stroke-linecap: round; }
-.ring.turning { animation: turning 1s linear infinite; }
-@keyframes turning { to { transform: rotate(270deg); } }
-/* An episode's or version's, buttons as a movie's are, smaller, as fits a
+/* An episode's or version's, a button as a movie's is, smaller, as fits a
    row. */
 .item-downloads { display: inline-flex; gap: 6px; align-items: center; }
 .item-downloads button { padding: 3px 10px; font-size: 13px; }
-button.warn { color: #ff9f0a; }
 
 
 #status {
