@@ -48,7 +48,7 @@ struct Browser: View {
             HomeView()
                 .navigationDestination(for: Section.self) { SectionPage(section: $0) }
                 .navigationDestination(for: Tile.self) { tile in
-                    if tile.isSeries { SeasonView(tile: tile, detail: library.detail(tile.key)) } else { MovieView(tile: tile, detail: library.detail(tile.key)) }
+                    TitleView(tile: tile, detail: library.detail(tile.key))
                 }
                 .navigationDestination(for: SeriesSeasons.self) { SeasonsView(key: $0.key, detail: library.detail($0.key)) }
                 .navigationDestination(for: ListPageID.self) { ListPage(id: $0.id) }
@@ -73,21 +73,14 @@ struct Browser: View {
         // view the app had, as the app came to the front, focus stayed in
         // the tab bar, now and then. Back closes it, to where the app was.
         .fullScreenCover(item: $opened) { opened in
-            let tile = opened.tile
-            Group {
-                if tile.isSeries {
-                    SeasonView(tile: tile, detail: library.detail(tile.key), opening: opened.opening)
-                } else {
-                    MovieView(tile: tile, detail: library.detail(tile.key), opening: opened.opening)
-                }
-            }
-            // A page of its own each time, not the one shown kept, its
-            // state too, as a cover shown already is.
-            .id(opened.id)
-            // Its own ground, under its backdrop, as the app's own is
-            // behind it now.
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background { Rectangle().fill(.background).ignoresSafeArea() }
+            TitleView(tile: opened.tile, detail: library.detail(opened.tile.key), opening: opened.opening)
+                // A page of its own each time, not the one shown kept, its
+                // state too, as a cover shown already is.
+                .id(opened.id)
+                // Its own ground, under its backdrop, as the app's own is
+                // behind it now.
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background { Rectangle().fill(.background).ignoresSafeArea() }
         }
         // What Home shows, for the Top Shelf, once changes settle.
         .task(id: library.revision) {

@@ -5,92 +5,11 @@ import SwiftUI
 /// as the Top Shelf's select and Play/Pause do.
 enum Opening { case show, play }
 
-/// A movie's page: its cover over a blurred backdrop of it, Play or Resume,
-/// the Lists and watched marks, its versions, and its description.
-struct MovieView: View {
-    let tile: Tile
-    @Environment(Library.self) private var library
-    @State private var detail: TitleDetail?
-    @State private var playing: PlayRequest?
-    /// The quality chosen in its picker, if one was.
-    @State private var quality: String?
-    @FocusState private var playFocused: Bool
-
-    /// Playing what Play plays at once, once (a Top Shelf item's Play).
-    @State private var playsAtOnce: Bool
-
-    /// With its details as they are, so Play is there to focus first.
-    init(tile: Tile, detail: TitleDetail?, opening: Opening = .show) {
-        self.tile = tile
-        _detail = State(initialValue: detail)
-        _playsAtOnce = State(initialValue: opening == .play)
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 80) {
-            Color.clear
-                .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                .frame(width: 460)
-                .overlay { CoverImage(cover: tile.cover, aspect: tile.aspect, title: tile.name, size: .large) }
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-            VStack(alignment: .leading, spacing: 30) {
-                Text(tile.name).font(.title)
-                if let detail {
-                    Text(detail.facts(season: nil)).foregroundStyle(.secondary)
-                    HStack(spacing: 30) {
-                        if Playback.nextItem(detail, season: nil)?.inProgress == true {
-                            Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: nil, quality: quality)?.fromBeginning
-                            }
-                        }
-                        Button(Playback.playLabel(Playback.nextItem(detail, season: nil), in: detail, quality: quality), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: nil, quality: quality)
-                        }
-                        .focused($playFocused)
-                        // What Play plays in, beside it.
-                        QualityPicker(detail: detail, items: detail.items, chosen: $quality)
-                        // The marks, quieter than what plays: icons, named
-                        // for VoiceOver.
-                        Marks(detail: detail, items: detail.items).labelStyle(.iconOnly)
-                    }
-                    if detail.items.count > 1 {
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Versions").font(.headline)
-                            ForEach(detail.items) { item in
-                                Button {
-                                    playing = Playback.request(detail, items: [item], from: 0, quality: detail.quality(for: [item], chosen: quality))
-                                } label: {
-                                    ItemLine(item: item, name: item.label, widest: detail.items.widestRuntime)
-                                }
-                            }
-                        }
-                    }
-                    if let description = detail.summary {
-                        Text(description).lineLimit(8)
-                    }
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(80)
-        .background { Backdrop(tile: tile) }
-        // Play or Resume first, not Start Over before it.
-        .defaultFocus($playFocused, true)
-        .task(id: library.detailsRevision) {
-            detail = library.detail(tile.key)
-            if playsAtOnce, let detail {
-                playsAtOnce = false
-                playing = Playback.next(in: detail, season: nil, quality: quality)
-            }
-        }
-        .modifier(PlaysFullScreen(request: $playing, startsBlack: playsAtOnce))
-    }
-}
-
-/// A season's page: its cover, Play or Resume (the season's next
-/// unwatched episode, and the rest after it), its lists and marks, and its
-/// episodes, each playable; the seasons before and after it a press away.
-struct SeasonView: View {
+/// A movie's or season's page: its cover over a blurred backdrop of it,
+/// Play or Resume (a season's next unwatched episode, and the rest after
+/// it), its lists and marks, its description, and a movie's versions or a
+/// season's episodes, each playable; a season's neighbors a press away.
+struct TitleView: View {
     let tile: Tile
     @Environment(Library.self) private var library
     @State private var detail: TitleDetail?
@@ -117,11 +36,11 @@ struct SeasonView: View {
     }
 
     var body: some View {
-        let seasons = Library.seasons(of: tile.key, in: library.tiles)
+        let seasons = tile.isSeries ? Library.seasons(of: tile.key, in: library.tiles) : []
         let index = seasons.firstIndex { $0.season == (season ?? tile.season) }
         let shown = index.map { seasons[$0] } ?? tile
         HStack(alignment: .top, spacing: 80) {
-            // A season's cover in its own shape, square or 4:3, at the top.
+            // Its cover in its own shape (a season's square or 4:3), at the top.
             Color.clear
                 .aspectRatio(2.0 / 3.0, contentMode: .fit)
                 .frame(width: 460)
@@ -131,28 +50,30 @@ struct SeasonView: View {
                 }
             ScrollView {
                 VStack(alignment: .leading, spacing: 30) {
-                    // The seasons before and after it in the top corner,
+                    // A season's before and after it in the top corner,
                     // beside the series' name.
                     HStack(spacing: 30) {
                         Text(shown.name).font(.title)
-                        Spacer()
-                        let back = index.flatMap { $0 > 0 ? seasons[$0 - 1] : nil }
-                        let forward = index.flatMap { $0 + 1 < seasons.count ? seasons[$0 + 1] : nil }
-                        Neighbor(season: back, forward: false) { season = $0 }
-                            .focused($focus, equals: .back)
-                        Neighbor(season: forward, forward: true) { season = $0 }
-                            .focused($focus, equals: .forward)
-                            // Reaching an end, focus goes to the other, as a
-                            // dimmed button kept it.
-                            .onChange(of: shown.season) {
-                                if focus == .forward, forward == nil { focus = .back }
-                                if focus == .back, back == nil { focus = .forward }
-                            }
+                        if shown.isSeries {
+                            Spacer()
+                            let back = index.flatMap { $0 > 0 ? seasons[$0 - 1] : nil }
+                            let forward = index.flatMap { $0 + 1 < seasons.count ? seasons[$0 + 1] : nil }
+                            Neighbor(season: back, forward: false) { season = $0 }
+                                .focused($focus, equals: .back)
+                            Neighbor(season: forward, forward: true) { season = $0 }
+                                .focused($focus, equals: .forward)
+                                // Reaching an end, focus goes to the other, as a
+                                // dimmed button kept it.
+                                .onChange(of: shown.season) {
+                                    if focus == .forward, forward == nil { focus = .back }
+                                    if focus == .back, back == nil { focus = .forward }
+                                }
+                        }
                     }
                     // Its whole width, so moving up from Play, at the
                     // other end, reaches them.
                     .focusSection()
-                    Text(shown.seasonName ?? "").font(.title3)
+                    if let name = shown.seasonName { Text(name).font(.title3) }
                     if let detail {
                         let items = Playback.items(detail, season: shown.season)
                         Text(detail.facts(season: shown.season)).foregroundStyle(.secondary)
@@ -171,16 +92,20 @@ struct SeasonView: View {
                             // icons, named for VoiceOver.
                             Marks(detail: detail, items: items, season: shown.season).labelStyle(.iconOnly)
                         }
-                        if let description = detail.fields["description"] {
-                            Text(description).lineLimit(4).foregroundStyle(.secondary)
+                        if let description = shown.isSeries ? detail.fields["description"] : detail.summary {
+                            Text(description).lineLimit(shown.isSeries ? 4 : 8).foregroundStyle(shown.isSeries ? .secondary : .primary)
                         }
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Episodes").font(.headline)
-                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                                Button {
-                                    playing = Playback.request(detail, items: items, from: index, quality: detail.quality(for: items, chosen: quality))
-                                } label: {
-                                    ItemLine(item: item, widest: items.widestRuntime)
+                        if shown.isSeries || items.count > 1 {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(shown.isSeries ? "Episodes" : "Versions").font(.headline)
+                                // An episode plays on through the season; a version alone.
+                                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                    Button {
+                                        let queue = shown.isSeries ? items : [item]
+                                        playing = Playback.request(detail, items: queue, from: shown.isSeries ? index : 0, quality: detail.quality(for: queue, chosen: quality))
+                                    } label: {
+                                        ItemLine(item: item, name: shown.isSeries ? nil : item.label, widest: items.widestRuntime)
+                                    }
                                 }
                             }
                         }
@@ -192,6 +117,7 @@ struct SeasonView: View {
         }
         .padding(80)
         .background { Backdrop(tile: shown) }
+        // Play or Resume first, not Start Over before it.
         .defaultFocus($focus, .play)
         .task(id: library.detailsRevision) {
             detail = library.detail(tile.key)
@@ -200,8 +126,8 @@ struct SeasonView: View {
                 playing = Playback.next(in: detail, season: shown.season, quality: quality)
             }
         }
-        // Its other episodes, described as they're shown.
-        .task(id: shown.season) { await library.describeItems(of: tile.key, season: shown.season) }
+        // A season's other episodes, described as they're shown.
+        .task(id: shown.season) { if shown.isSeries { await library.describeItems(of: tile.key, season: shown.season) } }
         .modifier(PlaysFullScreen(request: $playing, startsBlack: playsAtOnce))
     }
 }
