@@ -93,7 +93,7 @@ extension Library {
         // and any assignment redraws them all (half a second, on a large
         // library), as a series' choice or a download's progress changes
         // what's kept without changing what's held.
-        let held = Self.tiles(of: (loaded?.held ?? []).map(\.item) + (loaded?.files ?? []).map(\.item))
+        let held = Set(((loaded?.held ?? []).map(\.item) + (loaded?.files ?? []).map(\.item)).compactMap { ItemKey($0)?.tile })
         if held != downloadedTiles { downloadedTiles = held }
         if let d = downloads, let id = d.source, let dir = d.dir, let source = sources.first(where: { $0.id == id }) {
             Playback.downloads = source.address.map { .init(source: id, base: $0, dir: dir) }
@@ -154,17 +154,6 @@ extension Library {
     /// Which of a series' episodes this Mac downloads as it's watched (see
     /// `Downloads.Next`); empty, none.
     func downloadChoice(_ title: String) -> String { downloads?.next.first { $0.title == title }?.choice ?? "" }
-
-
-    private static func tiles(of items: [String]) -> Set<String> {
-        Set(items.compactMap { item in
-            let parts = item.split(separator: "/", maxSplits: 4, omittingEmptySubsequences: false)
-            guard parts.count >= 4 else { return nil }
-            let title = parts[0..<4].joined(separator: "/")
-            guard parts.count == 5, parts[4].hasPrefix("e/s"), let season = Int(parts[4].dropFirst(3).prefix { $0.isNumber }) else { return title }
-            return "\(title)#\(season)"
-        })
-    }
 
     /// Bytes this Mac's downloads hold.
     var downloadedBytes: Int { downloads?.held.reduce(0) { $0 + $1.size } ?? 0 }

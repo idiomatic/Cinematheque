@@ -42,18 +42,18 @@ enum TopShelfPublisher {
         let sections: [Section]
     }
 
-    /// The link that opens a tile's page.
-    static func url(_ tile: Tile) -> URL? {
+    /// The link that opens a tile's page, by its ID.
+    static func url(tile: String) -> URL? {
         var parts = URLComponents()
         parts.scheme = "cinematheque"
         parts.host = "title"
-        parts.queryItems = [URLQueryItem(name: "tile", value: tile.id)]
+        parts.queryItems = [URLQueryItem(name: "tile", value: tile)]
         return parts.url
     }
 
     /// The link that plays a tile at once (its Top Shelf item's Play/Pause).
     static func playURL(_ tile: Tile) -> URL? {
-        guard var parts = url(tile).flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return nil }
+        guard var parts = url(tile: tile.id).flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return nil }
         parts.queryItems?.append(URLQueryItem(name: "play", value: "1"))
         return parts.url
     }
@@ -103,7 +103,7 @@ enum TopShelfPublisher {
             for (title, tiles) in rows {
                 var items: [Content.Item] = []
                 for tile in tiles {
-                    guard let url = url(tile) else { continue }
+                    guard let url = url(tile: tile.id) else { continue }
                     let image = await image(tile)
                     if image == nil { missing = true }
                     items.append(.init(id: tile.id, title: tile.seasonName.map { "\(tile.name) · \($0)" } ?? tile.name, image: image ?? placeholder(tile, in: directory), square: tile.season != nil, url: url.absoluteString, play: playURL(tile)?.absoluteString))

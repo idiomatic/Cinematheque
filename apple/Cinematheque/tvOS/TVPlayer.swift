@@ -374,10 +374,8 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
     /// takes longer than the page's fade to come (from the cover cache, it
     /// doesn't).
     @MainActor static func artwork(_ request: PlayRequest, _ library: Library) async -> Data? {
-        guard let (key, rest) = split(request.item) else { return nil }
-        let season = rest.hasPrefix("e/s") ? Int(rest.dropFirst(3).prefix(2)) : nil
-        let id = season.map { "\(key)#\($0)" } ?? key
-        guard let cover = (library.tiles.first { $0.id == id } ?? library.tiles.first { $0.key == key })?.cover else { return nil }
+        guard let key = ItemKey(request.item),
+              let cover = (library.tiles.first { $0.id == key.tile } ?? library.tiles.first { $0.key == key.title })?.cover else { return nil }
         return await withTaskGroup(of: Data?.self) { group in
             group.addTask { await ArtCache.shared.image(cover, .large).flatMap { UIImage(cgImage: $0).jpegData(compressionQuality: 0.8) } }
             group.addTask { try? await Task.sleep(for: .seconds(Platform.fade)); return nil }
@@ -393,19 +391,12 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
         var out: [String: String] = [:]
         var details: [String: TitleDetail] = [:]
         for entry in [first] + request.queue {
-            guard let (titleKey, itemKey) = split(entry.item) else { continue }
-            if details[titleKey] == nil { details[titleKey] = library.detail(titleKey) }
-            let detail = details[titleKey]
-            out[entry.item] = detail?.items.first { $0.key == itemKey }?.fields["description"] ?? detail?.fields["description"]
+            guard let key = ItemKey(entry.item) else { continue }
+            if details[key.title] == nil { details[key.title] = library.detail(key.title) }
+            let detail = details[key.title]
+            out[entry.item] = detail?.items.first { $0.key == key.item }?.fields["description"] ?? detail?.fields["description"]
         }
         return out
-    }
-
-    /// An item key's title key, and the rest after it (`v/...` or `e/...`;
-    /// an episode's version is `e/.../v/...`).
-    private static func split(_ item: String) -> (String, String)? {
-        guard let cut = item.range(of: "/e/") ?? item.range(of: "/v/") else { return nil }
-        return (String(item[..<cut.lowerBound]), String(item[item.index(after: cut.lowerBound)...]))
     }
 
     private static func metadata(title: String, description: String?, artwork: Data?) -> [AVMetadataItem] {

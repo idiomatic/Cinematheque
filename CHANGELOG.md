@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Apple TV: an episode of a dated series (a season a year) shows its own season's cover in the player's info panel and Now Playing, not another season's.
 * iPhone: no longer called a prototype.
 * Mac: a folder that overlaps the downloads folder (is it, holds it, or is inside it) can't be added as a source, nor a downloads folder chosen that overlaps a source's, as cleanup could then take a download's own record for a copy held elsewhere and delete the only copy.
 * Show Sync Activity is gone from the apps; each sync's exchanges that changed something are logged instead (`sync`, in Console). A device's push is noticed by the library's data version, and `cq_served` and `cq_received` are gone.

@@ -98,6 +98,28 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
     var seasonName: String? { season.map { $0 == 0 ? "Specials" : $0 >= 1000 ? String($0) : "Season \($0)" } }
 }
 
+/// A full item key, as the core writes it: its title's key (four segments,
+/// `t/s/<name>/<year>`), then the item's (`v/-`; `e/s03e17`, `e/s2024e0312`
+/// dated, `e/s00-<title>` a special, each perhaps with `/v/…` and `/p/<n>`).
+nonisolated struct ItemKey {
+    let title: String
+    /// The item's key within its title, as `TitleDetail.Item.key`.
+    let item: String
+    /// An episode's season (a dated one's, its year; a special's, 0).
+    let season: Int?
+
+    init?(_ key: String) {
+        let parts = key.split(separator: "/", maxSplits: 4, omittingEmptySubsequences: false)
+        guard parts.count == 5 else { return nil }
+        title = parts[0..<4].joined(separator: "/")
+        item = String(parts[4])
+        season = item.hasPrefix("e/s") ? Int(item.dropFirst(3).prefix(while: \.isNumber)) : nil
+    }
+
+    /// Its tile's ID: its title's key, or its season's (`<title>#<season>`).
+    var tile: String { season.map { "\(title)#\($0)" } ?? title }
+}
+
 /// One title in full: its metadata, covers, items, and where each copy is.
 struct TitleDetail: Codable {
     struct Copy: Codable, Hashable {
