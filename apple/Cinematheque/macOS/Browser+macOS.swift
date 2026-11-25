@@ -428,7 +428,7 @@ struct Browser: View {
     /// rather than asking its name in an alert.
     private func newList(adding keys: [String]) {
         guard let id = makeList() else { return }
-        for key in keys { library.setListed(key, on: id, true) }
+        for key in keys { library.addToList(key, id) }
         renaming = id
     }
 

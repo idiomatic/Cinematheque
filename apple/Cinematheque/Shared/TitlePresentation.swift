@@ -462,7 +462,7 @@ struct ListToggles: View {
 
     var body: some View {
         ForEach(library.myLists) { list in
-            Toggle(list.name, isOn: Binding(get: { list.titles.contains(key) }, set: { library.setListed(key, on: list.id, $0) }))
+            Toggle(list.name, isOn: Binding(get: { list.titles.contains(key) }, set: { $0 ? library.addToList(key, list.id) : library.removeFromList(key, list.id) }))
         }
         Divider()
         Button("New List…") { library.listPrompt = .init(kind: .create(adding: [key])) }
@@ -528,7 +528,7 @@ struct ListRequests: ViewModifier {
         guard let prompt = library.listPrompt, !named.isEmpty else { return }
         switch prompt.kind {
         case .create(let keys):
-            if let id = library.createList(named: named) { for key in keys { library.setListed(key, on: id, true) } }
+            if let id = library.createList(named: named) { for key in keys { library.addToList(key, id) } }
         case .rename(let list):
             library.renameList(list.id, to: named)
         }

@@ -82,8 +82,11 @@ extension Library {
         changed()
     }
 
-    /// Puts `key` on the list `id`, or takes it off.
-    func setListed(_ key: String, on id: String, _ on: Bool) { changeLists { on ? cq_list_add_title($0, id, key) : cq_list_remove_title($0, id, key) } }
+    /// Puts `key` on the list `id`.
+    func addToList(_ key: String, _ id: String) { changeLists { cq_list_add_title($0, id, key) } }
+
+    /// Takes `key` off the list `id`.
+    func removeFromList(_ key: String, _ id: String) { changeLists { cq_list_remove_title($0, id, key) } }
 
     /// The placeholder keyed `key`, on whichever list, if any.
     func wanted(_ key: String) -> UserList.Wanted? {
