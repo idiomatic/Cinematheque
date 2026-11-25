@@ -4,8 +4,8 @@ import SwiftUI
 extension FocusedValues {
     /// Focuses the library window's search, as Edit › Find does.
     @Entry var find: WindowAction?
-    /// The library window's shelf's order, as View › Sort By sets it.
-    @Entry var shelfOrder: Binding<ShelfOrder>?
+    /// The library window's shelf and its order, as View › Sort By sets it.
+    @Entry var shelfOrder: (shelf: Shelf, order: Binding<ShelfOrder>)?
     /// Whether the library window's inspector is shown, as View › Show
     /// Inspector sets it.
     @Entry var inspecting: Binding<Bool>?
@@ -93,44 +93,13 @@ struct InspectorCommand: View {
 /// View › Sort By: the shown shelf's order (Title, Release Date, Date
 /// Added, Date Modified, Date Watched), then its direction, as Finder's.
 struct SortCommand: View {
-    @FocusedValue(\.shelfOrder) private var order
+    @FocusedValue(\.shelfOrder) private var sorting
 
     var body: some View {
         Menu("Sort By") {
-            if let order {
-                Picker("Sort By", selection: Binding(get: { order.wrappedValue.by }, set: { order.wrappedValue = .init(by: $0) })) {
-                    ForEach(ShelfOrder.By.allCases) { Text($0.name).tag($0) }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                Divider()
-                let names = order.wrappedValue.by.directions
-                Picker("Direction", selection: order.reversed) {
-                    Text(names.0).tag(false)
-                    Text(names.1).tag(true)
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
+            if let sorting { SortPickers(shelf: sorting.shelf, order: sorting.order) }
         }
-        .disabled(order == nil)
-    }
-}
-
-/// Each shelf's order, once chosen, kept as JSON (`@AppStorage` keeps
-/// strings).
-struct ShelfOrders: RawRepresentable {
-    var byShelf: [String: ShelfOrder] = [:]
-
-    init() {}
-    init?(rawValue: String) {
-        byShelf = (try? JSONDecoder().decode([String: ShelfOrder].self, from: Data(rawValue.utf8))) ?? [:]
-    }
-    var rawValue: String { String(decoding: (try? JSONEncoder().encode(byShelf)) ?? Data("{}".utf8), as: UTF8.self) }
-
-    subscript(shelf: Shelf) -> ShelfOrder {
-        get { byShelf[shelf.rawValue] ?? shelf.defaultOrder }
-        set { byShelf[shelf.rawValue] = newValue }
+        .disabled(sorting == nil)
     }
 }
 
@@ -321,7 +290,7 @@ struct Browser: View {
                     newList(adding: keys)
                 }
                 .focusedSceneValue(\.shownList, shownList)
-                .focusedSceneValue(\.shelfOrder, $orders[shelf ?? .inProgress])
+                .focusedSceneValue(\.shelfOrder, (shelf ?? .inProgress, $orders[shelf ?? .inProgress]))
                 .focusedSceneValue(\.inspecting, $inspecting)
                 .focusedSceneValue(\.showsSeries, shelf == .series)
                 // A shelf's own action, then search, over the grid; and the

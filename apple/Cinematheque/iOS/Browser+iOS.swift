@@ -3,33 +3,34 @@ import SwiftUI
 
 /// The iPhone's tab bar, within thumbs' reach: Home, Movies, Series, Lists,
 /// and Search, each a navigation stack opening titles' pages: a movie's, or
-/// a season's; a series' tile, its seasons first. Settings is from Home's
-/// corner (see Settings+iOS.swift).
+/// a season's; a series' tile, its seasons first. Watched is from Home's
+/// top, Settings from its corner (see Settings+iOS.swift).
 struct Browser: View {
-    @Environment(Library.self) private var library
-    @State private var tab = "home"
+    /// The tab bar's shelves, before Search.
+    static let shelves: [Shelf] = [.home, .movies, .series, .lists]
+
+    private enum Tab: Hashable {
+        case shelf(Shelf), search
+    }
+
+    @State private var tab = Tab.shelf(.home)
 
     var body: some View {
         TabView(selection: $tab) {
-            Tab("Home", systemImage: Shelf.home.symbol, value: "home") {
-                Stack { HomeView() }
+            ForEach(Self.shelves) { shelf in
+                SwiftUI.Tab(shelf.title, systemImage: shelf.symbol, value: Tab.shelf(shelf)) {
+                    Stack { ShelfPage(shelf: shelf) }
+                }
             }
-            Tab("Movies", systemImage: Shelf.movies.symbol, value: "movies") {
-                Stack { ShelfGrid(shelf: .movies) }
-            }
-            Tab("Series", systemImage: Shelf.series.symbol, value: "series") {
-                Stack { ShelfGrid(shelf: .series) }
-            }
-            Tab("Lists", systemImage: Shelf.lists.symbol, value: "lists") {
-                Stack { ListsView() }
-            }
-            Tab(value: "search", role: .search) {
+            SwiftUI.Tab(value: Tab.search, role: .search) {
                 Stack { SearchView() }
             }
         }
         #if DEBUG
         // Settings is Home's sheet, not a tab.
-        .onAppear { if let name = Launch.tab, name != "settings" { tab = name } }
+        .onAppear {
+            if Launch.tab == "search" { tab = .search } else if let shelf = Launch.tab.flatMap(Shelf.init(rawValue:)), Self.shelves.contains(shelf) { tab = .shelf(shelf) }
+        }
         #endif
     }
 }
@@ -56,13 +57,8 @@ private struct TileLink<Label: View>: View {
     }
 }
 
-/// A list's whole page: what See All opens.
-struct ListOf: Hashable {
-    let id: String
-}
-
 /// A tab's navigation stack, opening a movie's page, a season's, a
-/// series' seasons, or a list's page.
+/// series' seasons, or a shelf's page (Watched, or a list's).
 private struct Stack<Content: View>: View {
     @ViewBuilder let content: Content
     @Environment(Library.self) private var library
@@ -75,7 +71,7 @@ private struct Stack<Content: View>: View {
                     TitlePage(tile: tile)
                 }
                 .navigationDestination(for: SeasonsOf.self) { SeasonsPage(key: $0.key) }
-                .navigationDestination(for: ListOf.self) { ListPage(id: $0.id) }
+                .navigationDestination(for: Shelf.self) { ShelfPage(shelf: $0) }
         }
         #if DEBUG
         // A season's page, or a series' seasons, once the title's there.
@@ -93,8 +89,26 @@ private struct Stack<Content: View>: View {
     }
 }
 
-/// Rows of what to watch: Continue Watching, then each list, each with
-/// See All, as iOS's own apps' rows have; Settings in its corner.
+/// A shelf's page: Home, every list's row, a list's grid, or its covers
+/// in a grid.
+private struct ShelfPage: View {
+    let shelf: Shelf
+
+    var body: some View {
+        switch shelf {
+        case .home: HomeView()
+        case .lists: ListsView()
+        case .list(let id): ListPage(id: id)
+        default: ShelfGrid(shelf: shelf).navigationTitle(shelf.title)
+        }
+    }
+}
+
+/// Watched, a link at the top, as the web client's narrow layout and
+/// Music's library have their shelves, so it's reached without scrolling
+/// past every row; then rows of what to watch: Continue Watching, then each
+/// list, each with See All, as iOS's own apps' rows have; Settings in its
+/// corner.
 private struct HomeView: View {
     @Environment(Library.self) private var library
     @State private var settings = false
@@ -103,16 +117,25 @@ private struct HomeView: View {
         let rows = library.homeRows
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
+                NavigationLink(value: Shelf.watched) {
+                    HStack {
+                        Label(Shelf.watched.title, systemImage: Shelf.watched.symbol)
+                        Spacer()
+                        Image(systemName: "chevron.forward").foregroundStyle(.tertiary)
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal)
+                if rows.isEmpty {
+                    ContentUnavailableView("Nothing in Progress", systemImage: "play.rectangle", description: Text(Shelf.home.empty))
+                }
                 ForEach(rows) { Carousel(title: $0.title, tiles: $0.tiles, list: $0.list?.id, shared: $0.list?.isShared ?? false) }
             }
             .padding(.vertical)
         }
-        .overlay {
-            if rows.isEmpty {
-                ContentUnavailableView("Nothing in Progress", systemImage: "play.rectangle", description: Text(Shelf.home.empty))
-            }
-        }
-        .navigationTitle("Home")
+        .navigationTitle(Shelf.home.title)
         .toolbar {
             Button("Settings", systemImage: "gearshape") { settings = true }
         }
@@ -142,7 +165,7 @@ private struct Carousel: View {
                 }
                 Spacer()
                 if let list {
-                    NavigationLink(value: ListOf(id: list)) {
+                    NavigationLink(value: Shelf.list(list)) {
                         Text("See All \(tiles.count)")
                     }
                     .font(.subheadline)
@@ -220,13 +243,15 @@ private struct PosterName: View {
     }
 }
 
-/// A shelf's covers in a grid: Movies', or Series', a cover per series.
+/// A shelf's covers in a grid, in its order, chosen from its Sort menu in
+/// the navigation bar: Series' a cover per series.
 private struct ShelfGrid: View {
     let shelf: Shelf
     @Environment(Library.self) private var library
+    @AppStorage("orders") private var orders = ShelfOrders()
 
     var body: some View {
-        let tiles = shelf.tiles(in: library)
+        let tiles = shelf.tiles(in: library, order: orders[shelf])
         Group {
             if shelf == .series {
                 JustifiedGrid(tiles: library.perTitle(tiles), empty: shelf.empty)
@@ -234,7 +259,7 @@ private struct ShelfGrid: View {
                 CoverGrid(tiles: tiles, empty: shelf.empty)
             }
         }
-        .navigationTitle(shelf.title)
+        .toolbar { SortMenu(shelf: shelf) }
     }
 }
 
@@ -454,7 +479,7 @@ private struct ListPage: View {
     var body: some View {
         let shelf = Shelf.list(id)
         let list = library.lists.first { $0.id == id }
-        let grid = CoverGrid(tiles: shelf.tiles(in: library), empty: shelf.empty)
+        let grid = ShelfGrid(shelf: shelf)
             .onChange(of: list == nil) { _, gone in
                 if gone { dismiss() }
             }

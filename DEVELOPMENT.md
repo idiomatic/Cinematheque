@@ -37,7 +37,7 @@ How work keeps the code from growing faster than it earns; soften these where th
   * **Where from:** an address to fetch.
   * **Status:** the companion's last word ("On hold, 3rd in line"), in its own field, shown under Not in library.
   * **Matching:** a companion making the file names it from the placeholder's key (see [the guide](docs/guide.md#naming)); one that only watches relies on the usual match.
-* **Sorting** (built on the Mac and web client): choosing an order on the Apple TV; for Date Added, files' creation times from this app's own server (in its `INDEX` and listings), better than modification times on a first crawl.
+* **Date Added by creation time:** files' creation times from this app's own server (in its `INDEX` and listings), better than modification times on a first crawl.
 * **Showing it in the README** (hero, row of four, and loop built; see [tools/README.md](tools/README.md#screenshots)), always on the mock library, never anyone's own:
   * **Sanctuary Moon at length:** 397+ episodes (now three seasons and a special), so lists look lived in; about 50 MB and an FFmpeg run each, as each file carries its tags.
   * **Decided:** screenshots committed with the README; dark first, light too, by `<picture>` and `prefers-color-scheme`; the hero scripted at a person's pace, so it looks used, not staged.
@@ -46,7 +46,7 @@ How work keeps the code from growing faster than it earns; soften these where th
 * **One structure, each platform's chrome** (mostly built): sketches, interpretations rather than mockups, are [the four](docs/design/home.svg), flows for [Apple TV](docs/design/flow-tvos.svg), [Mac](docs/design/flow-mac.svg), [web](docs/design/flow-web.svg), and [iPhone](docs/design/flow-iphone.svg), and [covers' shapes](docs/design/tiles.svg); their worded buttons become symbols with tooltips, but Settings'. Left:
   * **Apple TV:** a Top Shelf title pushed like any page rather than presented over the app (to try on a device); focus starting on Continue Watching's first cover (in the simulator, `defaultFocus` and `prefersDefaultFocus` were passed over).
   * **Mac:** Open in New Window for a title (context menu, Option-click); every action reachable by a button or the menu bar (to check). An idea: forgetting each finished title a week after it's watched, in place of Forget Watched…, if bulk forgetting proves its only use.
-  * **iPhone:** its own setup (by code, as the Apple TV's), sorting from a shelf's navigation bar, downloading, and checking on a device.
+  * **iPhone:** its own setup (by code, as the Apple TV's), downloading, and checking on a device.
   * **Open:** acting on several titles at once (see [Bulk actions](#players)).
 * **Nothing only in a context menu:** review the Mac, Apple TV, and web client so every feature (a list's renaming, sharing, and deleting; Lists on a tile; marking watched; downloads) has another way in; context menus stay as shortcuts.
 * **Quality from the file itself:** a file whose name, folders, and source say nothing is Other; describing already reads `moov`, whose video track gives resolution, codec, and color. As quality is part of a copy's key, learning it on describing means re-keying the copy (or a range read per file at crawl time), and every device must name it alike from the same bytes.

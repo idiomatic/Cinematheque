@@ -248,6 +248,10 @@ struct ListActions: View {
         } else {
             Button("Share…", systemImage: "person.2") { library.sharingList = list }
         }
+        // In a menu, apart from the rest; on the Apple TV, a row of buttons.
+        #if !os(tvOS)
+        Divider()
+        #endif
         Button("Delete List…", systemImage: "trash", role: .destructive) { library.deletingList = list }
     }
 }

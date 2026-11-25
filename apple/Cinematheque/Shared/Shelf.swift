@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// The library's shelves, on every platform: what each holds, how it's
 /// searched, and how it's counted. Each platform shows them its own way
@@ -114,6 +114,15 @@ enum Shelf: Identifiable, Hashable, RawRepresentable {
             }
             return on && (search.isEmpty || tile.name.localizedCaseInsensitiveContains(search))
         } + placeholders)
+    }
+
+    /// The orders it may be sorted by: every one, but Home's and Lists',
+    /// which are rows, each in its own order.
+    var orders: [ShelfOrder.By] {
+        switch self {
+        case .home, .lists: []
+        case .movies, .series, .list, .inProgress, .watched, .downloaded: ShelfOrder.By.allCases
+        }
     }
 
     /// What it's sorted by until a person chooses: what's being watched,
@@ -286,6 +295,66 @@ struct ShelfOrder: Codable, Hashable {
         }
     }
 }
+
+/// Each shelf's order, once chosen, kept as JSON (`@AppStorage` keeps
+/// strings) under `orders`, on every platform.
+struct ShelfOrders: RawRepresentable {
+    var byShelf: [String: ShelfOrder] = [:]
+
+    init() {}
+    init?(rawValue: String) {
+        byShelf = (try? JSONDecoder().decode([String: ShelfOrder].self, from: Data(rawValue.utf8))) ?? [:]
+    }
+    var rawValue: String { String(decoding: (try? JSONEncoder().encode(byShelf)) ?? Data("{}".utf8), as: UTF8.self) }
+
+    subscript(shelf: Shelf) -> ShelfOrder {
+        get { byShelf[shelf.rawValue] ?? shelf.defaultOrder }
+        set { byShelf[shelf.rawValue] = newValue }
+    }
+}
+
+/// A shelf's orders, then the direction, as Finder's View › Sort By: a
+/// menu's content (the Mac's View › Sort By, the others' Sort menus).
+struct SortPickers: View {
+    let shelf: Shelf
+    @Binding var order: ShelfOrder
+
+    var body: some View {
+        Picker("Sort By", selection: Binding(get: { order.by }, set: { order = .init(by: $0) })) {
+            ForEach(shelf.orders) { Text($0.name).tag($0) }
+        }
+        .pickerStyle(.inline)
+        .labelsHidden()
+        Divider()
+        let names = order.by.directions
+        Picker("Direction", selection: $order.reversed) {
+            Text(names.0).tag(false)
+            Text(names.1).tag(true)
+        }
+        .pickerStyle(.inline)
+        .labelsHidden()
+    }
+}
+
+#if !os(macOS)
+/// A shelf's Sort menu, named by its order (the Apple TV's at its grid's
+/// top, the iPhone's in its navigation bar), kept per shelf, as the Mac's
+/// View › Sort By; nothing for a shelf of rows.
+struct SortMenu: View {
+    let shelf: Shelf
+    @AppStorage("orders") private var orders = ShelfOrders()
+
+    var body: some View {
+        if !shelf.orders.isEmpty {
+            Menu {
+                SortPickers(shelf: shelf, order: $orders[shelf])
+            } label: {
+                Label("Sort By " + orders[shelf].by.name, systemImage: "arrow.up.arrow.down")
+            }
+        }
+    }
+}
+#endif
 
 extension Array where Element == Tile {
     /// In `order`, a series' seasons together, by number; those with no

@@ -6,21 +6,13 @@ import SwiftUI
 /// a page of its seasons first). Back retraces them to the home page, and
 /// from it leaves the app.
 struct Browser: View {
-    /// A section, a page pushed from the home page, in the order its button
-    /// has there.
-    enum Section: String, Hashable, CaseIterable {
-        case movies, series, lists, watched, search, settings
+    /// The shelves' buttons on the home page, in order, then Search's and
+    /// Settings'.
+    static let shelves: [Shelf] = [.movies, .series, .lists, .watched]
 
-        var title: String {
-            switch self {
-            case .movies: Shelf.movies.title
-            case .series: Shelf.series.title
-            case .lists: Shelf.lists.title
-            case .watched: Shelf.watched.title
-            case .search: "Search"
-            case .settings: "Settings"
-            }
-        }
+    /// A page pushed from the home page that isn't a shelf.
+    enum Page: String, Hashable {
+        case search, settings
     }
 
     @Environment(Library.self) private var library
@@ -46,12 +38,17 @@ struct Browser: View {
     var body: some View {
         NavigationStack(path: $path) {
             HomeView()
-                .navigationDestination(for: Section.self) { SectionPage(section: $0) }
+                .navigationDestination(for: Shelf.self) { ShelfPage(shelf: $0) }
+                .navigationDestination(for: Page.self) { page in
+                    switch page {
+                    case .search: SearchView()
+                    case .settings: SettingsView()
+                    }
+                }
                 .navigationDestination(for: Tile.self) { tile in
                     TitlePage(tile: tile, detail: library.detail(tile.key))
                 }
                 .navigationDestination(for: SeriesSeasons.self) { SeasonsView(key: $0.key, detail: library.detail($0.key)) }
-                .navigationDestination(for: ListPageID.self) { ListPage(id: $0.id) }
                 .navigationDestination(for: WantedPageID.self) { WantedPage(key: $0.key) }
         }
         .environment(\.playNow, PlayNow { playing = $0 })
@@ -88,11 +85,12 @@ struct Browser: View {
             if !Task.isCancelled { await TopShelfPublisher.publish(library) }
         }
         #if DEBUG
-        // A section's page (`CINEMATHEQUE_TAB`), then, once the title has
+        // A shelf's page or another (`CINEMATHEQUE_TAB`), then, once the title has
         // arrived (a first launch's sync brings it), a season's page, or a
         // series' seasons (`CINEMATHEQUE_SELECT`).
         .onAppear {
-            if path.isEmpty, let section = Launch.tab.flatMap(Section.init(rawValue:)) { path.append(section) }
+            guard path.isEmpty, let tab = Launch.tab else { return }
+            if let shelf = Shelf(rawValue: tab) { path.append(shelf) } else if let page = Page(rawValue: tab) { path.append(page) }
         }
         .task(id: library.tiles.isEmpty) {
             guard !selected, let id = Launch.selection else { return }
@@ -117,36 +115,49 @@ struct SeriesSeasons: Hashable {
     let key: String
 }
 
-/// A list's whole page, by the list's ID: what its row's heading opens.
-struct ListPageID: Hashable {
-    let id: String
-}
-
 /// A placeholder's page, by its key on its lists.
 struct WantedPageID: Hashable {
     let key: String
 }
 
-/// A section's page: its covers in a grid under its name (a series' each,
-/// opening its seasons), every list's row, search, or settings.
-private struct SectionPage: View {
-    let section: Browser.Section
-    @Environment(Library.self) private var library
+/// A shelf's page: every list's row, a list's grid, or its covers in a
+/// grid (a series' each, opening its seasons).
+private struct ShelfPage: View {
+    let shelf: Shelf
 
     var body: some View {
-        switch section {
-        case .movies:
-            PosterGrid(tiles: Shelf.movies.tiles(in: library), empty: Shelf.movies.empty, heading: section.title)
-        case .series:
-            PosterGrid(tiles: library.perTitle(Shelf.series.tiles(in: library)), empty: Shelf.series.empty, heading: section.title, series: true)
-        case .lists:
-            ListsView()
-        case .watched:
-            PosterGrid(tiles: Shelf.watched.tiles(in: library), empty: Shelf.watched.empty, heading: section.title)
-        case .search:
-            SearchView()
-        case .settings:
-            SettingsView()
+        switch shelf {
+        case .lists: ListsView()
+        case .list(let id): ListPage(id: id)
+        default: ShelfGrid(shelf: shelf) { EmptyView() }
+        }
+    }
+}
+
+/// A shelf's covers in a grid in its order, under its name, with its Sort
+/// menu at the heading's end (its row a focus section, so moving up from
+/// any cover reaches it), and what follows them.
+private struct ShelfGrid<Footer: View>: View {
+    let shelf: Shelf
+    @ViewBuilder var footer: Footer
+    @Environment(Library.self) private var library
+    @AppStorage("orders") private var orders = ShelfOrders()
+
+    var body: some View {
+        let tiles = shelf.tiles(in: library, order: orders[shelf])
+        // Its name as the grid's first line, aligned with the covers and
+        // scrolling away with them: a navigation title stayed at the top,
+        // inset from them.
+        PosterGrid(tiles: shelf == .series ? library.perTitle(tiles) : tiles, empty: shelf.empty, series: shelf == .series) {
+            HStack(spacing: 30) {
+                Text(shelf.name(in: library)).font(.title3.weight(.semibold))
+                Spacer()
+                SortMenu(shelf: shelf)
+            }
+            .focusSection()
+            .padding(.top, 40)
+        } footer: {
+            footer
         }
     }
 }
@@ -178,15 +189,9 @@ private struct HomeView: View {
 private struct Sections: View {
     var body: some View {
         HStack(spacing: 30) {
-            ForEach(Browser.Section.allCases, id: \.self) { section in
-                NavigationLink(value: section) {
-                    switch section {
-                    case .search: Image(systemName: "magnifyingglass").accessibilityLabel(section.title)
-                    case .settings: Image(systemName: "gearshape").accessibilityLabel(section.title)
-                    default: Text(section.title)
-                    }
-                }
-            }
+            ForEach(Browser.shelves) { NavigationLink($0.title, value: $0) }
+            NavigationLink(value: Browser.Page.search) { Image(systemName: "magnifyingglass").accessibilityLabel("Search") }
+            NavigationLink(value: Browser.Page.settings) { Image(systemName: "gearshape").accessibilityLabel("Settings") }
         }
         // Its whole width, so moving up from a row reaches it from any
         // cover.
@@ -222,20 +227,16 @@ private struct ListsView: View {
     }
 }
 
-/// One list, whole, as a shelf's grid, under its name; renaming and
-/// deleting it last, as rare.
+/// One list, whole, as a shelf's grid; renaming and deleting it last, as
+/// rare.
 private struct ListPage: View {
     let id: String
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let shelf = Shelf.list(id)
         let list = library.lists.first { $0.id == id }
-        // Its name as the grid's first line, aligned with the covers and
-        // scrolling away with them: a navigation title stayed at the top,
-        // inset from them.
-        PosterGrid(tiles: shelf.tiles(in: library), empty: shelf.empty, heading: shelf.name(in: library)) {
+        ShelfGrid(shelf: .list(id)) {
             // Another member's is theirs to change.
             if let list, list.isMine {
                 HStack(spacing: 30) {
@@ -286,7 +287,7 @@ private struct Row: View {
             // with a heading that isn't one; its count and chevron grey.
             Group {
                 if let list {
-                    NavigationLink(value: ListPageID(id: list)) {
+                    NavigationLink(value: Shelf.list(list)) {
                         HStack(alignment: .firstTextBaseline, spacing: 16) {
                             heading
                             Text(tiles.count, format: .number).foregroundStyle(.secondary)
@@ -321,26 +322,21 @@ private struct Row: View {
     }
 }
 
-/// Covers in a grid, six to a row.
-struct PosterGrid<Footer: View>: View {
+/// Covers in a grid, six to a row, between a heading and what follows
+/// them, scrolling with them.
+struct PosterGrid<Heading: View, Footer: View>: View {
     let tiles: [Tile]
     var empty = Shelf.movies.empty
-    /// A heading above the covers, and what follows them, scrolling with
-    /// them.
-    var heading: String? = nil
     /// Whether a series' tiles stand for the whole series (opening its
     /// seasons), not a season.
     var series = false
+    @ViewBuilder var heading: Heading
     @ViewBuilder var footer: Footer
 
     var body: some View {
         ScrollView {
-            if let heading {
-                Text(heading)
-                    .font(.title3.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 40)
-            }
+            heading
+                .frame(maxWidth: .infinity, alignment: .leading)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 48, alignment: .top), count: 6), spacing: 60) {
                 ForEach(tiles) { Poster(tile: $0, series: series) }
             }
@@ -350,12 +346,6 @@ struct PosterGrid<Footer: View>: View {
                 .padding(.bottom, 40)
         }
         .nothingHere(tiles, empty)
-    }
-}
-
-extension PosterGrid where Footer == EmptyView {
-    init(tiles: [Tile], empty: String = Shelf.movies.empty, heading: String? = nil, series: Bool = false) {
-        self.init(tiles: tiles, empty: empty, heading: heading, series: series) { EmptyView() }
     }
 }
 
@@ -533,7 +523,7 @@ private struct SearchView: View {
     @State private var text = ""
 
     var body: some View {
-        PosterGrid(tiles: library.search(text), empty: text.isEmpty ? "Search for a movie or series." : "No titles match “\(text)”.", series: true)
+        PosterGrid(tiles: library.search(text), empty: text.isEmpty ? "Search for a movie or series." : "No titles match “\(text)”.", series: true) {} footer: {}
             .searchable(text: $text)
     }
 }
