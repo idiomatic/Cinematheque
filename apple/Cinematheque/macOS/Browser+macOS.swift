@@ -702,6 +702,9 @@ struct CoverGrid: View {
         var seasons: [Tile] = []
         /// The whole grid's, its margins too.
         var height: CGFloat = 0
+        /// What of the room kept at the end for the tallest band no band
+        /// takes, said to be left blank on purpose.
+        var blank: CGFloat = 0
 
         init() {}
 
@@ -729,6 +732,7 @@ struct CoverGrid: View {
             let open = rows.first { $0.band != nil }.map { Self.bandGap + $0.height } ?? 0
             let tallest = most > 1 ? Self.bandGap + Self.bandHeight(most, columns: columns) : 0
             height = rows.isEmpty ? 0 : y - Self.rowSpacing + CoverGrid.margin - open + tallest
+            blank = rows.isEmpty ? 0 : tallest - open
         }
 
         /// A band's: its point, its padding, and its seasons' rows.
@@ -892,6 +896,18 @@ struct CoverGrid: View {
                         .frame(height: row.height, alignment: .topLeading)
                         .background(alignment: .topLeading) { backing(row) }
                         .offset(x: Self.margin, y: row.y)
+                }
+                // The room kept for the tallest band, where none takes it:
+                // said, so it doesn't look like the grid failed to load.
+                if layout.blank >= 120 {
+                    Text("This space is intentionally left blank.")
+                        .font(.callout)
+                        .italic()
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: layout.blank - CoverGrid.margin)
+                        .offset(y: layout.height - layout.blank)
+                        .transition(.opacity)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: layout.height, maxHeight: layout.height, alignment: .topLeading)
