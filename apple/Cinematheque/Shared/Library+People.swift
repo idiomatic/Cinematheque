@@ -56,9 +56,8 @@ extension Library {
         let url = device.url
         let name = device.deviceName ?? "The device"
         let called: (Paired?, String?)? = await apart { handle in
-            guard let text = send(handle, url, code) else { return (nil, String(cString: cq_error())) }
-            defer { cq_free(text) }
-            return (try? JSONDecoder().decode(Paired.self, from: Data(bytes: text, count: strlen(text))), nil)
+            guard let data = coreData(send(handle, url, code)) else { return (nil, String(cString: cq_error())) }
+            return (decoded(Paired.self, data), nil)
         }
         guard let (paired, failure) = called else { return (nil, "The library isn't open.") }
         guard let failure else { return (paired, nil) }
@@ -94,11 +93,7 @@ extension Library {
     func race(_ urls: [URL]) async -> [URL] {
         guard urls.count > 1 else { return urls }
         let strings = urls.map(\.absoluteString)
-        let ordered: [String]? = await apart { handle in
-            guard let out = withCStrings(strings, { cq_race(handle, $0, $1) }) else { return nil }
-            defer { cq_free(out) }
-            return try? JSONDecoder().decode([String].self, from: Data(bytes: out, count: strlen(out)))
-        } ?? nil
+        let ordered = await apart { handle in decoded([String].self, coreData(withCStrings(strings) { cq_race(handle, $0, $1) })) } ?? nil
         return ordered?.compactMap(URL.init(string:)) ?? urls
     }
 
@@ -160,12 +155,7 @@ extension Library {
     /// Devices found nearby (listening for 2 seconds), and any added by
     /// address with the command-line app's.
     func nearby() async -> [NearbyDevice] {
-        let data: Data? = await apart { handle in
-            guard let text = cq_nearby(handle) else { return nil }
-            defer { cq_free(text) }
-            return Data(bytes: text, count: strlen(text))
-        } ?? nil
-        return data.flatMap { try? JSONDecoder().decode([NearbyDevice].self, from: $0) } ?? []
+        decoded([NearbyDevice].self, await apart { coreData(cq_nearby($0)) } ?? nil) ?? []
     }
 
 }

@@ -59,11 +59,7 @@ extension Library {
         syncingQuietly = true
         defer { syncingQuietly = false }
         lastSync = .now
-        let data: Data? = await apart { handle in
-            guard let text = sync(handle) else { return nil }
-            defer { cq_free(text) }
-            return Data(bytes: text, count: strlen(text))
-        } ?? nil
+        let data = await apart { coreData(sync($0)) } ?? nil
         if let data { noteReceived(data) }
         reloadSoon()
         // What's watched, here or elsewhere, moves kept series along.
@@ -74,26 +70,14 @@ extension Library {
     }
 
     func noteReceived(_ data: Data) {
-        struct Result: Decodable {
-            let url: String
-            let name: String?
-            let new: Int
-            let sent: Int?
-            let error: String?
-
-            var device: String {
-                let host = URL(string: url)?.host().map { $0.hasSuffix(".local") ? String($0.dropLast(6)) : $0 }
-                return name ?? host ?? url
-            }
-        }
         lastSync = .now
-        guard let results = try? JSONDecoder().decode([Result].self, from: data) else { return }
+        guard let results = decoded([SyncResult].self, data) else { return }
         if let device = results.first(where: { $0.error == "Removed" }) {
             leave(removedBy: device.device)
             return
         }
-        for r in results where r.error == nil && (r.new > 0 || (r.sent ?? 0) > 0) {
-            Self.syncLog.info("\(r.device, privacy: .public): received \(r.new), sent \(r.sent ?? 0)")
+        for r in results where r.error == nil && ((r.new ?? 0) > 0 || (r.sent ?? 0) > 0) {
+            Self.syncLog.info("\(r.device, privacy: .public): received \(r.new ?? 0), sent \(r.sent ?? 0)")
         }
     }
 

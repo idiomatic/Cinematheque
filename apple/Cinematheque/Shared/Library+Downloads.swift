@@ -292,7 +292,7 @@ extension Library {
     func reconcileSoon() {
         guard let handle, hasLibrary, downloads?.dir != nil, !leavingLibrary else { return }
         guard reconciling == nil else {
-            Task { _ = await apart { if let text = cq_reconcile($0) { cq_free(text) } } }
+            Task { _ = await apart { cq_free(cq_reconcile($0)) } }
             return
         }
         reconciling = Task {
@@ -318,14 +318,13 @@ extension Library {
             }
             // The core's error is the thread's own: read where it failed.
             let (data, failure): (Data?, String?) = await Task.detached {
-                guard let text = cq_reconcile(handle.pointer) else { return (nil, String(cString: cq_error())) }
-                defer { cq_free(text) }
-                return (Data(bytes: text, count: strlen(text)), nil)
+                guard let data = coreData(cq_reconcile(handle.pointer)) else { return (nil, String(cString: cq_error())) }
+                return (data, nil)
             }.value
             watcher.cancel()
             reconciling = nil
             reloadSoon()
-            let result = data.flatMap { try? JSONDecoder().decode(Result.self, from: $0) }
+            let result = decoded(Result.self, data)
             if let result, result.no_room > 0 {
                 reportNoRoom(result.no_room)
             } else if let result, result.failed > 0, let error = result.error {

@@ -158,8 +158,8 @@ final class Library {
         callsApart += 1
         defer { callsApart -= 1 }
         let read: (tiles: [Tile], sorted: [Tile], sources: [Source])? = await Task.detached {
-            guard let tiles = Self.read([Tile].self, handle, { cq_tiles($0) }),
-                  let sources = Self.read([Source].self, handle, { cq_repos($0) })
+            guard let tiles = decoded([Tile].self, coreData(cq_tiles(handle.pointer))),
+                  let sources = decoded([Source].self, coreData(cq_repos(handle.pointer)))
             else { return nil }
             return (tiles, Self.sorted(tiles), sources)
         }.value
@@ -176,13 +176,6 @@ final class Library {
     /// The tiles by title, as the core orders them, then season.
     private nonisolated static func sorted(_ tiles: [Tile]) -> [Tile] {
         tiles.sorted { ($0.order.title, $0.season ?? 0) < ($1.order.title, $1.season ?? 0) }
-    }
-
-    /// A result of the core's, decoded, on any thread.
-    private nonisolated static func read<T: Decodable>(_ type: T.Type, _ handle: Handle, _ body: (OpaquePointer) -> UnsafeMutablePointer<CChar>?) -> T? {
-        guard let text = body(handle.pointer) else { return nil }
-        defer { cq_free(text) }
-        return try? JSONDecoder().decode(T.self, from: Data(bytes: text, count: strlen(text)))
     }
 
     /// Takes what a reload read, assigning only what differs, and reads the
@@ -366,11 +359,7 @@ final class Library {
     /// it's leaving's own, which awaits it.
     private nonisolated static func reachesAny(_ handle: Handle) async -> Bool {
         await Task.detached {
-            guard let text = cq_sync(handle.pointer) else { return false }
-            defer { cq_free(text) }
-            struct Result: Decodable { let error: String? }
-            let results = (try? JSONDecoder().decode([Result].self, from: Data(bytes: text, count: strlen(text)))) ?? []
-            return results.contains { $0.error == nil }
+            (decoded([SyncResult].self, coreData(cq_sync(handle.pointer))) ?? []).contains { $0.error == nil }
         }.value
     }
 
@@ -508,12 +497,9 @@ final class Library {
         // Sources by the names Settings gives them.
         let names = Dictionary(sources.map { ($0.url, folder(of: $0).map { "\($0.name) on this Mac" } ?? $0.displayName) }, uniquingKeysWith: { a, _ in a })
         let (failure, data): (String?, Data?) = await Task.detached {
-            guard let text = body(handle.pointer) else { return ("\(what) failed: \(Library.reason(String(cString: cq_error()))).", nil) }
-            defer { cq_free(text) }
-            let data = Data(bytes: text, count: strlen(text))
-            let results = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
-            let failed = results.compactMap { r in
-                (r["error"] as? String).map { (url: r["url"] as? String ?? "", name: r["name"] as? String ?? names[r["url"] as? String ?? ""], error: $0) }
+            guard let data = coreData(body(handle.pointer)) else { return ("\(what) failed: \(Library.reason(String(cString: cq_error()))).", nil) }
+            let failed = (decoded([SyncResult].self, data) ?? []).compactMap { r in
+                r.error.map { (url: r.url, name: r.name ?? names[r.url], error: $0) }
             }.filter { !unreported.contains($0.error) }
             return (Library.describe(failed, what), data)
         }.value
@@ -574,18 +560,47 @@ final class Library {
 
     func decode<T: Decodable>(_ type: T.Type, _ body: (OpaquePointer) -> UnsafeMutablePointer<CChar>?) -> T? {
         guard let handle else { return nil }
-        guard let text = body(handle.pointer) else {
+        guard let data = coreData(body(handle.pointer)) else {
             report(.read, "Couldn't read the library: \(Self.reason(String(cString: cq_error()))).")
             return nil
         }
-        defer { cq_free(text) }
         // A read that works clears one that didn't.
         report(.read, nil)
-        return try? JSONDecoder().decode(T.self, from: Data(bytes: text, count: strlen(text)))
+        return decoded(T.self, data)
     }
 
     isolated deinit {
         if let handle { cq_close(handle.pointer) }
+    }
+}
+
+/// A string the core returned, as data, freed; nil if it returned none
+/// (its error, then, is the calling thread's `cq_error`).
+nonisolated func coreData(_ text: UnsafeMutablePointer<CChar>?) -> Data? {
+    guard let text else { return nil }
+    defer { cq_free(text) }
+    return Data(bytes: text, count: strlen(text))
+}
+
+/// JSON the core returned, decoded; nil if there's none, or it doesn't read.
+nonisolated func decoded<T: Decodable>(_ type: T.Type, _ data: Data?) -> T? {
+    data.flatMap { try? JSONDecoder().decode(T.self, from: $0) }
+}
+
+/// A device's or source's result of a sync or crawl (`cq_sync`, `cq_crawl`):
+/// operations received and sent, or why it failed.
+nonisolated struct SyncResult: Decodable {
+    let url: String
+    /// The device as it advertised itself, if it did.
+    let name: String?
+    let new: Int?
+    let sent: Int?
+    let error: String?
+
+    /// The device, as a person calls it: as it advertised itself, else its
+    /// host, but `.local`.
+    var device: String {
+        name ?? URL(string: url)?.host().map { $0.hasSuffix(".local") ? String($0.dropLast(6)) : $0 } ?? url
     }
 }
 

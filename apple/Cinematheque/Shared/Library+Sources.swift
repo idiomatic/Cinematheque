@@ -144,7 +144,7 @@ extension Library {
     /// gone), then reads back, and fetches what waited on it.
     private func crawlQuietly(_ source: String) async {
         guard hasLibrary else { return }
-        await apart { if let text = cq_crawl_source($0, source) { cq_free(text) } }
+        await apart { cq_free(cq_crawl_source($0, source)) }
         reloadSoon()
         #if os(macOS)
         reconcileSoon()
@@ -158,7 +158,7 @@ extension Library {
         guard loadedFoldersKey != foldersKey else { return }
         loadedFoldersKey = foldersKey
         let data = UserDefaults.standard.data(forKey: foldersKey)
-        folders = data.flatMap { try? JSONDecoder().decode([Folder].self, from: $0) } ?? []
+        folders = decoded([Folder].self, data) ?? []
     }
 
     private func saveFolders() {
@@ -406,7 +406,7 @@ extension Library {
             let skipped: Skipped?
         }
         enum Skipped: String, Decodable { case lately, manual, downloads, away }
-        guard let sources = try? JSONDecoder().decode([Crawled].self, from: data) else { return }
+        guard let sources = decoded([Crawled].self, data) else { return }
         // Those skipped (crawled lately, only on Refresh Library, a
         // device's downloads, or a device's folder whose device hasn't said
         // where it serves) aren't worth a line each.

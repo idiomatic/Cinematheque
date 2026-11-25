@@ -74,12 +74,16 @@ extension Library {
         myLists.filter { $0.titles.contains(key) }
     }
 
-    /// Puts `key` on the list `id`, or takes it off.
-    func setListed(_ key: String, on id: String, _ on: Bool) {
-        check { on ? cq_list_add_title($0, id, key) : cq_list_remove_title($0, id, key) }
+    /// Changes this person's lists by `body`, then reads them back and
+    /// syncs.
+    private func changeLists(_ body: @escaping (OpaquePointer) -> Int32) {
+        check(body)
         readLists()
         changed()
     }
+
+    /// Puts `key` on the list `id`, or takes it off.
+    func setListed(_ key: String, on id: String, _ on: Bool) { changeLists { on ? cq_list_add_title($0, id, key) : cq_list_remove_title($0, id, key) } }
 
     /// The placeholder keyed `key`, on whichever list, if any.
     func wanted(_ key: String) -> UserList.Wanted? {
@@ -88,18 +92,10 @@ extension Library {
     }
 
     /// Shares a list of this person's with everyone in the library.
-    func shareList(_ id: String) {
-        check { cq_list_share($0, id) }
-        readLists()
-        changed()
-    }
+    func shareList(_ id: String) { changeLists { cq_list_share($0, id) } }
 
     /// Makes a shared list of this person's theirs alone again.
-    func stopSharingList(_ id: String) {
-        check { cq_list_stop_sharing($0, id) }
-        readLists()
-        changed()
-    }
+    func stopSharingList(_ id: String) { changeLists { cq_list_stop_sharing($0, id) } }
 
     /// Makes a list, returning its ID.
     @discardableResult
@@ -110,18 +106,10 @@ extension Library {
         return id
     }
 
-    func renameList(_ id: String, to name: String) {
-        check { cq_list_rename($0, id, name) }
-        readLists()
-        changed()
-    }
+    func renameList(_ id: String, to name: String) { changeLists { cq_list_rename($0, id, name) } }
 
     /// Deletes a list, for good; its titles stay in the library.
-    func removeList(_ id: String) {
-        check { cq_list_remove($0, id) }
-        readLists()
-        changed()
-    }
+    func removeList(_ id: String) { changeLists { cq_list_remove($0, id) } }
 
     /// Which titles a crawl should describe first: those on screen.
     func prioritize(_ titleKeys: Set<String>) {

@@ -93,9 +93,7 @@ struct CinemathequeApp: App {
     /// "v0.1-3-ga9eea2d1b2c3, safe".
     private static var build: String {
         struct Version: Decodable { let revision: String; let mode: String }
-        guard let text = cq_version() else { return "" }
-        defer { cq_free(text) }
-        guard let v = try? JSONDecoder().decode(Version.self, from: Data(bytes: text, count: strlen(text))) else { return "" }
+        guard let v = decoded(Version.self, coreData(cq_version())) else { return "" }
         return "\(v.revision), \(v.mode)"
     }
     #endif
