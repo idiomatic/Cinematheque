@@ -55,7 +55,7 @@ pub const File = struct {
 /// nearest at or below its resolution, else above), else of the quality
 /// most of them have, so a season comes alike.
 pub fn plan(replica: *Replica, arena: std.mem.Allocator, key: []const u8, quality: ?[]const u8) ![]File {
-    const title_end = titleEnd(key) orelse return error.NotFound;
+    const title_end = library.prefixSegments(key, 4) orelse return error.NotFound;
     const planner = try Planner.init(replica, arena, key[0..title_end]) orelse return error.NotFound;
     return planner.files(arena, if (title_end < key.len) key[title_end + 1 ..] else "", quality);
 }
@@ -150,16 +150,6 @@ fn nearest(qualities: []const library.Quality, label: []const u8) ?library.Quali
         } else if (above == null or h < views.height(above.?.label, above.?.label).?) above = q;
     }
     return below orelse above;
-}
-
-/// Where a title's key ends within `key` (its first four segments).
-fn titleEnd(key: []const u8) ?usize {
-    var slashes: usize = 0;
-    for (key, 0..) |ch, i| if (ch == '/') {
-        slashes += 1;
-        if (slashes == 4) return i;
-    };
-    return if (slashes == 3) key.len else null;
 }
 
 /// Whether an item's key (below its title's) is `below`, or within it: a
@@ -556,7 +546,7 @@ pub fn finishedWith(replica: *Replica, arena: std.mem.Allocator, source: library
     var out: std.ArrayList(Held) = .empty;
     for (try held(replica, arena, source)) |h| {
         if (try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ want_prefix, h.item })) != null) continue;
-        if (titleEnd(h.item)) |end| if (all.contains(h.item[0..end])) continue;
+        if (library.prefixSegments(h.item, 4)) |end| if (all.contains(h.item[0..end])) continue;
         const at = std.fmt.parseInt(u64, try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ at_prefix, h.item })) orelse "0", 10) catch 0;
         const watched_ms = try watchedAt(replica, arena, h.item) orelse continue;
         if (watched_ms <= at or !try confirmed(replica, sources, &unavailable, h)) continue;
@@ -696,12 +686,11 @@ pub fn held(replica: *Replica, arena: std.mem.Allocator, source: library.Source)
     while (try s.step()) {
         const key = try arena.dupe(u8, s.blob(0));
         const r = std.mem.lastIndexOf(u8, key, "/r/") orelse continue;
-        var parts = std.mem.splitScalar(u8, s.blob(1), '\t');
+        const copy = library.CopyValue.parse(s.blob(1));
         // A path comes from whichever member's device wrote it.
-        const first = parts.first();
-        if (!safe(first)) continue;
-        const path = try arena.dupe(u8, first);
-        const size = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
+        if (!safe(copy.path)) continue;
+        const path = try arena.dupe(u8, copy.path);
+        const size = copy.size orelse 0;
         if (size > max_size) continue;
         try out.append(arena, .{ .key = key, .item = key[0..r], .path = path, .size = size });
     }
@@ -720,9 +709,7 @@ pub fn confirmed(replica: *Replica, sources: []const library.Source, unavailable
             if (std.mem.eql(u8, &rp.id, source_id)) break rp;
         } else continue;
         if (source.managed or unavailable.has(source_id, s.blob(1))) continue;
-        var parts = std.mem.splitScalar(u8, s.blob(1), '\t');
-        _ = parts.first();
-        if ((std.fmt.parseInt(u64, parts.next() orelse "", 10) catch continue) == h.size) return true;
+        if ((library.CopyValue.parse(s.blob(1)).size orelse continue) == h.size) return true;
     }
     return false;
 }
@@ -1195,7 +1182,7 @@ fn away(err: anyerror) bool {
 /// its series' next episodes.
 fn stillWanted(replica: *Replica, arena: std.mem.Allocator, item: []const u8) !bool {
     if (try replica.local(arena, try std.fmt.allocPrint(arena, "{s}{s}", .{ want_prefix, item })) != null) return true;
-    const title_end = titleEnd(item) orelse return false;
+    const title_end = library.prefixSegments(item, 4) orelse return false;
     for (try nexts(replica, arena)) |n| {
         if (!std.mem.eql(u8, n.title, item[0..title_end])) continue;
         for (try ahead(replica, arena, n.title, n.choice)) |below| {
@@ -1217,15 +1204,25 @@ fn locked(writer: ?*Io.Mutex, io: Io, replica: *Replica, wall_ms: u64, key: []co
 
 /// Deletes a download, and forgets wanting and fetching it.
 fn delete(io: Io, arena: std.mem.Allocator, dir: Io.Dir, replica: *Replica, writer: ?*Io.Mutex, wall_ms: u64, source: library.Source, h: Held, out: *Reconciled) !void {
-    if (!safe(h.path)) return error.UnsafePath;
-    dir.deleteFile(io, h.path) catch |err| switch (err) {
+    try deleteFile(io, dir, h.path);
+    try locked(writer, io, replica, wall_ms, h.key, source, "");
+    try forget(arena, replica, h.item);
+    out.deleted += 1;
+}
+
+/// Deletes a download's file, if it's there.
+fn deleteFile(io: Io, dir: Io.Dir, path: []const u8) !void {
+    if (!safe(path)) return error.UnsafePath;
+    dir.deleteFile(io, path) catch |err| switch (err) {
         error.FileNotFound => {},
         else => |e| return e,
     };
-    try locked(writer, io, replica, wall_ms, h.key, source, "");
+}
+
+/// Forgets wanting and fetching an item.
+fn forget(arena: std.mem.Allocator, replica: *Replica, item: []const u8) !void {
     for ([_][]const u8{ want_prefix, at_prefix, file_prefix }) |prefix|
-        try replica.removeLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, h.item }));
-    out.deleted += 1;
+        try replica.removeLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, item }));
 }
 
 /// Stops downloading a title's, season's, or item's files: deletes those this
@@ -1236,7 +1233,7 @@ pub fn remove(io: Io, arena: std.mem.Allocator, replica: *Replica, writer: ?*Io.
     const s = try settings(replica, arena) orelse return error.NoDownloads;
     var dir = try Io.Dir.cwd().openDir(io, s.dir, .{});
     defer dir.close(io);
-    const title_end = titleEnd(key) orelse return error.NotFound;
+    const title_end = library.prefixSegments(key, 4) orelse return error.NotFound;
     const below = if (title_end < key.len) key[title_end + 1 ..] else "";
     const exact = if (try library.detail(replica, arena, key[0..title_end])) |d| hasItem(d, below) else false;
     for (try nexts(replica, arena)) |n| {
@@ -1247,32 +1244,27 @@ pub fn remove(io: Io, arena: std.mem.Allocator, replica: *Replica, writer: ?*Io.
             break;
         }
     }
+    // Whether `key` covers an item, by its full key.
+    const scope = struct {
+        title: []const u8,
+        below: []const u8,
+        exact: bool,
+        fn has(sc: @This(), item: []const u8) bool {
+            const t = sc.title;
+            return std.mem.startsWith(u8, item, t) and item.len > t.len and item[t.len] == '/' and covers(item[t.len + 1 ..], sc.below, sc.exact);
+        }
+    }{ .title = key[0..title_end], .below = below, .exact = exact };
     var out: Reconciled = .{};
-    for (try held(replica, arena, s.source)) |h| {
-        if (!std.mem.startsWith(u8, h.item, key[0..title_end]) or h.item.len <= title_end or h.item[title_end] != '/') continue;
-        if (!covers(h.item[title_end + 1 ..], below, exact)) continue;
-        try delete(io, arena, dir, replica, writer, wall_ms, s.source, h, &out);
-    }
+    for (try held(replica, arena, s.source)) |h| if (scope.has(h.item)) try delete(io, arena, dir, replica, writer, wall_ms, s.source, h, &out);
     // Those only its own records know (their shared records gone with a
     // source), deleted too.
-    for (try localFiles(replica, arena)) |f| {
-        if (!std.mem.startsWith(u8, f.item, key[0..title_end]) or f.item.len <= title_end or f.item[title_end] != '/') continue;
-        if (!covers(f.item[title_end + 1 ..], below, exact)) continue;
-        if (!safe(f.path)) return error.UnsafePath;
-        dir.deleteFile(io, f.path) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return e,
-        };
-        for ([_][]const u8{ want_prefix, at_prefix, file_prefix }) |prefix|
-            try replica.removeLocal(try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, f.item }));
+    for (try localFiles(replica, arena)) |f| if (scope.has(f.item)) {
+        try deleteFile(io, dir, f.path);
+        try forget(arena, replica, f.item);
         out.deleted += 1;
-    }
+    };
     // Wanted but not yet fetched, too.
-    for (try replica.localKeys(arena, want_prefix)) |k| {
-        const wanted = k[want_prefix.len..];
-        if (!std.mem.startsWith(u8, wanted, key[0..title_end]) or wanted.len <= title_end or wanted[title_end] != '/') continue;
-        if (covers(wanted[title_end + 1 ..], below, exact)) try replica.removeLocal(k);
-    }
+    for (try replica.localKeys(arena, want_prefix)) |k| if (scope.has(k[want_prefix.len..])) try replica.removeLocal(k);
     return out.deleted;
 }
 

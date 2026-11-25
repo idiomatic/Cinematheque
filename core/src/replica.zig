@@ -331,17 +331,7 @@ pub const Replica = struct {
         const first = replica.private_seq + 1;
         for (fields) |f| {
             replica.private_seq += 1;
-            const op: Op = .{
-                .library = replica.library,
-                .device = replica.private_pair.public_key.toBytes(),
-                .seq = replica.private_seq,
-                .hlc = replica.hlc.tick(wall_ms),
-                .kind = .lww,
-                .key = key,
-                .field = f[0],
-                .value = f[1],
-            };
-            try op.encode(replica.gpa, &replica.body);
+            const op = try replica.encodeOwn(replica.private_pair.public_key.toBytes(), replica.private_seq, wall_ms, .lww, key, f[0], f[1]);
             try leaves.append(replica.gpa, merkle.leaf(replica.body.items));
             _ = try replica.merge(op, replica.private_own);
         }
@@ -574,23 +564,14 @@ pub const Replica = struct {
         var arena_state = std.heap.ArenaAllocator.init(replica.gpa);
         defer arena_state.deinit();
         const arena = arena_state.allocator();
-        // Its private streams, whose certificates it wrote, where they are.
-        var private: std.ArrayList(struct { stream: Device, seq: u64 }) = .empty;
-        {
-            // By the keys' range (`+device`), not the device index, which
-            // for a device that crawled the library is nearly every row.
-            const s = try replica.db.prepare("SELECT key FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private' AND +device = ?1");
-            defer s.finalize();
-            try s.bindInt(1, try replica.deviceId(replica.device()));
-            while (try s.step()) {
-                try private.append(arena, .{ .stream = parseHex(s.blob(0)[2..]) orelse continue, .seq = 0 });
-            }
-        }
-        for (private.items) |*p| p.seq = try replica.seen(try replica.deviceId(p.stream));
+        // Its private streams, where they are.
+        const private = try replica.privateStreams(arena, replica.device());
+        const cuts = try arena.alloc(u64, private.len);
+        for (private, cuts) |p, *s| s.* = try replica.seen(try replica.deviceId(p));
         var seq: [8]u8 = undefined;
-        for (private.items) |p| {
-            std.mem.writeInt(u64, &seq, p.seq, .little);
-            try replica.write(wall_ms, "revoked", &std.fmt.bytesToHex(p.stream, .lower), &seq);
+        for (private, cuts) |p, s| {
+            std.mem.writeInt(u64, &seq, s, .little);
+            try replica.write(wall_ms, "revoked", &std.fmt.bytesToHex(p, .lower), &seq);
         }
         // Its own stream's cut comes last, taking in this write itself.
         std.mem.writeInt(u64, &seq, replica.seq + 1, .little);
@@ -607,22 +588,24 @@ pub const Replica = struct {
         const arena = arena_state.allocator();
         var streams: std.ArrayList(Device) = .empty;
         try streams.append(arena, device_key);
-        // Its private streams, whose certificates it wrote.
-        {
-            // By the keys' range (`+device`), not the device index, which
-            // for a device that crawled the library is nearly every row.
-            const s = try replica.db.prepare("SELECT key FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private' AND +device = ?1");
-            defer s.finalize();
-            try s.bindInt(1, try replica.deviceId(device_key));
-            while (try s.step()) {
-                try streams.append(arena, parseHex(s.blob(0)[2..]) orelse continue);
-            }
-        }
+        try streams.appendSlice(arena, try replica.privateStreams(arena, device_key));
         for (streams.items) |stream| {
             var seq: [8]u8 = undefined;
             std.mem.writeInt(u64, &seq, try replica.seen(try replica.deviceId(stream)), .little);
             try replica.write(wall_ms, "revoked", &std.fmt.bytesToHex(stream, .lower), &seq);
         }
+    }
+
+    /// A device's private streams, whose certificates it wrote.
+    fn privateStreams(replica: *Replica, arena: std.mem.Allocator, device_key: Device) ![]const Device {
+        var out: std.ArrayList(Device) = .empty;
+        // By the keys' range (`+device`), not the device index, which for a
+        // device that crawled the library is nearly every row.
+        const s = try replica.db.prepare("SELECT key FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private' AND +device = ?1");
+        defer s.finalize();
+        try s.bindInt(1, try replica.deviceId(device_key));
+        while (try s.step()) try out.append(arena, parseHex(s.blob(0)[2..]) orelse continue);
+        return out.items;
     }
 
     /// Every stream cut off (removed devices', and their private streams'),
@@ -903,22 +886,20 @@ pub const Replica = struct {
             return replica.commit();
         }
         replica.seq += 1;
-        const op: Op = .{
-            .library = replica.library,
-            .device = replica.device(),
-            .seq = replica.seq,
-            .hlc = replica.hlc.tick(wall_ms),
-            .kind = kind,
-            .key = key,
-            .field = field,
-            .value = value,
-        };
-        try op.encode(replica.gpa, &replica.body);
+        const op = try replica.encodeOwn(replica.device(), replica.seq, wall_ms, kind, key, field, value);
         if (replica.pending.items.len == 0) replica.pending_first = op.seq;
         try replica.pending.append(replica.gpa, merkle.leaf(replica.body.items));
         _ = try replica.merge(op, replica.own);
         try replica.advance(replica.own, op.seq);
         if (!replica.batching or replica.pending.items.len == merkle.max_leaves) try replica.flush();
+    }
+
+    /// An operation of this device's on `stream` (its own, or its private
+    /// one), numbered `seq` and clocked now, its encoding in `body`.
+    fn encodeOwn(replica: *Replica, stream: Device, seq: u64, wall_ms: u64, kind: op_.Kind, key: []const u8, field: []const u8, value: []const u8) !Op {
+        const op: Op = .{ .library = replica.library, .device = stream, .seq = seq, .hlc = replica.hlc.tick(wall_ms), .kind = kind, .key = key, .field = field, .value = value };
+        try op.encode(replica.gpa, &replica.body);
+        return op;
     }
 
     /// Signs pending local writes as one batch.

@@ -341,22 +341,28 @@ pub fn removeSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, w
     const source = try findSource(replica, arena, which);
 
     const field = try std.fmt.allocPrint(arena, "held:{s}", .{source.id});
-    var held: std.ArrayList([]const u8) = .empty;
-    {
-        const s = try replica.db.prepare("SELECT key FROM winners WHERE field = ?1 AND length(value) > 0");
-        defer s.finalize();
-        try s.bindText(1, field);
-        while (try s.step()) try held.append(arena, try arena.dupe(u8, s.blob(0)));
-    }
+    const held = try heldBy(replica, arena, field);
     const key = try std.fmt.allocPrint(arena, "r/{s}", .{source.id});
     try replica.begin();
     errdefer replica.rollback();
-    for (held.items) |k| try replica.write(wall_ms, k, field, "");
+    for (held) |c| try replica.write(wall_ms, c.key, field, "");
     // An empty URL marks the source removed.
     for ([_][]const u8{ "url", "rendition", "skip" }) |f| try replica.write(wall_ms, key, f, "");
     try replica.commit();
     try replica.removeLocal(try snapshotKey(arena, source.id));
-    return held.items.len;
+    return held.len;
+}
+
+const Held = struct { key: []const u8, value: []const u8 };
+
+/// The copies a source holds (`field`, its `held:<id>`), by key.
+fn heldBy(replica: *Replica, arena: std.mem.Allocator, field: []const u8) ![]const Held {
+    var out: std.ArrayList(Held) = .empty;
+    const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND length(value) > 0");
+    defer s.finalize();
+    try s.bindText(1, field);
+    while (try s.step()) try out.append(arena, .{ .key = try arena.dupe(u8, s.blob(0)), .value = try arena.dupe(u8, s.blob(1)) });
+    return out.items;
 }
 
 
@@ -656,12 +662,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
 
     // What the library says the source holds.
     var current: std.StringHashMapUnmanaged([]const u8) = .empty;
-    {
-        const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND length(value) > 0");
-        defer s.finalize();
-        try s.bindText(1, held_field);
-        while (try s.step()) try current.put(arena, try arena.dupe(u8, s.blob(0)), try arena.dupe(u8, s.blob(1)));
-    }
+    for (try heldBy(replica, arena, held_field)) |c| try current.put(arena, c.key, c.value);
 
     // Directories listed now, and those with files beneath.
     var listed: std.StringHashMapUnmanaged(void) = .empty;
@@ -683,7 +684,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
     var unavailable_now: std.StringArrayHashMapUnmanaged(void) = .empty;
     var held = current.valueIterator();
     while (held.next()) |value| {
-        var parents = parentsOf(copyPath(value.*));
+        var parents = parentsOf(CopyValue.parse(value.*).path);
         while (parents.next()) |dir| {
             if (!listed.contains(dir)) break;
             if (with_files.contains(dir)) continue;
@@ -733,7 +734,8 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
     var cur = current.iterator();
     removing: while (cur.next()) |e| {
         if (wanted.contains(e.key_ptr.*)) continue;
-        for (kept.items) |dir| if (under(copyPath(e.value_ptr.*), dir)) continue :removing;
+        const path = CopyValue.parse(e.value_ptr.*).path;
+        for (kept.items) |dir| if (under(path, dir)) continue :removing;
         stats.copies_removed += 1;
         try replica.write(wall_ms, e.key_ptr.*, held_field, "");
     }
@@ -798,7 +800,8 @@ pub const UnavailableDirs = struct {
     /// its source's unavailable directories.
     pub fn has(a: *const UnavailableDirs, source_id: []const u8, value: []const u8) bool {
         const dirs = a.by_repo.get(source_id) orelse return false;
-        for (dirs.items) |dir| if (under(copyPath(value), dir)) return true;
+        const path = CopyValue.parse(value).path;
+        for (dirs.items) |dir| if (under(path, dir)) return true;
         return false;
     }
 };
@@ -809,12 +812,7 @@ pub fn removeUnavailable(replica: *Replica, arena: std.mem.Allocator, wall_ms: u
     const d = std.mem.trim(u8, dir, "/");
     const held_field = try std.fmt.allocPrint(arena, "held:{s}", .{source.id});
     var gone: std.ArrayList([]const u8) = .empty;
-    {
-        const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND length(value) > 0");
-        defer s.finalize();
-        try s.bindText(1, held_field);
-        while (try s.step()) if (under(copyPath(s.blob(1)), d)) try gone.append(arena, try arena.dupe(u8, s.blob(0)));
-    }
+    for (try heldBy(replica, arena, held_field)) |c| if (under(CopyValue.parse(c.value).path, d)) try gone.append(arena, c.key);
     try replica.begin();
     errdefer replica.rollback();
     for (gone.items) |key| try replica.write(wall_ms, key, held_field, "");
@@ -823,10 +821,20 @@ pub fn removeUnavailable(replica: *Replica, arena: std.mem.Allocator, wall_ms: u
     return gone.items.len;
 }
 
-/// A copy's path, before its size and time.
-fn copyPath(value: []const u8) []const u8 {
-    return value[0 .. std.mem.indexOfScalar(u8, value, '\t') orelse value.len];
-}
+/// A copy's value (`held:<source>`): its path, size, and time.
+pub const CopyValue = struct {
+    path: []const u8,
+    /// Null if it isn't a number.
+    size: ?u64,
+    mtime: []const u8,
+
+    pub fn parse(value: []const u8) CopyValue {
+        var parts = std.mem.splitScalar(u8, value, '\t');
+        const path = parts.first();
+        const size = std.fmt.parseInt(u64, parts.next() orelse "", 10) catch null;
+        return .{ .path = path, .size = size, .mtime = parts.rest() };
+    }
+};
 
 /// Whether `path` is within `dir` (empty for the root).
 fn under(path: []const u8, dir: []const u8) bool {
@@ -872,7 +880,8 @@ fn relativeOrNull(arena: std.mem.Allocator, base: []const u8, target: []const u8
     return url.decode(arena.dupe(u8, target[base.len..]) catch return null) catch null;
 }
 
-fn skipped(rel: []const u8, skip: []const u8) bool {
+/// Whether a path's names skip it: any of its segments starting with `skip`.
+pub fn skipped(rel: []const u8, skip: []const u8) bool {
     if (skip.len == 0) return false;
     var segments = std.mem.splitScalar(u8, rel, '/');
     while (segments.next()) |s| if (std.mem.startsWith(u8, s, skip)) return true;
@@ -964,6 +973,8 @@ test "a title's own name isn't taken for what's below it" {
     try std.testing.expectEqual(@as(?usize, null), pastTitle("t/m/v/2010", "/v/"));
 }
 
+/// Where `key`'s first `n` segments end (a title's key, of 4), if it has
+/// that many.
 pub fn prefixSegments(key: []const u8, n: usize) ?usize {
     var count: usize = 0;
     for (key, 0..) |ch, i| if (ch == '/') {
@@ -1004,6 +1015,13 @@ pub const Progress = struct {
     position_ms: u64 = 0,
     duration_ms: u64 = 0,
     watched: bool = false,
+
+    /// Takes one of its stored fields, ignoring any other.
+    fn read(p: *Progress, field: []const u8, value: []const u8) void {
+        if (std.mem.eql(u8, field, "position")) p.position_ms = std.fmt.parseInt(u64, value, 10) catch 0;
+        if (std.mem.eql(u8, field, "duration")) p.duration_ms = std.fmt.parseInt(u64, value, 10) catch 0;
+        if (std.mem.eql(u8, field, "watched")) p.watched = std.mem.eql(u8, value, "1");
+    }
 };
 
 pub fn progressKey(replica: *Replica, arena: std.mem.Allocator, item_key: []const u8) ![]u8 {
@@ -1060,12 +1078,7 @@ pub fn progressOf(replica: *Replica, arena: std.mem.Allocator, title_key: ?[]con
         if (title_key) |k| if (item.len <= k.len or item[k.len] != '/') continue;
         if (out.items.len == 0 or !std.mem.eql(u8, out.items[out.items.len - 1].item, item))
             try out.append(arena, .{ .item = try arena.dupe(u8, item), .progress = .{} });
-        const h = &out.items[out.items.len - 1].progress;
-        const field = s.blob(1);
-        const value = s.blob(2);
-        if (std.mem.eql(u8, field, "position")) h.position_ms = std.fmt.parseInt(u64, value, 10) catch 0;
-        if (std.mem.eql(u8, field, "duration")) h.duration_ms = std.fmt.parseInt(u64, value, 10) catch 0;
-        if (std.mem.eql(u8, field, "watched")) h.watched = std.mem.eql(u8, value, "1");
+        out.items[out.items.len - 1].progress.read(s.blob(1), s.blob(2));
     }
     var kept: std.ArrayList(ItemProgress) = .empty;
     for (out.items) |e| if (e.progress.watched or e.progress.position_ms > 0) try kept.append(arena, e);
@@ -1084,11 +1097,7 @@ fn titleProgress(replica: *Replica, arena: std.mem.Allocator, title_key: []const
         const item = try arena.dupe(u8, s.blob(0)[prefix.len + 1 ..]);
         const gop = try out.getOrPut(arena, item);
         if (!gop.found_existing) gop.value_ptr.* = .{};
-        const field = s.blob(1);
-        const value = s.blob(2);
-        if (std.mem.eql(u8, field, "position")) gop.value_ptr.position_ms = std.fmt.parseInt(u64, value, 10) catch 0;
-        if (std.mem.eql(u8, field, "duration")) gop.value_ptr.duration_ms = std.fmt.parseInt(u64, value, 10) catch 0;
-        if (std.mem.eql(u8, field, "watched")) gop.value_ptr.watched = std.mem.eql(u8, value, "1");
+        gop.value_ptr.read(s.blob(1), s.blob(2));
     }
     return out;
 }
@@ -1143,15 +1152,13 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
         const label = k[r + 3 ..];
         if (item.qualities.items.len == 0 or !std.mem.eql(u8, item.qualities.items[item.qualities.items.len - 1].label, label))
             try item.qualities.append(arena, .{ .label = try arena.dupe(u8, label) });
-        var parts = std.mem.splitScalar(u8, value, '\t');
-        const path = parts.first();
-        const size = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
+        const copy = CopyValue.parse(value);
         const source = field["held:".len..];
         try item.qualities.items[item.qualities.items.len - 1].copies.append(arena, .{
             .source = try arena.dupe(u8, source),
-            .path = try arena.dupe(u8, path),
-            .size = size,
-            .mtime = try arena.dupe(u8, parts.next() orelse ""),
+            .path = try arena.dupe(u8, copy.path),
+            .size = copy.size orelse 0,
+            .mtime = try arena.dupe(u8, copy.mtime),
             .unavailable = unavailable.has(source, value),
         });
     }
@@ -1275,9 +1282,7 @@ pub const Name = struct {
 /// unless it's recorded so already, as a device does as it starts.
 pub fn recordModel(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [32]u8, model: []const u8) !void {
     if (model.len == 0 or model.len > 200) return;
-    const hex = std.fmt.bytesToHex(key, .lower);
-    for (try names(replica, arena)) |n| if (std.mem.eql(u8, n.key, &hex)) if (n.model) |m| if (std.mem.eql(u8, m, model)) return;
-    try replica.write(wall_ms, try std.fmt.allocPrint(arena, "n/{s}", .{hex}), "model", model);
+    try recordOwn(replica, arena, wall_ms, key, "model", model);
 }
 
 /// Records where device `key` serves its own sources now (`Name.served`),
@@ -1285,9 +1290,15 @@ pub fn recordModel(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, ke
 /// one field as its port changes, its sources' addresses unchanged.
 pub fn recordServed(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [32]u8, served: []const u8) !void {
     if (!url.fitForSource(served) or url.device(served) != null or !std.mem.endsWith(u8, served, "/")) return error.BadAddress;
+    try recordOwn(replica, arena, wall_ms, key, "served", served);
+}
+
+/// Writes a field device `key` alone sets of its name's key (`Name`'s
+/// field of that name), unless it's `value` already.
+fn recordOwn(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [32]u8, comptime field: []const u8, value: []const u8) !void {
     const hex = std.fmt.bytesToHex(key, .lower);
-    for (try names(replica, arena)) |n| if (std.mem.eql(u8, n.key, &hex)) if (n.served) |s| if (std.mem.eql(u8, s, served)) return;
-    try replica.write(wall_ms, try std.fmt.allocPrint(arena, "n/{s}", .{hex}), "served", served);
+    for (try names(replica, arena)) |n| if (std.mem.eql(u8, n.key, &hex)) if (@field(n, field)) |v| if (std.mem.eql(u8, v, value)) return;
+    try replica.write(wall_ms, try std.fmt.allocPrint(arena, "n/{s}", .{hex}), field, value);
 }
 
 /// Names a person, or a device (with its person's key).

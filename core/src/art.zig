@@ -173,7 +173,7 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
                 try images.put(arena, try std.ascii.allocLowerString(arena, rel), .{ .path = rel, .stamp = stamp });
                 continue;
             }
-            if (!naming.isVideo(rel) or skippedPath(rel, source.layout.skip)) continue;
+            if (!naming.isVideo(rel) or library.skipped(rel, source.layout.skip)) continue;
             const p = try library.parseFile(arena, (try library.named(arena, source.layout, rel)).path, &series);
             if (p.kind == .extra or p.title.len == 0) continue;
             const k = try library.keys(arena, p);
@@ -613,13 +613,6 @@ fn appendInfo(arena: std.mem.Allocator, writes: *std.ArrayList(Write), t: Target
     if (info.duration_ms) |d| try writes.append(arena, W{ .key = t.item_key, .field = "duration", .value = try std.fmt.allocPrint(arena, "{d}", .{d}) });
 }
 
-fn skippedPath(rel: []const u8, skip: []const u8) bool {
-    if (skip.len == 0) return false;
-    var segments = std.mem.splitScalar(u8, rel, '/');
-    while (segments.next()) |s| if (std.mem.startsWith(u8, s, skip)) return true;
-    return false;
-}
-
 /// A sidecar image for a target, by Plex, Jellyfin, and Kodi convention.
 fn findSidecar(arena: std.mem.Allocator, images: anytype, titles_in: anytype, t: Target) !?ImageFile {
     const dir = std.fs.path.dirname(t.path) orelse "";
@@ -675,10 +668,9 @@ pub fn describeItem(replica: *Replica, arena: std.mem.Allocator, client: *std.ht
         if (!try s.step()) return error.NotHeld;
         break :blk .{ try arena.dupe(u8, s.blob(0)["held:".len..]), try arena.dupe(u8, s.blob(1)) };
     };
-    var parts = std.mem.splitScalar(u8, value, '\t');
-    const path = parts.first();
-    const size = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
-    const read = try itemRead(arena, source_id, path, size, parts.next() orelse "");
+    const copy = library.CopyValue.parse(value);
+    const path = copy.path;
+    const read = try itemRead(arena, source_id, path, copy.size orelse 0, copy.mtime);
     const source = try library.findSource(replica, arena, source_id);
     // A file that isn't an MP4, or can't be read, is marked described too,
     // so it isn't read again; a network failure is tried again later.
@@ -805,10 +797,7 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
             const held = whole[0 .. library.pastTitle(whole, "/r/") orelse continue];
             if (tileOf(held)) |id| {
                 const tile = try std.fmt.allocPrint(arena, "{s}#{d}", .{ id.title, id.season });
-                var parts = std.mem.splitScalar(u8, s.blob(2), '\t');
-                _ = parts.next();
-                _ = parts.next();
-                const file_ms = crawl.timeMs(parts.rest());
+                const file_ms = crawl.timeMs(library.CopyValue.parse(s.blob(2)).mtime);
                 const at = file_ms orelse @as(u64, @bitCast(s.int(3))) >> 16;
                 const g = try first.getOrPut(arena, tile);
                 if (!g.found_existing or at < g.value_ptr.*) g.value_ptr.* = at;
@@ -823,18 +812,16 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
             }
             const item = try arena.dupe(u8, held);
             try seen.put(arena, item, {});
-            const e = library.pastTitle(item, "/e/s");
-            const title_key = item[0 .. e orelse (library.pastTitle(item, "/v/") orelse item.len)];
-            const n: u16 = if (e) |i| seasonNumber(item[i + 4 ..]) orelse continue else 0;
-            const id = try std.fmt.allocPrint(arena, "{s}#{d}", .{ title_key, n });
+            const place = tileOf(item) orelse continue;
+            const id = try std.fmt.allocPrint(arena, "{s}#{d}", .{ place.title, place.season });
             if (here) try present.put(arena, id, {});
             const gop = try items.getOrPut(arena, id);
             if (!gop.found_existing) {
                 gop.value_ptr.* = .empty;
-                if (e != null) {
-                    const sg = try seasons.getOrPut(arena, title_key);
+                if (library.pastTitle(item, "/e/s") != null) {
+                    const sg = try seasons.getOrPut(arena, place.title);
                     if (!sg.found_existing) sg.value_ptr.* = .empty;
-                    try sg.value_ptr.append(arena, n);
+                    try sg.value_ptr.append(arena, place.season);
                 }
             }
             try gop.value_ptr.append(arena, item);
