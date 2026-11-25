@@ -242,8 +242,32 @@ extension Library {
         reconcileSoon()
     }
 
-    /// Changes where downloads go.
+    /// Whether two folders are one, or one holds the other.
+    static func overlap(_ a: String, _ b: String) -> Bool {
+        func parts(_ path: String) -> [String] { URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.pathComponents }
+        let x = parts(a), y = parts(b)
+        return x.starts(with: y) || y.starts(with: x)
+    }
+
+    /// Why a folder can't be one of this Mac's sources, if it overlaps its
+    /// downloads: served and crawled as a source too, its records of them
+    /// would count as copies held elsewhere, so a download done with could
+    /// be deleted though it's the only copy.
+    func overlapsDownloads(_ path: String) -> String? {
+        guard Self.overlap(path, downloadsDir) else { return nil }
+        return "\(URL(fileURLWithPath: path).lastPathComponent) overlaps the folder this Mac keeps downloads in, which it shares already. Choose another."
+    }
+
+    /// Changes where downloads go, unless the folder overlaps one of this
+    /// Mac's sources (see `overlapsDownloads`).
     func setDownloads(dir: String? = nil) {
+        if let dir {
+            loadFolders()
+            if let folder = folders.first(where: { Self.overlap($0.path, dir) }) {
+                report(.change, "\(URL(fileURLWithPath: dir).lastPathComponent) overlaps \(folder.name), which this Mac shares as a source. Choose another folder for downloads.")
+                return
+            }
+        }
         Task {
             await configureDownloads(dir: dir)
             // Served from the new folder; what's wanted is fetched there.

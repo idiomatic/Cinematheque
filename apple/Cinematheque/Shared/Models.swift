@@ -330,8 +330,7 @@ nonisolated struct Paired: Decodable {
 struct Folder: Codable, Identifiable, Hashable {
     let prefix: String
     let path: String
-    /// The source's URL, as added: port-free (`cqdevice://`), or as
-    /// builds before wrote it (by its port) until it's moved there.
+    /// The source's URL, port-free (`cqdevice://`).
     var url: String
     var id: String { prefix }
     var name: String { URL(fileURLWithPath: path).lastPathComponent }

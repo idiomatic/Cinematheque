@@ -156,7 +156,7 @@ extension Library {
     private var foldersKey: String { "folders-" + (status?.library ?? "") }
 
 
-    private func loadFolders() {
+    func loadFolders() {
         guard loadedFoldersKey != foldersKey else { return }
         loadedFoldersKey = foldersKey
         let data = UserDefaults.standard.data(forKey: foldersKey)
@@ -218,6 +218,9 @@ extension Library {
     /// port-free address (`ownAddress`), adds it, and crawls it.
     func addFolder(_ path: String) async {
         loadFolders()
+        #if os(macOS)
+        if let why = overlapsDownloads(path) { return report(.change, why) }
+        #endif
         // The folder's own name, whole, as its address's path (encoded), so
         // nothing's lost that would be read back: not a slug ("TV Shows",
         // not tv-shows). Nothing hidden, as the server serves nothing
@@ -250,6 +253,9 @@ extension Library {
     /// source: its next crawl keeps the copies that are there alike.
     func changeFolder(_ folder: Folder, to path: String) async {
         loadFolders()
+        #if os(macOS)
+        if let why = overlapsDownloads(path) { return report(.change, why) }
+        #endif
         guard let i = folders.firstIndex(where: { $0.prefix == folder.prefix }) else { return }
         folders[i] = Folder(prefix: folder.prefix, path: path, url: folder.url)
         saveFolders()
