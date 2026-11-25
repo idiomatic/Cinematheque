@@ -30,6 +30,7 @@ const replica_ = @import("replica.zig");
 const serve_ = @import("serve.zig");
 const discover = @import("discover.zig");
 const library_ = @import("library.zig");
+const testkit = @import("testkit.zig");
 const Replica = replica_.Replica;
 
 /// Where devices answer syncs, as they advertise it.
@@ -721,8 +722,7 @@ test "requests are checked" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(2)));
+    var r = try testkit.replica(2);
     defer r.close();
     const hal: [32]u8 = @splat(3);
     const body = try writeRequest(arena, &r, 1_000_000, hal);
@@ -792,8 +792,7 @@ test "a request as sent shows nothing of it to anyone listening" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(2)));
+    var r = try testkit.replica(2);
     defer r.close();
     const hal = try Ed25519.KeyPair.generateDeterministic(@splat(3));
     const head = try writeRequest(arena, &r, 1_000_000, hal.public_key.toBytes());
@@ -812,8 +811,7 @@ test "a device that takes the connection but never answers is given up on in sec
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(2)));
+    var r = try testkit.replica(2);
     defer r.close();
     // As an app stopped in a debugger: listening, never answering.
     var address = try Io.net.IpAddress.parse("127.0.0.1", 0);

@@ -8,6 +8,7 @@ const Replica = @import("replica.zig").Replica;
 const crawl = @import("crawl.zig");
 const library = @import("library.zig");
 const naming = @import("naming.zig");
+const testkit = @import("testkit.zig");
 const testing = std.testing;
 const Source = library.Source;
 const sources = library.sources;
@@ -31,19 +32,14 @@ test "a crawl records when it was, so refreshes not asked for skip it for a day"
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try tmp.dir.writeFile(io, .{ .sub_path = "Alien (1979).mp4", .data = "x" });
-    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path}), .index = false }} } };
-    try server.start();
-    defer server.stop();
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
+    const served = try testkit.Served.start(arena, "");
+    defer served.stop();
+    const dir = served.tmp.dir;
+    try dir.writeFile(io, .{ .sub_path = "Alien (1979).mp4", .data = "x" });
 
-    const creator: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
-    _ = try addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
+    _ = try addSource(&r, 1, served.url, .{});
     try std.testing.expectEqual(@as(?u64, 24), try crawlEvery(&r, arena));
     try setCrawlEvery(&r, 2, 0);
     try std.testing.expectEqual(@as(?u64, null), try crawlEvery(&r, arena));
@@ -53,7 +49,7 @@ test "a crawl records when it was, so refreshes not asked for skip it for a day"
     try std.testing.expect(window >= 23 * 3600 * 1000 and window <= 25 * 3600 * 1000);
     try std.testing.expect(!(try sources(&r, arena))[0].crawledLately(1000, window));
     const at: u64 = 1_000_000;
-    _ = try crawlSource(&r, io, arena, &client, at, (try sources(&r, arena))[0], 4);
+    _ = try crawlSource(&r, io, arena, &served.client, at, (try sources(&r, arena))[0], 4);
     const source = (try sources(&r, arena))[0];
     try std.testing.expectEqual(at, source.crawled_ms);
     try std.testing.expect(source.crawledLately(at + window - 1, window));
@@ -66,27 +62,22 @@ test "a full crawl sees a file rewritten in place, which reusing listings misses
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try tmp.dir.createDirPath(io, "Movies");
-    try tmp.dir.writeFile(io, .{ .sub_path = "Movies/Alien (1979).mp4", .data = "x" });
-    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path}), .index = false }} } };
-    try server.start();
-    defer server.stop();
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
-    const creator: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
+    const served = try testkit.Served.start(arena, "");
+    defer served.stop();
+    const dir = served.tmp.dir;
+    try dir.createDirPath(io, "Movies");
+    try dir.writeFile(io, .{ .sub_path = "Movies/Alien (1979).mp4", .data = "x" });
+    var r = try testkit.replica(1);
     defer r.close();
-    _ = try addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
+    _ = try addSource(&r, 1, served.url, .{});
     const source = (try sources(&r, arena))[0];
-    _ = try crawlSource(&r, io, arena, &client, 1000, source, 1);
+    _ = try crawlSource(&r, io, arena, &served.client, 1000, source, 1);
     // Retagged: rewritten in place, its directory's time unchanged.
-    try tmp.dir.writeFile(io, .{ .sub_path = "Movies/Alien (1979).mp4", .data = "xyz" });
-    const reused = try crawlSource(&r, io, arena, &client, 2000, source, 1);
+    try dir.writeFile(io, .{ .sub_path = "Movies/Alien (1979).mp4", .data = "xyz" });
+    const reused = try crawlSource(&r, io, arena, &served.client, 2000, source, 1);
     try std.testing.expectEqual(@as(usize, 1), reused.crawl.skipped);
     try std.testing.expectEqual(@as(usize, 0), reused.ingest.copies_changed);
-    const full = try crawlSourceAfresh(&r, io, arena, &client, 3000, source, 1);
+    const full = try crawlSourceAfresh(&r, io, arena, &served.client, 3000, source, 1);
     try std.testing.expectEqual(@as(usize, 0), full.crawl.skipped);
     try std.testing.expectEqual(@as(usize, 1), full.ingest.copies_changed);
 }
@@ -97,26 +88,19 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const replica_ = @import("replica.zig");
-    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
+    const served = try testkit.Served.start(arena, "");
+    defer served.stop();
+    const dir = served.tmp.dir;
+    var r = try testkit.replica(1);
     defer r.close();
 
     // Two drives' mount points, served without an INDEX, so listings stay live.
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try tmp.dir.createDirPath(io, "a");
-    try tmp.dir.createDirPath(io, "b");
-    try tmp.dir.writeFile(io, .{ .sub_path = "a/Alien (1979).mp4", .data = "x" });
-    try tmp.dir.writeFile(io, .{ .sub_path = "b/Brazil (1985).mp4", .data = "x" });
-    const root = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
-    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = root, .index = false }} } };
-    try server.start();
-    defer server.stop();
-    _ = try addSource(&r, 1000, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
+    try dir.createDirPath(io, "a");
+    try dir.createDirPath(io, "b");
+    try dir.writeFile(io, .{ .sub_path = "a/Alien (1979).mp4", .data = "x" });
+    try dir.writeFile(io, .{ .sub_path = "b/Brazil (1985).mp4", .data = "x" });
+    _ = try addSource(&r, 1000, served.url, .{});
     const source = (try sources(&r, arena))[0];
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
     const t = std.testing;
     // Each crawl reads every listing afresh: within one second, a reused
     // one would look unchanged.
@@ -126,11 +110,11 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
         }
     };
 
-    _ = try Fresh.crawl(&r, io, arena, &client, 2000, source);
+    _ = try Fresh.crawl(&r, io, arena, &served.client, 2000, source);
     try t.expectEqual(@as(i64, 2), try countCopies(&r, arena, source));
     // b unplugged: its mount point lists empty. One marker; its copy kept.
-    try tmp.dir.deleteFile(io, "b/Brazil (1985).mp4");
-    var stats = (try Fresh.crawl(&r, io, arena, &client, 3000, source)).ingest;
+    try dir.deleteFile(io, "b/Brazil (1985).mp4");
+    var stats = (try Fresh.crawl(&r, io, arena, &served.client, 3000, source)).ingest;
     try t.expectEqual(@as(usize, 1), stats.unavailable);
     try t.expectEqual(@as(usize, 0), stats.copies_removed);
     try t.expectEqual(@as(i64, 2), try countCopies(&r, arena, source));
@@ -141,33 +125,33 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
     const shown = (try detail(&r, arena, "t/m/brazil/1985")).?;
     try t.expect(shown.items.items[0].qualities.items[0].copies.items[0].unavailable);
     // Plugged back in: the marker goes, and nothing else changes.
-    try tmp.dir.writeFile(io, .{ .sub_path = "b/Brazil (1985).mp4", .data = "x" });
-    stats = (try Fresh.crawl(&r, io, arena, &client, 4000, source)).ingest;
+    try dir.writeFile(io, .{ .sub_path = "b/Brazil (1985).mp4", .data = "x" });
+    stats = (try Fresh.crawl(&r, io, arena, &served.client, 4000, source)).ingest;
     try t.expectEqual(@as(usize, 0), stats.unavailable);
     try t.expectEqual(@as(usize, 0), stats.copies_added + stats.copies_changed);
     try t.expectEqual(@as(usize, 0), (try unavailableDirs(&r, arena, &source.id)).len);
     // Deleted, b leaves its parent's listing, and its copy goes.
-    try tmp.dir.deleteFile(io, "b/Brazil (1985).mp4");
-    try tmp.dir.deleteDir(io, "b");
-    stats = (try Fresh.crawl(&r, io, arena, &client, 5000, source)).ingest;
+    try dir.deleteFile(io, "b/Brazil (1985).mp4");
+    try dir.deleteDir(io, "b");
+    stats = (try Fresh.crawl(&r, io, arena, &served.client, 5000, source)).ingest;
     try t.expectEqual(@as(usize, 1), stats.copies_removed);
     try t.expectEqual(@as(i64, 1), try countCopies(&r, arena, source));
     // The whole source listing nothing is the root unavailable.
-    try tmp.dir.deleteFile(io, "a/Alien (1979).mp4");
-    stats = (try Fresh.crawl(&r, io, arena, &client, 6000, source)).ingest;
+    try dir.deleteFile(io, "a/Alien (1979).mp4");
+    stats = (try Fresh.crawl(&r, io, arena, &served.client, 6000, source)).ingest;
     gone = try unavailableDirs(&r, arena, &source.id);
     try t.expectEqual(@as(usize, 1), gone.len);
     try t.expectEqualStrings("", gone[0].dir);
     try t.expectEqual(@as(i64, 1), try countCopies(&r, arena, source));
     // A year on, it's as if deleted.
-    stats = (try Fresh.crawl(&r, io, arena, &client, 6000 + unavailable_expiry_ms, source)).ingest;
+    stats = (try Fresh.crawl(&r, io, arena, &served.client, 6000 + unavailable_expiry_ms, source)).ingest;
     try t.expectEqual(@as(usize, 1), stats.copies_removed);
     try t.expectEqual(@as(usize, 0), (try unavailableDirs(&r, arena, &source.id)).len);
     // Forgotten by hand, too.
-    try tmp.dir.writeFile(io, .{ .sub_path = "a/Alien (1979).mp4", .data = "x" });
-    _ = try Fresh.crawl(&r, io, arena, &client, 7000 + unavailable_expiry_ms, source);
-    try tmp.dir.deleteFile(io, "a/Alien (1979).mp4");
-    _ = try Fresh.crawl(&r, io, arena, &client, 8000 + unavailable_expiry_ms, source);
+    try dir.writeFile(io, .{ .sub_path = "a/Alien (1979).mp4", .data = "x" });
+    _ = try Fresh.crawl(&r, io, arena, &served.client, 7000 + unavailable_expiry_ms, source);
+    try dir.deleteFile(io, "a/Alien (1979).mp4");
+    _ = try Fresh.crawl(&r, io, arena, &served.client, 8000 + unavailable_expiry_ms, source);
     try t.expectEqual(@as(usize, 1), try removeUnavailable(&r, arena, 9000 + unavailable_expiry_ms, source, "/"));
     try t.expectEqual(@as(i64, 0), try countCopies(&r, arena, source));
     try t.expectEqual(@as(usize, 0), (try unavailableDirs(&r, arena, &source.id)).len);
@@ -175,24 +159,24 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
     // A folder served at a path of its own (as the apps serve theirs) that
     // goes altogether, as a share unmounted: it lists empty, so it's
     // unavailable, its copies kept, and back again once it returns.
-    try tmp.dir.createDirPath(io, "share");
-    try tmp.dir.writeFile(io, .{ .sub_path = "share/Casablanca (1942).mp4", .data = "x" });
-    var folder: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .prefix = "movies", .path = try std.fmt.allocPrint(arena, "{s}/share", .{root}), .index = false }} } };
+    try dir.createDirPath(io, "share");
+    try dir.writeFile(io, .{ .sub_path = "share/Casablanca (1942).mp4", .data = "x" });
+    var folder: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .prefix = "movies", .path = try std.fmt.allocPrint(arena, "{s}/share", .{served.root}), .index = false }} } };
     try folder.start();
     defer folder.stop();
     _ = try addSource(&r, 9000, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/movies/", .{folder.port}), .{});
     const share = for (try sources(&r, arena)) |rp| {
         if (std.mem.endsWith(u8, rp.url, "/movies/")) break rp;
     } else unreachable;
-    _ = try Fresh.crawl(&r, io, arena, &client, 10_000, share);
+    _ = try Fresh.crawl(&r, io, arena, &served.client, 10_000, share);
     try t.expectEqual(@as(i64, 1), try countCopies(&r, arena, share));
-    try tmp.dir.rename("share", tmp.dir, "share-away", io);
-    stats = (try Fresh.crawl(&r, io, arena, &client, 11_000, share)).ingest;
+    try dir.rename("share", dir, "share-away", io);
+    stats = (try Fresh.crawl(&r, io, arena, &served.client, 11_000, share)).ingest;
     try t.expectEqual(@as(usize, 1), stats.unavailable);
     try t.expectEqual(@as(i64, 1), try countCopies(&r, arena, share));
     try t.expectEqualStrings("", (try unavailableDirs(&r, arena, &share.id))[0].dir);
-    try tmp.dir.rename("share-away", tmp.dir, "share", io);
-    stats = (try Fresh.crawl(&r, io, arena, &client, 12_000, share)).ingest;
+    try dir.rename("share-away", dir, "share", io);
+    stats = (try Fresh.crawl(&r, io, arena, &served.client, 12_000, share)).ingest;
     try t.expectEqual(@as(usize, 0), stats.unavailable);
     try t.expectEqual(@as(usize, 0), (try unavailableDirs(&r, arena, &share.id)).len);
 }
@@ -203,21 +187,14 @@ test "a device's own source is reached where it serves, a new port changing only
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const replica_ = @import("replica.zig");
+    const served = try testkit.Served.start(arena, "");
+    defer served.stop();
+    const dir = served.tmp.dir;
     const url = @import("url.zig");
-    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try tmp.dir.writeFile(io, .{ .sub_path = "Alien (1979).mp4", .data = "x" });
-    try tmp.dir.writeFile(io, .{ .sub_path = "Brazil (1985).mkv", .data = "x" });
-    const root = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
-    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = root, .index = false }} } };
-    try server.start();
-    defer server.stop();
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
+    try dir.writeFile(io, .{ .sub_path = "Alien (1979).mp4", .data = "x" });
+    try dir.writeFile(io, .{ .sub_path = "Brazil (1985).mkv", .data = "x" });
     const t = std.testing;
 
     // Unreached until the device says where it serves.
@@ -226,14 +203,14 @@ test "a device's own source is reached where it serves, a new port changing only
     try t.expect((try sources(&r, arena))[0].at() == null);
     // Said, it's reached there; a port changing is one field, the source
     // the same; and it crawls as before, its copies unchanged.
-    try recordServed(&r, arena, 2000, me, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}));
-    _ = try crawlSourceAfresh(&r, io, arena, &client, 3000, (try sources(&r, arena))[0], 1);
+    try recordServed(&r, arena, 2000, me, served.url);
+    _ = try crawlSourceAfresh(&r, io, arena, &served.client, 3000, (try sources(&r, arena))[0], 1);
     try recordServed(&r, arena, 4000, me, "http://127.0.0.1:1/");
-    try recordServed(&r, arena, 5000, me, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}));
+    try recordServed(&r, arena, 5000, me, served.url);
     const now = try sources(&r, arena);
     try t.expectEqualSlices(u8, &id, &now[0].id);
-    try t.expectEqualStrings(try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), now[0].at().?);
-    const stats = (try crawlSourceAfresh(&r, io, arena, &client, 6000, now[0], 1)).ingest;
+    try t.expectEqualStrings(served.url, now[0].at().?);
+    const stats = (try crawlSourceAfresh(&r, io, arena, &served.client, 6000, now[0], 1)).ingest;
     try t.expectEqual(@as(usize, 0), stats.copies_added + stats.copies_changed + stats.copies_removed);
     try t.expectEqual(@as(i64, 2), try countCopies(&r, arena, now[0]));
 }

@@ -29,6 +29,7 @@ const art = @import("art.zig");
 const views = @import("views.zig");
 const volumes = @import("volumes.zig");
 const Replica = @import("replica.zig").Replica;
+const testkit = @import("testkit.zig");
 
 /// One file to fetch.
 pub const File = struct {
@@ -1281,33 +1282,27 @@ test "fetches a file, resuming a part, and keeps one whole" {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    const served = try testkit.Served.start(arena, "media");
+    defer served.stop();
+    const dir = served.tmp.dir;
     const content = try arena.alloc(u8, 10_000);
     for (content, 0..) |*b, i| b.* = '0' + @as(u8, @intCast(i % 10));
-    try tmp.dir.createDirPath(io, "media/Alien (1979)");
-    try tmp.dir.writeFile(io, .{ .sub_path = "media/Alien (1979)/Alien (1979).mp4", .data = content });
-    const media = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}/media", .{tmp.sub_path});
-
-    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = media, .index = false }} } };
-    try server.start();
-    defer server.stop();
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
+    try dir.createDirPath(io, "media/Alien (1979)");
+    try dir.writeFile(io, .{ .sub_path = "media/Alien (1979)/Alien (1979).mp4", .data = content });
     var memory: race.Memory = .{};
     defer memory.deinit(gpa);
-    const live = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/Alien%20(1979)/Alien%20(1979).mp4", .{server.port});
+    const live = try std.fmt.allocPrint(arena, "{s}Alien%20(1979)/Alien%20(1979).mp4", .{served.url});
     const file: File = .{ .item = "t/m/alien/1979/v/-", .quality = "-", .path = "Alien (1979)/Alien (1979).mp4", .size = content.len, .urls = &.{ "http://127.0.0.1:1/gone.mp4", live } };
 
-    try tmp.dir.createDirPath(io, "out/Alien (1979)");
-    var out = try tmp.dir.openDir(io, "out", .{});
+    try dir.createDirPath(io, "out/Alien (1979)");
+    var out = try dir.openDir(io, "out", .{});
     defer out.close(io);
     // As an attempt cut short would leave it.
     try out.writeFile(io, .{ .sub_path = "Alien (1979)/Alien (1979).mp4.part", .data = content[0..1234] });
-    try std.testing.expectEqual(.fetched, try fetch(io, gpa, arena, &client, &memory, out, file, 1000, null));
+    try std.testing.expectEqual(.fetched, try fetch(io, gpa, arena, &served.client, &memory, out, file, 1000, null));
     const got = try out.readFileAlloc(io, file.path, arena, .limited(1 << 20));
     try std.testing.expectEqualStrings(content, got);
-    try std.testing.expectEqual(.kept, try fetch(io, gpa, arena, &client, &memory, out, file, 1000, null));
+    try std.testing.expectEqual(.kept, try fetch(io, gpa, arena, &served.client, &memory, out, file, 1000, null));
 
     // Told it's no longer wanted as it comes: it stops, its part deleted.
     const unwanted: File = .{ .item = file.item, .quality = file.quality, .path = "Alien (1979)/Again.mp4", .size = file.size, .urls = &.{live} };
@@ -1316,7 +1311,7 @@ test "fetches a file, resuming a part, and keeps one whole" {
             return .unwanted;
         }
     }{};
-    try std.testing.expectError(error.Unwanted, fetch(io, gpa, arena, &client, &memory, out, unwanted, 1000, .{ .context = &drop, .report = @TypeOf(drop).report }));
+    try std.testing.expectError(error.Unwanted, fetch(io, gpa, arena, &served.client, &memory, out, unwanted, 1000, .{ .context = &drop, .report = @TypeOf(drop).report }));
     try std.testing.expectError(error.FileNotFound, out.statFile(io, "Alien (1979)/Again.mp4.part", .{}));
     try std.testing.expectError(error.FileNotFound, out.statFile(io, "Alien (1979)/Again.mp4", .{}));
 
@@ -1327,7 +1322,7 @@ test "fetches a file, resuming a part, and keeps one whole" {
             return .stop;
         }
     }{};
-    try std.testing.expectError(error.Stopped, fetch(io, gpa, arena, &client, &memory, out, unwanted, 1000, .{ .context = &pause, .report = @TypeOf(pause).report }));
+    try std.testing.expectError(error.Stopped, fetch(io, gpa, arena, &served.client, &memory, out, unwanted, 1000, .{ .context = &pause, .report = @TypeOf(pause).report }));
     try std.testing.expectEqual(@as(u64, 1234), (try out.statFile(io, "Alien (1979)/Again.mp4.part", .{})).size);
 }
 
@@ -1337,22 +1332,17 @@ test "reconciling keeps what's wanted and the next episodes, and deletes watched
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const base = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    const served = try testkit.Served.start(arena, "nas");
+    defer served.stop();
+    const dir = served.tmp.dir;
 
     // A NAS of small, real files: a movie and four episodes.
     const paths = [_][]const u8{ "Alien (1979).mp4", "Firefly/S01E01.mp4", "Firefly/S01E02.mp4", "Firefly/S01E03.mp4", "Firefly/S01E04.mp4" };
-    try tmp.dir.createDirPath(io, "nas/Firefly");
-    for (paths, 0..) |p, i| try tmp.dir.writeFile(io, .{ .sub_path = try std.fmt.allocPrint(arena, "nas/{s}", .{p}), .data = try arena.alloc(u8, 1000 + i) });
-    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = try std.fmt.allocPrint(arena, "{s}/nas", .{base}), .index = false }} } };
-    try server.start();
-    defer server.stop();
-
-    const creator: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
+    try dir.createDirPath(io, "nas/Firefly");
+    for (paths, 0..) |p, i| try dir.writeFile(io, .{ .sub_path = try std.fmt.allocPrint(arena, "nas/{s}", .{p}), .data = try arena.alloc(u8, 1000 + i) });
+    var r = try testkit.replica(1);
     defer r.close();
-    const nas = try library.addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
+    const nas = try library.addSource(&r, 1, served.url, .{});
     const nas_field = try std.fmt.allocPrint(arena, "held:{s}", .{&nas});
     const keys = [_][]const u8{ "t/m/alien/1979/v/-", "t/s/firefly/-/e/s01e01", "t/s/firefly/-/e/s01e02", "t/s/firefly/-/e/s01e03", "t/s/firefly/-/e/s01e04" };
     try r.write(2, "t/m/alien/1979", "name", "Alien");
@@ -1360,7 +1350,7 @@ test "reconciling keeps what's wanted and the next episodes, and deletes watched
     for (keys, paths, 0..) |k, p, i|
         try r.write(2, try std.fmt.allocPrint(arena, "{s}/r/-", .{k}), nas_field, try std.fmt.allocPrint(arena, "{s}\t{d}\t1", .{ p, 1000 + i }));
 
-    const downloads = try std.fmt.allocPrint(arena, "{s}/downloads", .{base});
+    const downloads = try std.fmt.allocPrint(arena, "{s}/downloads", .{served.root});
     try configure(&r, arena, 3, downloads, "http://hal.local:8008/downloads/");
     const s = (try settings(&r, arena)).?;
     try std.testing.expect(s.source.managed);
@@ -1373,11 +1363,9 @@ test "reconciling keeps what's wanted and the next episodes, and deletes watched
     // Episode 1 watched: 2 and 3 are next.
     try library.markWatched(&r, arena, 4, keys[1]);
 
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
     var memory: race.Memory = .{};
     defer memory.deinit(gpa);
-    var done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 5, null, null);
+    var done = try reconcile(io, gpa, arena, &served.client, &memory, &r, null, 5, null, null);
     try std.testing.expectEqual(3, done.fetched);
     try std.testing.expectEqual(1, done.away);
     try std.testing.expectEqual(0, done.failed);
@@ -1388,7 +1376,7 @@ test "reconciling keeps what's wanted and the next episodes, and deletes watched
     try std.testing.expectEqualStrings("t/s/firefly/-/e/s01e02", copy[1].item);
     // Again, with nothing to do: nothing written.
     const seq = r.seq;
-    done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 6, null, null);
+    done = try reconcile(io, gpa, arena, &served.client, &memory, &r, null, 6, null, null);
     try std.testing.expectEqual(0, done.fetched);
     try std.testing.expectEqual(3, done.kept);
     try std.testing.expectEqual(seq, r.seq);
@@ -1398,13 +1386,13 @@ test "reconciling keeps what's wanted and the next episodes, and deletes watched
     try std.testing.expectEqual(3, (try ahead(&r, arena, "t/s/firefly/-", .{ .next = 2 })).len);
     // A stream playing holds new files back.
     var held_back: std.atomic.Value(bool) = .init(true);
-    done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 5, null, &held_back);
+    done = try reconcile(io, gpa, arena, &served.client, &memory, &r, null, 5, null, &held_back);
     try std.testing.expectEqual(0, done.fetched);
     try std.testing.expectEqual(1, done.held);
 
     // Episode 2 watched: deleted, as the NAS holds it alike, and 4 comes.
     try library.markWatched(&r, arena, 6, keys[2]);
-    done = try reconcile(io, gpa, arena, &client, &memory, &r, null, 7, null, null);
+    done = try reconcile(io, gpa, arena, &served.client, &memory, &r, null, 7, null, null);
     try std.testing.expectEqual(1, done.fetched);
     try std.testing.expectEqual(1, done.deleted);
     try std.testing.expectEqual(3, (try held(&r, arena, s.source)).len);
@@ -1423,9 +1411,9 @@ test "reconciling keeps what's wanted and the next episodes, and deletes watched
     try std.testing.expectEqual(0, (try finishedWith(&r, arena, s.source)).len);
 
     // Deleted by hand: forgotten. Removed: deleted, and no longer wanted.
-    try tmp.dir.deleteFile(io, "downloads/Firefly/S01E04.mp4");
+    try dir.deleteFile(io, "downloads/Firefly/S01E04.mp4");
     try setNext(&r, arena, "t/s/firefly/-", null);
-    _ = try reconcile(io, gpa, arena, &client, &memory, &r, null, 10, null, null);
+    _ = try reconcile(io, gpa, arena, &served.client, &memory, &r, null, 10, null, null);
     try std.testing.expectEqual(2, (try held(&r, arena, s.source)).len);
     try std.testing.expectEqual(1, try remove(io, arena, &r, null, 11, "t/m/alien/1979"));
     try std.testing.expectEqual(0, (try wants(&r, arena)).len);
@@ -1442,8 +1430,7 @@ test "a series' choice of episodes: the next few, or all" {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const creator: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, std.testing.io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
     const nas = try library.addSource(&r, 1, "http://sulaco/", .{});
     const field = try std.fmt.allocPrint(arena, "held:{s}", .{&nas});

@@ -41,6 +41,7 @@ It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` als
 | [pair](src/pair.zig) | Pairing a new device by a 6-digit code it shows: CPace over the code, then the person's secret and the library's key sealed with the key it derives |
 | [capi](src/capi.zig) | The C interface: the library's handle, errors, and JSON results, its parts in [capi/](src/capi) (serving, identity and membership, pairing, names and devices, sources, downloads, long operations on their own connections, browsing, and private data), each imported so its exports are kept |
 | [version](src/version.zig) | What the build is (which app, as the build's root names it, else the Apple app by its platform; its version, `-Dversion`, as its builder gives it; `git describe --tags`; its optimizing; its Zig), served at `/version`; stamped by [stamp.zig](stamp.zig), a tool every build runs, as Zig caches its build scripts' configuring |
+| [testkit](src/testkit.zig) | What tests share: a replica in memory, and a temporary folder served over HTTP |
 
 ## Keys and operations
 

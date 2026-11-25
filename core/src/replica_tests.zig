@@ -37,18 +37,19 @@ const Devices = struct {
 
     /// Replica 0's person founds the library; `added` of the others' people
     /// are members, and every replica has caught up with replica 0.
-    fn initAdding(others: *Devices, added: usize) !void {
-        others.arena_state = .init(testing.allocator);
+    fn initAdding(added: usize) !Devices {
+        var others: Devices = .{ .arena_state = .init(testing.allocator), .replicas = undefined };
         const creator = try testPerson(1);
         for (&others.replicas, 1..) |*r, seed| {
             r.* = try Replica.open(testing.allocator, testing.io, ":memory:", creator, .from(@splat(@intCast(seed))));
         }
         for (1..added + 1) |i| try others.replicas[0].addMember(1, try testPerson(@intCast(i + 1)));
         for (1..others.replicas.len) |i| _ = try others.sync(i, 0);
+        return others;
     }
 
-    fn init(others: *Devices) !void {
-        try others.initAdding(2);
+    fn init() !Devices {
+        return initAdding(2);
     }
 
     fn deinit(others: *Devices) void {
@@ -73,8 +74,7 @@ const Devices = struct {
 const replica_sync = sync;
 
 test "concurrent writes to one field converge on the later one" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -92,8 +92,7 @@ test "concurrent writes to one field converge on the later one" {
 }
 
 test "sync sends only what the receiver lacks" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
 
@@ -112,8 +111,7 @@ test "sync sends only what the receiver lacks" {
 }
 
 test "writes in a transaction share signatures, up to the batch limit" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
 
@@ -132,8 +130,7 @@ test "writes in a transaction share signatures, up to the batch limit" {
 }
 
 test "relayed operations reach a third device, and superseded ones are skipped" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
 
     try p.replicas[0].write(1000, "t/00001", "name", "first");
@@ -149,8 +146,7 @@ test "relayed operations reach a third device, and superseded ones are skipped" 
 }
 
 test "a tampered operation or signature is rejected" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
 
@@ -163,8 +159,7 @@ test "a tampered operation or signature is rejected" {
 }
 
 test "a batch's signature covers its range" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
 
@@ -188,8 +183,7 @@ test "a batch's signature covers its range" {
 }
 
 test "a response is believed only from the device that signed it, for its request" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const arena = p.arena_state.allocator();
     const a = &p.replicas[0];
@@ -224,8 +218,7 @@ test "a response is believed only from the device that signed it, for its reques
 }
 
 test "membership: a removal wins over a concurrent addition, and stands" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -246,8 +239,7 @@ test "membership: a removal wins over a concurrent addition, and stands" {
 }
 
 test "a count no removal could outrank, and one of the wrong kind, are refused" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const b = &p.replicas[1];
     const hex = std.fmt.bytesToHex(try testPerson(9), .lower);
@@ -265,8 +257,7 @@ test "a count no removal could outrank, and one of the wrong kind, are refused" 
 }
 
 test "a cutoff past any sequence number is refused, not taken" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const b = &p.replicas[1];
 
@@ -283,8 +274,7 @@ test "a cutoff past any sequence number is refused, not taken" {
 }
 
 test "an operation dated over a day ahead is refused, and a clock can't wrap" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -302,8 +292,7 @@ test "an operation dated over a day ahead is refused, and a clock can't wrap" {
 }
 
 test "a stranger's word for what it holds isn't taken" {
-    var p: Devices = undefined;
-    try p.initAdding(1); // replica 2's person isn't a member
+    var p = try Devices.initAdding(1); // replica 2's person isn't a member
     defer p.deinit();
     const a = &p.replicas[0];
     const c = &p.replicas[2];
@@ -324,8 +313,7 @@ test "a stranger's word for what it holds isn't taken" {
 }
 
 test "a certificate for another device's stream is refused" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -354,8 +342,7 @@ test "a certificate for another device's stream is refused" {
 }
 
 test "a removal can't be undone" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -372,8 +359,7 @@ test "a removal can't be undone" {
 }
 
 test "a batch over numbers another batch holds is refused" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const b = &p.replicas[1];
 
@@ -399,8 +385,7 @@ test "a batch over numbers another batch holds is refused" {
 }
 
 test "a source's address is its own, and its device's alone to mark as downloads" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -426,8 +411,7 @@ test "a source's address is its own, and its device's alone to mark as downloads
 test "a device's downloads stay its own as their address is written again" {
     const library = @import("library.zig");
     const download = @import("download.zig");
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const arena = p.arena_state.allocator();
     const a = &p.replicas[0];
@@ -446,8 +430,7 @@ test "a device's downloads stay its own as their address is written again" {
 
 test "a shared list is every member's to see, and its owner's alone to change" {
     const lists = @import("lists.zig");
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const arena = p.arena_state.allocator();
     const a = &p.replicas[0];
@@ -490,8 +473,7 @@ test "a shared list is every member's to see, and its owner's alone to change" {
 }
 
 test "batches from devices of people who aren't members are rejected, then accepted once added" {
-    var p: Devices = undefined;
-    try p.initAdding(1); // replica 2's person isn't a member
+    var p = try Devices.initAdding(1); // replica 2's person isn't a member
     defer p.deinit();
     const a = &p.replicas[0];
     const c = &p.replicas[2];
@@ -511,8 +493,7 @@ test "batches from devices of people who aren't members are rejected, then accep
 }
 
 test "a device whose certificate doesn't verify writes a fresh one, and its whole stream is accepted" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const c = &p.replicas[2];
 
@@ -538,8 +519,7 @@ test "a device whose certificate doesn't verify writes a fresh one, and its whol
 }
 
 test "a device removed has its later writes refused, though its person stays" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const c = &p.replicas[2];
@@ -558,8 +538,7 @@ test "a device removed has its later writes refused, though its person stays" {
 }
 
 test "a device removing itself has its removal taken, and its later writes refused" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const c = &p.replicas[2];
 
@@ -580,8 +559,7 @@ test "a device removing itself has its removal taken, and its later writes refus
 }
 
 test "the library's creator is a member until removed, for good, as anyone is" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -598,8 +576,7 @@ test "the library's creator is a member until removed, for good, as anyone is" {
 }
 
 test "an invitation later in the same response admits earlier batches" {
-    var p: Devices = undefined;
-    try p.initAdding(1);
+    var p = try Devices.initAdding(1);
     defer p.deinit();
     const a = &p.replicas[0];
     const c = &p.replicas[2];
@@ -619,8 +596,7 @@ test "an invitation later in the same response admits earlier batches" {
 }
 
 test "a device that took a removed device's later writes refills from one that refused them" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -643,8 +619,7 @@ test "a device that took a removed device's later writes refills from one that r
 }
 
 test "a removed member's writes up to the cutoff stand, and later ones are refused" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -661,8 +636,7 @@ test "a removed member's writes up to the cutoff stand, and later ones are refus
 }
 
 test "a device that took a removed member's later writes refills from one that refused them" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -688,8 +662,7 @@ test "a device that took a removed member's later writes refills from one that r
 }
 
 test "private data reaches its person's other devices, directly, and no one else" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
@@ -717,8 +690,7 @@ test "private data reaches its person's other devices, directly, and no one else
 }
 
 test "private data written by anyone but its person's private stream is refused" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const b = &p.replicas[1];
     const c = &p.replicas[2];
@@ -732,8 +704,7 @@ test "private data written by anyone but its person's private stream is refused"
 }
 
 test "a device that lost its replica gets its own private data back" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const b = &p.replicas[1];
     const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.personKey(), .lower)});
@@ -754,8 +725,7 @@ test "a device that lost its replica gets its own private data back" {
 }
 
 test "a device whose first write is private is still certified" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const b = &p.replicas[1];
     const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.personKey(), .lower)});
@@ -766,8 +736,7 @@ test "a device whose first write is private is still certified" {
 }
 
 test "a private stream without its certificate is sent only to its own person" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const arena = p.arena_state.allocator();
     const b = &p.replicas[1];
@@ -815,8 +784,7 @@ test "frames and requests that claim more than they hold are refused" {
 }
 
 test "a private write holds one to a batch's worth of fields" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const b = &p.replicas[1];
     const key = try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/alien/1979/v/-", .{std.fmt.bytesToHex(b.personKey(), .lower)});
@@ -889,8 +857,7 @@ test "a device's write after a restart, or a clock step back, doesn't lose to it
 }
 
 test "a rolled-back transaction forgets the devices it learned of" {
-    var p: Devices = undefined;
-    try p.init();
+    var p = try Devices.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const known = a.keys.items.len;

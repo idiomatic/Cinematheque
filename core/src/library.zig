@@ -28,6 +28,7 @@ const Replica = @import("replica.zig").Replica;
 const crawl = @import("crawl.zig");
 const naming = @import("naming.zig");
 const url = @import("url.zig");
+const testkit = @import("testkit.zig");
 const Blake3 = std.crypto.hash.Blake3;
 
 pub const Layout = struct {
@@ -1192,8 +1193,7 @@ test "state: sources, progress, and members can be listed, set, and removed" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const replica_ = @import("replica.zig");
-    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
 
     const id = try addSource(&r, 1000, "http://nas.local/Movies/", .{});
@@ -1350,9 +1350,9 @@ test "people and devices are named, a device with its person" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
+    const creator = r.personKey();
     try setName(&r, arena, 1, creator, " Brian ", null);
     try setName(&r, arena, 2, r.device(), "Brian's MacBook Pro", creator);
     const list = try names(&r, arena);

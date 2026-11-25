@@ -26,6 +26,7 @@ const crawl = @import("crawl.zig");
 const mp4 = @import("mp4.zig");
 const url = @import("url.zig");
 const jpeg = @import("jpeg.zig");
+const testkit = @import("testkit.zig");
 
 pub const Cover = struct {
     source: []const u8,
@@ -1001,8 +1002,7 @@ test "covers round-trip, and a season without one takes its series'" {
     try std.testing.expectEqual(c.offset, back.offset);
     try std.testing.expectEqualStrings(c.stamp, back.stamp);
 
-    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
     try r.write(1, "t/s/firefly/-", "name", "Firefly");
     try r.write(1, "t/s/firefly/-/e/s01e01/r/-", "held:0123456789abcdef", "Firefly/Firefly 101.m4v\t1\t-");
@@ -1042,8 +1042,7 @@ test "a title comes when a later crawl finds it; one there all along, by its fil
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
     var source: library.Source = .{ .id = "aaaaaaaaaaaaaaaa".*, .url = "http://nas/", .layout = .{} };
     const alien: crawl.Entry = .{ .url = "http://nas/Alien%20(1979).m4v", .parent = "http://nas/", .is_dir = false, .size = 1, .mtime = "2001-01-01T00:00:00Z" };
@@ -1075,8 +1074,7 @@ test "a title in several sources is described once, from its best file, and kept
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
     const a: library.Source = .{ .id = "aaaaaaaaaaaaaaaa".*, .url = "http://nas/720/", .layout = .{} };
     const b: library.Source = .{ .id = "bbbbbbbbbbbbbbbb".*, .url = "http://nas/4k/", .layout = .{} };
@@ -1112,8 +1110,7 @@ test "a cover from a source not crawled now stays, unless a better file is crawl
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
     const nas_id = try library.addSource(&r, 1, "http://nas/tv/", .{});
     const drive: library.Source = .{ .id = "dddddddddddddddd".*, .url = "http://mac/drive/", .layout = .{} };
@@ -1150,8 +1147,7 @@ test "a movie with a poster is described again when its video changes, as a tool
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
     const a: library.Source = .{ .id = "aaaaaaaaaaaaaaaa".*, .url = "http://nas/", .layout = .{} };
     const entries = struct {
@@ -1199,28 +1195,22 @@ test "a season whose first MP4 has no cover takes another's, and one with none a
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try tmp.dir.createDirPath(io, "Black Sails");
-    try tmp.dir.createDirPath(io, "Devs");
-    try tmp.dir.writeFile(io, .{ .sub_path = "Black Sails/Black Sails S01E01.m4v", .data = try testMp4(arena, null) });
-    try tmp.dir.writeFile(io, .{ .sub_path = "Black Sails/Black Sails S01E02.m4v", .data = try testMp4(arena, "\xff\xd8\xff\xe0JPEG") });
-    try tmp.dir.writeFile(io, .{ .sub_path = "Devs/Devs S01E01.m4v", .data = try testMp4(arena, null) });
-    try tmp.dir.writeFile(io, .{ .sub_path = "Devs/Devs S01E02.m4v", .data = try testMp4(arena, null) });
-    const root = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
-    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = root, .index = false }} } };
-    try server.start();
-    defer server.stop();
-    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
+    const served = try testkit.Served.start(arena, "");
+    defer served.stop();
+    const dir = served.tmp.dir;
+    try dir.createDirPath(io, "Black Sails");
+    try dir.createDirPath(io, "Devs");
+    try dir.writeFile(io, .{ .sub_path = "Black Sails/Black Sails S01E01.m4v", .data = try testMp4(arena, null) });
+    try dir.writeFile(io, .{ .sub_path = "Black Sails/Black Sails S01E02.m4v", .data = try testMp4(arena, "\xff\xd8\xff\xe0JPEG") });
+    try dir.writeFile(io, .{ .sub_path = "Devs/Devs S01E01.m4v", .data = try testMp4(arena, null) });
+    try dir.writeFile(io, .{ .sub_path = "Devs/Devs S01E02.m4v", .data = try testMp4(arena, null) });
+    var r = try testkit.replica(1);
     defer r.close();
-    _ = try library.addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
+    _ = try library.addSource(&r, 1, served.url, .{});
     const source = (try library.sources(&r, arena))[0];
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
-    const crawled = try library.crawlSourceAfresh(&r, io, arena, &client, 2, source, 1);
+    const crawled = try library.crawlSourceAfresh(&r, io, arena, &served.client, 2, source, 1);
     const c = [_]Crawled{.{ .source = source, .entries = crawled.entries }};
-    _ = try run(io, &r, arena, &client, 3, (try plan(&r, arena, &c)).jobs, .{ .workers = 1 });
+    _ = try run(io, &r, arena, &served.client, 3, (try plan(&r, arena, &c)).jobs, .{ .workers = 1 });
     // Black Sails' cover is episode 2's.
     const black = Cover.parse((try library.fieldValue(&r, arena, "t/s/black-sails/-", "art:s01")).?).?;
     try std.testing.expectEqualStrings("Black Sails/Black Sails S01E02.m4v", black.path);
@@ -1239,8 +1229,7 @@ test "of files alike, a server's describes a title, not a device's own folder's"
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
+    var r = try testkit.replica(1);
     defer r.close();
     const own = "cqdevice://" ++ @as([64]u8, @splat('a')) ++ "/Archive/";
     const drive: library.Source = .{ .id = "dddddddddddddddd".*, .url = own, .address = "http://mac/Archive/", .layout = .{} };
