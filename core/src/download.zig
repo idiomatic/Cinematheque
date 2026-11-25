@@ -272,9 +272,36 @@ fn receiveHead(request: *std.http.Client.Request) !std.http.Client.Response {
     return request.receiveHead(&.{});
 }
 
-fn streamSome(body: *Io.Reader, w: *Io.Writer, n: usize) Io.Reader.StreamError!usize {
-    return body.stream(w, .limited(n));
-}
+/// A body passed on to `out` as it comes (never past `size`, if known,
+/// whatever the server sends), asking `progress` as it goes, and counting
+/// each mebibyte in `beat`, for `deadline.paced` to give each a minute.
+const Receiving = struct {
+    body: *Io.Reader,
+    out: *Io.Writer,
+    done: u64,
+    size: ?u64,
+    progress: ?Progress = null,
+    /// Flushed as each read comes, as for a browser waiting on it.
+    flushing: bool = false,
+    beat: std.atomic.Value(u64) = .init(0),
+
+    fn run(r: *Receiving) !void {
+        defer r.beat.store(deadline.finished, .release);
+        while (r.size == null or r.done < r.size.?) {
+            const left = if (r.size) |s| s - r.done else std.math.maxInt(u64);
+            const n = r.body.stream(r.out, .limited(@intCast(@min(left, 1 << 20)))) catch |err| switch (err) {
+                error.EndOfStream => return,
+                else => |e| return e,
+            };
+            if (n == 0) return;
+            const before = r.done >> 20;
+            r.done += n;
+            if (r.done >> 20 != before) r.beat.store(r.done >> 20, .release);
+            if (r.flushing) try r.out.flush();
+            try Progress.ask(r.progress, r.done, r.size orelse 0);
+        }
+    }
+};
 
 /// Fetches `url` into `part`, resuming where it leaves off.
 fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, url: []const u8, size: u64, progress: ?Progress) !void {
@@ -318,18 +345,12 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
         var write_buf: [64 * 1024]u8 = undefined;
         var writer = out.writer(io, &write_buf);
         try writer.seekTo(have);
-        // Never past the file's size, whatever the server sends.
-        while (have < size) {
-            const n = deadline.within(io, step_ms, streamSome, .{ body, &writer.interface, @min(size - have, 1 << 20) }) catch |err| switch (err) {
-                error.Timeout, error.Canceled => |e| return e,
-                error.EndOfStream => break,
-                error.ReadFailed => return response.bodyErr() orelse error.ReadFailed,
-                error.WriteFailed => return writer.err orelse error.WriteFailed,
-            };
-            if (n == 0) break;
-            have += n;
-            try Progress.ask(progress, have, size);
-        }
+        var receiving: Receiving = .{ .body = body, .out = &writer.interface, .done = have, .size = size, .progress = progress };
+        deadline.paced(io, step_ms, &receiving.beat, Receiving.run, .{&receiving}) catch |err| switch (err) {
+            error.ReadFailed => return response.bodyErr() orelse error.ReadFailed,
+            error.WriteFailed => return writer.err orelse error.WriteFailed,
+            else => |e| return e,
+        };
         try writer.interface.flush();
     }
     if (try out.length(io) != size) return error.Truncated;
@@ -378,19 +399,12 @@ pub const Relay = struct {
     /// Passes its bytes on to `out`, flushing as they come.
     pub fn pump(relay: *Relay, io: Io, out: *Io.Writer) !void {
         const body = relay.response.reader(&relay.transfer);
-        var sent: u64 = 0;
-        while (relay.length == null or sent < relay.length.?) {
-            const left = if (relay.length) |l| l - sent else 1 << 20;
-            const n = deadline.within(io, step_ms, streamSome, .{ body, out, @min(left, 1 << 20) }) catch |err| switch (err) {
-                error.Timeout, error.Canceled, error.WriteFailed => |e| return e,
-                error.EndOfStream => break,
-                error.ReadFailed => return relay.response.bodyErr() orelse error.ReadFailed,
-            };
-            if (n == 0) break;
-            sent += n;
-            try out.flush();
-        }
-        if (relay.length) |l| if (sent != l) return error.Truncated;
+        var receiving: Receiving = .{ .body = body, .out = out, .done = 0, .size = relay.length, .flushing = true };
+        deadline.paced(io, step_ms, &receiving.beat, Receiving.run, .{&receiving}) catch |err| switch (err) {
+            error.ReadFailed => return relay.response.bodyErr() orelse error.ReadFailed,
+            else => |e| return e,
+        };
+        if (relay.length) |l| if (receiving.done != l) return error.Truncated;
     }
 
     pub fn deinit(relay: *Relay) void {

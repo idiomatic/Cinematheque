@@ -29,6 +29,53 @@ pub fn within(io: Io, ms: i64, comptime f: anytype, args: anytype) (error{ Timeo
     };
 }
 
+/// Runs `f` as a task while a watchdog checks `beat`, a count `f` advances
+/// as it makes headway (each mebibyte come) and sets to `finished` as it
+/// ends: canceled, as `error.Timeout`, once `ms` pass without one. For a
+/// long transfer: one task for all of it, and no cancel unless it stalls,
+/// as `within` around each read cost a cancel per read, and canceling a
+/// sleeping task takes signaling it (and so other threads' calls, such as
+/// a server's in the same process) until it wakes, which held a download
+/// from a local drive to 8 MB/s.
+pub fn paced(io: Io, ms: i64, beat: *const std.atomic.Value(u64), comptime f: anytype, args: anytype) (error{ Timeout, Canceled } || ErrorOf(Result(f)))!Payload(Result(f)) {
+    const Event = union(enum) { done: Result(f), stalled: void };
+    var buffer: [2]Event = undefined;
+    var select: Io.Select(Event) = .init(io, &buffer);
+    defer select.cancelDiscard();
+    // Without tasks to spare, it's done as it would be without a deadline.
+    select.concurrent(.stalled, watch, .{ io, ms, beat }) catch return @call(.auto, f, args);
+    select.concurrent(.done, f, args) catch {
+        select.cancelDiscard();
+        return @call(.auto, f, args);
+    };
+    switch (try select.await()) {
+        // The watchdog sees it's finished, and returns, uncanceled.
+        .done => |r| {
+            _ = try select.await();
+            return r;
+        },
+        .stalled => return error.Timeout,
+    }
+}
+
+/// What `paced`'s work sets its beat to as it ends.
+pub const finished = std.math.maxInt(u64);
+
+/// Returns once `ms` pass without `beat` changing, or once it's `finished`.
+fn watch(io: Io, ms: i64, beat: *const std.atomic.Value(u64)) void {
+    var seen = beat.load(.acquire);
+    var since = Io.Timestamp.now(io, .awake);
+    while (true) {
+        io.sleep(.fromMilliseconds(@min(ms, 50)), .awake) catch return;
+        const now = beat.load(.acquire);
+        if (now == finished) return;
+        if (now != seen) {
+            seen = now;
+            since = Io.Timestamp.now(io, .awake);
+        } else if (since.durationTo(Io.Timestamp.now(io, .awake)).toMilliseconds() >= ms) return;
+    }
+}
+
 fn ErrorOf(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .error_union => |e| e.error_set,
@@ -73,4 +120,29 @@ test "work that finishes in time gives its result; work that doesn't, a timeout"
         }
     };
     try std.testing.expectError(error.Timeout, within(io, 50, slow.run, .{io}));
+}
+
+test "paced work goes on while it makes headway, and stops once it doesn't" {
+    const io = std.testing.io;
+    const steady = struct {
+        fn run(i: Io, beat: *std.atomic.Value(u64)) !u32 {
+            // Longer in all than the deadline, a beat well within it each time.
+            defer beat.store(finished, .release);
+            for (0..6) |_| {
+                try i.sleep(.fromMilliseconds(100), .awake);
+                _ = beat.fetchAdd(1, .acq_rel);
+            }
+            return 7;
+        }
+    };
+    var beat: std.atomic.Value(u64) = .init(0);
+    try std.testing.expectEqual(@as(u32, 7), try paced(io, 300, &beat, steady.run, .{ io, &beat }));
+    const stalled = struct {
+        fn run(i: Io) !u32 {
+            try i.sleep(.fromSeconds(10), .awake);
+            return 0;
+        }
+    };
+    var silent: std.atomic.Value(u64) = .init(0);
+    try std.testing.expectError(error.Timeout, paced(io, 200, &silent, stalled.run, .{io}));
 }
