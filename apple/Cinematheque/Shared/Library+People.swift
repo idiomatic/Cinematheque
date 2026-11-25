@@ -64,19 +64,19 @@ extension Library {
         guard let failure else { return (paired, nil) }
         switch failure {
         case "WrongCode": return (nil, "That isn't the code \(name) shows. Check it, and try again.")
-        case "Closed": return (nil, "\(name) stopped taking codes from \(Self.thisDevice) after too many wrong ones. On it, show a new code.")
+        case "Closed": return (nil, "\(name) stopped taking codes from this \(Self.deviceKind) after too many wrong ones. On it, show a new code.")
         default: return (nil, "Couldn't pair with \(name): \(failure).")
         }
     }
 
-    /// This device, as a person calls it.
-    static var thisDevice: String {
+    /// What this device is, as a person calls it ("this Mac").
+    static var deviceKind: String {
         #if os(tvOS)
-        "this Apple TV"
+        "Apple TV"
         #elseif os(iOS)
-        "this iPhone"
+        "iPhone"
         #else
-        "this Mac"
+        "Mac"
         #endif
     }
 

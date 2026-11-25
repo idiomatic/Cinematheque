@@ -157,7 +157,7 @@ private struct SetupForm: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 4)
             if let device = library.removedBy {
-                Label("This Mac was removed from its library (as \(device) said). Join it again, or create another.", systemImage: "exclamationmark.triangle.fill")
+                Label("This \(Library.deviceKind) was removed from its library (as \(device) said). Join it again, or create another.", systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
                     .padding(.top, 12)
             }
@@ -181,7 +181,7 @@ private struct SetupForm: View {
     private var joinStep: some View {
         VStack(spacing: 20) {
             Text("Join a Library").font(.title.weight(.semibold))
-            Text("On a device in the library, open Cinematheque's Settings: on a Mac, Devices, and enter this code beside \(Library.thisDevice); on an Apple TV, Your Devices or People, then Add, and choose \(Library.thisDevice).")
+            Text("On a device in the library, open Cinematheque's Settings: on a Mac, Devices, and enter this code beside this \(Library.deviceKind); on an Apple TV, Your Devices or People, then Add, and choose this \(Library.deviceKind).")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Spacer(minLength: 0)
