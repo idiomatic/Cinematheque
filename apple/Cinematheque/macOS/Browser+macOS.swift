@@ -3,7 +3,7 @@ import SwiftUI
 
 extension FocusedValues {
     /// Focuses the library window's search, as Edit › Find does.
-    @Entry var find: FindAction?
+    @Entry var find: WindowAction?
     /// The library window's shelf's order, as View › Sort By sets it.
     @Entry var shelfOrder: Binding<ShelfOrder>?
     /// Whether the library window's inspector is shown, as View › Show
@@ -12,21 +12,25 @@ extension FocusedValues {
     /// Whether the Series shelf is shown, for View › Group by Series.
     @Entry var showsSeries: Bool?
     /// Makes a list in the library window, as File › New List does.
-    @Entry var newList: NewListAction?
+    @Entry var newList: WindowAction?
     /// The list the library window shows, if it's this person's, for the
     /// File menu's list items.
-    @Entry var shownList: ShownList?
+    @Entry var shownList: WindowAction?
 }
 
-/// The list a window shows, of this person's, and what's done to it from
-/// the File menu, as its sidebar row's context menu does: so none of it is
-/// only in a context menu. Compared by the window and the list as shown.
-struct ShownList: Equatable {
+/// A window's action, for a menu command: compared by the window it's for
+/// (and the list it's of, if any), as a closure can't be, so views
+/// depending on it aren't redrawn on every update. The list shown has the
+/// File menu's list items, as its sidebar row's context menu does, so none
+/// of it is only in a context menu; its action renames it.
+struct WindowAction: Equatable {
     let window: UUID
-    let list: UserList
-    let rename: () -> Void
+    var list: UserList? = nil
+    let perform: () -> Void
 
-    static func == (a: ShownList, b: ShownList) -> Bool { a.window == b.window && a.list == b.list }
+    func callAsFunction() { perform() }
+
+    static func == (a: WindowAction, b: WindowAction) -> Bool { a.window == b.window && a.list == b.list }
 }
 
 /// File's items for the list shown: Rename List, Share
@@ -36,7 +40,7 @@ struct ListCommands: View {
     @Environment(Library.self) private var library
 
     var body: some View {
-        Button("Rename List") { shown?.rename() }
+        Button("Rename List") { shown?() }
             .disabled(shown == nil)
         if let list = shown?.list, list.isShared {
             Button("Stop Sharing List") { library.stopSharingList(list.id) }
@@ -47,17 +51,6 @@ struct ListCommands: View {
         Button("Delete List…") { library.deletingList = shown?.list }
             .disabled(shown == nil)
     }
-}
-
-/// Making a list in a window: compared by the window it's for, as
-/// `FindAction` is.
-struct NewListAction: Equatable {
-    let window: UUID
-    let perform: () -> Void
-
-    func callAsFunction() { perform() }
-
-    static func == (a: NewListAction, b: NewListAction) -> Bool { a.window == b.window }
 }
 
 /// File › New List (⇧⌘N, as Notes' New Folder), as the ⊕ at the sidebar's
@@ -139,18 +132,6 @@ struct ShelfOrders: RawRepresentable {
         get { byShelf[shelf.rawValue] ?? shelf.defaultOrder }
         set { byShelf[shelf.rawValue] = newValue }
     }
-}
-
-/// Focusing a window's search: compared by the window it's for, as a
-/// closure can't be, so views depending on it aren't redrawn on every
-/// update.
-struct FindAction: Equatable {
-    let window: UUID
-    let perform: () -> Void
-
-    func callAsFunction() { perform() }
-
-    static func == (a: FindAction, b: FindAction) -> Bool { a.window == b.window }
 }
 
 /// The grid's search: AppKit's search field, in a toolbar item of the
@@ -287,13 +268,7 @@ struct Browser: View {
                                 // Another member's is theirs to change.
                                 if list.isMine {
                                     Button("Rename") { renaming = list.id }
-                                    if list.isShared {
-                                        Button("Stop Sharing") { library.stopSharingList(list.id) }
-                                    } else {
-                                        Button("Share…") { library.sharingList = list }
-                                    }
-                                    Divider()
-                                    Button("Delete List…") { library.deletingList = list }
+                                    ListActions(list: list)
                                 }
                             }
                     }
@@ -337,8 +312,8 @@ struct Browser: View {
                     if near != nearBottom { nearBottom = near }
                 }
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { _, height in gridHeight = height }
-                .focusedSceneValue(\.find, FindAction(window: window) { searchFocus() })
-                .focusedSceneValue(\.newList, NewListAction(window: window) { newList() })
+                .focusedSceneValue(\.find, WindowAction(window: window) { searchFocus() })
+                .focusedSceneValue(\.newList, WindowAction(window: window) { newList() })
                 // A tile's Lists › New List…, made here, named in place.
                 .onChange(of: library.listPrompt?.id) {
                     guard let prompt = library.listPrompt, case .create(let keys) = prompt.kind else { return }
@@ -435,9 +410,9 @@ struct Browser: View {
 
     /// The list shown, if it's this person's, with what the File menu does
     /// to it.
-    private var shownList: ShownList? {
+    private var shownList: WindowAction? {
         guard case .list(let id) = shelf, let list = library.lists.first(where: { $0.id == id }), list.isMine else { return nil }
-        return ShownList(window: window, list: list, rename: { renaming = id })
+        return WindowAction(window: window, list: list) { renaming = id }
     }
 
     /// Makes a list, "New List" (numbered if that's taken), shows it, and
@@ -1257,13 +1232,7 @@ struct CoverGrid: View {
             Divider()
         }
         Menu("Lists") { ListToggles(key: tile.id) }
-        // Unwatched forgets where you stopped, too.
-        if !tile.watched {
-            Button("Mark as Watched") { library.markWatched(tile, true) }
-        }
-        if tile.started {
-            Button("Mark as Unwatched") { library.markWatched(tile, false) }
-        }
+        WatchedItems(tile: tile) { library.markWatched(tile, $0) }
     }
 
     /// A series' tile on the Series shelf: its cover, its name, and how
@@ -1291,12 +1260,7 @@ struct CoverGrid: View {
                     tileMenu(seasons[0])
                 } else {
                     // The whole series'; its seasons' lists are theirs.
-                    if !series.watched {
-                        Button("Mark as Watched") { library.markSeriesWatched(series, true) }
-                    }
-                    if series.started {
-                        Button("Mark as Unwatched") { library.markSeriesWatched(series, false) }
-                    }
+                    WatchedItems(tile: series) { library.markSeriesWatched(series, $0) }
                 }
             }
     }

@@ -455,12 +455,7 @@ private struct ListPage: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarTitleMenu {
                     RenameButton()
-                    if list.isShared {
-                        Button("Stop Sharing", systemImage: "person.2.slash") { library.stopSharingList(list.id) }
-                    } else {
-                        Button("Share…", systemImage: "person.2") { library.sharingList = list }
-                    }
-                    Button("Delete List…", systemImage: "trash", role: .destructive) { library.deletingList = list }
+                    ListActions(list: list)
                 }
         } else {
             grid.navigationTitle(shelf.name(in: library))

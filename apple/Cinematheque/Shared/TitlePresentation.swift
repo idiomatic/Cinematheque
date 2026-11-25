@@ -216,6 +216,34 @@ struct WatchedToggle: View {
     }
 }
 
+/// Mark as Watched, unless it is, and Mark as Unwatched, once begun
+/// (forgetting where it stopped, too), each by `mark`, for a tile's menu.
+struct WatchedItems: View {
+    let tile: Tile
+    let mark: (Bool) -> Void
+
+    var body: some View {
+        if !tile.watched { Button("Mark as Watched", systemImage: "checkmark.circle") { mark(true) } }
+        if tile.started { Button("Mark as Unwatched", systemImage: "circle") { mark(false) } }
+    }
+}
+
+/// A list's own actions but renaming: Share… or Stop Sharing, and Delete
+/// List….
+struct ListActions: View {
+    let list: UserList
+    @Environment(Library.self) private var library
+
+    var body: some View {
+        if list.isShared {
+            Button("Stop Sharing", systemImage: "person.2.slash") { library.stopSharingList(list.id) }
+        } else {
+            Button("Share…", systemImage: "person.2") { library.sharingList = list }
+        }
+        Button("Delete List…", systemImage: "trash", role: .destructive) { library.deletingList = list }
+    }
+}
+
 /// Start Over (partway) before Play or Resume, as a player's timeline
 /// starts at its leading edge: on the Mac and iPhone, Start Over by its
 /// symbol (named as help), Play filling the row; `playFocus`, if given,

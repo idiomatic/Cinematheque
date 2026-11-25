@@ -242,13 +242,9 @@ private struct ListPage: View {
             if let list, list.isMine {
                 HStack(spacing: 30) {
                     Button("Rename…") { library.listPrompt = .init(kind: .rename(list)) }
-                    if list.isShared {
-                        Button("Stop Sharing") { library.stopSharingList(list.id) }
-                    } else {
-                        Button("Share…") { library.sharingList = list }
-                    }
-                    Button("Delete List…", role: .destructive) { library.deletingList = list }
+                    ListActions(list: list)
                 }
+                .labelStyle(.titleOnly)
             }
         }
         // Deleted (here, or by another device), back to Lists, as the page
@@ -519,13 +515,7 @@ struct Poster: View {
             if !series || !tile.isSeries {
                 Menu("Lists", systemImage: "star") { ListToggles(key: tile.id) }
             }
-            // Unwatched forgets where you stopped, too.
-            if !tile.watched {
-                Button("Mark as Watched", systemImage: "checkmark.circle") { series ? library.markSeriesWatched(tile, true) : library.markWatched(tile, true) }
-            }
-            if tile.started {
-                Button("Mark as Unwatched", systemImage: "circle") { series ? library.markSeriesWatched(tile, false) : library.markWatched(tile, false) }
-            }
+            WatchedItems(tile: tile) { series ? library.markSeriesWatched(tile, $0) : library.markWatched(tile, $0) }
     }
 }
 
