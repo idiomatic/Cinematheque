@@ -253,16 +253,11 @@ extension Library {
     }
 
     /// Tells the core where downloads are kept and served, by their
-    /// port-free address (`ownAddress`), reached where this Mac serves; a
-    /// source kept by its port before is moved there once, its copies with
-    /// it.
+    /// port-free address (`ownAddress`), reached where this Mac serves.
     func configureDownloads(dir: String? = nil) async {
         guard hasLibrary, let url = ownAddress("/\(Self.downloadsPrefix)/") else { return }
         let path = dir ?? downloadsDir
         try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
-        if let id = downloads?.source, let old = sources.first(where: { $0.id == id }), old.url != url {
-            checkAndReload { cq_repo_move($0, old.id, url) }
-        }
         // Off the main thread, as it waits its turn to write.
         await changeApart { cq_downloads_configure($0, path, url) }
     }

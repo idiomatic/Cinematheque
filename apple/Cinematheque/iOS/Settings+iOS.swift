@@ -474,10 +474,7 @@ private struct SourcePage: View {
                     Picker("Quality", selection: $from) {
                         Text("From Names and Folders").tag(Source.QualityFrom.path)
                         Text("Named").tag(Source.QualityFrom.named)
-                        // Kept as it is, unless another is chosen: one from
-                        // before names and folders were one, or a newer version's.
-                        if from == .names { Text("From File Names").tag(Source.QualityFrom.names) }
-                        if from == .folder { Text("From the Folder Under It").tag(Source.QualityFrom.folder) }
+                        // Kept as it is, unless another is chosen: a newer version's.
                         if from == .unknown { Text("Set by a Newer Version").tag(Source.QualityFrom.unknown) }
                     }
                     .onChange(of: from) { saveQuality() }
@@ -545,8 +542,6 @@ private struct SourcePage: View {
         guard let source else { return }
         let chosen: Source.Quality = switch from {
         case .path: .path
-        case .names: .names
-        case .folder: .folder
         case .named: .named(quality)
         case .unknown: .unknown
         }
@@ -616,7 +611,7 @@ private struct AddServerSheet: View {
         library.addSource(url, skip: skip.isEmpty ? nil : skip)
         switch from {
         case .named: library.setQuality(url, .named(quality))
-        case .path, .names, .folder, .unknown: break
+        case .path, .unknown: break
         }
         Task { await library.crawl() }
         dismiss()

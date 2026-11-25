@@ -276,10 +276,6 @@ pub const Request = struct {
     /// A repair's field list's digest, else zeros.
     digest: [32]u8,
     vector: replica_.VersionVector,
-    /// Whether it asks for its response's key salted (`seal.salted`), as
-    /// every device does now; older ones' requests end at the vector, and
-    /// older devices answering ignore what follows it.
-    salted: bool,
 };
 
 /// What a request's signature covers: its domain, the library, and the
@@ -298,7 +294,6 @@ pub fn writeRequest(arena: std.mem.Allocator, dst: *Replica, time_ms: u64, recip
     try out.writer.writeAll(&recipient);
     try out.writer.writeAll(&digest);
     try replica_.writeVector(&out.writer, try dst.versionVector(arena));
-    try out.writer.writeByte(1);
     const sig = try dst.key_pair.sign(try requestMessage(arena, dst.library, out.written()), null);
     try out.writer.writeAll(&sig.toBytes());
     return out.written();
@@ -317,7 +312,7 @@ pub fn readRequest(arena: std.mem.Allocator, library: [16]u8, body: []const u8, 
     try r.readSliceAll(&request.recipient);
     try r.readSliceAll(&request.digest);
     request.vector = try replica_.readVector(arena, &r);
-    request.salted = if (r.takeByte()) |b| b & 1 != 0 else |_| false;
+    if (r.bufferedLen() != 0) return error.Malformed;
     const key = Ed25519.PublicKey.fromBytes(request.device) catch return error.BadSignature;
     Ed25519.Signature.fromBytes(body[body.len - 64 ..][0..64].*).verify(try requestMessage(arena, library, signed), key) catch return error.BadSignature;
     const person = replica_.verifyCertificate(library, request.device, false, request.certificate) orelse return error.BadCertificate;
@@ -450,7 +445,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         var gz = try flate.Compress.init(&out.writer, try arena.alloc(u8, flate.max_window_len), .gzip, .fastest);
         _ = try replica_.writeRepair(&src, arena, fields, reader, &gz.writer);
         try gz.finish();
-        var answer: Answer = .init(io, keys.?, checked[0]);
+        var answer: Answer = .init(io, keys.?);
         try request.respond(try seal.seal(arena, answer.key, .response, out.written()), .{ .extra_headers = answer.headers(&.{
             .{ .name = "content-type", .value = "application/octet-stream" },
         }) });
@@ -462,7 +457,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     var gz = try flate.Compress.init(&out.writer, window, .gzip, .fastest);
     const sent = try replica_.writeSync(&src, arena, checked[0].vector, reader, head.?[head.?.len - 64 ..][0..64].*, &gz.writer);
     try gz.finish();
-    var answer: Answer = .init(io, keys.?, checked[0]);
+    var answer: Answer = .init(io, keys.?);
     try request.respond(try seal.seal(arena, answer.key, .response, out.written()), .{ .extra_headers = answer.headers(&.{
         .{ .name = "content-type", .value = "application/octet-stream" },
         .{ .name = device_header, .value = &device_hex },
@@ -506,25 +501,23 @@ fn readStep(body: *Io.Reader, arena: std.mem.Allocator, out: *std.ArrayList(u8))
     return n;
 }
 
-/// A sealed response's key, salted afresh if its request asked, and its
-/// headers, with the salt's if so.
+/// A sealed response's key, salted afresh, and its headers, with the
+/// salt's.
 const Answer = struct {
     key: seal.Key,
-    salt: ?[64]u8,
+    salt: [64]u8,
     all: [4]http.Header = undefined,
 
-    fn init(io: Io, keys: seal.Keys, request: Request) Answer {
-        if (!request.salted) return .{ .key = keys.response, .salt = null };
+    fn init(io: Io, keys: seal.Keys) Answer {
         var salt: [32]u8 = undefined;
         io.random(&salt);
         return .{ .key = seal.salted(keys.response, salt), .salt = std.fmt.bytesToHex(salt, .lower) };
     }
 
-    /// `others` (at most 3), then the salt's, if any.
+    /// `others` (at most 3), then the salt's.
     fn headers(answer: *Answer, others: []const http.Header) []const http.Header {
         @memcpy(answer.all[0..others.len], others);
-        const salt = if (answer.salt) |*s| s else return answer.all[0..others.len];
-        answer.all[others.len] = .{ .name = salt_header, .value = salt };
+        answer.all[others.len] = .{ .name = salt_header, .value = &answer.salt };
         return answer.all[0 .. others.len + 1];
     }
 };
@@ -623,8 +616,7 @@ fn receiveHead(request: *http.Client.Request) !http.Client.Response {
 }
 
 /// Which device answers at `url`: its device key, for requests to be for
-/// it alone. A device that doesn't say (an older build's) can't be synced
-/// with.
+/// it alone.
 fn hello(client: *http.Client, url: []const u8) ![32]u8 {
     return deadline.within(client.io, hello_ms, helloNow, .{ client, url });
 }
@@ -697,10 +689,9 @@ fn sealed(arena: std.mem.Allocator, io: Io, library: [16]u8, recipient: [32]u8, 
     return .{ out.written(), keys };
 }
 
-/// A response's body, opened (salted as its answer says; an older device
-/// salts none), read whole.
+/// A response's body, opened under its answer's salt, read whole.
 fn opened(arena: std.mem.Allocator, response: *http.Client.Response, keys: seal.Keys) ![]u8 {
-    var key = keys.response;
+    var key: ?seal.Key = null;
     var headers = response.head.iterateHeaders();
     while (headers.next()) |h| if (std.ascii.eqlIgnoreCase(h.name, salt_header)) {
         var salt: [32]u8 = undefined;
@@ -708,7 +699,7 @@ fn opened(arena: std.mem.Allocator, response: *http.Client.Response, keys: seal.
         key = seal.salted(keys.response, salt);
     };
     var transfer: [64 * 1024]u8 = undefined;
-    return seal.open(arena, key, .response, try response.reader(&transfer).allocRemaining(arena, .limited(max_body_bytes)));
+    return seal.open(arena, key orelse return error.BadSeal, .response, try response.reader(&transfer).allocRemaining(arena, .limited(max_body_bytes)));
 }
 
 /// Pulls from the other device at `url`, collecting its vector into `theirs`, and
@@ -833,24 +824,6 @@ test "requests are checked" {
     try std.testing.expectError(error.BadSignature, readRequest(arena, @splat(9), body, 1_000_000, hal));
     body[40] ^= 1;
     try std.testing.expectError(error.BadSignature, readRequest(arena, r.library, body, 1_000_000, hal));
-    try std.testing.expect(checked[0].salted);
-}
-
-test "an older device's request, ending at its vector, asks for no salt" {
-    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(2)));
-    defer r.close();
-    const hal: [32]u8 = @splat(3);
-    const body = try writeRequest(arena, &r, 1_000_000, hal, @splat(0));
-    // As one wrote it: without the last byte before the signature.
-    const signed = body[0 .. body.len - 64 - 1];
-    const sig = try r.key_pair.sign(try requestMessage(arena, r.library, signed), null);
-    const old = try std.mem.concat(arena, u8, &.{ signed, &sig.toBytes() });
-    const checked = try readRequest(arena, r.library, old, 1_000_000, hal);
-    try std.testing.expect(!checked[0].salted);
 }
 
 test "a request replayed is answered under a new key each time" {

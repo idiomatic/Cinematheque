@@ -86,17 +86,14 @@ int cq_member_remove(cq_library *library, const char *person_key);
 char *cq_repos(cq_library *library); // any thread
 int cq_repo_add(cq_library *library, const char *url, const char *skip);
 int cq_repo_skip(cq_library *library, const char *source, const char *skip);
-// Where a source's files take their quality from: their names, the first
-// folder within it, or one name for all.
+// Where a source's files take their quality from: the nearest of each
+// file's name and folders that says one, or one name for all.
 int cq_repo_quality_from_path(cq_library *library, const char *source);
-int cq_repo_quality_from_names(cq_library *library, const char *source);
-int cq_repo_quality_from_folder(cq_library *library, const char *source);
 int cq_repo_quality_named(cq_library *library, const char *source, const char *name);
 // Names a source (by ID) as its owner calls it ("TV Shows" for a folder its
 // address calls tv-shows); only its owner's naming counts.
 int cq_repo_name(cq_library *library, const char *source, const char *name);
 int cq_repo_remove(cq_library *library, const char *source);
-int cq_repo_move(cq_library *library, const char *source, const char *url);
 int cq_set_served(cq_library *library, const char *served);
 // Forgets an unavailable directory of a source, as if deleted.
 int cq_remove_unavailable(cq_library *library, const char *source, const char *dir);

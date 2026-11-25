@@ -134,9 +134,9 @@ TV Shows/30 Rock (2006) 1080p/30 Rock 101 Pilot.mkv          1080p (a title's fo
 
 Where a source's files are all one quality though nothing says so (everything one encoder preset made, say), name it for the whole source:
 
-* **On the Mac:** in a source's sheet in Settings › Sources, Quality: Named. (A source added before shows From File Names or From the Folder Under It until you choose From Names and Folders.)
+* **On the Mac:** in a source's sheet in Settings › Sources, Quality: Named.
 * **On the iPhone:** on a source's page in Settings › Sources.
-* **On the command line:** `source add URL --quality NAME`; `source set SOURCE --quality-by path` moves an older source to names and folders.
+* **On the command line:** `source add URL --quality NAME`; `source set SOURCE --quality ""` goes back to names and folders.
 
 ### Refreshing
 

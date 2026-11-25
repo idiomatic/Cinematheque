@@ -41,23 +41,15 @@ pub const Layout = struct {
 };
 
 /// Where a source's files' quality comes from. Stored as its `quality-by`
-/// field (`folder`, else empty) and its `rendition` field (the name, kept
-/// as data), as older devices read them.
+/// field (`path`, or empty for a name) and its `rendition` field (the name).
 pub const QualityFrom = union(enum) {
-    /// The files' names' technical tokens (`2160p hevc hdr`), else unknown.
-    names,
-    /// The first folder within the source, named as it is
-    /// (`Movies/HQ 1080p30 Surround/Alien (1979).m4v`); that folder isn't
-    /// read as part of the file's name.
-    folder,
     /// The nearest that says one, of the file's name and its folders up to
     /// the source (`D/C/B/A.m4v`: A, then B, C, D): the name by its tokens,
     /// canonically (`2160p hevc hdr`); a folder by its whole name
     /// (`HQ 1080p30 Surround`, `1080p`), which isn't read as part of the
     /// file's, unless it reads as a title's (`30 Rock (2006) 1080p`), which
     /// gives its tokens alone. The name counts only if it says a resolution,
-    /// as a word such as "Web" may be its title's. `names` and `folder` in
-    /// one, by default.
+    /// as a word such as "Web" may be its title's. The default.
     path,
     /// One name for every file (e.g., a HandBrake preset's).
     named: []const u8,
@@ -68,17 +60,14 @@ pub const QualityFrom = union(enum) {
 
     /// As stored: its `quality-by` and `rendition`.
     fn fromFields(by: []const u8, rendition: []const u8) QualityFrom {
-        if (std.mem.eql(u8, by, "folder")) return .folder;
         if (std.mem.eql(u8, by, "path")) return .path;
         if (by.len > 0) return .unknown;
-        return if (rendition.len > 0) .{ .named = rendition } else .names;
+        return if (rendition.len > 0) .{ .named = rendition } else .path;
     }
 
     /// Its `quality-by` and `rendition` fields, to store.
     fn fields(q: QualityFrom) ?[2][]const u8 {
         return switch (q) {
-            .names => .{ "", "" },
-            .folder => .{ "folder", "" },
             .path => .{ "path", "" },
             .named => |n| .{ "", n },
             .unknown => null,
@@ -93,10 +82,6 @@ pub const Named = struct { path: []const u8, folder: ?[]const u8 };
 pub fn named(arena: std.mem.Allocator, layout: Layout, rel: []const u8) !Named {
     const whole: Named = .{ .path = rel, .folder = null };
     switch (layout.quality) {
-        .folder => {
-            const slash = std.mem.indexOfScalar(u8, rel, '/') orelse return whole;
-            return .{ .path = rel[slash + 1 ..], .folder = rel[0..slash] };
-        },
         .path => {
             const file_at = if (std.mem.lastIndexOfScalar(u8, rel, '/')) |s| s + 1 else return whole;
             var scratch: [1024]u8 = undefined;
@@ -117,7 +102,7 @@ pub fn named(arena: std.mem.Allocator, layout: Layout, rel: []const u8) !Named {
                 end = start - 1;
             }
         },
-        .names, .named, .unknown => return whole,
+        .named, .unknown => return whole,
     }
 }
 
@@ -443,87 +428,6 @@ pub fn removeSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, w
     return held.items.len;
 }
 
-/// Moves a source (by ID or URL) to another address: the new takes its
-/// settings (but `managed`, which a device's downloads' configuring marks
-/// again), name, crawl time, unavailable directories, every copy, and the
-/// crawl snapshot, and the old is removed, in one transaction; so its
-/// videos stay where they are, unavailable ones too. It writes every copy
-/// twice, so it's for once, as a device's own sources move to their
-/// port-free address (`cqdevice://`), which then stays as its port changes.
-/// Returns the new ID; moving to where it is changes nothing.
-pub fn moveSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, which: []const u8, to: []const u8) ![16]u8 {
-    const source = try findSource(replica, arena, which);
-    var escaped: std.ArrayList(u8) = .empty;
-    try url.escape(arena, &escaped, to);
-    if (!std.mem.endsWith(u8, escaped.items, "/")) try escaped.append(arena, '/');
-    const target = escaped.items;
-    if (!url.fitForSource(target)) return error.BadAddress;
-    const id = sourceId(target);
-    if (std.mem.eql(u8, &id, &source.id)) return id;
-    const old_key = try std.fmt.allocPrint(arena, "r/{s}", .{source.id});
-    const new_key = try std.fmt.allocPrint(arena, "r/{s}", .{id});
-    const Field = struct { name: []const u8, value: []const u8 };
-    var settings: std.ArrayList(Field) = .empty;
-    {
-        const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND length(value) > 0");
-        defer s.finalize();
-        try s.bindText(1, old_key);
-        while (try s.step()) {
-            const name = s.blob(0);
-            if (std.mem.eql(u8, name, "url") or std.mem.eql(u8, name, "managed")) continue;
-            try settings.append(arena, .{ .name = try arena.dupe(u8, name), .value = try arena.dupe(u8, s.blob(1)) });
-        }
-    }
-    const old_field = try std.fmt.allocPrint(arena, "held:{s}", .{source.id});
-    const new_field = try std.fmt.allocPrint(arena, "held:{s}", .{id});
-    var copies: std.ArrayList(Field) = .empty;
-    {
-        const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND length(value) > 0");
-        defer s.finalize();
-        try s.bindText(1, old_field);
-        while (try s.step()) try copies.append(arena, .{ .name = try arena.dupe(u8, s.blob(0)), .value = try arena.dupe(u8, s.blob(1)) });
-    }
-    try replica.begin();
-    errdefer replica.rollback();
-    try replica.write(wall_ms, new_key, "url", target);
-    for (settings.items) |f| try replica.write(wall_ms, new_key, f.name, f.value);
-    for (copies.items) |c| {
-        try replica.write(wall_ms, c.name, new_field, c.value);
-        try replica.write(wall_ms, c.name, old_field, "");
-    }
-    for ([_][]const u8{ "url", "rendition", "skip" }) |f| try replica.write(wall_ms, old_key, f, "");
-    try replica.commit();
-    if (try replica.local(arena, try snapshotKey(arena, source.id))) |snapshot| {
-        try replica.setLocal(try snapshotKey(arena, id), snapshot);
-        try replica.removeLocal(try snapshotKey(arena, source.id));
-    }
-    return id;
-}
-
-/// This device's own source served at `path` (`/Archive1841/`) by its
-/// `.local` name and port, as the apps wrote them before port-free
-/// addresses (`cqdevice://`), if there is one: to move there once
-/// (`moveSource`). One added by hand at another host (an IP address,
-/// `localhost`) is the person's choice, and stays.
-pub fn portBound(replica: *Replica, arena: std.mem.Allocator, device: [32]u8, path: []const u8) !?Source {
-    for (try sources(replica, arena)) |s| {
-        if (s.owner == null or !std.mem.eql(u8, &s.owner.?, &device) or url.device(s.url) != null) continue;
-        const uri = std.Uri.parse(s.url) catch continue;
-        const host = try (uri.host orelse continue).toRawMaybeAlloc(arena);
-        if (!std.ascii.endsWithIgnoreCase(host, ".local")) continue;
-        if (std.mem.eql(u8, try uri.path.toRawMaybeAlloc(arena), path)) return s;
-    }
-    return null;
-}
-
-/// Brings this device's own source served at `path` to its port-free
-/// address (`cqdevice://` and its key), moving one written with a host and
-/// port there once; returns the address.
-pub fn ownSource(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, device: [32]u8, path: []const u8) ![]const u8 {
-    const address = try url.deviceSource(arena, device, path);
-    if (try portBound(replica, arena, device, path)) |old| _ = try moveSource(replica, arena, wall_ms, &old.id, address);
-    return address;
-}
 
 /// How many copies a source holds.
 pub fn countCopies(replica: *Replica, arena: std.mem.Allocator, source: Source) !i64 {
@@ -1019,14 +923,14 @@ const Parents = struct {
     }
 };
 
-/// A file's quality label: its quality folder's, if the source names
-/// qualities by folder; else the source's, if it names one; else what the
+/// A file's quality label: the folder that says it, if one does; else the
+/// source's, if it names one; else what the
 /// file's name says (e.g., `2160p-hevc-hdr`); else `-`, unknown.
 pub fn qualityOf(arena: std.mem.Allocator, layout: Layout, p: naming.Parsed, folder: ?[]const u8) ![]const u8 {
     switch (layout.quality) {
-        .folder, .path => if (folder) |f| return normalize(arena, f),
+        .path => if (folder) |f| return normalize(arena, f),
         .named => |n| return normalize(arena, n),
-        .names, .unknown => {},
+        .unknown => {},
     }
     if (p.quality) |r| return normalize(arena, r);
     return "-";
@@ -1368,9 +1272,9 @@ test "state: sources, progress, and members can be listed, set, and removed" {
     const changed = try setQualityFrom(&r, arena, 2000, "http://nas.local/Movies", .{ .named = "4K HEVC" });
     try std.testing.expectEqualStrings("4K HEVC", changed.layout.quality.named);
     try std.testing.expectEqualStrings("4K HEVC", (try findSource(&r, arena, &id)).layout.quality.named);
-    // By folder, the name goes; a newer device's setting is kept, unapplied.
-    _ = try setQualityFrom(&r, arena, 3000, &id, .folder);
-    try std.testing.expectEqual(QualityFrom.folder, (try findSource(&r, arena, &id)).layout.quality);
+    // By path, the name goes; a newer device's setting is kept, unapplied.
+    _ = try setQualityFrom(&r, arena, 3000, &id, .path);
+    try std.testing.expectEqual(QualityFrom.path, (try findSource(&r, arena, &id)).layout.quality);
     try r.write(4000, try std.fmt.allocPrint(arena, "r/{s}", .{&id}), "quality-by", "file");
     try std.testing.expectEqual(QualityFrom.unknown, (try findSource(&r, arena, &id)).layout.quality);
     try std.testing.expectEqualStrings("", (try findSource(&r, arena, &id)).layout.skip);

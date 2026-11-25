@@ -232,17 +232,6 @@ export fn cq_repo_quality_from_path(lib: *Library, source: [*:0]const u8) c_int 
     return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom.path });
 }
 
-/// Takes a source's files' quality from their names, as sources added
-/// before names and folders were one did. Copies move at the next crawl.
-export fn cq_repo_quality_from_names(lib: *Library, source: [*:0]const u8) c_int {
-    return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom.names });
-}
-
-/// Takes a source's files' quality from the first folder within it.
-export fn cq_repo_quality_from_folder(lib: *Library, source: [*:0]const u8) c_int {
-    return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom.folder });
-}
-
 /// Names one quality for all a source's files (e.g., a HandBrake preset's).
 export fn cq_repo_quality_named(lib: *Library, source: [*:0]const u8, name: [*:0]const u8) c_int {
     return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom{ .named = std.mem.span(name) } });
@@ -277,20 +266,6 @@ fn sourceRemove(lib: *Library, arena: std.mem.Allocator, source: []const u8) !vo
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
     _ = try library.removeSource(try lib.main(), arena, lib.now(), source);
-}
-
-/// Moves a source, by ID or URL, to another address, its copies, settings,
-/// and unavailable folders with it (see `library.moveSource`): once, as a
-/// device's own folders and downloads move to its port-free address
-/// (`cqdevice://`).
-export fn cq_repo_move(lib: *Library, source: [*:0]const u8, url: [*:0]const u8) c_int {
-    return status(lib, sourceMove, .{ std.mem.span(source), std.mem.span(url) });
-}
-
-fn sourceMove(lib: *Library, arena: std.mem.Allocator, source: []const u8, url: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    _ = try library.moveSource(try lib.main(), arena, lib.now(), source, url);
 }
 
 /// Records where this device serves its own sources now (`served`, an

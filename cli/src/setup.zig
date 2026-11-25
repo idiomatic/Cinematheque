@@ -220,7 +220,7 @@ fn configureDownloads(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Al
         if (!std.mem.eql(u8, s.dir, dir)) return error.DownloadsElsewhere;
     }
     // Port-free, as `serve --downloads` keeps them (see network.zig).
-    const url = try lib.ownSource(&r, arena, web.now(io), r.device(), "/downloads/");
+    const url = try core.url.deviceSource(arena, r.device(), "/downloads/");
     try core.download.configure(&r, arena, web.now(io), dir, url);
     w.downloads = true;
 }

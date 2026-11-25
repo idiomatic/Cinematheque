@@ -24,8 +24,6 @@ extension Library {
     func setQuality(_ source: String, _ quality: Source.Quality) {
         switch quality {
         case .path: checkAndReload { cq_repo_quality_from_path($0, source) }
-        case .names: checkAndReload { cq_repo_quality_from_names($0, source) }
-        case .folder: checkAndReload { cq_repo_quality_from_folder($0, source) }
         case .named(let name): checkAndReload { cq_repo_quality_named($0, source, name) }
         case .unknown: break
         }
@@ -298,11 +296,9 @@ extension Library {
             report(.serve, nil)
             #if os(macOS)
             // Where its own folders and downloads are reached (the core
-            // writes it only if it's changed); folders added by their port,
-            // before, moved to their port-free addresses once.
+            // writes it only if it's changed).
             check { cq_set_served($0, "http://\(Self.localHost):\(port)/") }
             #endif
-            portFree()
             nameFolders()
             #if os(macOS)
             Task { await configureDownloads() }
@@ -334,21 +330,6 @@ extension Library {
         guard let handle else { return }
         cq_stop_serving(handle.pointer)
         servingPort = nil
-    }
-
-    /// Moves this device's folders' sources, added by their host and port
-    /// by builds before, to their port-free addresses, once, their copies
-    /// (unavailable ones too) and settings with them; after which a new
-    /// port changes none of them.
-    private func portFree() {
-        var moved = false
-        for (i, folder) in folders.enumerated() where !folder.url.isEmpty && !folder.url.hasPrefix("cqdevice://") {
-            guard let path = URLComponents(string: folder.url)?.percentEncodedPath, let url = ownAddress(path) else { continue }
-            if let old = sources.first(where: { $0.url == folder.url }) { checkAndReload { cq_repo_move($0, old.id, url) } }
-            folders[i].url = url
-            moved = true
-        }
-        if moved { saveFolders() }
     }
 
     /// Syncs with devices found or added, then crawls every source: what

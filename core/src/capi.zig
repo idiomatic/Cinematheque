@@ -163,8 +163,6 @@ pub fn open(data_dir: ?[*:0]const u8) !*Library {
     };
     lib.replica = try lib.store.openReplica(arena);
     lib.has_library.store(true, .seq_cst);
-    // One an older build certified wrongly is accepted by others again.
-    try lib.replica.?.recertify(lib.now());
     return lib;
 }
 

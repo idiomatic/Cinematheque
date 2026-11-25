@@ -169,34 +169,6 @@ $cq $d source remove http://127.0.0.1:8194/media/ --unavailable /archive0001
 $cq $d source show http://127.0.0.1:8194/media/ | grep -q "copies     1" || { echo "FAIL: source remove --unavailable"; exit 1; }
 kill $d_pid
 
-# A device's own folder, added by its .local name and port as builds before
-# wrote them, moves once to its port-free address (cqdevice://), keeping its
-# copies; served on another port, it's the same source, its copies unwritten.
-# Only where this computer's .local name resolves (mDNS).
-e=(--data $work/e)
-here=$(hostname -s).local
-$cq $e library create
-own() {
-    $cq $e serve --port $1 --media $work/drives > $work/e.log 2>&1 &
-    e_pid=$!
-    sleep 1
-}
-own 8196
-if curl -sf -m 5 -o /dev/null http://$here:8196/version; then
-    $cq $e source add http://$here:8196/media/ > /dev/null
-    $cq $e crawl > /dev/null
-    kill $e_pid; wait $e_pid 2> /dev/null || true
-    own 8197
-    $cq $e source list | grep -q "cqdevice://" || { echo "FAIL: a device's own folder kept its port"; exit 1; }
-    $cq $e source list | grep -q "$here" && { echo "FAIL: its old address stayed"; exit 1; }
-    $cq $e crawl | grep -q "copies 0 added, 0 changed, 0 removed" || { echo "FAIL: its copies were written again"; exit 1; }
-    copies=$($cq $e source show "$($cq $e source list | cut -d' ' -f1)" | grep "copies ")
-    [[ $copies == *" 1" ]] || { echo "FAIL: its copies went ($copies)"; exit 1; }
-else
-    echo "skipped: $here doesn't resolve"
-fi
-kill $e_pid; wait $e_pid 2> /dev/null || true
-
 $cq $c device add http://127.0.0.1:8191
 $cq $c device list | grep -q "8191/sync  added" || { echo "FAIL: device add"; exit 1; }
 $cq $c device forget http://127.0.0.1:8191

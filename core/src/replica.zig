@@ -207,22 +207,11 @@ pub const Replica = struct {
     /// Opens a replica of the library `creator` created, as the device and
     /// person `identity` gives. A device writes its certificate with its first
     /// write, so devices that only read never need one.
-    /// Renames tables from replicas made before their names changed (`vv`
-    /// became `version_vector`). Another process opening the replica may
-    /// rename one first.
-    fn renameOldTables(db: sqlite.Db) !void {
-        if (try db.scalar("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'vv'") == 0) return;
-        db.exec("ALTER TABLE vv RENAME TO version_vector") catch |err| {
-            if (try db.scalar("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'vv'") != 0) return err;
-        };
-    }
-
     pub fn open(gpa: std.mem.Allocator, io: Io, path: [:0]const u8, creator: Device, identity: Identity) !Replica {
         const db = try sqlite.Db.open(path, io);
         // The replica closes the database once it's built, not before.
         var built = false;
         errdefer if (!built) db.close();
-        try renameOldTables(db);
         try db.exec(schema);
         var replica: Replica = .{
             .gpa = gpa,
@@ -288,24 +277,6 @@ pub const Replica = struct {
         if (replica.checked_certificate) return;
         if (!try replica.ownCertified(false)) try replica.certify(wall_ms);
         replica.checked_certificate = true;
-    }
-
-    /// Rewrites this device's certificates that it holds but that don't
-    /// verify, as when it opens, so other devices take its stream again
-    /// without waiting for it to write. One it doesn't hold waits for its
-    /// first write: a device whose replica was lost must learn where its
-    /// numbering left off before it writes.
-    pub fn recertify(replica: *Replica, wall_ms: u64) !void {
-        var key: [66]u8 = undefined;
-        if (try replica.holds(certKey(&key, replica.device()), "user") and !try replica.ownCertified(false)) {
-            replica.checked_certificate = true;
-            try replica.certify(wall_ms);
-        }
-        const private = replica.private_pair.public_key.toBytes();
-        if (try replica.holds(certKey(&key, private), "private") and !try replica.ownCertified(true)) {
-            replica.checked_private_certificate = true;
-            try replica.write(wall_ms, certKey(&key, private), "private", &try replica.certificate(true));
-        }
     }
 
     /// The hybrid logical clock of the write that holds `key`'s `field`, if

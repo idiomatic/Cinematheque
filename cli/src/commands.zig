@@ -209,39 +209,24 @@ pub fn device(app: *App, c: Command) !void {
     } else return error.Usage;
 }
 
-/// A source's quality setting, as listed: by its folders, a name, or the
-/// files' names.
+/// A source's quality setting, as listed: by path, or a name.
 fn qualitySetting(arena: std.mem.Allocator, layout: lib.Layout) ![]const u8 {
     return switch (layout.quality) {
-        .names => "by name",
-        .folder => "by folder",
         .path => "by path",
         .named => |n| std.fmt.allocPrint(arena, "\"{s}\"", .{n}),
         .unknown => "set by a newer version",
     };
 }
 
-/// What `--quality-by` takes.
-const QualityBy = enum { folder, name, path };
-
-/// Where a source's quality comes from, as `--quality-by` and `--quality`
-/// say, given what it was; null if they say nothing. By name keeps a name
-/// already given.
-fn qualityFrom(c: Command, by: ?QualityBy, was: lib.QualityFrom) ?lib.QualityFrom {
-    if (by == .folder) return .folder;
-    if (by == .path) return .path;
-    if (c.args.get("--quality")) |n| return if (n.len > 0) .{ .named = n } else .path;
-    if (by == .name) return if (was == .named) was else .names;
-    return null;
+/// Where a source's quality comes from, as `--quality` says: a name, or by
+/// path if empty; null if it says nothing.
+fn qualityFrom(c: Command) ?lib.QualityFrom {
+    const n = c.args.get("--quality") orelse return null;
+    return if (n.len > 0) .{ .named = n } else .path;
 }
 
 pub fn source(app: *App, c: Command) !void {
-    const settings = &.{ "--quality", "--skip", "--quality-by" };
-    // `--quality-by path` reads each file's quality from the nearest of its
-    // name and folders that says one; `folder`, from the first folder
-    // within the source; `name`, from the source's name (`--quality`), or
-    // else the file's.
-    const by: ?QualityBy = if (c.args.get("--quality-by")) |v| std.meta.stringToEnum(QualityBy, v) orelse return error.Usage else null;
+    const settings = &.{ "--quality", "--skip" };
     if (c.is("list", 0, &.{})) {
         var r = try app.open();
         defer r.close();
@@ -263,14 +248,14 @@ pub fn source(app: *App, c: Command) !void {
         try core.url.escape(app.arena, &typed, c.rest[0]);
         if (!std.mem.endsWith(u8, typed.items, "/")) try typed.append(app.arena, '/');
         var layout: lib.Layout = .{};
-        if (qualityFrom(c, by, .path)) |q| layout.quality = q;
+        if (qualityFrom(c)) |q| layout.quality = q;
         if (c.args.get("--skip")) |v| layout.skip = v;
         try app.out.print("added source {s}\n", .{try lib.addSource(&r, app.now(), typed.items, layout)});
     } else if (c.is("set", 1, settings) and c.args.count() > 0) {
         var r = try app.open();
         defer r.close();
         var rp = try lib.findSource(&r, app.arena, c.rest[0]);
-        if (qualityFrom(c, by, rp.layout.quality)) |q| rp = try lib.setQualityFrom(&r, app.arena, app.now(), c.rest[0], q);
+        if (qualityFrom(c)) |q| rp = try lib.setQualityFrom(&r, app.arena, app.now(), c.rest[0], q);
         if (c.args.get("--skip")) |v| rp = try lib.setSkip(&r, app.arena, app.now(), c.rest[0], v);
         try app.out.print("{s}  quality: {s}, skip: \"{s}\"; crawl to apply\n", .{ rp.id, try qualitySetting(app.arena, rp.layout), rp.layout.skip });
     } else if (c.is("remove", 1, &.{"--unavailable"}) and c.args.get("--unavailable") != null) {

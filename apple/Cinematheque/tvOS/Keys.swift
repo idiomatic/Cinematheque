@@ -28,21 +28,12 @@ enum Keys {
     }
 
     /// Keeps any seed the data directory has gained (e.g., on pairing or
-    /// joining), and one kept by an earlier build, before it was kept to
-    /// this device, afresh.
+    /// joining).
     static func save() {
         for name in files {
-            guard let data = try? Data(contentsOf: dataDir.appending(path: name)), read(name) != data || !thisDeviceOnly(name) else { continue }
+            guard let data = try? Data(contentsOf: dataDir.appending(path: name)), read(name) != data else { continue }
             write(name, data)
         }
-    }
-
-    private static func thisDeviceOnly(_ name: String) -> Bool {
-        var q = query(name)
-        q[kSecReturnAttributes] = true
-        var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let attributes = out as? [CFString: Any] else { return false }
-        return attributes[kSecAttrAccessible] as? String == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
     }
 
     /// Forgets the seeds, so a device removed from its library pairs afresh,

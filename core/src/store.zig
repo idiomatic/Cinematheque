@@ -57,8 +57,8 @@ pub const Store = struct {
     }
 
     /// Makes a data directory, its seeds, and its replica (which holds
-    /// people's progress) its owner's alone, as an older build, or a
-    /// directory made before, may have left them readable by others.
+    /// people's progress) its owner's alone, as SQLite makes its files
+    /// readable by others.
     fn tighten(io: Io, arena: std.mem.Allocator, dir: []const u8) !void {
         if (!@hasDecl(Io.File.Permissions, "fromMode")) return;
         const cwd = Io.Dir.cwd();

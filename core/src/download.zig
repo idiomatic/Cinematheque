@@ -584,7 +584,7 @@ pub fn wants(replica: *Replica, arena: std.mem.Allocator) ![]Want {
 /// Which of a series' episodes download, as it's watched: the `next` N
 /// after where this person is (and the one in progress), specials aside,
 /// or `all` of them, specials too, kept however they're watched. Written as
-/// the number, or `all`; `current`, an earlier choice, reads as the next 1.
+/// the number, or `all`.
 pub const Choice = union(enum) {
     next: u32,
     all,
@@ -592,7 +592,6 @@ pub const Choice = union(enum) {
     /// Null for none (empty, `0`, or one that doesn't read).
     pub fn parse(text: []const u8) ?Choice {
         if (std.mem.eql(u8, text, "all")) return .all;
-        if (std.mem.eql(u8, text, "current")) return .{ .next = 1 };
         const n = std.fmt.parseInt(u32, text, 10) catch return null;
         return if (n == 0) null else .{ .next = @min(n, 1000) };
     }
@@ -1468,7 +1467,6 @@ test "a series' choice of episodes: the next few, or all" {
     }
     for ([_][]const u8{ "", "0", "s02", "unwatched", "none" }) |none| try std.testing.expectEqual(@as(?Choice, null), Choice.parse(none));
     // An earlier choice of the current episode reads as the next one.
-    try std.testing.expectEqual(Choice{ .next = 1 }, Choice.parse("current").?);
 
     // Sizes: each file is 1,000 bytes, and none is here.
     try std.testing.expectEqual(Size{ .size = 2000, .needed = 2000 }, try sizeOf(&r, arena, "t/s/firefly/-", .{ .next = 2 }, null));

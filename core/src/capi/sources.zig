@@ -14,7 +14,7 @@ const span = capi.span;
 /// last), as a JSON array of objects with `id`, `url`, `path` (its server
 /// and folders as a person reads them, to join with " › "), `owner` (the
 /// key of the device whose it is, which wrote its address),
-/// `quality_from` (`path`, `names`, `folder`, `named`, or `unknown`, a newer
+/// `quality_from` (`path`, `named`, or `unknown`, a newer
 /// device's), `quality` (its name, if named), `skip`, `copies`, `managed` (a device's downloads), and
 /// `unavailable`, its unavailable directories
 /// (`dir`, relative to it, empty for the whole of it, and `since`, in
@@ -43,7 +43,7 @@ fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
         .quality_from = rp.layout.quality,
         .quality = switch (rp.layout.quality) {
             .named => |n| n,
-            .path, .names, .folder, .unknown => "",
+            .path, .unknown => "",
         },
         .skip = rp.layout.skip,
         .copies = counts.get(&rp.id) orelse 0,

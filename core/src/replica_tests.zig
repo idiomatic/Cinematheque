@@ -555,15 +555,8 @@ test "a device whose certificate doesn't verify writes a fresh one, and its whol
     try testing.expect((try p.sync(1, 2)).rejected > 0);
     try testing.expectError(error.Missing, p.value(1, "t/00001", "name"));
 
-    // Opened again, c rewrites the certificate before writing anything.
-    c.checked_certificate = false;
-    c.hlc = .{};
-    try c.recertify(1500);
-    try testing.expectEqual(@as(usize, 0), (try p.sync(1, 2)).rejected);
-    try testing.expectEqualStrings("Metropolis", try p.value(1, "t/00001", "name"));
-
-    // And again: it checks, and certifies afresh,
-    // even when it writes only private data.
+    // Opened again, it checks, and certifies afresh before writing, even
+    // when it writes only private data.
     c.checked_certificate = false;
     c.hlc = .{};
     try c.writePrivate(2000, try std.fmt.allocPrint(p.arena_state.allocator(), "p/{s}/t/m/x/2000/v/-", .{std.fmt.bytesToHex(c.personKey(), .lower)}), &.{.{ "position", "60000" }});

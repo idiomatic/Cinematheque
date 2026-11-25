@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Older builds' ways are dropped, so every device updates together: sync answers are always salted (requests no longer carry a flags byte); sources' old quality settings (From File Names, From the Folder Under It; the command-line app's `--quality-by`) and the one-time move of a device's own sources to port-free addresses (`cq_repo_move`) are gone; and the apps no longer rewrite an older build's bad certificate on opening, nor the Apple TV its Keychain's seeds.
 * Every member is equal: the library's creator can be removed like anyone, and leaving never asks who takes over. Handing a library over (`library handover`, `library leave --to`) is gone, and `cq_remove_self` takes no successor. Update every device together: an older one still refuses others' removal of the creator's devices.
 * Downloads: a series' watched episodes go as soon as they're watched, if another source holds them alike, not only once their space is needed; their servers are no longer asked first. The command-line app's `title download` is gone.
 * Covers: before one loads, its tile shows a color of its own, not a blurred likeness; the core reads only a JPEG's width and height (`shape`), so rows are still laid out before covers load. `cq_thumbhash` and the web client's `/api/thumb` are gone.
