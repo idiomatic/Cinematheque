@@ -17,7 +17,7 @@ When each routine task was last done, and the commit it looked at (or made), so 
 How work keeps the code from growing faster than it earns; soften these where they chafe.
 
 * **One in, one out:** a feature's commit also simplifies something near it, and each commit reports its net change in lines. A split is exempt, as each part repeats its imports, but still reports its count.
-* **Checks:** [tools/debt.py](tools/debt.py), run before each push, reports declarations nothing uses (and fails on them), files over 1,600 lines, and the spec's length.
+* **Checks:** [tools/debt.py](tools/debt.py), run before each push, reports declarations nothing uses, files over 1,600 lines, and the specs' lengths, failing on an unused declaration or a spec over its budget (AGENTS.md 8,000 words, ARCHITECTURE.md 2,300), so the specs stay terse: a requirement once, rationale in a clause, history in commits.
 * **Splits:** a file past 1,600 lines is split by what its parts do, nothing else changed, never cutting a type in two.
 * **The system's own:** controls and containers are the platform's (forms, rows, pickers, lockups, players). Build one by hand only where none exists or it can't do what's needed, and say why in a comment.
 * **One copy:** what every player decides alike (names, what plays next, how qualities rank) is the core's, not each player's.

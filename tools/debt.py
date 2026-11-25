@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Code debt, by the measures DEVELOPMENT.md's Practice keeps: declarations
-nothing uses, files past a length, and the spec's length. Prints what it
-finds; exits 1 if a declaration is unused, so a check can stop on it."""
+nothing uses, files past a length, and the specs' lengths. Prints what it
+finds; exits 1 if a declaration is unused or a spec is over its budget, so a
+check can stop on it."""
 
 import collections
 import pathlib
@@ -12,6 +13,11 @@ import sys
 root = pathlib.Path(__file__).resolve().parent.parent
 # A file this long is due a split.
 LONG = 1600
+# The most words each spec may run to.
+BUDGETS = {
+    "AGENTS.md": 8000,
+    "ARCHITECTURE.md": 2300,
+}
 # Names a framework calls, not the code.
 CALLED = {
     "_", "body", "main", "test", "makeBody", "makeNSView", "updateNSView",
@@ -38,11 +44,14 @@ for f, text in texts.items():
 
 long = sorted(((t.count("\n"), f) for f, t in texts.items() if t.count("\n") > LONG), reverse=True)
 total = sum(t.count("\n") for t in texts.values())
-spec = len((root / "AGENTS.md").read_text().split())
+words = {name: len((root / name).read_text().split()) for name in BUDGETS}
+over = [f"{name}: {words[name]:,} words (over {BUDGETS[name]:,})" for name in BUDGETS if words[name] > BUDGETS[name]]
 
-print(f"code: {total:,} lines in {len(code)} files; spec: {spec:,} words")
+print(f"code: {total:,} lines in {len(code)} files; " + ", ".join(f"{n}: {w:,} words" for n, w in words.items()))
 for n, f in long:
     print(f"long: {f}: {n:,} lines (over {LONG})")
 for u in unused:
     print(f"unused: {u}")
-sys.exit(1 if unused else 0)
+for o in over:
+    print(f"over budget: {o}")
+sys.exit(1 if unused or over else 0)

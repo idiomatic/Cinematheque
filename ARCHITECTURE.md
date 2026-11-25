@@ -1,212 +1,121 @@
 # Architecture
 
-How a Cinematheque library is made of operations: what one is, how devices write, sign, merge, and exchange them, the HTTP endpoints devices answer, and the keys and fields the library writes. [AGENTS.md](AGENTS.md) states the requirements; this explains how the [core](core/README.md) meets them. The code has the final word: [op.zig](core/src/op.zig), [hlc.zig](core/src/hlc.zig), [merkle.zig](core/src/merkle.zig), [replica.zig](core/src/replica.zig), [sync.zig](core/src/sync.zig), [pair.zig](core/src/pair.zig), and [serve.zig](core/src/serve.zig).
+How a library is made of operations, how devices sign, merge, and exchange them, the HTTP endpoints they answer, and the keys and fields the library writes. [AGENTS.md](AGENTS.md) states the requirements; the code ([op.zig](core/src/op.zig), [hlc.zig](core/src/hlc.zig), [merkle.zig](core/src/merkle.zig), [replica.zig](core/src/replica.zig), [frames.zig](core/src/frames.zig), [sync.zig](core/src/sync.zig), [seal.zig](core/src/seal.zig), [pair.zig](core/src/pair.zig), [serve.zig](core/src/serve.zig)) has the final word.
 
 ## Operations
 
-An operation is one device's write of one field of one key. Everything that replicates is an operation (a title's name, a position, a device's certificate, the library's members), so one mechanism carries it all.
+One device's write of one field of one key; everything that replicates is one (a title's name, a position, a certificate, the members).
 
 | Part | Size | Meaning |
 |---|---|---|
-| library | 16 bytes | The library's ID: the first 16 bytes of the BLAKE3 hash of its creator's person key |
-| device | 32 bytes | The Ed25519 public key of the stream that wrote it |
+| library | 16 | The first 16 bytes of the BLAKE3 hash of its creator's person key |
+| device | 32 | The Ed25519 public key of the stream that wrote it |
 | seq | u64 | Its place in that stream, from 1, without gaps |
-| hlc | u64 | When it was written, by hybrid logical clock |
-| kind | u8 | How it merges: `0`, last writer wins; `1`, causal length |
-| key | u16 length, then bytes | What it's about, e.g., `t/m/alien/1979` |
-| field | u16 length, then bytes | Which of the key's fields, e.g., `name` |
-| value | u32 length, then bytes | The field's new value; empty means none |
+| hlc | u64 | Its hybrid logical clock |
+| kind | u8 | `0`, last writer wins; `1`, causal length |
+| key, field | u16 length, bytes | What it's about (`t/m/alien/1979`, `name`) |
+| value | u32 length, bytes | The new value; empty means none |
 
-Its canonical encoding is those parts in that order, integers little-endian. The encoding is what's hashed and signed; storage and the wire carry the parts and rebuild it.
+Its canonical encoding is those parts in order, integers little-endian; that's what's hashed and signed. Values are mostly UTF-8: numbers in decimal, flags `1` and `0`, records tab-separated. Nothing is deleted; a field is emptied.
 
-Values are bytes, mostly UTF-8 text: numbers in decimal, flags as `1` and `0` (or empty), records as tab-separated parts. Nothing is deleted: a field is emptied, and an empty value reads as unavailable.
+* **Last writer wins**, for all but `members`: the later clock wins, a tie the greater device key; but between two `revoked` cutoffs, the lower.
+* **Causal length**, for `members`: the value a u32 count, odd while present. A removal (even) outranks any addition, whatever the counts, so it's for good.
+* **Clocks:** wall-clock milliseconds in the high 48 bits, a counter in the low 16. Writing ticks to the wall clock if later, else the last value plus one; receiving folds the operation's clock in. One more than a day past the receiver's wall clock is refused, as it would hold its field for good. A clock at its end stays there.
 
-### Kinds
+## Streams, batches, and storage
 
-* **Last writer wins** (`lww`), for everything but `members`: of two operations on one field, the later clock wins; on a tie, the greater device key.
-* **Causal length** (`causal_length`), for `members` alone: the field is the element, and the value a u32 count: 1 once added, even once removed. A removal outranks any addition, whatever the clocks, so it's for good: a person removed comes back as someone new. (Otherwise a count could be written so high that no removal outranked it.)
+Each device writes two streams, each with its own key and numbering: its own, under its device key, and its private stream, under a key derived from its seed (`"cinematheque private"`), for its person's `p/<person>/...`. A stream's first operation is a certificate; its numbering has no gaps, so a version vector (the highest number seen per stream) says exactly what a replica holds.
 
-### Clocks
+A transaction's writes form batches of up to 1,024 consecutive operations; a write outside one is a batch of its own. Each encoding hashed with BLAKE3, prefixed `0`, is a leaf; pairs hash, prefixed `1`, up to a root, an odd node promoted. The stream's key signs `"cinematheque batch"`, the library ID, the stream key, the first sequence number (u64), the count (u32), and the root, so a batch can't pose as another range.
 
-A hybrid logical clock packs wall-clock milliseconds into the high 48 bits and a counter into the low 16. Writing ticks it to the wall clock if that's later than the last value, else to the last value plus one, so a device's clocks always rise, even if its wall clock stalls or steps back. Receiving an operation folds its clock in, so what the device writes next orders after it. An operation dated more than a day past the receiver's wall clock is refused; else it would hold its field for good and drag every clock to its end. A clock at its end stays there rather than wrapping. Clocks stay close to real time, so the newest write wins, as people expect, without trusting any one device's clock.
+SQLite holds only winners: `winners` (per key and field: kind, clock, device, sequence number, value, from which the encoding is rebuilt); `batches` (device, range, root, signature, and every leaf, so a winner can be sent under its batch's signature after the batch's other operations lost); `devices` (keys interned as integers); `version_vector`; and `local`, the device's own state, never replicated (crawl snapshots, `refill`, addresses added, and downloads: `downloads/dir`, `downloads/source`, `downloads/want/<item>`, `downloads/next/<title>`, `downloads/at/<item>`, `downloads/file/<item>`).
 
-## Streams
-
-Each device writes two streams, each with a key pair and numbering of its own:
-
-* **Its own stream,** under its device key, for everything shared with the library.
-* **Its private stream,** under a key derived from the device's seed (`"cinematheque private"`), for its person's private data (`p/<person>/...`): progress and lists.
-
-A stream's first operation must be a certificate (see [Admission](#admission)). Its numbering has no gaps, so a version vector (the highest number seen from each stream) says exactly what a replica holds.
-
-## Batches
-
-A device signs batches of operations, not each one. A transaction's writes (a crawl's, a title's details, progress's fields) form batches of up to 1,024 consecutive operations of one stream, a new one every 1,024; a write outside a transaction is a batch of its own. To sign one:
-
-* Each operation's encoding is hashed with BLAKE3, prefixed `0`, as a leaf.
-* Pairs of hashes are hashed, prefixed `1`, up to one root. An odd node at a level's end is promoted unpaired. The two prefixes keep a leaf from posing as an inner node.
-* The stream's key signs `"cinematheque batch"`, the library ID, the stream key, the batch's first sequence number (u64) and count (u32), and the root, with Ed25519, so a batch can't be presented as another range of the stream.
-
-So one signature covers 1,024 writes, and a receiver checks it from the operations sent and the leaves of those that weren't.
-
-## Storage
-
-A replica keeps, in SQLite, each field's winning operation and nothing else of the operations it saw:
-
-* **`winners`:** per key and field, the winner's kind, clock, device, sequence number, and value, from which its encoding is rebuilt.
-* **`batches`:** per batch, its device, first sequence number, count, root, signature, and every leaf hash, so it can send the winners it holds with the batch's signature after its other operations have lost their fields.
-* **`devices`:** device keys, interned as small integers.
-* **`version_vector`:** per stream, the highest sequence number covered.
-* **`local`:** the device's own state, which never replicates (crawl snapshots, `refill` (see Refill), devices added by address, and downloads: `downloads/dir`, `downloads/source`, `downloads/want/<item>` (a quality), `downloads/next/<title>` (a count, or `all`), and `downloads/at/<item>` (when fetched, in ms; the watched mark's clock past it means "watched since")).
-
-A losing operation is dropped and never sent again, as it can't change anything.
-
-## Merging
-
-Receiving an operation:
-
-1. If the version vector already covers its sequence number, it's known, and skipped.
-2. If it's refused (see [Admission](#admission)), it's counted and skipped.
-3. Otherwise its clock is observed, and it's compared with the field's winner by its kind: if newer, it replaces the winner (`won`); else it's dropped (`lost`).
-
-In whatever order operations arrive, every replica ends with the same winners, so devices converge without coordinating.
-
-One key acts when it wins: `revoked` (a removal) drops the removed stream's later writes (see Refill).
+Receiving an operation: one the vector covers is known and skipped; one refused is counted and skipped; else its clock is observed and it's merged by its kind, `won` or `lost`. Replicas converge whatever the order. A winning `revoked` drops the stream's winners past its cutoff (see Refill).
 
 ## Admission
 
-A batch is applied only if its stream may write it, as decided by operations that replicate like any other:
+A batch applies only if its stream may write it, decided by operations that replicate like any other:
 
-* **Certificates** (`c/<stream key>`): field `user` for a device's own stream, `private` for its private stream. The value is the person's key and the person's signature over `"cinematheque device "` (or `"cinematheque private"`), the library ID, and the stream key. A batch may carry its own certificate.
-* **Members** (`members`): a set of person keys, by causal length. The library's creator is a member from the start (a count of 1 without a write), until removed.
-* **Removals** (`revoked`): per removed stream (a removed device's, or each of a removed member's devices'), the last sequence number that stands.
+* **Certificates** (`c/<stream hex>`): `user` for a device's own stream, `private` for its private stream: the person's key and their signature over `"cinematheque device "` (or `"cinematheque private"`), the library ID, and the stream key. A batch may carry its own.
+* **Members** (`members`): person keys by causal length; the creator counts 1 without a write, until removed.
+* **Removals** (`revoked`): per stream, the last sequence number that stands.
 
-So a stream's batches are admitted if its certificate names a member: whole, or up to its cutoff if the stream was removed; otherwise not yet. Within an admitted stream, these operations are refused:
+A stream is admitted whole if its certificate names a member, up to its cutoff if removed, else not yet. Within it, refused: private data not on its person's private stream, and anything else on a private stream; the wrong kind for a key, or a `members` count but 1 or an even one; anything a day ahead; a source's `url` its ID doesn't hash, or not from the device whose `url` is held, and its `managed` from any other (a `cqdevice://` source, and a device's `served`, are ignored on reading unless from that device); a shared list's field (`l/<owner>/<id>`) not from its owner's devices, or not its `name`, a mode, or a title; a cutoff not 8 bytes; a certificate but a device's own `user` one, or a `private` one naming its writer's person where none held names another. A batch overlapping a held batch's range (but itself) is refused. A device always admits its own streams.
 
-* private data (`p/<person>/...`) not on that person's private stream;
-* anything but its person's private data on a private stream;
-* an operation of the wrong kind for its key, or a `members` count but 1 or an even one;
-* an operation dated more than a day ahead;
-* a source's `url` that its ID doesn't hash, or not from the device whose `url` is held; its `managed` but from that device (and a device's own folder, `cqdevice://<key>/…`, is no source but from that device, as any member could otherwise aim devices at another's paths; nor is its `served` but its own, both ignored as read, not refused);
-* a shared list's field (`l/<owner>/<id>`) not from one of its owner's devices, or not its `name`, a mode change, or a title;
-* a cutoff (`revoked`) not 8 bytes; and between cutoffs, the lower wins, so a removal can't be undone;
-* a certificate (`c/<stream key>`) but a device's own `user` one, or a `private` one naming its writer's person when the receiver holds none naming another, so no member can claim another's private stream and be sent its data.
-
-A batch overlapping a range a held batch covers (but that same batch) is refused, as a stream numbers each write once.
-
-A device always admits its own streams, so one whose replica was lost gets its private data back before its certificate arrives.
-
-A response is applied in one transaction. A batch whose stream isn't admitted yet waits until the response's end, which may bring the certificate or membership that admits it. If nothing has by then, it's rejected, and its stream isn't advanced in the version vector, so a later sync offers it again. Held batches count against the response's limit by all they hold (text, leaves, and operations).
-
-The version vector a response ends with is taken only from a member's device (a member before the response or after it), and never for the receiver's own streams, which only it numbers. Else a stranger who answered could make a device skip any stream's writes, or number its own past what any device accepts.
+A response applies in one transaction. A batch not admitted yet waits to its end, which may bring what admits it; else it's rejected and its stream left unadvanced, to be offered again. Held batches count against the response's size limit by all they hold. The vector a response ends with is taken only from a member's device, and never for the receiver's own streams.
 
 ## Sync
 
-Sync runs both ways, started by either side: a device asks the other for what it lacks, then sends what the other lacks. So a device that can reach another that can't reach it (behind a NAT) still syncs both ways; only one need accept connections.
+A device asks the other which device it is (`GET /sync`: its device key and certificate in headers), then pulls (`POST /sync`), then pushes what the other lacks by the vector the pull ended with. Only winners above the vector are sent, grouped by batch, so a sync carries current state, not history; other people's private streams are left out, frames and vector entries alike.
 
-* **Request:** first `GET /sync`, which names the other device (its device key and certificate, in headers); then `POST /sync` with the device key, its certificate, the time, the other device's key, and the version vector, signed by the device (the bytes are in [HTTP endpoints](#post-sync)). The other device refuses a request meant for another device, and the device refuses a response from any but the one asked, so a request sent to one (a host posing as a device of the library, say) can't be replayed to another to read what it would be sent. The other device answers only a member's device that isn't removed, within ten minutes of its own clock.
-* **Response,** gzipped, as frames:
-  * `B`, a batch: device, first sequence number, count, signature, a bitmap of which operations follow, and the leaf hashes of those that don't: enough to rebuild the root and check the signature from only what's sent.
-  * `O`, one per operation sent: its sequence number, clock, kind, key, field, and value. The library and device are the batch's.
-  * `V`, one per stream: the sender's version vector entry, which the receiver adopts once `S` verifies.
-  * `S`, the sender's signature over `"cinematheque frames"` and the BLAKE3 hash of: the library ID, the signature of the request the frames answer (a pull's, or a push's own), the sender's device key, then each `B` frame's device, first sequence number, count, signature, and bitmap, and each `V` entry, in order. A receiver takes the frames only if it verifies against the device claiming to send them, so a host that merely copied a device's public certificate can't make a device adopt its vector or take private streams from it, and no batch can be dropped on the way.
-  * `E`: the end, only after `S`.
-* **What's sent:** for each stream, the winners above the receiver's vector, grouped by batch. Other people's private streams are left out, frames and vector entries alike, so private data never reaches another person's devices.
-* **Push:** the response also names the other device, by its device key and certificate. The device then sends what the other lacks by the vector the response ended with: a second `POST /sync` of a signed request and frames as above, leaving out private streams not the other device's person's, which the other device applies as it would a response.
-
-As only winners are sent, a sync carries the current state of what changed, not its history: progress moved ten times since the last sync is one operation per field.
-
-* **Refill:** a removal drops the winners its stream wrote past its cutoff, and what they overwrote is gone, its writes already covered by the vector. So a device that dropped any sends its next pull with an empty vector, takes every winner the other holds, comparing even those it covers (what it holds loses or ties), and ends refilling. A value neither held is lost.
-
-A sync's results count operations: received, those that won their fields; sent, those a response or a push carried.
+**Refill:** a cutoff drops winners whose predecessors are long gone, and the vector already covers them. So a device whose cut dropped any sends its next pull with an empty vector, merges every winner the other holds, covered or not (what it holds loses or ties), and clears `refill`. A value neither held is lost.
 
 ## HTTP endpoints
 
-Devices speak plain HTTP/1.1, without TLS: operations are signed, and pairing and syncs seal what they send. Integers are little-endian, keys are 32 bytes, and signatures are Ed25519's 64.
+Plain HTTP/1.1: operations are signed, and pairing and syncs sealed. Integers little-endian, keys 32 bytes, signatures 64.
 
 | Endpoint | Answered by | For |
 |---|---|---|
-| `GET /sync` | Every device that serves | Naming itself, for a request to be for it alone |
-| `POST /sync` | Every device that serves | Pulling operations, and pushing them |
-| `GET` and `POST /pair` | A new device offering to pair | Pairing by code |
-| `GET` and `HEAD` of any other path | A device serving media | Files, listings, and `INDEX` |
+| `GET /sync`, `POST /sync` | Every device serving | Naming itself; pulls and pushes |
+| `GET`, `POST /pair` | A new device offering to pair | Pairing by code |
+| `GET`, `HEAD` of other paths | A device serving media | Files, listings, `INDEX` |
 
-A device serves on the port given (an app's, the one it got last), else on 8008, or any free port if that's taken, and advertises `_cinematheque._tcp` by DNS-SD with a TXT record of `library` (its ID, hex), `path` (`/sync`), `user` (hex), `name` (the device's), and `person` (the person's). A new device offering to pair runs a server of its own, on a free port, answering only `/pair`, and advertises `pair` (`new`), `path` (`/pair`), and `name` instead.
+A device advertises `_cinematheque._tcp` with TXT `library` (hex ID), `path` (`/sync`), `user` (person hex), `name`, and `person`; a new device offering to pair serves only `/pair`, on a free port, advertising `pair` (`new`), `path`, and `name`.
 
 ### `POST /sync`
 
-The body is sealed ([seal.zig](core/src/seal.zig)), so only the device it's for reads it, and only the asking device reads the answer. The asking device makes an X25519 key pair for the request alone, agrees a secret with the other device's key (from `GET /sync`, its Ed25519 key as X25519), and derives a key each way by BLAKE3 (`cinematheque sync keys`, the library ID, its public key, the other device's key, and the secret). Sealed data is chunks of up to 64 KiB, each its length (u32, its top bit set on the last), its ChaCha20-Poly1305 ciphertext, and its tag, with a nonce of the part (1, the request; 2, the rest; 3, the answer) and the chunk's number, so no chunk can be dropped, moved, or cut off. The body: its public key (32), the sealed request's length (u32) and the sealed request, then for a push the rest, sealed. The sealed request must arrive within the 30 seconds a request's head has, and the rest a mebibyte a minute, and the other device opens its replica only once the request checks out, so no one holds a connection, or costs it work, without being a member's device. An answer is sealed under the answer's key salted afresh, BLAKE3 keyed with it over `cinematheque response` and 32 random bytes, sent in hex as `x-cinematheque-salt`: so a request replayed is answered under a new key, never another plaintext under the same key and nonces. The request, up to 1 MiB, before sealing:
+**Sealing:** the asking device makes an X25519 key pair for the request, agrees a secret with the other's key (its Ed25519 key as X25519), and derives a key each way by BLAKE3 (`cinematheque sync keys`, library ID, its public key, the other's key, the secret). Sealed data is chunks of up to 64 KiB: length (u32, top bit on the last), ChaCha20-Poly1305 ciphertext, tag, nonced by part (1 request, 2 rest, 3 answer) and chunk number. The body: the public key (32), the sealed request's length (u32) and it, then for a push the rest. The request must arrive within 30 seconds, the rest a mebibyte a minute, and the replica opens only once the request checks out. An answer's key is salted afresh: BLAKE3 keyed with it over `cinematheque response` and 32 random bytes, sent in hex as `x-cinematheque-salt`.
 
-| Part | Size |
-|---|---|
-| Device key | 32 |
-| Certificate: the person's key, and the person's signature | 96 |
-| Time, in milliseconds since the epoch | u64 |
-| The other device's key, whom it's for (from `GET /sync`) | 32 |
-| Version vector: a count (u32), then per stream its key (32) and highest sequence number (u64); none while refilling | 4 + 40 per stream |
-| The device's signature over `cinematheque request`, the library ID, and everything before it | 64 |
+**Request** (up to 1 MiB): device key (32); certificate (96: person key and signature); time (u64 ms); the recipient's key (32); version vector (u32 count, then per stream key and u64; none while refilling); the device's signature (64) over `cinematheque request`, the library ID, and the rest. It's refused if for another device, more than ten minutes off, or not a member's.
 
-Answers:
-* **200,** `application/octet-stream`, sealed: frames, gzipped, each starting with a tag byte, until `E`.
-  * `B`, a batch: device key (32), first sequence number (u64), count (u32, 1 to 1,024), signature (64), a bitmap of `(count + 7) / 8` bytes, whose bit *i* is set if operation *first + i* follows, and a leaf hash (32) for each bit not set. Then an `O` frame for each bit set, in order.
-  * `O`, an operation: sequence number (u64), clock (u64), kind (u8), then the key, field, and value, each its length (u16, u16, and u32) and bytes.
-  * `V`, a version vector entry: stream key (32) and sequence number (u64).
-  * `S`, the sender's signature (64), as above.
-  * `E`: the end.
-  With it, two headers name the other device: `x-cinematheque-device`, its device key, and `x-cinematheque-certificate`, its certificate, each in hex; and `x-cinematheque-salt`.
-* **400,** the error's name as text: `Malformed`, `BadSignature`, `BadCertificate` (one that doesn't verify for this library), `Stale` (a time more than ten minutes from the other device's), `WrongRecipient` (a request for another device), or `BadSeal` (one it can't open).
-* **403,** `not a member`: the certificate's person isn't a member. Or `removed`, for a device that was removed, with `x-cinematheque-device` and `x-cinematheque-certificate` as above and `x-cinematheque-signature`, the other device's signature (hex) over `cinematheque removed`, the library ID, the asking device's key, and its request's time (u64): proof enough, from a member's device, for the device to leave.
+**200**, sealed, gzipped frames, each a tag byte:
+* `B`: device (32), first (u64), count (u32, 1–1,024), signature (64), a bitmap of `(count + 7) / 8` bytes whose bit *i* means operation *first + i* follows, and a leaf (32) per unset bit; then an `O` per set bit.
+* `O`: seq (u64), hlc (u64), kind (u8), key, field, and value (u16, u16, u32 lengths).
+* `V`: stream key (32) and u64, adopted once `S` verifies.
+* `S`: the sender's signature (64) over `"cinematheque frames"` and the BLAKE3 hash of the library ID, the request's signature, the sender's key, each `B`'s header and bitmap, and each `V`, in order; so frames are believed only from the device asked, for that request, with no batch dropped.
+* `E`: the end.
 
-A push is a `POST /sync` with `Content-Type: application/x-cinematheque-push`: the request, as above (its vector unused), then frames, as a response's, gzipped, the rest sealed. It's answered with 204, once applied, or 400 or 403 as above; a refusal fails the sync, as a pull's does.
+Headers name the answerer: `x-cinematheque-device` and `x-cinematheque-certificate` (hex), and the salt.
+
+**400** names the error (`Malformed`, `BadSignature`, `BadCertificate`, `Stale`, `WrongRecipient`, `BadSeal`). **403** is `not a member`, or `removed`, with the answerer's device and certificate and `x-cinematheque-signature` over `cinematheque removed`, the library ID, the asker's key, and its request's time: proof, from a member's device, for it to leave.
+
+**Push:** `Content-Type: application/x-cinematheque-push`, the request (its vector unused), then frames as a response's, sealed. 204 once applied; 400 or 403 fails the sync.
 
 ### `/pair`
 
-Answered only while a new device offers to be added, by the 6-digit code it shows. The member's device decides what it is, sending the person's seed (another of its person's devices) or zeros (a new member's). Both sides derive the session's generator, a ristretto255 point, from SHA-512 over, each prefixed by its length in a byte: `CPaceRistretto255`, the code, `Cinematheque pairing`, `pair`, and the session ID. The key is the first 32 bytes of SHA-512 over, prefixed likewise: `CPaceRistretto255_ISK`, the session ID, the shared point, the sender's share, and the new device's share.
+Both sides derive a ristretto255 generator from SHA-512 over, each prefixed by its length in a byte, `CPaceRistretto255`, the code, `Cinematheque pairing`, `pair`, and the session ID; the key is the first 32 bytes of SHA-512 over `CPaceRistretto255_ISK`, the session ID, the shared point, the sender's share, and the new device's share, prefixed likewise.
 
-* **`GET`** starts an attempt, ending any other: 200 with the session ID (16) and the new device's share (32). Once paired, or after 3 wrong codes from the asking address, or 30 from all, 410, `Closed`.
-* **`POST`** answers the attempt: the session ID (16), the sender's share (32), and the sealed secrets (80): the person's seed (zeros when joining) and the library's key (its creator's), sealed with ChaCha20-Poly1305 under the key, nonce 0, and associated data `Cinematheque pairing secrets`. 200 answers with the sealed reply (80): the new device's person key and device key, under the key, nonce 1, and `Cinematheque pairing reply`. A wrong code is 403, `WrongCode`, and counts toward the 3; an attempt that isn't the current one, or a body of the wrong size, is 400; a closed offer is 410.
+* **`GET`** starts an attempt, ending any other: the session ID (16) and the new device's share (32). Once paired, or after 3 wrong codes from the address or 30 in all, 410.
+* **`POST`**: session ID (16), the sender's share (32), and sealed secrets (80: the person's seed, or zeros for a new member, and the library's key; ChaCha20-Poly1305, nonce 0, AD `Cinematheque pairing secrets`). 200 with the sealed reply (80: the new device's person key and device key; nonce 1, AD `Cinematheque pairing reply`). A wrong code is 403 `WrongCode`; a stale attempt or wrong size, 400; a closed offer, 410.
 
 ### Media
 
-Any other `GET` or `HEAD`, on a device serving media, is served from the command-line app's `--media` directory at `/media/`, or an app's folders, each at `/<folder>/`. Paths are percent-decoded, a query is ignored, and a `..` segment is 403. A path outside them all is 404.
+From `--media` at `/media/`, or an app's folders at `/<folder>/`; paths percent-decoded, queries ignored, a `..` segment 403, anything else 404.
 
-* **Files:** 200 with `Content-Type` (`video/mp4` for `.mp4` and `.m4v`, `video/x-matroska` for `.mkv`, else `application/octet-stream`), `Accept-Ranges: bytes`, and an `ETag` of the modification time and size, in hex (`"<mtime>-<size>"`). A single `Range` (`bytes=a-b`, `bytes=a-`, or `bytes=-n`) is answered with 206 and `Content-Range`; several ranges, or one past the end, with 416 and `Content-Range: bytes */<size>`. An `If-Range` that isn't the current `ETag` gets the whole file.
-* **Directories:** without a trailing slash, 301 to the path with one. With `Accept: application/json`, a listing in Caddy's form: an array of `name`, `size`, `url` (`./` and the percent-encoded name, `/` after a directory's), `mod_time` (RFC 3339, UTC), and `is_dir`; otherwise an HTML `<pre>` of links. Names beginning with `.` are left out.
-* **`INDEX`,** at the top of the command-line app's media (`/media/INDEX`) (the apps' folders have none, since they change while served): `text/plain`, a line per file of its path, size, and modification time (Unix seconds), tab-separated, and per directory of its path and `/`, so an empty one (an unplugged drive's mount point) shows it's still there; built when the server starts, and again on a request once it's a minute old; with an `ETag`, so `If-None-Match` gets 304.
+* **Files:** `Content-Type` (`video/mp4`, `video/x-matroska`, else octet-stream), `Accept-Ranges: bytes`, `ETag` `"<mtime>-<size>"` in hex. One `Range` gets 206; several, or past the end, 416; an `If-Range` not matching gets the whole.
+* **Directories:** without a trailing slash, 301. With `Accept: application/json`, Caddy's form (`name`, `size`, `url`, `mod_time` in RFC 3339, `is_dir`); else an HTML `<pre>` of links. Names starting with `.` left out.
+* **`INDEX`** (the command-line app's only): `text/plain`, per file its path, size, and Unix time, tab-separated, per directory its path and `/`; with an `ETag` for `If-None-Match`.
 
 ## Keys and fields
 
-The library ([library.zig](core/src/library.zig), [art.zig](core/src/art.zig)) writes these. Hex means lowercase hexadecimal of a 32-byte key.
+Written by [library.zig](core/src/library.zig), [art.zig](core/src/art.zig), and [lists.zig](core/src/lists.zig); hex is a 32-byte key's.
 
-| Key | Fields | Written by |
-|---|---|---|
-| `t/<m\|s>/<title>/<year or ->` | `name`, `year`; `description`, `genre`, `released`, `network`; `art`, `art:s01`..., the cover as a byte range (source, path, offset, length, and the file's stamp, tab-separated); `shape`, `shape:s01`..., its width and height (`667x1000`) or `-` | Crawls and describing |
-| `.../v/<edition or ->`, `.../e/s03e17` (`.../e/s2024e0312` by air date), `.../e/s00-<title>`, `.../p/<n>` | An item's `edition`, `season`, `episode`, `title`, `description`, `duration` (ms) | Crawls and describing |
-| `.../r/<quality>` | `held:<source>`: path, size, and modification time, tab-separated, or empty once gone | Crawls |
-| `u/<path>` | `held:<source>`, as above, for files that didn't parse | Crawls |
-| `r/<source>` | `url`, `rendition` (its files' quality, the field's name kept as data), `quality-by` (`path`: each file's quality is the nearest of its name and folders that says one, a folder by its whole name; empty, with `rendition`, that name), `skip`; `managed` (`1` for a device's downloads, which no one crawls); `crawled`, when a device last crawled it whole, in ms (refreshes not asked for skip it within the library's interval, `settings`' `crawl`, give or take a 24th of it); `absent:<directory>` (relative to it, empty for the whole of it), when a directory that held files was found empty (an unplugged drive's mount point), in ms, or empty once it's back, deleted, forgotten, or a year on | Adding or changing a source; crawls; forgetting |
-| `settings` | `crawl`: how often refreshes not asked for crawl the sources, in hours (`1`, `3`, `24`, `168`; empty, 24), or `0`, only when asked | Settings |
-| `n/<hex>` | `name`; for a device, `user` (its person's key, hex), `model` (its own), and `served` (its own: where it serves its own folders, `cqdevice://<hex>/…`, now, `http://firefly.local:58275/`) | Naming; serving |
-| `p/<person hex>/<item key>` | `position`, `duration` (ms; empty in the first 10 seconds), `watched` (`1`, `0`, or empty) | Playing, by hand (private) |
-| `p/<person hex>/watchlist` | `<title key>` or `<title key>#<season>`: `1`, a placeholder (`w`, its name, its note, tab-separated), or empty | The watchlist (private) |
-| `p/<person hex>/lists` | `<list ID>`: its name, or empty once deleted | Lists (private) |
-| `p/<person hex>/list/<ID>` | as the watchlist's | A list's titles (private) |
-| `l/<owner hex>/<ID>` | `name`; `mode:<16 hex>`: `shared` or `private`, each written once, the latest current; titles, as the watchlist's | A list shared with every member, by its owner's devices |
-| `c/<stream hex>` | `user` or `private`: a certificate | Each device, first |
-| `members` | `<person hex>`: causal length | Adding and removing members |
-| `revoked` | `<stream hex>`: the last sequence number that stands, u64 | Removing a device, or a member |
-
-Title and item keys derive from a file's parsed identity, so devices crawling the same files write the same keys, whose operations merge field by field rather than duplicating titles.
+| Key | Fields |
+|---|---|
+| `t/<m\|s>/<title>/<year or ->` | `name`, `year`, `description`, `genre`, `released`, `network`, `sort`, `added`; `art`, `art:s01`... (source, path, offset, length, stamp, tab-separated); `shape`, `shape:s01`... (`667x1000` or `-`) |
+| `.../v/<edition>`, `.../e/s03e17`, `.../e/s00-<title>`, `.../p/<n>` | `edition`, `season`, `episode`, `title`, `description`, `duration` (ms), `read` |
+| `.../r/<quality>`, `u/<path>` (unparsed) | `held:<source>`: path, size, time, tab-separated; empty once gone |
+| `r/<source>` | `url`, `name`, `rendition`, `quality-by` (`path`, or empty with `rendition`), `skip`, `managed`, `crawled` (ms), `absent:<dir>` (ms; empty once back) |
+| `settings` | `crawl`: hours (`1`, `3`, `24`, `168`; empty, 24) or `0`, only when asked |
+| `n/<hex>` | `name`; a device's `user` (person hex), `model`, `served` |
+| `p/<person hex>/<item key>` | `position`, `duration` (ms), `watched` |
+| `p/<person hex>/lists` | per list ID its name, empty once deleted |
+| `p/<person hex>/watchlist`, `.../list/<ID>` | per `<title key>` or `<title key>#<season>`: `1`, a placeholder (`w`, name, note, tab-separated), or empty |
+| `l/<owner hex>/<ID>` | `name`; `mode:<16 hex>` (`shared` or `private`); titles, as a list's |
+| `c/<stream hex>` | `user` or `private`: a certificate |
+| `members` | per person hex: a causal length |
+| `revoked` | per stream hex: the last sequence number that stands (u64) |
 
 ## Measurements
 
-The prototypes the core grew from measured what the design rests on, on an Apple M2. Their writeups, and the browse and transcoder prototypes' code (for work not built yet; see [DEVELOPMENT.md](DEVELOPMENT.md)), were retired after commit `436e5ea`; `git checkout 436e5ea -- experiments` restores them.
-
-| Experiment | What it measured | Headline |
-|---|---|---|
-| CRDT | The replica: signed operations in SQLite, sync, membership, thin fetches | 409,500 operations (100,000 copies): 1.1 s to build, 1.1 s to sync cold, in memory or over HTTP, 24.5 MB on the wire (4.0 MB with Zig's gzip, 2.4 MB with zstd), 56 MB on disk; one series fetched thin in 3 ms and 51 KB. Signing each operation instead of each batch took 17 s, and verifying 21 s. |
-| Repository | Crawling listings, Cinematheque's server, re-crawls | 100,000 files: one `INDEX` request, 8 ms; JSON or HTML from Cinematheque's server, 8,503 requests, 0.2 s; rclone 1.5 s; Python 3.3 s (and no byte ranges); Apache 9–18 s. At a 4 ms round trip, 31 s with one worker, 0.9 s with 32. An unchanged re-crawl took 503 requests instead of 8,503, and every one of 800 changes was found. A real Caddy NAS over Wi-Fi: 20,000 files in 0.24 s with 32 workers. |
-| Naming | The filename parser | 100,000 paths in 80 ms; on a real library of tens of thousands of videos, under 0.2% left for review once compact episode codes were read. |
-| Discovery | DNS-SD from Zig | Bonjour on macOS and Avahi on Linux, which found each other. |
-| browse | Facet intersections | A four-facet query and its refinement menu over 4,500 titles: 13 ms in SQLite, 43 µs with 105 KB of bitmaps. |
-| transcoder | Remux-first transcoding over HTTP | 60-second remuxes in 0.1–0.4 s, converting DTS and SubRip; an MPEG-2 re-encode in 8.5 s; AVFoundation plays every output, but not MKV, nor HEVC tagged `hev1`. |
+The prototypes the core grew from (on an Apple M2; retired after commit `436e5ea`, restored by `git checkout 436e5ea -- experiments`) found: 409,500 operations (100,000 copies) built and synced cold in 1.1 s each, 4.0 MB gzipped on the wire, 56 MB on disk, where signing each operation took 17 s; 100,000 files listed by one `INDEX` request in 8 ms, or 8,503 listings in 0.2 s, 0.9 s with 32 workers at a 4 ms round trip, and an unchanged re-crawl in 503 requests; 100,000 paths parsed in 80 ms; Bonjour and Avahi finding each other; a four-facet query over 4,500 titles in 13 ms in SQLite, 43 µs with bitmaps; and remuxes of a minute's video in 0.1–0.4 s, which AVFoundation plays (not MKV, nor HEVC tagged `hev1`).
