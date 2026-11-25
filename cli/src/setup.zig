@@ -13,18 +13,11 @@ const web = @import("web.zig");
 const Web = web.Web;
 const Replica = core.replica.Replica;
 
-const names = [_][]const u8{
-    "setup-create",  "setup-join",    "setup-join-stop",    "settings",       "nearby",         "pair",
-    "name-person",   "name-device",   "member-remove",      "device-remove",  "source-add",     "source-add-media",
-    "source-remove", "unavailable-remove", "crawl-every",   "refresh",
-    "refresh-fully", "leave",
+/// Setup's and settings' calls, by their names under `/api/`.
+pub const Call = enum {
+    settings, nearby, @"setup-create", @"setup-join", @"setup-join-stop", pair, refresh, @"refresh-fully", leave,
+    @"name-person", @"name-device", @"member-remove", @"device-remove", @"source-add", @"source-add-media", @"source-remove", @"unavailable-remove", @"crawl-every",
 };
-
-/// Whether `name` is one of setup's or settings' calls.
-pub fn handles(name: []const u8) bool {
-    for (names) |n| if (std.mem.eql(u8, n, name)) return true;
-    return false;
-}
 
 /// Refresh Library, as it runs on a task of its own (`keepRefreshed`), and
 /// how it went, for settings to show.
@@ -199,15 +192,15 @@ pub fn advertise(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocat
     host.readvertise(try w.store.serviceName(w.long), try w.long.dupe(u8, txt));
 }
 
-pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, request: *http.Server.Request, name: []const u8) !void {
+pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, request: *http.Server.Request, call: Call) !void {
     const get = request.head.method == .GET or request.head.method == .HEAD;
-    if (get and std.mem.eql(u8, name, "settings")) return settings(w, io, gpa, arena, request);
-    if (get and std.mem.eql(u8, name, "nearby")) return nearby(w, io, arena, request);
+    if (get and call == .settings) return settings(w, io, gpa, arena, request);
+    if (get and call == .nearby) return nearby(w, io, arena, request);
     if (request.head.method != .POST) return error.NotFound;
     var body_buf: [4096]u8 = undefined;
     const body = try (try request.readerExpectContinue(&body_buf)).allocRemaining(arena, .limited(64 * 1024));
 
-    if (std.mem.eql(u8, name, "setup-create")) {
+    if (call == .@"setup-create") {
         try w.state.lock(io);
         defer w.state.unlock(io);
         if (w.creator != null) return error.LibraryExists;
@@ -222,7 +215,7 @@ pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
         try becameMember(w, io, gpa, arena);
         return web.sendJson(arena, request, true);
     }
-    if (std.mem.eql(u8, name, "setup-join")) {
+    if (call == .@"setup-join") {
         // Offering to be added, as `person pair` does, on this port.
         try w.state.lock(io);
         defer w.state.unlock(io);
@@ -234,7 +227,7 @@ pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
         }
         return web.sendJson(arena, request, try arena.dupe(u8, &w.offer.code));
     }
-    if (std.mem.eql(u8, name, "setup-join-stop")) {
+    if (call == .@"setup-join-stop") {
         try w.state.lock(io);
         defer w.state.unlock(io);
         if (w.offering) {
@@ -243,18 +236,18 @@ pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
         }
         return web.sendJson(arena, request, true);
     }
-    if (std.mem.eql(u8, name, "pair")) return pairDevice(w, io, gpa, arena, request, body);
-    if (std.mem.eql(u8, name, "refresh") or std.mem.eql(u8, name, "refresh-fully")) {
+    if (call == .pair) return pairDevice(w, io, gpa, arena, request, body);
+    if (call == .refresh or call == .@"refresh-fully") {
         _ = try web.open(w, io, gpa);
-        w.refreshing.asked.store(if (name.len == "refresh".len) .refresh else .fully, .release);
+        w.refreshing.asked.store(if (call == .refresh) .refresh else .fully, .release);
         return web.sendJson(arena, request, true);
     }
-    if (std.mem.eql(u8, name, "leave")) return leave(w, io, gpa, arena, request);
+    if (call == .leave) return leave(w, io, gpa, arena, request);
 
     // The rest change the library, as this device; names are advertised,
     // so a change of one is advertised afresh, once the writer's let go
     // (`state` is taken before the writer, never after).
-    if (try change(w, io, gpa, arena, name, body)) {
+    if (try change(w, io, gpa, arena, call, body)) {
         try w.state.lock(io);
         defer w.state.unlock(io);
         try advertise(w, io, gpa, arena);
@@ -262,22 +255,22 @@ pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
     return web.sendJson(arena, request, true);
 }
 
-/// Changes the library as `name` says, with `body`'s arguments; whether it
+/// Changes the library as `call` says, with `body`'s arguments; whether it
 /// renamed someone.
-fn change(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, name: []const u8, body: []const u8) !bool {
+fn change(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, call: Call, body: []const u8) !bool {
     try w.writer.lock(io);
     defer w.writer.unlock(io);
     var r = try web.open(w, io, gpa);
     defer r.close();
     const at = web.now(io);
     var renamed = false;
-    if (std.mem.eql(u8, name, "name-person")) {
+    if (call == .@"name-person") {
         const p = try std.json.parseFromSliceLeaky(struct { key: []const u8, name: []const u8 }, arena, body, .{});
         const key = try core.store.parseKey(p.key);
         if (!isMember(try r.members(arena), key)) return error.NotFound;
         try lib.setName(&r, arena, at, key, p.name, null);
         renamed = true;
-    } else if (std.mem.eql(u8, name, "name-device")) {
+    } else if (call == .@"name-device") {
         // This person's own devices'.
         const p = try std.json.parseFromSliceLeaky(struct { key: []const u8, name: []const u8 }, arena, body, .{});
         const key = try core.store.parseKey(p.key);
@@ -285,16 +278,16 @@ fn change(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, nam
         if (!isMember(try r.devicesOf(arena, me), key) and !std.mem.eql(u8, &key, &r.device())) return error.NotFound;
         try lib.setName(&r, arena, at, key, p.name, me);
         renamed = true;
-    } else if (std.mem.eql(u8, name, "member-remove")) {
+    } else if (call == .@"member-remove") {
         const p = try std.json.parseFromSliceLeaky(struct { key: []const u8 }, arena, body, .{});
         try r.removeMember(at, try core.store.parseKey(p.key));
-    } else if (std.mem.eql(u8, name, "device-remove")) {
+    } else if (call == .@"device-remove") {
         const p = try std.json.parseFromSliceLeaky(struct { key: []const u8 }, arena, body, .{});
         const key = try core.store.parseKey(p.key);
         try r.revokeDevice(at, key);
         // Its downloads too, as no one would serve them again.
         try lib.removeDownloadsOf(&r, arena, at, key);
-    } else if (std.mem.eql(u8, name, "source-add")) {
+    } else if (call == .@"source-add") {
         // A server's address alone: a folder of this computer's is shared
         // only as `serve --media` names it.
         const p = try std.json.parseFromSliceLeaky(struct { url: []const u8 }, arena, body, .{});
@@ -303,17 +296,17 @@ fn change(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, nam
         try core.url.escape(arena, &typed, p.url);
         if (!std.mem.endsWith(u8, typed.items, "/")) try typed.append(arena, '/');
         _ = try lib.addSource(&r, at, typed.items, .{});
-    } else if (std.mem.eql(u8, name, "source-add-media")) {
+    } else if (call == .@"source-add-media") {
         const media = w.media orelse return error.NotFound;
         _ = try lib.addSource(&r, at, media.url, .{});
-    } else if (std.mem.eql(u8, name, "source-remove")) {
+    } else if (call == .@"source-remove") {
         const p = try std.json.parseFromSliceLeaky(struct { id: []const u8 }, arena, body, .{});
         _ = try lib.removeSource(&r, arena, at, p.id);
-    } else if (std.mem.eql(u8, name, "unavailable-remove")) {
+    } else if (call == .@"unavailable-remove") {
         // An unavailable folder's videos, as if deleted.
         const p = try std.json.parseFromSliceLeaky(struct { id: []const u8, dir: []const u8 }, arena, body, .{});
         _ = try lib.removeUnavailable(&r, arena, at, try lib.findSource(&r, arena, p.id), p.dir);
-    } else if (std.mem.eql(u8, name, "crawl-every")) {
+    } else if (call == .@"crawl-every") {
         // Hours, or 0 for only when asked.
         const p = try std.json.parseFromSliceLeaky(struct { hours: u64 }, arena, body, .{});
         if (std.mem.indexOfScalar(u64, &.{ 0, 1, 3, 24, 168 }, p.hours) == null) return error.BadRequest;

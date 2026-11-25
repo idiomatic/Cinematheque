@@ -234,8 +234,8 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         setup.status(w, io, gpa, arena, request, w.permissive or local(peer))
     else if (!w.permissive and !local(peer))
         error.NotLocal
-    else if (setup.handles(name))
-        setup.api(w, io, gpa, arena, request, name)
+    else if (std.meta.stringToEnum(setup.Call, name)) |call|
+        setup.api(w, io, gpa, arena, request, call)
     else
         api(w, io, gpa, arena, request, name, query(target));
     attempt catch |err| {
