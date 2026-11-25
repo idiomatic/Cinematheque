@@ -56,11 +56,6 @@ const schema =
     \\  PRIMARY KEY (key, field)
     \\) WITHOUT ROWID;
     \\CREATE INDEX IF NOT EXISTS winners_by_device ON winners (device, seq);
-    \\CREATE TABLE IF NOT EXISTS repair (
-    \\  key TEXT NOT NULL,
-    \\  field TEXT NOT NULL,
-    \\  PRIMARY KEY (key, field)
-    \\) WITHOUT ROWID;
     \\-- Per device (interned), the highest sequence number this replica
     \\-- covers, sent with sync requests.
     \\CREATE TABLE IF NOT EXISTS version_vector (
@@ -104,7 +99,7 @@ pub const Stats = struct {
     refused: usize = 0,
     batches: usize = 0,
     /// What a network transfer would carry: operations, plus each batch's
-    /// device, range, signature, and leaves (or proofs, for repair).
+    /// device, range, signature, and leaves.
     wire_bytes: usize = 0,
 
     fn count(stats: *Stats, outcome: Outcome) void {
@@ -195,8 +190,10 @@ pub const Replica = struct {
     /// its stream's and its private stream's, before writing on them.
     checked_certificate: bool = false,
     checked_private_certificate: bool = false,
-    /// Whether any fields await `repair`, so merges needn't check otherwise.
-    repairing: bool = false,
+    /// Whether a removal dropped winners this replica held (see `cut`), so
+    /// its next pull asks for everything (`requestVector`), taking again
+    /// what it held before them; kept in `local` as `refill`.
+    refilling: bool = false,
     select_winner: sqlite.Stmt,
     upsert_winner: sqlite.Stmt,
     select_version: sqlite.Stmt,
@@ -247,7 +244,7 @@ pub const Replica = struct {
         replica.seq = try replica.seen(replica.own);
         replica.private_own = try replica.deviceId(replica.private_pair.public_key.toBytes());
         replica.private_seq = try replica.seen(replica.private_own);
-        replica.repairing = try replica.repairsPending() > 0;
+        replica.refilling = try db.scalar("SELECT count(*) FROM local WHERE key = 'refill'") > 0;
         try replica.observeOwn();
         return replica;
     }
@@ -673,8 +670,7 @@ pub const Replica = struct {
 
     /// Applies a stream's cutoff (a `revoked` field, `stream_hex`, and its
     /// last sequence number that stands): drops the winners the stream
-    /// wrote past it, and notes those fields for `repair`, which refetches
-    /// them from a device that refused those writes.
+    /// wrote past it; if any, the next pull refills (see `refilling`).
     fn cut(replica: *Replica, stream_hex: []const u8, value: []const u8) !void {
         if (value.len != 8) return;
         const stream = parseHex(stream_hex) orelse return;
@@ -683,21 +679,27 @@ pub const Replica = struct {
         // A cutoff past any sequence number (which only its own writer
         // holds, as others refuse it) cuts nothing off.
         const through = std.math.cast(i64, std.mem.readInt(u64, value[0..8], .little)) orelse return;
-        inline for (.{
-            "INSERT OR IGNORE INTO repair SELECT key, field FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'",
-            "DELETE FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'",
-        }) |sql| {
-            const s = try replica.db.prepare(sql);
-            defer s.finalize();
-            try s.bindInt(1, id);
-            try s.bindInt(2, through);
-            _ = try s.step();
-        }
-        replica.repairing = try replica.repairsPending() > 0;
+        const s = try replica.db.prepare("DELETE FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'");
+        defer s.finalize();
+        try s.bindInt(1, id);
+        try s.bindInt(2, through);
+        _ = try s.step();
+        if (replica.db.changes() == 0) return;
+        try replica.setLocal("refill", "1");
+        replica.refilling = true;
     }
 
-    pub fn repairsPending(replica: *Replica) !i64 {
-        return replica.db.scalar("SELECT count(*) FROM repair");
+    /// The vector a pull sends: this replica's, or none while refilling,
+    /// so the other device sends every winner it holds.
+    pub fn requestVector(replica: *Replica, arena: std.mem.Allocator) !VersionVector {
+        return if (replica.refilling) &.{} else replica.versionVector(arena);
+    }
+
+    /// Ends refilling, once a pull that asked for everything has taken it.
+    pub fn refilled(replica: *Replica) !void {
+        if (!replica.refilling) return;
+        try replica.removeLocal("refill");
+        replica.refilling = false;
     }
 
     pub fn close(replica: *Replica) void {
@@ -983,7 +985,8 @@ pub const Replica = struct {
         try replica.storeBatch(id, batch.first, leaves, root, batch.sig);
         const seen_seq = try replica.seen(id);
         for (ops, 0..) |op, i| {
-            if (op.seq <= seen_seq) {
+            // Known, unless refilling, when what it held is taken again.
+            if (op.seq <= seen_seq and !replica.refilling) {
                 stats.count(.known);
                 continue;
             }
@@ -992,39 +995,7 @@ pub const Replica = struct {
                 continue;
             }
             replica.hlc.observe(op.hlc);
-            const outcome = try replica.merge(op, id);
-            if (outcome == .won) try replica.repaired(op);
-            stats.count(outcome);
-        }
-    }
-
-    /// Accepts some of a batch's operations with one shared proof against
-    /// the batch's signed root, as repair does, keeping neither the
-    /// batch nor a version vector.
-    pub fn receiveShared(replica: *Replica, batch: Batch, count: usize, indices: []const usize, siblings: []const Hash, ops: []const Op, stats: *Stats) !void {
-        var leaves: [merkle.max_leaves]Hash = undefined;
-        for (ops, 0..) |op, k| {
-            if (!std.mem.eql(u8, &op.library, &replica.library)) return error.WrongLibrary;
-            if (op.seq != batch.first + indices[k]) return error.NoBatch;
-            try op.encode(replica.gpa, &replica.body);
-            leaves[k] = merkle.leaf(replica.body.items);
-        }
-        const root = try merkle.rootFromMulti(count, indices, leaves[0..ops.len], siblings);
-        if (replica.verify) try verifyBatch(replica.library, batch.device, batch.first, count, root, batch.sig);
-        const admitted = try replica.admission(batch.device, ops);
-        if (admitted == .none) return error.Unauthorized;
-        var bad: std.StaticBitSet(merkle.max_leaves) = .empty;
-        try replica.checkPrivate(batch.device, ops, &bad);
-        try replica.checkOps(batch.device, ops, &bad);
-        const id = try replica.deviceId(batch.device);
-        for (ops, 0..) |op, i| {
-            if (bad.isSet(i) or admitted == .through and op.seq > admitted.through) {
-                stats.refused += 1;
-                continue;
-            }
-            const outcome = try replica.merge(op, id);
-            if (outcome == .won) try replica.repaired(op);
-            stats.count(outcome);
+            stats.count(try replica.merge(op, id));
         }
     }
 
@@ -1074,15 +1045,6 @@ pub const Replica = struct {
         const removed = length > 0 and length % 2 == 0;
         const held_removed = held > 0 and held % 2 == 0;
         return if (removed != held_removed) removed else length > held;
-    }
-
-    fn repaired(replica: *Replica, op: Op) !void {
-        if (!replica.repairing) return;
-        const s = try replica.db.prepare("DELETE FROM repair WHERE key = ?1 AND field = ?2");
-        defer s.finalize();
-        try s.bindText(1, op.key);
-        try s.bindText(2, op.field);
-        _ = try s.step();
     }
 
     /// The highest sequence number of device `id` that this replica covers.
@@ -1239,23 +1201,8 @@ pub fn verifyBatch(library: op_.Library, device: Device, first: u64, count: usiz
     try Ed25519.Signature.fromBytes(sig).verify(&batchMessage(library, device, first, count, root), try Ed25519.PublicKey.fromBytes(device));
 }
 
-/// Reads a winners row (kind, key, field, hlc, seq, value) as an operation.
-pub fn rowOp(src: *Replica, s: sqlite.Stmt, device: Device) Op {
-    return .{
-        .library = src.library,
-        .device = device,
-        .kind = @enumFromInt(s.int(0)),
-        .key = s.blob(1),
-        .field = s.blob(2),
-        .hlc = @bitCast(s.int(3)),
-        .seq = @intCast(s.int(4)),
-        .value = s.blob(5),
-    };
-}
-
-// The sync frames' and repair's parts, re-exported for their callers.
+// The sync frames' parts, re-exported for their callers.
 const frames = @import("frames.zig");
-const repair_ = @import("repair.zig");
 pub const writeVector = frames.writeVector;
 pub const readVector = frames.readVector;
 pub const Binding = frames.Binding;
@@ -1263,10 +1210,3 @@ pub const writeSync = frames.writeSync;
 pub const Theirs = frames.Theirs;
 pub const readSync = frames.readSync;
 pub const sync = frames.sync;
-pub const repair = repair_.repair;
-pub const Field = repair_.Field;
-pub const writeFields = repair_.writeFields;
-pub const readFields = repair_.readFields;
-pub const repairFields = repair_.repairFields;
-pub const writeRepair = repair_.writeRepair;
-pub const readRepair = repair_.readRepair;

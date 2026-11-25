@@ -12,6 +12,7 @@ const c = struct {
     extern "c" fn sqlite3_busy_handler(db: *sqlite3, handler: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int, arg: ?*anyopaque) c_int;
     extern "c" fn sqlite3_exec(db: *sqlite3, sql: [*:0]const u8, callback: ?*const anyopaque, arg: ?*anyopaque, errmsg: ?*?[*:0]u8) c_int;
     extern "c" fn sqlite3_errmsg(db: *sqlite3) [*:0]const u8;
+    extern "c" fn sqlite3_changes(db: *sqlite3) c_int;
     extern "c" fn sqlite3_prepare_v2(db: *sqlite3, sql: [*]const u8, n: c_int, stmt: *?*sqlite3_stmt, tail: ?*?[*]const u8) c_int;
     extern "c" fn sqlite3_finalize(stmt: *sqlite3_stmt) c_int;
     extern "c" fn sqlite3_reset(stmt: *sqlite3_stmt) c_int;
@@ -85,6 +86,11 @@ pub const Db = struct {
         defer stmt.finalize();
         if (!try stmt.step()) return error.Sqlite;
         return stmt.int(0);
+    }
+
+    /// How many rows the last statement changed.
+    pub fn changes(db: Db) usize {
+        return @intCast(c.sqlite3_changes(db.handle));
     }
 
     fn fail(db: Db) Error {

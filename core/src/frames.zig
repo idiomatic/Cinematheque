@@ -387,7 +387,9 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
 /// Syncs in memory, through the same encoding a network would carry.
 pub fn sync(arena: std.mem.Allocator, dst: *Replica, src: *Replica) !Stats {
     var request: std.Io.Writer.Allocating = .init(arena);
-    try writeVector(&request.writer, try dst.versionVector(arena));
+    // A removal this pull brings may start a refill: the next pull's.
+    const refilling = dst.refilling;
+    try writeVector(&request.writer, try dst.requestVector(arena));
     var request_reader: std.Io.Reader = .fixed(request.written());
     const wanted = try readVector(arena, &request_reader);
 
@@ -397,6 +399,7 @@ pub fn sync(arena: std.mem.Allocator, dst: *Replica, src: *Replica) !Stats {
     _ = try writeSync(src, arena, wanted, dst.personKey(), unsigned, &response.writer);
     var response_reader: std.Io.Reader = .fixed(response.written());
     var stats = try readSync(dst, &response_reader, null, .{ .request = unsigned, .sender = src.device() });
+    if (refilling) try dst.refilled();
     stats.wire_bytes = request.written().len + response.written().len;
     return stats;
 }

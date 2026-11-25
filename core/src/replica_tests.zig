@@ -1,5 +1,5 @@
 //! replica.zig's tests: replicas syncing, merging, admitting, removing,
-//! and repairing, as devices would.
+//! and refilling, as devices would.
 
 const std = @import("std");
 const Io = std.Io;
@@ -13,15 +13,11 @@ const Op = op_.Op;
 const Device = op_.Device;
 const Hash = merkle.Hash;
 const replica = @import("replica.zig");
-const readFields = replica.readFields;
 const readVector = replica.readVector;
 const readOpFrame = @import("frames.zig").readOpFrame;
-const repair = replica.repair;
 const readSync = replica.readSync;
 const writeOpFrame = @import("frames.zig").writeOpFrame;
-const Field = replica.Field;
 const testing = std.testing;
-const fetchFields = @import("repair.zig").fetchFields;
 const sync = replica.sync;
 const writeSync = replica.writeSync;
 const Identity = replica.Identity;
@@ -498,27 +494,6 @@ test "a shared list is every member's to see, and its owner's alone to change" {
     try testing.expectEqual(@as(usize, 2), seen[0].titles.len);
 }
 
-test "fetched fields are verified by shared proof" {
-    var p: Devices = undefined;
-    try p.init();
-    defer p.deinit();
-    const a = &p.replicas[0];
-
-    try a.begin();
-    for (0..50) |i| {
-        var key: [16]u8 = undefined;
-        try a.write(1000, try std.fmt.bufPrint(&key, "t/{d:0>5}", .{i / 10}), try std.fmt.bufPrint(key[8..], "f{d}", .{i}), "x");
-    }
-    try a.commit();
-    // The certificate that admits a's device, then two fields of its batch.
-    var cert: [66]u8 = undefined;
-    _ = try fetchFields(&p.replicas[2], a, &.{.{ .key = certKey(&cert, a.device()), .field = "user" }});
-    const stats = try fetchFields(&p.replicas[2], a, &.{ .{ .key = "t/00002", .field = "f20" }, .{ .key = "t/00002", .field = "f21" } });
-    try testing.expectEqual(@as(usize, 2), stats.won);
-    try a.db.exec("UPDATE winners SET value = 'y' WHERE key = 't/00003' AND field = 'f30'");
-    try testing.expectError(error.SignatureVerificationFailed, fetchFields(&p.replicas[2], a, &.{.{ .key = "t/00003", .field = "f30" }}));
-}
-
 test "batches from devices of people who aren't members are rejected, then accepted once added" {
     var p: Devices = undefined;
     try p.initAdding(1); // replica 2's person isn't a member
@@ -648,7 +623,7 @@ test "an invitation later in the same response admits earlier batches" {
     try testing.expectEqualStrings("Relayed", try p.value(1, "t/00002", "name"));
 }
 
-test "a device that took a removed device's later writes repairs from one that refused them" {
+test "a device that took a removed device's later writes refills from one that refused them" {
     var p: Devices = undefined;
     try p.init();
     defer p.deinit();
@@ -661,12 +636,13 @@ test "a device that took a removed device's later writes repairs from one that r
     try a.revokeDevice(2000, b.device());
     try b.write(3000, "t/00001", "name", "after");
     // c hears from b before hearing of the removal, so takes the later write;
-    // hearing of it drops it, and repairing from a restores what stands.
+    // hearing of it drops it, and refilling from a restores what stands.
     _ = try p.sync(2, 1);
     try testing.expectEqualStrings("after", try p.value(2, "t/00001", "name"));
     _ = try p.sync(2, 0);
-    try testing.expectEqual(@as(i64, 1), try c.repairsPending());
-    _ = try repair(c, a);
+    try testing.expect(c.refilling);
+    _ = try p.sync(2, 0);
+    try testing.expect(!c.refilling);
     try testing.expectEqualStrings("before", try p.value(2, "t/00001", "name"));
     try testing.expect(try c.isMemberPerson(b.personKey()));
 }
@@ -689,13 +665,12 @@ test "a removed member's writes up to the cutoff stand, and later ones are refus
     try testing.expectError(error.Missing, p.value(0, "t/00002", "name"));
 }
 
-test "a device that took a removed member's later writes repairs from one that refused them" {
+test "a device that took a removed member's later writes refills from one that refused them" {
     var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
-    const c = &p.replicas[2];
 
     try b.write(1000, "t/00001", "name", "before");
     _ = try p.sync(0, 1);
@@ -705,14 +680,11 @@ test "a device that took a removed member's later writes repairs from one that r
     // c hears from b before hearing of the removal, so takes the later writes.
     _ = try p.sync(2, 1);
     try testing.expectEqualStrings("after", try p.value(2, "t/00001", "name"));
-    // Hearing of it drops them, and repairing from a restores what stands.
+    // Hearing of it drops them, and refilling from a restores what stands.
     _ = try p.sync(2, 0);
-    try testing.expectEqual(@as(i64, 2), try c.repairsPending());
-    _ = try repair(c, a);
+    _ = try p.sync(2, 0);
     try testing.expectEqualStrings("before", try p.value(2, "t/00001", "name"));
     try testing.expectError(error.Missing, p.value(2, "t/00002", "name"));
-    // The field a never had stays pending, in case another device has it.
-    try testing.expectEqual(@as(i64, 1), try c.repairsPending());
     // b's later writes stay refused, from b or anyone.
     _ = try p.sync(2, 1);
     try testing.expectEqualStrings("before", try p.value(2, "t/00001", "name"));
@@ -845,15 +817,6 @@ test "frames and requests that claim more than they hold are refused" {
     r = .fixed(&vector);
     try testing.expectError(error.EndOfStream, readVector(arena, &r));
 
-    // And fields, whose text is capped as well.
-    var fields: std.Io.Writer.Allocating = .init(arena);
-    try fields.writer.writeInt(u32, 1, .little);
-    try fields.writer.writeInt(u16, 3, .little);
-    try fields.writer.writeAll("key");
-    try fields.writer.writeInt(u16, 5, .little);
-    try fields.writer.writeAll("field");
-    r = .fixed(fields.written());
-    try testing.expectEqual(@as(usize, 1), (try readFields(arena, &r)).len);
 }
 
 test "a private write holds one to a batch's worth of fields" {
@@ -928,19 +891,6 @@ test "a device's write after a restart, or a clock step back, doesn't lose to it
     try testing.expectEqualStrings("second", s.blob(1));
     try testing.expect(try s.step());
     try testing.expectEqualStrings("y", s.blob(1));
-}
-
-test "a repair request naming a field again and again is answered once" {
-    var p: Devices = undefined;
-    try p.init();
-    defer p.deinit();
-    const a = &p.replicas[0];
-    try a.write(1000, "t/00001", "name", "Metropolis");
-    var cert: [66]u8 = undefined;
-    _ = try fetchFields(&p.replicas[2], a, &.{.{ .key = certKey(&cert, a.device()), .field = "user" }});
-    const same: [merkle.max_leaves + 5]Field = @splat(.{ .key = "t/00001", .field = "name" });
-    const stats = try fetchFields(&p.replicas[2], a, &same);
-    try testing.expectEqual(@as(usize, 1), stats.won);
 }
 
 test "a rolled-back transaction forgets the devices it learned of" {

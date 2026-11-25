@@ -18,7 +18,6 @@ It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` als
 | [sqlite](src/sqlite.zig) | Minimal SQLite bindings |
 | [replica](src/replica.zig) | Operations in SQLite, signed in Merkle batches; membership and removal; private streams; the device's own state (`local`); its tests in [replica_tests.zig](src/replica_tests.zig) |
 | [frames](src/frames.zig) | The sync frame protocol: version vectors, and a sync's operations by batch, written and checked (re-exported by replica) |
-| [repair](src/repair.zig) | Repair: fetching the fields a removal dropped, with shared proofs (re-exported by replica) |
 | [sync](src/sync.zig) | Sync over HTTP, gzipped: requests signed by the device and certified by its person, served only to members, without other people's private streams |
 | [seal](src/seal.zig) | Sealing a sync's bodies so only the two devices read them: a key pair for the request alone, ChaCha20-Poly1305 in numbered chunks |
 | [deadline](src/deadline.zig) | Deadlines for what waits on another host, as `Io`'s reads have none |

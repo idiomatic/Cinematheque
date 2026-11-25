@@ -47,18 +47,17 @@ A device signs batches of operations, not each one. A transaction's writes (a cr
 * Pairs of hashes are hashed, prefixed `1`, up to one root. An odd node at a level's end is promoted unpaired. The two prefixes keep a leaf from posing as an inner node.
 * The stream's key signs `"cinematheque batch"`, the library ID, the stream key, the batch's first sequence number (u64) and count (u32), and the root, with Ed25519, so a batch can't be presented as another range of the stream.
 
-So one signature covers 1,024 writes, and any operation, or set of them, can be proved part of the batch by the sibling hashes along its path.
+So one signature covers 1,024 writes, and a receiver checks it from the operations sent and the leaves of those that weren't.
 
 ## Storage
 
 A replica keeps, in SQLite, each field's winning operation and nothing else of the operations it saw:
 
 * **`winners`:** per key and field, the winner's kind, clock, device, sequence number, and value, from which its encoding is rebuilt.
-* **`batches`:** per batch, its device, first sequence number, count, root, signature, and every leaf hash, so it can prove the winners it holds after the batch's other operations have lost their fields.
+* **`batches`:** per batch, its device, first sequence number, count, root, signature, and every leaf hash, so it can send the winners it holds with the batch's signature after its other operations have lost their fields.
 * **`devices`:** device keys, interned as small integers.
 * **`version_vector`:** per stream, the highest sequence number covered.
-* **`repair`:** fields a removal dropped, to refetch.
-* **`local`:** the device's own state, which never replicates (crawl snapshots, devices added by address, and downloads: `downloads/dir`, `downloads/source`, `downloads/want/<item>` (a quality), `downloads/next/<title>` (a count, or `all`), and `downloads/at/<item>` (when fetched, in ms; the watched mark's clock past it means "watched since")).
+* **`local`:** the device's own state, which never replicates (crawl snapshots, `refill` (see Refill), devices added by address, and downloads: `downloads/dir`, `downloads/source`, `downloads/want/<item>` (a quality), `downloads/next/<title>` (a count, or `all`), and `downloads/at/<item>` (when fetched, in ms; the watched mark's clock past it means "watched since")).
 
 A losing operation is dropped and never sent again, as it can't change anything.
 
@@ -72,7 +71,7 @@ Receiving an operation:
 
 In whatever order operations arrive, every replica ends with the same winners, so devices converge without coordinating.
 
-One key acts when it wins: `revoked` (a removal) drops the removed stream's later writes and notes their fields for repair.
+One key acts when it wins: `revoked` (a removal) drops the removed stream's later writes (see Refill).
 
 ## Admission
 
@@ -117,7 +116,7 @@ Sync runs both ways, started by either side: a device asks the other for what it
 
 As only winners are sent, a sync carries the current state of what changed, not its history: progress moved ten times since the last sync is one operation per field.
 
-* **Repair:** a removal drops winners past its cutoff. Its dropped fields are refetched from a device that refused those writes: just those fields' winners, with one shared proof per batch (the sibling hashes covering all the operations taken from it), so they're verified without the batch's other leaves. A device asks each device it syncs with for them, after pulling, until none await (see [`POST /sync`](#post-sync)'s repair).
+* **Refill:** a removal drops the winners its stream wrote past its cutoff, and what they overwrote is gone, its writes already covered by the vector. So a device that dropped any sends its next pull with an empty vector, takes every winner the other holds, comparing even those it covers (what it holds loses or ties), and ends refilling. A value neither held is lost.
 
 The apps' status line ("Received 3 changes from firefly") counts operations: received, those that won their fields; sent, those a response or a push carried.
 
@@ -136,7 +135,7 @@ A device serves on the port given (an app's, the one it got last), else on 8008,
 
 ### `POST /sync`
 
-The body is sealed ([seal.zig](core/src/seal.zig)), so only the device it's for reads it, and only the asking device reads the answer. The asking device makes an X25519 key pair for the request alone, agrees a secret with the other device's key (from `GET /sync`, its Ed25519 key as X25519), and derives a key each way by BLAKE3 (`cinematheque sync keys`, the library ID, its public key, the other device's key, and the secret). Sealed data is chunks of up to 64 KiB, each its length (u32, its top bit set on the last), its ChaCha20-Poly1305 ciphertext, and its tag, with a nonce of the part (1, the request; 2, the rest; 3, the answer) and the chunk's number, so no chunk can be dropped, moved, or cut off. The body: its public key (32), the sealed request's length (u32) and the sealed request, then for a push or repair the rest, sealed. The sealed request must arrive within the 30 seconds a request's head has, and the rest a mebibyte a minute, and the other device opens its replica only once the request checks out, so no one holds a connection, or costs it work, without being a member's device. An answer is sealed under the answer's key salted afresh, BLAKE3 keyed with it over `cinematheque response` and 32 random bytes, sent in hex as `x-cinematheque-salt`: so a request replayed is answered under a new key, never another plaintext under the same key and nonces. The request, up to 1 MiB, before sealing:
+The body is sealed ([seal.zig](core/src/seal.zig)), so only the device it's for reads it, and only the asking device reads the answer. The asking device makes an X25519 key pair for the request alone, agrees a secret with the other device's key (from `GET /sync`, its Ed25519 key as X25519), and derives a key each way by BLAKE3 (`cinematheque sync keys`, the library ID, its public key, the other device's key, and the secret). Sealed data is chunks of up to 64 KiB, each its length (u32, its top bit set on the last), its ChaCha20-Poly1305 ciphertext, and its tag, with a nonce of the part (1, the request; 2, the rest; 3, the answer) and the chunk's number, so no chunk can be dropped, moved, or cut off. The body: its public key (32), the sealed request's length (u32) and the sealed request, then for a push the rest, sealed. The sealed request must arrive within the 30 seconds a request's head has, and the rest a mebibyte a minute, and the other device opens its replica only once the request checks out, so no one holds a connection, or costs it work, without being a member's device. An answer is sealed under the answer's key salted afresh, BLAKE3 keyed with it over `cinematheque response` and 32 random bytes, sent in hex as `x-cinematheque-salt`: so a request replayed is answered under a new key, never another plaintext under the same key and nonces. The request, up to 1 MiB, before sealing:
 
 | Part | Size |
 |---|---|
@@ -144,8 +143,7 @@ The body is sealed ([seal.zig](core/src/seal.zig)), so only the device it's for 
 | Certificate: the person's key, and the person's signature | 96 |
 | Time, in milliseconds since the epoch | u64 |
 | The other device's key, whom it's for (from `GET /sync`) | 32 |
-| A repair's field list's BLAKE3 hash (of its encoding, below), else zeros | 32 |
-| Version vector: a count (u32), then per stream its key (32) and highest sequence number (u64) | 4 + 40 per stream |
+| Version vector: a count (u32), then per stream its key (32) and highest sequence number (u64); none while refilling | 4 + 40 per stream |
 | The device's signature over `cinematheque request`, the library ID, and everything before it | 64 |
 
 Answers:
@@ -160,8 +158,6 @@ Answers:
 * **403,** `not a member`: the certificate's person isn't a member. Or `removed`, for a device that was removed, with `x-cinematheque-device` and `x-cinematheque-certificate` as above and `x-cinematheque-signature`, the other device's signature (hex) over `cinematheque removed`, the library ID, the asking device's key, and its request's time (u64): proof enough, from a member's device, for the device to leave.
 
 A push is a `POST /sync` with `Content-Type: application/x-cinematheque-push`: the request, as above (its vector unused), then frames, as a response's, gzipped, the rest sealed. It's answered with 204, once applied, or 400 or 403 as above; a refusal fails the sync, as a pull's does.
-
-A repair is a `POST /sync` with `Content-Type: application/x-cinematheque-repair`: the request, as a push's, then, gzipped and sealed, the fields wanted: a count (u32), then each one's key and field, each its length (u16) and bytes. After the same checks, and that the fields are those whose hash the request signs, it's answered with 200 and frames, gzipped and sealed (and salted, as above): per batch the fields come from, `R`, device key (32), first sequence number (u64), count (u32), signature (64), the number of operations (u16) and their indices in the batch (u16 each), the number of proof hashes (u16) and the hashes (32 each), then an `O` frame for each operation; then `E`. One shared proof covers a batch's operations, verified against its signed root. Private streams not the requester's person's are left out. There's no `S`: nothing is adopted into the version vector.
 
 ### `/pair`
 
