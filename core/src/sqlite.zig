@@ -99,6 +99,13 @@ pub const Db = struct {
     }
 };
 
+/// Bytes bound as a blob, not text.
+pub const Blob = struct { bytes: []const u8 };
+
+pub fn asBlob(bytes: []const u8) Blob {
+    return .{ .bytes = bytes };
+}
+
 /// Bound slices must outlive the next `step`, since SQLite doesn't copy them.
 pub const Stmt = struct {
     handle: *c.sqlite3_stmt,
@@ -112,16 +119,21 @@ pub const Stmt = struct {
         _ = c.sqlite3_reset(stmt.handle);
     }
 
-    pub fn bindBlob(stmt: Stmt, i: c_int, value: []const u8) Error!void {
-        if (c.sqlite3_bind_blob(stmt.handle, i, value.ptr, @intCast(value.len), null) != ok) return stmt.db.fail();
-    }
-
-    pub fn bindText(stmt: Stmt, i: c_int, value: []const u8) Error!void {
-        if (c.sqlite3_bind_text(stmt.handle, i, value.ptr, @intCast(value.len), null) != ok) return stmt.db.fail();
-    }
-
-    pub fn bindInt(stmt: Stmt, i: c_int, value: i64) Error!void {
-        if (c.sqlite3_bind_int64(stmt.handle, i, value) != ok) return stmt.db.fail();
+    /// Binds `values` to the parameters from the first: integers as such,
+    /// `Blob`s as blobs, and strings as text.
+    pub fn bind(stmt: Stmt, values: anytype) Error!void {
+        inline for (values, 1..) |v, i| {
+            const result = switch (@typeInfo(@TypeOf(v))) {
+                .int, .comptime_int => c.sqlite3_bind_int64(stmt.handle, i, @intCast(v)),
+                else => if (@TypeOf(v) == Blob)
+                    c.sqlite3_bind_blob(stmt.handle, i, v.bytes.ptr, @intCast(v.bytes.len), null)
+                else text: {
+                    const s: []const u8 = v;
+                    break :text c.sqlite3_bind_text(stmt.handle, i, s.ptr, @intCast(s.len), null);
+                },
+            };
+            if (result != ok) return stmt.db.fail();
+        }
     }
 
     /// Returns true when a row is ready, false when the statement is done.

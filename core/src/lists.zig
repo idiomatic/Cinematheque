@@ -74,7 +74,7 @@ pub fn lists(replica: *Replica, arena: std.mem.Allocator) ![]const List {
     var named_watchlist = false;
     const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1");
     defer s.finalize();
-    try s.bindText(1, try key(replica, arena, null));
+    try s.bind(.{try key(replica, arena, null)});
     while (try s.step()) {
         const id = try arena.dupe(u8, s.blob(0));
         if (std.mem.eql(u8, id, watchlist_id)) named_watchlist = true;
@@ -175,7 +175,7 @@ fn modeOf(replica: *Replica, public_key: []const u8) !Mode {
         \\  ORDER BY hlc DESC, field DESC LIMIT 1
     );
     defer s.finalize();
-    try s.bindText(1, public_key);
+    try s.bind(.{public_key});
     if (!try s.step()) return .private;
     // Admission takes no other (see `validPublicField`).
     return std.meta.stringToEnum(Mode, s.blob(0)) orelse error.Malformed;
@@ -186,7 +186,7 @@ fn entries(replica: *Replica, arena: std.mem.Allocator, k: []const u8) ![]const 
     var out: std.ArrayList([2][]const u8) = .empty;
     const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND field >= 't/' AND field < 't0' AND length(value) > 0");
     defer s.finalize();
-    try s.bindText(1, k);
+    try s.bind(.{k});
     while (try s.step()) try out.append(arena, .{ try arena.dupe(u8, s.blob(0)), try arena.dupe(u8, s.blob(1)) });
     return out.items;
 }
@@ -318,7 +318,7 @@ fn titles(replica: *Replica, arena: std.mem.Allocator, k: []const u8) !struct { 
     var wanted: std.ArrayList(Wanted) = .empty;
     const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND field >= 't/' AND field < 't0' AND length(value) > 0 ORDER BY field");
     defer s.finalize();
-    try s.bindText(1, k);
+    try s.bind(.{k});
     while (try s.step()) {
         const field = try arena.dupe(u8, s.blob(0));
         const value = s.blob(1);

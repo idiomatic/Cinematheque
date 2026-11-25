@@ -560,7 +560,7 @@ pub fn finishedWith(replica: *Replica, arena: std.mem.Allocator, source: library
 fn watchedAt(replica: *Replica, arena: std.mem.Allocator, item: []const u8) !?u64 {
     const s = try replica.db.prepare("SELECT hlc, value FROM winners WHERE key = ?1 AND field = 'watched'");
     defer s.finalize();
-    try s.bindText(1, try library.progressKey(replica, arena, item));
+    try s.bind(.{try library.progressKey(replica, arena, item)});
     if (!try s.step() or !std.mem.eql(u8, s.blob(1), "1")) return null;
     return @as(u64, @intCast(s.int(0))) >> 16;
 }
@@ -681,8 +681,7 @@ pub fn held(replica: *Replica, arena: std.mem.Allocator, source: library.Source)
     // (220 ms of 184,000), where scanning them in order takes 16 ms.
     const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND +device = ?2 AND length(value) > 0 ORDER BY key");
     defer s.finalize();
-    try s.bindText(1, try std.fmt.allocPrint(arena, "held:{s}", .{&source.id}));
-    try s.bindInt(2, replica.own);
+    try s.bind(.{ try std.fmt.allocPrint(arena, "held:{s}", .{&source.id}), replica.own });
     while (try s.step()) {
         const key = try arena.dupe(u8, s.blob(0));
         const r = std.mem.lastIndexOf(u8, key, "/r/") orelse continue;
@@ -702,7 +701,7 @@ pub fn held(replica: *Replica, arena: std.mem.Allocator, source: library.Source)
 pub fn confirmed(replica: *Replica, sources: []const library.Source, unavailable: *const library.UnavailableDirs, h: Held) !bool {
     const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND field >= 'held:' AND field < 'held;' AND length(value) > 0");
     defer s.finalize();
-    try s.bindText(1, h.key);
+    try s.bind(.{h.key});
     while (try s.step()) {
         const source_id = s.blob(0)["held:".len..];
         const source = for (sources) |rp| {

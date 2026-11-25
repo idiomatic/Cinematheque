@@ -279,11 +279,20 @@ pub const Replica = struct {
     /// The hybrid logical clock of the write that holds `key`'s `field`, if
     /// one does.
     pub fn clock(replica: *Replica, key: []const u8, field: []const u8) !?u64 {
-        const s = replica.select_winner;
+        const s = try replica.winner(key, field) orelse return null;
         defer s.reset();
-        try s.bindText(1, key);
-        try s.bindText(2, field);
-        return if (try s.step()) @bitCast(s.int(1)) else null;
+        return @bitCast(s.int(1));
+    }
+
+    /// The statement holding `key`'s `field`'s winner (`kind`, `hlc`,
+    /// `device`, and `value`), to reset once read; null if there's none.
+    pub fn winner(replica: *Replica, key: []const u8, field: []const u8) !?sqlite.Stmt {
+        const s = replica.select_winner;
+        errdefer s.reset();
+        try s.bind(.{ key, field });
+        if (try s.step()) return s;
+        s.reset();
+        return null;
     }
 
     /// Whether this device's own certificate, or its private stream's, as
@@ -377,15 +386,10 @@ pub const Replica = struct {
             for (ops) |op| if (std.mem.eql(u8, op.key, key) and std.mem.eql(u8, op.field, field) and op.value.len == 96) {
                 cert = op.value[0..96].*;
             };
-            if (cert == null) {
-                const s = replica.select_winner;
+            if (cert == null) if (try replica.winner(key, field)) |s| {
                 defer s.reset();
-                try s.bindText(1, key);
-                try s.bindText(2, field);
-                if (try s.step()) if (s.blob(3).len == 96) {
-                    cert = s.blob(3)[0..96].*;
-                };
-            }
+                if (s.blob(3).len == 96) cert = s.blob(3)[0..96].*;
+            };
             const c = cert orelse continue;
             if (verifyCertificate(replica.library, device_key, private, c)) |person| return .{ .person = person, .private = private };
         }
@@ -464,11 +468,10 @@ pub const Replica = struct {
             if (!std.mem.eql(u8, &std.fmt.bytesToHex(hash, .lower), op.key[2..])) return false;
         }
         // Whose the address is: a held one's writer, or this batch's.
-        const s = replica.select_winner;
-        defer s.reset();
-        try s.bindText(1, op.key);
-        try s.bindText(2, "url");
-        if (try s.step() and s.blob(3).len > 0) return std.mem.eql(u8, &try replica.keyOf(s.int(2)), &writer);
+        if (try replica.winner(op.key, "url")) |s| {
+            defer s.reset();
+            if (s.blob(3).len > 0) return std.mem.eql(u8, &try replica.keyOf(s.int(2)), &writer);
+        }
         if (url) return true;
         for (ops) |o| if (std.mem.eql(u8, o.key, op.key) and std.mem.eql(u8, o.field, "url") and o.value.len > 0) return true;
         return false;
@@ -495,14 +498,10 @@ pub const Replica = struct {
         const person = verifyCertificate(replica.library, subject, true, op.value[0..96].*) orelse return false;
         const author = try replica.certifiedPerson(writer, ops) orelse return false;
         if (!std.mem.eql(u8, &person, &author)) return false;
-        const s = replica.select_winner;
+        const s = try replica.winner(op.key, "private") orelse return true;
         defer s.reset();
-        try s.bindText(1, op.key);
-        try s.bindText(2, "private");
-        if (try s.step()) if (s.blob(3).len == 96) {
-            if (verifyCertificate(replica.library, subject, true, s.blob(3)[0..96].*)) |held|
-                return std.mem.eql(u8, &held, &person);
-        };
+        if (s.blob(3).len == 96) if (verifyCertificate(replica.library, subject, true, s.blob(3)[0..96].*)) |held|
+            return std.mem.eql(u8, &held, &person);
         return true;
     }
 
@@ -518,10 +517,7 @@ pub const Replica = struct {
             \\SELECT 1 FROM (SELECT 1 FROM batches WHERE device = ?1 AND first > ?2 AND first < ?2 + ?3 LIMIT 1)
         );
         defer s.finalize();
-        try s.bindInt(1, id);
-        try s.bindInt(2, @intCast(first));
-        try s.bindInt(3, @intCast(count));
-        try s.bindBlob(4, &root);
+        try s.bind(.{ id, first, count, sqlite.asBlob(&root) });
         return try s.step();
     }
 
@@ -603,7 +599,7 @@ pub const Replica = struct {
         // device that crawled the library is nearly every row.
         const s = try replica.db.prepare("SELECT key FROM winners WHERE key >= 'c/' AND key < 'c0' AND field = 'private' AND +device = ?1");
         defer s.finalize();
-        try s.bindInt(1, try replica.deviceId(device_key));
+        try s.bind(.{try replica.deviceId(device_key)});
         while (try s.step()) try out.append(arena, parseHex(s.blob(0)[2..]) orelse continue);
         return out.items;
     }
@@ -620,11 +616,8 @@ pub const Replica = struct {
 
     /// Where a stream of a removed device was cut off, if it was.
     pub fn revoked(replica: *Replica, stream: Device) !?u64 {
-        const s = replica.select_winner;
+        const s = try replica.winner("revoked", &std.fmt.bytesToHex(stream, .lower)) orelse return null;
         defer s.reset();
-        try s.bindText(1, "revoked");
-        try s.bindText(2, &std.fmt.bytesToHex(stream, .lower));
-        if (!try s.step()) return null;
         const value = s.blob(3);
         if (value.len != 8) return null;
         return std.mem.readInt(u64, value[0..8], .little);
@@ -656,8 +649,7 @@ pub const Replica = struct {
         const through = std.math.cast(i64, std.mem.readInt(u64, value[0..8], .little)) orelse return;
         const s = try replica.db.prepare("DELETE FROM winners WHERE device = ?1 AND seq > ?2 AND key NOT LIKE 'c/%'");
         defer s.finalize();
-        try s.bindInt(1, id);
-        try s.bindInt(2, through);
+        try s.bind(.{ id, through });
         _ = try s.step();
         if (replica.db.changes() == 0) return;
         try replica.setLocal("refill", "1");
@@ -707,7 +699,7 @@ pub const Replica = struct {
         const id = blk: {
             const s = replica.insert_device;
             defer s.reset();
-            try s.bindBlob(1, &key);
+            try s.bind(.{sqlite.asBlob(&key)});
             if (!try s.step()) return error.Sqlite;
             break :blk s.int(0);
         };
@@ -730,7 +722,7 @@ pub const Replica = struct {
     fn internAdded(replica: *Replica) !void {
         const s = try replica.db.prepare("SELECT id, key FROM devices WHERE id > ?1 ORDER BY id");
         defer s.finalize();
-        try s.bindInt(1, @intCast(replica.keys.items.len));
+        try s.bind(.{replica.keys.items.len});
         while (try s.step()) try replica.intern(s.int(0), s.blob(1)[0..32].*);
     }
 
@@ -753,7 +745,7 @@ pub const Replica = struct {
         defer s.finalize();
         for ([_]i64{ replica.own, replica.private_own }) |id| {
             defer s.reset();
-            try s.bindInt(1, id);
+            try s.bind(.{id});
             if (try s.step()) replica.hlc.observe(@bitCast(s.int(0)));
         }
     }
@@ -762,22 +754,21 @@ pub const Replica = struct {
     pub fn local(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?[]u8 {
         const s = try replica.db.prepare("SELECT value FROM local WHERE key = ?1");
         defer s.finalize();
-        try s.bindText(1, key);
+        try s.bind(.{key});
         return if (try s.step()) try arena.dupe(u8, s.blob(0)) else null;
     }
 
     pub fn setLocal(replica: *Replica, key: []const u8, value: []const u8) !void {
         const s = try replica.db.prepare("INSERT OR REPLACE INTO local VALUES (?1, ?2)");
         defer s.finalize();
-        try s.bindText(1, key);
-        try s.bindBlob(2, value);
+        try s.bind(.{ key, sqlite.asBlob(value) });
         _ = try s.step();
     }
 
     pub fn removeLocal(replica: *Replica, key: []const u8) !void {
         const s = try replica.db.prepare("DELETE FROM local WHERE key = ?1");
         defer s.finalize();
-        try s.bindText(1, key);
+        try s.bind(.{key});
         _ = try s.step();
     }
 
@@ -786,7 +777,7 @@ pub const Replica = struct {
         var out: std.ArrayList([]const u8) = .empty;
         const s = try replica.db.prepare("SELECT key FROM local WHERE substr(key, 1, length(?1)) = ?1 ORDER BY key");
         defer s.finalize();
-        try s.bindText(1, prefix);
+        try s.bind(.{prefix});
         while (try s.step()) try out.append(arena, try arena.dupe(u8, s.blob(0)));
         return out.items;
     }
@@ -861,11 +852,10 @@ pub const Replica = struct {
     }
 
     fn causalLength(replica: *Replica, key: []const u8, element: []const u8) !u32 {
-        const s = replica.select_winner;
-        defer s.reset();
-        try s.bindText(1, key);
-        try s.bindText(2, element);
-        if (try s.step()) return op_.causalLength(s.blob(3));
+        if (try replica.winner(key, element)) |s| {
+            defer s.reset();
+            return op_.causalLength(s.blob(3));
+        }
         // The creator was a member from the start.
         return if (std.mem.eql(u8, key, "members") and std.mem.eql(u8, element, &std.fmt.bytesToHex(replica.genesis, .lower))) 1 else 0;
     }
@@ -915,12 +905,7 @@ pub const Replica = struct {
     fn storeBatch(replica: *Replica, id: i64, first: u64, leaves: []const Hash, root: Hash, sig: op_.Signature) !void {
         const s = replica.insert_batch;
         defer s.reset();
-        try s.bindInt(1, id);
-        try s.bindInt(2, @intCast(first));
-        try s.bindInt(3, @intCast(leaves.len));
-        try s.bindBlob(4, &root);
-        try s.bindBlob(5, &sig);
-        try s.bindBlob(6, std.mem.sliceAsBytes(leaves));
+        try s.bind(.{ id, first, leaves.len, sqlite.asBlob(&root), sqlite.asBlob(&sig), sqlite.asBlob(std.mem.sliceAsBytes(leaves)) });
         _ = try s.step();
     }
 
@@ -973,11 +958,9 @@ pub const Replica = struct {
     }
 
     fn merge(replica: *Replica, op: Op, id: i64) !Outcome {
-        const s = replica.select_winner;
-        defer s.reset();
-        try s.bindText(1, op.key);
-        try s.bindText(2, op.field);
-        if (try s.step()) {
+        if (try replica.winner(op.key, op.field)) |s| {
+            // Freed at once, for the checks the hooks below make.
+            defer s.reset();
             const newer = switch (op.kind) {
                 // Last writer wins, by hybrid logical clock, then device key.
                 .lww => blk: {
@@ -998,17 +981,9 @@ pub const Replica = struct {
             };
             if (!newer) return .lost;
         }
-        // Free the statement for the checks the hooks below make.
-        s.reset();
         const u = replica.upsert_winner;
         defer u.reset();
-        try u.bindText(1, op.key);
-        try u.bindText(2, op.field);
-        try u.bindInt(3, @intFromEnum(op.kind));
-        try u.bindInt(4, @bitCast(op.hlc));
-        try u.bindInt(5, id);
-        try u.bindInt(6, @intCast(op.seq));
-        try u.bindBlob(7, op.value);
+        try u.bind(.{ op.key, op.field, @intFromEnum(op.kind), @as(i64, @bitCast(op.hlc)), id, op.seq, sqlite.asBlob(op.value) });
         _ = try u.step();
         if (std.mem.eql(u8, op.key, "revoked")) try replica.cut(op.field, op.value);
         return .won;
@@ -1024,15 +999,14 @@ pub const Replica = struct {
     fn seen(replica: *Replica, id: i64) !u64 {
         const s = replica.select_version;
         defer s.reset();
-        try s.bindInt(1, id);
+        try s.bind(.{id});
         return if (try s.step()) @intCast(s.int(0)) else 0;
     }
 
     pub fn advance(replica: *Replica, id: i64, seq: u64) !void {
         const u = replica.upsert_version;
         defer u.reset();
-        try u.bindInt(1, id);
-        try u.bindInt(2, @intCast(seq));
+        try u.bind(.{ id, seq });
         _ = try u.step();
     }
 
@@ -1094,8 +1068,7 @@ pub const Replica = struct {
             \\WHERE device = ?1 AND first <= ?2 ORDER BY first DESC LIMIT 1
         );
         defer s.finalize();
-        try s.bindInt(1, id);
-        try s.bindInt(2, @intCast(seq));
+        try s.bind(.{ id, seq });
         if (!try s.step()) return error.NoBatch;
         leaves.clearRetainingCapacity();
         try leaves.appendSlice(replica.gpa, std.mem.bytesAsSlice(Hash, s.blob(3)));

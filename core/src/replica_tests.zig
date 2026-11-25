@@ -64,8 +64,7 @@ const Devices = struct {
     fn value(others: *Devices, r: usize, key: []const u8, field: []const u8) ![]const u8 {
         const s = try others.replicas[r].db.prepare("SELECT value FROM winners WHERE key = ?1 AND field = ?2");
         defer s.finalize();
-        try s.bindText(1, key);
-        try s.bindText(2, field);
+        try s.bind(.{ key, field });
         if (!try s.step()) return error.Missing;
         return others.arena_state.allocator().dupe(u8, s.blob(0));
     }
@@ -684,7 +683,7 @@ test "private data reaches its person's other devices, directly, and no one else
     _ = try replica_sync(p.arena_state.allocator(), &b2, b);
     const s = try b2.db.prepare("SELECT value FROM winners WHERE key = ?1 AND field = 'position'");
     defer s.finalize();
-    try s.bindText(1, key);
+    try s.bind(.{key});
     try testing.expect(try s.step());
     try testing.expectEqualStrings("1234", s.blob(0));
 }
@@ -719,7 +718,7 @@ test "a device that lost its replica gets its own private data back" {
     try testing.expectEqual(@as(usize, 0), stats.refused);
     const s = try b2.db.prepare("SELECT value FROM winners WHERE key = ?1 AND field = 'position'");
     defer s.finalize();
-    try s.bindText(1, key);
+    try s.bind(.{key});
     try testing.expect(try s.step());
     try testing.expectEqualStrings("1234", s.blob(0));
 }

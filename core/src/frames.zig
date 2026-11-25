@@ -131,8 +131,7 @@ pub fn writeSync(src: *Replica, arena: std.mem.Allocator, wanted: VersionVector,
             \\WHERE device = ?1 AND seq > ?2 ORDER BY seq
         );
         defer s.finalize();
-        try s.bindInt(1, id);
-        try s.bindInt(2, @intCast(from));
+        try s.bind(.{ id, from });
         var batch: ?Batch = null;
         while (true) {
             const more = try s.step();

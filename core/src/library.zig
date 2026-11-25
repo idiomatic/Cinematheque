@@ -387,7 +387,7 @@ fn heldBy(replica: *Replica, arena: std.mem.Allocator, field: []const u8) ![]con
     var out: std.ArrayList(Held) = .empty;
     const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = ?1 AND length(value) > 0");
     defer s.finalize();
-    try s.bindText(1, field);
+    try s.bind(.{field});
     while (try s.step()) try out.append(arena, .{ .key = try arena.dupe(u8, s.blob(0)), .value = try arena.dupe(u8, s.blob(1)) });
     return out.items;
 }
@@ -795,7 +795,7 @@ pub fn unavailableDirs(replica: *Replica, arena: std.mem.Allocator, source_id: [
     var out: std.ArrayList(Unavailable) = .empty;
     const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = ?1 AND field LIKE 'absent:%' AND length(value) > 0 ORDER BY field");
     defer s.finalize();
-    try s.bindText(1, try std.fmt.allocPrint(arena, "r/{s}", .{source_id}));
+    try s.bind(.{try std.fmt.allocPrint(arena, "r/{s}", .{source_id})});
     while (try s.step()) try out.append(arena, .{
         .dir = try arena.dupe(u8, s.blob(0)["absent:".len..]),
         .since_ms = std.fmt.parseInt(u64, s.blob(1), 10) catch 0,
@@ -916,19 +916,14 @@ pub fn skipped(rel: []const u8, skip: []const u8) bool {
 
 /// A field's value, if set and not empty.
 pub fn fieldValue(replica: *Replica, arena: std.mem.Allocator, key: []const u8, field: []const u8) !?[]u8 {
-    const s = try replica.db.prepare("SELECT value FROM winners WHERE key = ?1 AND field = ?2 AND length(value) > 0");
-    defer s.finalize();
-    try s.bindText(1, key);
-    try s.bindText(2, field);
-    return if (try s.step()) try arena.dupe(u8, s.blob(0)) else null;
+    const s = try replica.winner(key, field) orelse return null;
+    defer s.reset();
+    return if (s.blob(3).len > 0) try arena.dupe(u8, s.blob(3)) else null;
 }
 
 fn exists(replica: *Replica, key: []const u8, field: []const u8) !bool {
-    const s = try replica.db.prepare("SELECT 1 FROM winners WHERE key = ?1 AND field = ?2");
-    defer s.finalize();
-    try s.bindText(1, key);
-    try s.bindText(2, field);
-    return s.step();
+    (try replica.winner(key, field) orelse return false).reset();
+    return true;
 }
 
 pub const Title = struct {
@@ -1097,8 +1092,7 @@ pub fn progressOf(replica: *Replica, arena: std.mem.Allocator, title_key: ?[]con
     const base = prefix.len - (if (title_key) |k| k.len else 0);
     const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key >= ?1 AND key < ?2 ORDER BY key");
     defer s.finalize();
-    try s.bindText(1, prefix);
-    try s.bindText(2, try std.fmt.allocPrint(arena, "{s}\xff", .{prefix}));
+    try s.bind(.{ prefix, try std.fmt.allocPrint(arena, "{s}\xff", .{prefix}) });
     while (try s.step()) {
         const item = s.blob(0)[base..];
         if (title_key) |k| if (item.len <= k.len or item[k.len] != '/') continue;
@@ -1117,8 +1111,7 @@ fn titleProgress(replica: *Replica, arena: std.mem.Allocator, title_key: []const
     const prefix = try progressKey(replica, arena, title_key);
     const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key > ?1 AND key < ?2");
     defer s.finalize();
-    try s.bindText(1, try std.fmt.allocPrint(arena, "{s}/", .{prefix}));
-    try s.bindText(2, try std.fmt.allocPrint(arena, "{s}0", .{prefix}));
+    try s.bind(.{ try std.fmt.allocPrint(arena, "{s}/", .{prefix}), try std.fmt.allocPrint(arena, "{s}0", .{prefix}) });
     while (try s.step()) {
         const item = try arena.dupe(u8, s.blob(0)[prefix.len + 1 ..]);
         const gop = try out.getOrPut(arena, item);
@@ -1148,9 +1141,7 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
     const upper = try std.fmt.allocPrint(arena, "{s}0", .{key});
     const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key = ?1 OR (key >= ?2 AND key < ?3) ORDER BY key, field");
     defer s.finalize();
-    try s.bindText(1, key);
-    try s.bindText(2, lower);
-    try s.bindText(3, upper);
+    try s.bind(.{ key, lower, upper });
     while (try s.step()) {
         found = true;
         const k = s.blob(0);
