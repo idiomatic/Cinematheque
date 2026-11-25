@@ -62,7 +62,7 @@ pub const Library = struct {
     /// Titles to describe first while a crawl runs, such as those on screen.
     priority: art.Priority = .{},
     /// How far the long operation running has come.
-    steps: Steps = .{},
+    steps: art.Steps = .{},
     /// Serving, while it does (`cq_serve`).
     serving: ?*Serving = null,
     /// Offering to pair, while it does (`cq_pair_offer`).
@@ -261,52 +261,20 @@ pub const PairedJson = struct { person: []const u8, device: []const u8 };
 /// took, how many listings it read and reused, and how many copies changed.
 pub const CrawlJson = struct {
     url: []const u8,
-    files: usize,
-    titles: usize,
-    covers: usize,
-    @"error": ?[]const u8,
+    files: usize = 0,
+    titles: usize = 0,
+    covers: usize = 0,
+    @"error": ?[]const u8 = null,
     crawl_ms: i64 = 0,
     total_ms: i64 = 0,
     requests: usize = 0,
     reused: usize = 0,
     changed: usize = 0,
     /// Why it wasn't crawled, if it wasn't.
-    skipped: ?Skipped = null,
+    skipped: ?library.Skip = null,
 };
-
-/// Why a crawl skipped a source: a device crawled it within the library's
-/// interval (`cq_crawl_due`), the library's sources are looked in only when
-/// asked (`cq_crawl_due`), it's a device's downloads, never crawled, or
-/// it's a device's own folder (`cqdevice://`) whose device hasn't said where
-/// it serves (`away`), as a device away is no failure.
-pub const Skipped = enum { lately, manual, downloads, away };
 pub const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, sent: usize = 0, @"error": ?[]const u8 };
 pub const StatusJson = struct { person: []const u8, device: []const u8, paired: bool, library: ?[]const u8, members: usize, others: usize, crawl_every: u64 = library.default_crawl_hours };
-
-/// How far a long operation has come, in steps of its phase (sources
-/// crawled, movies and seasons described, devices synced); read from any
-/// thread.
-pub const Steps = struct {
-    phase: std.atomic.Value(Phase) = .init(.idle),
-    done: std.atomic.Value(u32) = .init(0),
-    total: std.atomic.Value(u32) = .init(0),
-
-    const Phase = enum(u8) { idle, crawling, describing, syncing };
-
-    pub fn start(p: *Steps, phase: Phase, total: usize) void {
-        p.done.store(0, .monotonic);
-        p.total.store(@intCast(total), .monotonic);
-        p.phase.store(phase, .release);
-    }
-
-    pub fn step(p: *Steps) void {
-        _ = p.done.fetchAdd(1, .monotonic);
-    }
-
-    pub fn finish(p: *Steps) void {
-        p.phase.store(.idle, .release);
-    }
-};
 
 pub const StepsJson = struct { phase: ?[]const u8, done: u32, total: u32 };
 

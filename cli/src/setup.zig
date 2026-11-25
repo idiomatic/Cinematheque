@@ -30,16 +30,13 @@ pub fn handles(name: []const u8) bool {
 /// how it went, for settings to show.
 pub const Refreshing = struct {
     asked: std.atomic.Value(Asked) = .init(.none),
-    phase: std.atomic.Value(Phase) = .init(.idle),
-    done: std.atomic.Value(u32) = .init(0),
-    total: std.atomic.Value(u32) = .init(0),
+    steps: core.art.Steps = .{},
     /// How the last one went, in words; held by `said_lock`.
     said: [256]u8 = undefined,
     said_len: usize = 0,
     said_lock: Io.Mutex = .init,
 
     const Asked = enum(u8) { none, refresh, fully };
-    pub const Phase = enum(u8) { idle, syncing, crawling, describing };
 
     fn say(r: *Refreshing, io: Io, comptime format: []const u8, args: anytype) void {
         r.said_lock.lockUncancelable(io);
@@ -62,8 +59,8 @@ pub fn keepRefreshed(w: *Web, io: Io, gpa: std.mem.Allocator) Io.Cancelable!void
         try io.sleep(.fromMilliseconds(300), .awake);
         const asked = w.refreshing.asked.swap(.none, .acq_rel);
         if (asked == .none) continue;
-        defer w.refreshing.phase.store(.idle, .release);
-        refresh(w, io, gpa, asked == .fully) catch |err| switch (err) {
+        defer w.refreshing.steps.finish();
+        refresh(w, io, gpa, if (asked == .fully) .afresh else .reuse) catch |err| switch (err) {
             error.Canceled => return error.Canceled,
             error.Removed => leaveRemoved(w, io, gpa),
             else => w.refreshing.say(io, "Refreshing failed: {t}", .{err}),
@@ -71,49 +68,29 @@ pub fn keepRefreshed(w: *Web, io: Io, gpa: std.mem.Allocator) Io.Cancelable!void
     }
 }
 
-fn refresh(w: *Web, io: Io, gpa: std.mem.Allocator, fully: bool) !void {
+fn refresh(w: *Web, io: Io, gpa: std.mem.Allocator, listing: core.art.Listing) !void {
     const state = &w.refreshing;
-    state.phase.store(.syncing, .release);
+    state.steps.start(.syncing, 0);
     try w.syncAll(io, gpa);
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     var r = try web.open(w, io, gpa);
     defer r.close();
-    var client: http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
     const sources = try lib.sources(&r, arena);
-    state.phase.store(.crawling, .release);
-    state.done.store(0, .release);
-    state.total.store(@intCast(sources.len), .release);
-    var crawled: std.ArrayList(core.art.Crawled) = .empty;
+    // The writer held for each source's crawl, as the apps hold it, so a
+    // page's writes wait out one source, not all of them.
+    const refreshed = try core.art.crawlAndDescribe(io, gpa, &r, arena, sources, .{ .listing = listing, .writer = &w.writer, .steps = &state.steps });
     var files: usize = 0;
     var failed: usize = 0;
-    for (sources) |rp| {
-        defer _ = state.done.fetchAdd(1, .acq_rel);
-        // Never crawled; or a device's own folder its device hasn't said
-        // where it serves, as good as away.
-        if (rp.managed or rp.at() == null) continue;
-        // The writer held for each source's crawl, as the apps hold it, so
-        // a page's writes wait out one source, not all of them.
-        try w.writer.lock(io);
-        defer w.writer.unlock(io);
-        try r.refresh();
-        const crawler = if (fully) &lib.crawlSourceAfresh else &lib.crawlSource;
-        const s = crawler(&r, io, arena, &client, web.now(io), rp, 16) catch |err| {
-            if (err == error.Canceled) return err;
-            std.log.warn("crawling {s}: {t}", .{ rp.url, err });
+    for (refreshed.sources) |result| switch (result.outcome) {
+        .crawled => |s| files += s.ingest.files,
+        .failed => |err| {
+            std.log.warn("crawling {s}: {t}", .{ result.source.url, err });
             failed += 1;
-            continue;
-        };
-        files += s.ingest.files;
-        try crawled.append(arena, .{ .source = rp, .entries = s.entries });
-    }
-    const plan = try core.art.plan(&r, arena, crawled.items);
-    state.phase.store(.describing, .release);
-    state.done.store(0, .release);
-    state.total.store(@intCast(plan.jobs.len), .release);
-    _ = try core.art.run(io, &r, arena, &client, web.now(io), plan.jobs, .{ .writer = &w.writer, .done = &state.done });
+        },
+        .skipped => {},
+    };
     if (failed > 0)
         state.say(io, "Refreshed: {d} files; {d} of {d} sources couldn't be reached.", .{ files, failed, sources.len })
     else
@@ -430,9 +407,9 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
         .crawl_every = (try lib.crawlEvery(&r, arena)) orelse 0,
         .media = if (w.media) |m| .{ .dir = m.dir, .added = media_added } else null,
         .refreshing = .{
-            .phase = w.refreshing.phase.load(.acquire),
-            .done = w.refreshing.done.load(.acquire),
-            .total = w.refreshing.total.load(.acquire),
+            .phase = w.refreshing.steps.phase.load(.acquire),
+            .done = w.refreshing.steps.done.load(.acquire),
+            .total = w.refreshing.steps.total.load(.acquire),
             .said = try w.refreshing.told(io, arena),
         },
     });
@@ -489,7 +466,7 @@ fn pairDevice(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator,
 /// and this device's identity forgotten, so it can be set up afresh. With
 /// no one else in the library, it only forgets.
 fn leave(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, request: *http.Server.Request) !void {
-    if (w.refreshing.phase.load(.acquire) != .idle) return error.Busy;
+    if (w.refreshing.steps.phase.load(.acquire) != .idle) return error.Busy;
     alone: {
         try w.writer.lock(io);
         defer w.writer.unlock(io);

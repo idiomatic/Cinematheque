@@ -179,6 +179,33 @@ pub fn crawlWindow(io: Io, hours: u64) u64 {
     return span - spread + n % (2 * spread + 1);
 }
 
+/// Why a crawl skipped a source: a device crawled it within the library's
+/// interval, or looking is Manually (both only for refreshes not asked
+/// for); it's a device's downloads, never crawled; or its device hasn't
+/// said where it serves it (`away`), which is no failure.
+pub const Skip = enum { lately, manual, downloads, away };
+
+/// Which sources a refresh not asked for crawls, as of `now_ms`.
+pub const Due = struct {
+    /// `crawlEvery`'s hours, null for Manually.
+    every: ?u64,
+    window: u64,
+    now_ms: u64,
+
+    /// Why `source` isn't crawled now; null if it's due. A device's
+    /// downloads are, to be told as such.
+    pub fn skip(d: Due, source: Source) ?Skip {
+        if (source.managed) return null;
+        if (d.every == null) return .manual;
+        return if (source.crawledLately(d.now_ms, d.window)) .lately else null;
+    }
+};
+
+pub fn due(replica: *Replica, io: Io, arena: std.mem.Allocator, now_ms: u64) !Due {
+    const every = try crawlEvery(replica, arena);
+    return .{ .every = every, .window = if (every) |hours| crawlWindow(io, hours) else 0, .now_ms = now_ms };
+}
+
 /// Lowercases ASCII letters, drops apostrophes and periods, turns other
 /// ASCII punctuation and spaces into single hyphens, and keeps other bytes
 /// (letters with diacritics, other scripts) as they are.

@@ -895,6 +895,107 @@ fn seasonNumber(rest: []const u8) ?u16 {
     return std.fmt.parseInt(u16, rest[0..n], 10) catch null;
 }
 
+/// How far a long operation has come, in steps of its phase; read from
+/// any thread.
+pub const Steps = struct {
+    phase: std.atomic.Value(Phase) = .init(.idle),
+    done: std.atomic.Value(u32) = .init(0),
+    total: std.atomic.Value(u32) = .init(0),
+
+    pub const Phase = enum(u8) { idle, crawling, describing, syncing };
+
+    pub fn start(p: *Steps, phase: Phase, total: usize) void {
+        p.done.store(0, .monotonic);
+        p.total.store(@intCast(total), .monotonic);
+        p.phase.store(phase, .release);
+    }
+
+    pub fn step(p: *Steps) void {
+        _ = p.done.fetchAdd(1, .monotonic);
+    }
+
+    pub fn finish(p: *Steps) void {
+        p.phase.store(.idle, .release);
+    }
+};
+
+/// Whether a crawl reuses the listings of directories whose files' times
+/// are unchanged.
+pub const Listing = enum { reuse, afresh };
+
+pub const Result = struct {
+    source: library.Source,
+    outcome: union(enum) { crawled: library.CrawlStats, failed: anyerror, skipped: library.Skip },
+};
+
+pub const Options = struct {
+    listing: Listing = .reuse,
+    workers: usize = 16,
+    /// Taken for each source's crawl and describing's writes.
+    writer: ?*Io.Mutex = null,
+    steps: ?*Steps = null,
+    priority: ?*Priority = null,
+    /// For a refresh not asked for: those not due are skipped.
+    due: ?library.Due = null,
+};
+
+pub const Refreshed = struct { sources: []const Result, plan: Plan, described: Stats, describe_ms: i64 };
+
+/// Crawls `sources`, committing each, then describes what's new, as every
+/// player refreshes.
+pub fn crawlAndDescribe(io: Io, gpa: std.mem.Allocator, replica: *Replica, arena: std.mem.Allocator, sources: []const library.Source, options: Options) !Refreshed {
+    var client: std.http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    const out = try arena.alloc(Result, sources.len);
+    var crawled: std.ArrayList(Crawled) = .empty;
+    var due = sources.len;
+    if (options.due) |d| for (sources) |s| {
+        if (d.skip(s) != null) due -= 1;
+    };
+    if (options.steps) |s| s.start(.crawling, due);
+    for (sources, out) |source, *o| {
+        o.source = source;
+        if (options.due) |d| if (d.skip(source)) |why| {
+            o.outcome = .{ .skipped = why };
+            continue;
+        };
+        defer if (options.steps) |s| s.step();
+        o.outcome = try crawlOne(io, replica, arena, &client, source, options);
+        if (o.outcome == .crawled) try crawled.append(arena, .{ .source = source, .entries = o.outcome.crawled.entries });
+    }
+    const start = Io.Timestamp.now(io, .awake);
+    const planned = try plan(replica, arena, crawled.items);
+    if (options.steps) |s| s.start(.describing, planned.jobs.len);
+    const described = try run(io, replica, arena, &client, now(io), planned.jobs, .{
+        .workers = options.workers,
+        .priority = options.priority,
+        .writer = options.writer,
+        .done = if (options.steps) |s| &s.done else null,
+    });
+    return .{ .sources = out, .plan = planned, .described = described, .describe_ms = start.durationTo(Io.Timestamp.now(io, .awake)).toMilliseconds() };
+}
+
+fn crawlOne(io: Io, replica: *Replica, arena: std.mem.Allocator, client: *std.http.Client, source: library.Source, options: Options) !@FieldType(Result, "outcome") {
+    if (source.managed) return .{ .skipped = .downloads };
+    if (source.at() == null) return .{ .skipped = .away };
+    if (options.writer) |w| try w.lock(io);
+    defer if (options.writer) |w| w.unlock(io);
+    if (options.writer != null) try replica.refresh();
+    const crawler = switch (options.listing) {
+        .reuse => &library.crawlSource,
+        .afresh => &library.crawlSourceAfresh,
+    };
+    const stats = crawler(replica, io, arena, client, now(io), source, options.workers) catch |err| {
+        if (err == error.Canceled) return err;
+        return .{ .failed = err };
+    };
+    return .{ .crawled = stats };
+}
+
+pub fn now(io: Io) u64 {
+    return @intCast(Io.Timestamp.now(io, .real).toMilliseconds());
+}
+
 test "season numbers of any width" {
     try std.testing.expectEqual(@as(?u16, 3), seasonNumber("03e17"));
     try std.testing.expectEqual(@as(?u16, 2024), seasonNumber("2024e05"));

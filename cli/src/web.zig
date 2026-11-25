@@ -183,16 +183,8 @@ pub const Web = struct {
         const source = for (try core.library.sources(&r, arena)) |s| {
             if (std.mem.eql(u8, s.url, media.url)) break s;
         } else return;
-        var client: http.Client = .{ .allocator = gpa, .io = io };
-        defer client.deinit();
-        const stats = blk: {
-            try w.writer.lock(io);
-            defer w.writer.unlock(io);
-            try r.refresh();
-            break :blk try core.library.crawlSource(&r, io, arena, &client, now(io), source, 16);
-        };
-        const plan = try core.art.plan(&r, arena, &.{.{ .source = source, .entries = stats.entries }});
-        _ = try core.art.run(io, &r, arena, &client, now(io), plan.jobs, .{ .workers = 16, .writer = &w.writer });
+        const done = try core.art.crawlAndDescribe(io, gpa, &r, arena, &.{source}, .{ .writer = &w.writer });
+        if (done.sources[0].outcome == .failed) return done.sources[0].outcome.failed;
     }
 
 };

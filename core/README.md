@@ -25,8 +25,8 @@ It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` als
 | [naming](src/naming.zig) | The filename parser |
 | [mp4](src/mp4.zig) | An MP4's cover (as a byte range) and metadata, read by range requests that walk atom headers |
 | [jpeg](src/jpeg.zig) | A JPEG's width and height, from its frame header |
-| [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s, planned across sources and described by concurrent workers, prioritized titles first; the browsing grid's tiles, with this person's progress and whether begun |
-| [library](src/library.zig) | Keys from titles' parsed identities; sources, crawled into copies; titles, a title's details, facets, and progress |
+| [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s, planned across sources and described by concurrent workers, prioritized titles first; the browsing grid's tiles, with this person's progress and whether begun; crawling and describing as every player refreshes, and how far a long operation has come |
+| [library](src/library.zig) | Keys from titles' parsed identities; sources, crawled into copies; titles, a title's details, facets, and progress; which sources are due |
 | [lists](src/lists.zig) | A person's lists (a Watchlist, Favorites), placeholders for titles not in the library yet, and lists shared with every member |
 | [order](src/order.zig) | The orders shelves sort in, each tile's place in each |
 | [views](src/views.zig) | What players show, as JSON: the grid's tiles and a title's detail, for the C interface and the web client alike |

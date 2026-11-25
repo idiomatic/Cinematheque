@@ -416,10 +416,7 @@ pub fn crawl(app: *App, c: Command) !void {
     var r = try app.open();
     defer r.close();
     const sources = if (c.rest.len == 1) &[_]lib.Source{try lib.findSource(&r, app.arena, c.rest[0])} else try lib.sources(&r, app.arena);
-    if (c.args.has("--full"))
-        try crawlAndDescribe(app, &r, workers, sources, lib.crawlSourceAfresh)
-    else
-        try crawlAndDescribe(app, &r, workers, sources, lib.crawlSource);
+    try crawlAndDescribe(app, &r, sources, .{ .workers = workers, .listing = if (c.args.has("--full")) .afresh else .reuse });
 }
 
 /// `refresh [--jitter SECONDS]`: waits a random time up to the jitter (so
@@ -440,53 +437,37 @@ pub fn refresh(app: *App, c: Command) !void {
     try network.syncEvery(app);
     var r = try app.open();
     defer r.close();
-    const every = try lib.crawlEvery(&r, app.arena);
-    const window = if (every) |hours| lib.crawlWindow(app.io, hours) else 0;
-    var due: std.ArrayList(lib.Source) = .empty;
-    for (try lib.sources(&r, app.arena)) |rp| {
-        if (rp.managed) {
-            try due.append(app.arena, rp);
-        } else if (every == null) {
-            try app.out.print("{s}: crawled only when asked (crawl), not now\n", .{rp.url});
-        } else if (rp.crawledLately(app.now(), window)) {
-            try app.out.print("{s}: crawled within the last {d} hours, not again\n", .{ rp.url, every.? });
-        } else try due.append(app.arena, rp);
-    }
-    try crawlAndDescribe(app, &r, 16, due.items, lib.crawlSource);
+    try crawlAndDescribe(app, &r, try lib.sources(&r, app.arena), .{ .due = try lib.due(&r, app.io, app.arena, app.now()) });
 }
 
-/// How a source is crawled: reusing the last crawl's listings, or afresh.
-const Crawler = fn (*core.replica.Replica, Io, std.mem.Allocator, *std.http.Client, u64, lib.Source, usize) anyerror!lib.CrawlStats;
-
-/// Crawls `sources`, but devices' downloads, then describes what's new:
-/// covers and metadata, with concurrent workers.
-fn crawlAndDescribe(app: *App, r: *core.replica.Replica, workers: usize, sources: []const lib.Source, comptime crawler: Crawler) !void {
-    var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
-    defer client.deinit();
-    var crawled: std.ArrayList(core.art.Crawled) = .empty;
-    for (sources) |rp| {
-        if (rp.managed) {
-            try app.out.print("{s}: a device's downloads, not crawled\n", .{rp.url});
-            continue;
+/// Crawls `sources`, then describes what's new, saying how each went; fails
+/// as the first source that failed did.
+fn crawlAndDescribe(app: *App, r: *core.replica.Replica, sources: []const lib.Source, options: core.art.Options) !void {
+    const done = try core.art.crawlAndDescribe(app.io, app.gpa, r, app.arena, sources, options);
+    var failed: ?anyerror = null;
+    for (done.sources) |result| {
+        const url = result.source.url;
+        switch (result.outcome) {
+            .skipped => |why| try app.out.print("{s}: {s}\n", .{ url, switch (why) {
+                .downloads => "a device's downloads, not crawled",
+                .away => "its device hasn't said where it serves it, not crawled",
+                .manual => "crawled only when asked (crawl), not now",
+                .lately => try std.fmt.allocPrint(app.arena, "crawled within the last {d} hours, not again", .{options.due.?.every.?}),
+            } }),
+            .failed => |err| failed = failed orelse err,
+            .crawled => |s| {
+                const i = s.ingest;
+                try app.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; copies {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories unavailable; {d} ms in all\n", .{
+                    url,            s.crawl.requests, s.crawl.skipped,  s.crawl_ms,       i.files,      i.skipped,     i.extras,   i.unparsed,
+                    i.titles_added, i.copies_added,   i.copies_changed, i.copies_removed, i.duplicates, i.unavailable, s.total_ms,
+                });
+                if (i.duplicate_example) |e| try app.out.print("  e.g., {s}\n", .{e});
+            },
         }
-        if (rp.at() == null) {
-            try app.out.print("{s}: its device hasn't said where it serves it, not crawled\n", .{rp.url});
-            continue;
-        }
-        const s = try crawler(r, app.io, app.arena, &client, app.now(), rp, workers);
-        const i = s.ingest;
-        try app.out.print("{s}: {d} requests ({d} directories reused) in {d} ms; {d} files ({d} skipped, {d} extras, {d} unparsed); {d} titles added; copies {d} added, {d} changed, {d} removed; {d} duplicates; {d} directories unavailable; {d} ms in all\n", .{
-            rp.url,         s.crawl.requests, s.crawl.skipped,  s.crawl_ms,       i.files,      i.skipped,     i.extras,   i.unparsed,
-            i.titles_added, i.copies_added,   i.copies_changed, i.copies_removed, i.duplicates, i.unavailable, s.total_ms,
-        });
-        if (i.duplicate_example) |e| try app.out.print("  e.g., {s}\n", .{e});
-        try app.out.flush();
-        try crawled.append(app.arena, .{ .source = rp, .entries = s.entries });
     }
-    const start = Io.Timestamp.now(app.io, .awake);
-    const plan = try core.art.plan(r, app.arena, crawled.items);
-    const a = try core.art.run(app.io, r, app.arena, &client, app.now(), plan.jobs, .{ .workers = workers });
+    const a = done.described;
     try app.out.print("described {d} movies and seasons ({d} unchanged) in {d} ms: {d} covers found, {d} files read, {d} failed\n", .{
-        plan.jobs.len, plan.unchanged, start.durationTo(Io.Timestamp.now(app.io, .awake)).toMilliseconds(), a.covers, a.described, a.failed,
+        done.plan.jobs.len, done.plan.unchanged, done.describe_ms, a.covers, a.described, a.failed,
     });
+    if (failed) |err| return err;
 }

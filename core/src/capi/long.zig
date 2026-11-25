@@ -80,8 +80,7 @@ export fn cq_crawl_source(lib: *Library, source: [*:0]const u8) ?[*:0]u8 {
 fn crawlOne(lib: *Library, arena: std.mem.Allocator, which: []const u8) ![]const CrawlJson {
     var r = try connection(lib, arena);
     defer release(lib, &r);
-    const source = try library.findSource(&r, arena, which);
-    return crawlAndDescribe(lib, arena, &r, &.{source}, library.crawlSource);
+    return crawlAndDescribe(lib, arena, &r, &.{try library.findSource(&r, arena, which)}, .{});
 }
 
 /// Long: as `cq_crawl`, but for a refresh not asked for (at launch, or on
@@ -93,91 +92,51 @@ export fn cq_crawl_due(lib: *Library) ?[*:0]u8 {
     return json(lib, crawlDue, .{});
 }
 
-/// How a source is crawled: reusing the last crawl's listings, or afresh.
-const Crawler = fn (*Replica, Io, std.mem.Allocator, *std.http.Client, u64, library.Source, usize) anyerror!library.CrawlStats;
-
 fn crawlAll(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
     var r = try connection(lib, arena);
     defer release(lib, &r);
-    return crawlAndDescribe(lib, arena, &r, try library.sources(&r, arena), library.crawlSource);
+    return crawlAndDescribe(lib, arena, &r, try library.sources(&r, arena), .{});
 }
 
 fn crawlAllAfresh(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
     var r = try connection(lib, arena);
     defer release(lib, &r);
-    return crawlAndDescribe(lib, arena, &r, try library.sources(&r, arena), library.crawlSourceAfresh);
+    return crawlAndDescribe(lib, arena, &r, try library.sources(&r, arena), .{ .listing = .afresh });
 }
 
-/// The sources due: those no device crawled within the library's interval,
-/// unless it's Manually. The rest are told as skipped, in their places.
+/// Those no device crawled within the library's interval, unless it's
+/// Manually; the rest told as skipped, in their places.
 fn crawlDue(lib: *Library, arena: std.mem.Allocator) ![]const CrawlJson {
     var r = try connection(lib, arena);
     defer release(lib, &r);
-    const list = try library.sources(&r, arena);
-    const every = try library.crawlEvery(&r, arena);
-    const window = if (every) |hours| library.crawlWindow(lib.io(), hours) else 0;
-    const out = try arena.alloc(CrawlJson, list.len);
-    var due: std.ArrayList(library.Source) = .empty;
-    var places: std.ArrayList(usize) = .empty;
-    for (list, out, 0..) |rp, *o, i| {
-        // A device's downloads are told as such, wherever they are.
-        if (rp.managed or (every != null and !rp.crawledLately(lib.now(), window))) {
-            try due.append(arena, rp);
-            try places.append(arena, i);
-        } else o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .skipped = if (every == null) .manual else .lately };
-    }
-    for (places.items, try crawlAndDescribe(lib, arena, &r, due.items, library.crawlSource)) |i, c| out[i] = c;
-    return out;
+    return crawlAndDescribe(lib, arena, &r, try library.sources(&r, arena), .{ .due = try library.due(&r, lib.io(), arena, lib.now()) });
 }
 
-/// Crawls `list`'s sources, but devices' downloads, committing each as it's
-/// crawled, then describes what's new; a result per source.
-fn crawlAndDescribe(lib: *Library, arena: std.mem.Allocator, r: *Replica, list: []const library.Source, comptime crawler: Crawler) ![]const CrawlJson {
-    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
-    defer client.deinit();
-    const out = try arena.alloc(CrawlJson, list.len);
-    var crawled: std.ArrayList(art.Crawled) = .empty;
-    lib.steps.start(.crawling, list.len);
+/// Crawls `list`'s sources, then describes what's new; a result per source.
+fn crawlAndDescribe(lib: *Library, arena: std.mem.Allocator, r: *Replica, list: []const library.Source, options: art.Options) ![]const CrawlJson {
     defer lib.steps.finish();
-    for (list, out) |rp, *o| {
-        defer lib.steps.step();
-        if (rp.managed) {
-            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .skipped = .downloads };
-            continue;
+    var with = options;
+    with.writer = &lib.writer;
+    with.steps = &lib.steps;
+    with.priority = &lib.priority;
+    const refreshed = try art.crawlAndDescribe(lib.io(), gpa, r, arena, list, with);
+    const out = try arena.alloc(CrawlJson, list.len);
+    for (refreshed.sources, out) |result, *o| {
+        o.* = .{ .url = result.source.url };
+        switch (result.outcome) {
+            .skipped => |why| o.skipped = why,
+            .failed => |err| o.@"error" = @errorName(err),
+            .crawled => |s| {
+                o.files = s.ingest.files;
+                o.titles = s.ingest.titles_added;
+                o.crawl_ms = s.crawl_ms;
+                o.total_ms = s.total_ms;
+                o.requests = s.crawl.requests;
+                o.reused = s.crawl.skipped;
+                o.changed = s.ingest.copies_added + s.ingest.copies_changed + s.ingest.copies_removed;
+            },
         }
-        if (rp.at() == null) {
-            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = null, .skipped = .away };
-            continue;
-        }
-        try lib.writer.lock(lib.io());
-        defer lib.writer.unlock(lib.io());
-        try r.refresh();
-        const s = crawler(r, lib.io(), arena, &client, lib.now(), rp, 16) catch |err| {
-            o.* = .{ .url = rp.url, .files = 0, .titles = 0, .covers = 0, .@"error" = @errorName(err) };
-            continue;
-        };
-        o.* = .{
-            .url = rp.url,
-            .files = s.ingest.files,
-            .titles = s.ingest.titles_added,
-            .covers = 0,
-            .@"error" = null,
-            .crawl_ms = s.crawl_ms,
-            .total_ms = s.total_ms,
-            .requests = s.crawl.requests,
-            .reused = s.crawl.skipped,
-            .changed = s.ingest.copies_added + s.ingest.copies_changed + s.ingest.copies_removed,
-        };
-        try crawled.append(arena, .{ .source = rp, .entries = s.entries });
     }
-    const plan = try art.plan(r, arena, crawled.items);
-    lib.steps.start(.describing, plan.jobs.len);
-    _ = try art.run(lib.io(), r, arena, &client, lib.now(), plan.jobs, .{
-        .workers = 16,
-        .priority = &lib.priority,
-        .writer = &lib.writer,
-        .done = &lib.steps.done,
-    });
     return out;
 }
 
