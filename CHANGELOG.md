@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* iPhone: no longer called a prototype.
 * Mac: a folder that overlaps the downloads folder (is it, holds it, or is inside it) can't be added as a source, nor a downloads folder chosen that overlaps a source's, as cleanup could then take a download's own record for a copy held elsewhere and delete the only copy.
 * Show Sync Activity is gone from the apps; each sync's exchanges that changed something are logged instead (`sync`, in Console). A device's push is noticed by the library's data version, and `cq_served` and `cq_received` are gone.
 * Placeholders: added and removed only by the command-line app's new `want` commands (`want list`, `want add`, `want remove`); the apps and the web client show them but no longer add, change, or remove them (the Mac's Add Missing Title… and Edit…, the Apple TV's editing page, the web client's ＋ and ✎, and Remove from List). `cq_list_want` and `cq_list_edit_want` are gone.

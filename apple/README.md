@@ -1,6 +1,6 @@
 # Apple players
 
-The players for Apple devices, in SwiftUI, on the [core](../core/README.md) through its C interface: macOS 15+, tvOS 18+, and, as a prototype, iOS 18+ on iPhone. What they do is specified in [AGENTS.md](../AGENTS.md#apple-players); this file says how. The Mac app opens this device's data directory (`CINEMATHEQUE_DATA`, or the default), which it shares with the [command-line app](../cli/README.md).
+The players for Apple devices, in SwiftUI, on the [core](../core/README.md) through its C interface: macOS 15+, tvOS 18+, and iOS 18+ on iPhone. What they do is specified in [AGENTS.md](../AGENTS.md#apple-players); this file says how. The Mac app opens this device's data directory (`CINEMATHEQUE_DATA`, or the default), which it shares with the [command-line app](../cli/README.md).
 
 ## Building
 
@@ -55,7 +55,7 @@ macOS:
   * [SourcesPane.swift](Cinematheque/macOS/Settings/SourcesPane.swift): folders, chosen with SwiftUI's file importer (as the downloads folder is), and servers (`SourceSheet`, an address as Finder's Connect to Server takes it); `Library.overlap` refuses overlapping folders.
   * [DownloadsPane.swift](Cinematheque/macOS/Settings/DownloadsPane.swift): the folder, what it holds, and the rule.
 
-iPhone (a prototype):
+iPhone:
 
 * [Browser+iOS.swift](Cinematheque/iOS/Browser+iOS.swift): `Browser`: tabs, each a navigation stack; `Carousel` (covers 150 points high, `CoverImage`'s `shaped`); `CoverGrid`; the Series tab's `JustifiedGrid`, rows of one height scaled to fill, from shapes known before covers load (`CoverImage.shape(thumb:)`); `TileCover` over `UnderCover`'s `PosterName`. A list's page is renamed by `navigationTitle` bound to its name, `RenameButton` in its `toolbarTitleMenu` beside Share and Delete; New List… from a title's Lists menu is a sheet (`ListNameSheet`), as a menu holds no field. A series' page puts its whole name in the bar once scrolled past. Setup is `SetupForm`, filling the screen.
 * [Settings+iOS.swift](Cinematheque/iOS/Settings+iOS.swift): `SettingsSheet`, its pages (`SettingsPage`) pushed on its stack; `DevicePage`; `NewDevices` (one chosen opens a code field on the number pad, its last digit adding it); `NameField`.

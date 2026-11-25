@@ -4,8 +4,7 @@ import SwiftUI
 /// The iPhone's tab bar, within thumbs' reach: Home, Movies, Series, Lists,
 /// and Search, each a navigation stack opening titles' pages: a movie's, or
 /// a season's; a series' tile, its seasons first. Settings is from Home's
-/// corner (see Settings+iOS.swift). A prototype: browsing, the title
-/// pages, playing, and settings.
+/// corner (see Settings+iOS.swift).
 struct Browser: View {
     @Environment(Library.self) private var library
     @State private var tab = "home"

@@ -9,7 +9,7 @@ Cinematheque is a video library for your household. It catalogs the movies and T
 <table><tr>
 <td align="center"><a href="docs/screenshots/mac-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/mac-light.png"><img src="docs/screenshots/mac-dark.png" alt="The Mac app: the Series shelf, a series’ seasons open below it, and the inspector on a season partway through" height="120"></picture></a><br><sub>Mac</sub></td>
 <td align="center"><a href="docs/screenshots/tv-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/tv-light.png"><img src="docs/screenshots/tv-dark.png" alt="The Apple TV app: a season’s page, Resume focused, over its blurred cover" height="120"></picture></a><br><sub>Apple TV</sub></td>
-<td align="center"><a href="docs/screenshots/iphone-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/iphone-light.png"><img src="docs/screenshots/iphone-dark.png" alt="The iPhone app, a prototype: Home’s rows, the Series tab, and a season’s page" height="120"></picture></a><br><sub>iPhone (a prototype)</sub></td>
+<td align="center"><a href="docs/screenshots/iphone-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/iphone-light.png"><img src="docs/screenshots/iphone-dark.png" alt="The iPhone app: Home’s rows, the Series tab, and a season’s page" height="120"></picture></a><br><sub>iPhone</sub></td>
 <td align="center"><a href="docs/screenshots/web-dark.png"><picture><source media="(prefers-color-scheme: light)" srcset="docs/screenshots/web-light.png"><img src="docs/screenshots/web-dark.png" alt="The web client: the Movies shelf, with its sidebar" height="120"></picture></a><br><sub>Web</sub></td>
 </tr></table>
 
@@ -23,7 +23,7 @@ Early, at version 0.1: expect rough edges, and changes between versions.
 | --- | --- |
 | **Mac** (macOS 15+) | Released, not yet notarized: browsing, playing, lists, downloads, and Settings for sources, people, and devices |
 | **Apple TV** (tvOS 18+) | Browsing, playing, lists, and Settings for people, devices, and servers; not released yet, so build it with Xcode |
-| **iPhone** (iOS 18+) | A prototype: browsing, playing, lists, and Settings (people, devices, and servers); setting up is a stopgap, and nothing downloads yet |
+| **iPhone** (iOS 18+) | Browsing, playing, lists, and Settings for people, devices, and servers; not released yet, so build it with Xcode; its own setup and downloads still to come |
 | **Web client** | In the command-line app (`serve`): setup, browsing, playing, and settings, for a browser on the server's own computer (or every browser, with `--permissive`) |
 | **Command-line app** | Released, for macOS and Linux |
 | **Linux and Windows players** | Planned |

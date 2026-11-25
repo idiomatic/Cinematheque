@@ -26,7 +26,7 @@ One word for each thing, in the spec, code, command-line app, and apps; stored k
 
 * [core](core/README.md): the Zig library, and a static library with a C interface ([cinematheque.h](core/include/cinematheque.h), a Swift module by its [module map](core/include/module.modulemap)), documented in [core/include/README.md](core/include/README.md).
 * [cli](cli/README.md): the command-line app, `cinematheque`, for macOS and Linux.
-* [apple](apple/README.md): one SwiftUI app, `com.rbrian.cinematheque`, for macOS 15+, tvOS 18+, and as a prototype, iOS 18+ on iPhone.
+* [apple](apple/README.md): one SwiftUI app, `com.rbrian.cinematheque`, for macOS 15+, tvOS 18+, and iOS 18+ on iPhone.
 * [tools](tools/README.md): scripts beside the apps, such as [debt.py](tools/debt.py)'s report of code debt.
 
 ## Core interface
@@ -156,7 +156,7 @@ Details, as built, are in [apple/README.md](apple/README.md#in-detail).
 * **Tooltips:** short fragments without a period, saying only what the control and text don't.
 * **Modelessness:** no alert nobody asked for. Confirmed first only: removing a source (saying how many videos go, everywhere, files untouched), removing someone, leaving, forgetting what's watched, and deleting the only copy. What goes wrong shows in the status bar and along Settings' foot, in words, each source by name, until dismissed, the next action of its kind succeeds, or the library changes.
 
-## iPhone player (a prototype)
+## iPhone player
 
 * **Data directory:** the app's Application Support.
 * **Shelves:** a tab bar of Home (Continue Watching, a row per list with See All, Settings from its corner), Movies, Series (a justified layout of covers per series, each opening its seasons), Lists (New List named in place in the navigation bar; a list's page renamed in place by its title, its title's menu sharing and deleting it), and Search. Rows are carousels; grids give cells the column's width.
