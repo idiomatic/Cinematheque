@@ -157,17 +157,15 @@ private struct HomeView: View {
     @Environment(Library.self) private var library
 
     var body: some View {
-        let going = Shelf.home.tiles(in: library)
-        let lists = library.lists.map { ($0, Shelf.list($0.id).tiles(in: library)) }.filter { !$0.1.isEmpty }
+        let rows = library.homeRows
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 50) {
                 Sections()
-                if going.isEmpty && lists.isEmpty {
+                if rows.isEmpty {
                     ContentUnavailableView("Nothing in Progress", systemImage: "play.rectangle", description: Text(Shelf.home.empty))
                         .frame(maxWidth: .infinity)
                 }
-                if !going.isEmpty { Row(title: "Continue Watching", tiles: going) }
-                ForEach(lists, id: \.0.id) { list, tiles in Row(title: list.shownName, tiles: tiles, list: list.id, shared: list.isShared) }
+                ForEach(rows) { Row(title: $0.title, tiles: $0.tiles, list: $0.list?.id, shared: $0.list?.isShared ?? false) }
             }
             .padding(.vertical, 40)
         }
@@ -351,9 +349,7 @@ struct PosterGrid<Footer: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 40)
         }
-        .overlay {
-            if tiles.isEmpty { ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(empty)) }
-        }
+        .nothingHere(tiles, empty)
     }
 }
 
@@ -537,9 +533,7 @@ private struct SearchView: View {
     @State private var text = ""
 
     var body: some View {
-        // Every shelf's titles but Home's, which are among them.
-        let found = text.isEmpty ? [] : library.perTitle(Shelf.movies.tiles(in: library, search: text) + Shelf.series.tiles(in: library, search: text))
-        PosterGrid(tiles: found, empty: text.isEmpty ? "Search for a movie or series." : "No titles match “\(text)”.", series: true)
+        PosterGrid(tiles: library.search(text), empty: text.isEmpty ? "Search for a movie or series." : "No titles match “\(text)”.", series: true)
             .searchable(text: $text)
     }
 }

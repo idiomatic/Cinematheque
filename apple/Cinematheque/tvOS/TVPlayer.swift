@@ -370,7 +370,7 @@ final class TVPlayer: NSObject, AVPlayerViewControllerDelegate {
     /// takes longer than the page's fade to come (from the cover cache, it
     /// doesn't).
     @MainActor static func artwork(_ request: PlayRequest, _ library: Library) async -> Data? {
-        guard let key = ItemKey(request.item),
+        guard let key = ItemKey(request.first.item),
               let cover = (library.tiles.first { $0.id == key.tile } ?? library.tiles.first { $0.key == key.title })?.cover else { return nil }
         return await withTaskGroup(of: Data?.self) { group in
             group.addTask { await ArtCache.shared.image(cover, .large).flatMap { UIImage(cgImage: $0).jpegData(compressionQuality: 0.8) } }

@@ -216,6 +216,13 @@ struct WatchedToggle: View {
     }
 }
 
+extension View {
+    /// Says so over a shelf without `tiles`: `empty` says why, or what to do.
+    func nothingHere(_ tiles: [Tile], _ empty: String) -> some View {
+        overlay { if tiles.isEmpty { ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(empty)) } }
+    }
+}
+
 /// Mark as Watched, unless it is, and Mark as Unwatched, once begun
 /// (forgetting where it stopped, too), each by `mark`, for a tile's menu.
 struct WatchedItems: View {

@@ -78,7 +78,7 @@ struct WindowPlayer: View {
                             .keyboardShortcut(.cancelAction)
                             .help("Back to the library (Escape)")
                             .onHover { onBack = $0 }
-                            NowPlaying(title: title.isEmpty ? request.title : title)
+                            NowPlaying(title: title.isEmpty ? request.first.title : title)
                             Spacer(minLength: 16)
                         }
                         // Past the window's buttons, but in full screen,
@@ -94,7 +94,7 @@ struct WindowPlayer: View {
                 .animation(.easeInOut(duration: 0.25), value: showsBack)
             }
             .background(HidesToolbar(showsButtons: showsBack, buttonsMid: $buttonsMid, fullScreen: $fullScreen))
-            .navigationTitle(title.isEmpty ? request.title : title)
+            .navigationTitle(title.isEmpty ? request.first.title : title)
     }
 
     /// Leaves playback, its picture fading to black as its sound falls,
@@ -228,8 +228,8 @@ struct PlayerView: View {
             Player(request: request, library: library, title: $title, curtain: curtain)
         }
             .frame(minWidth: 640, minHeight: 360)
-            .navigationTitle(title.isEmpty ? (request.url.deletingPathExtension().lastPathComponent.removingPercentEncoding ?? "Player") : title)
-            .onAppear { title = request.title }
+            .navigationTitle(title.isEmpty ? (request.first.url.deletingPathExtension().lastPathComponent.removingPercentEncoding ?? "Player") : title)
+            .onAppear { title = request.first.title }
     }
 }
 

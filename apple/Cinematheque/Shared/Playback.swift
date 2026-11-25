@@ -18,23 +18,15 @@ struct PlayRequest: Codable, Hashable, Identifiable {
         var contenders = 1
     }
 
-    let url: URL
-    let item: String
+    /// What plays first, and where in it.
+    let first: Entry
     let start: Double
-    var title: String = ""
     var queue: [Entry] = []
-    var alternates: [URL] = []
-    var contenders = 1
     /// Itself, for presenting a player by it.
     var id: Self { self }
 
-    /// The first entry, the one `url` plays.
-    var first: Entry { Entry(url: url, item: item, title: title, alternates: alternates, contenders: contenders) }
-
     /// The same, from its first item's beginning (Start Over).
-    var fromBeginning: PlayRequest {
-        PlayRequest(url: url, item: item, start: 0, title: title, queue: queue, alternates: alternates, contenders: contenders)
-    }
+    var fromBeginning: PlayRequest { PlayRequest(first: first, start: 0, queue: queue) }
 }
 
 /// What to play next, and the queue after it.
@@ -73,7 +65,7 @@ enum Playback {
         }
         guard let first = queue.first else { return nil }
         let item = items[index]
-        return PlayRequest(url: first.url, item: first.item, start: item.watched ? 0 : Double(item.position) / 1000, title: first.title, queue: Array(queue.dropFirst()), alternates: first.alternates, contenders: first.contenders)
+        return PlayRequest(first: first, start: item.watched ? 0 : Double(item.position) / 1000, queue: Array(queue.dropFirst()))
     }
 
     /// An item's qualities in the order to play them: the chosen one, then

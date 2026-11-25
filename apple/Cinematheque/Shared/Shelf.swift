@@ -187,6 +187,28 @@ extension Library {
         }
     }
 
+    /// A row of Home's: Continue Watching, or a list's.
+    struct HomeRow: Identifiable {
+        let title: String
+        let tiles: [Tile]
+        var list: UserList? = nil
+        var id: String { list?.id ?? "" }
+    }
+
+    /// Home's rows: Continue Watching, then each list, those with nothing
+    /// in them left out.
+    var homeRows: [HomeRow] {
+        ([HomeRow(title: "Continue Watching", tiles: Shelf.home.tiles(in: self))]
+            + lists.map { HomeRow(title: $0.shownName, tiles: Shelf.list($0.id).tiles(in: self), list: $0) })
+            .filter { !$0.tiles.isEmpty }
+    }
+
+    /// The titles named by `text` on every shelf but Home's (whose are among
+    /// them), a tile per title; none for no text.
+    func search(_ text: String) -> [Tile] {
+        text.isEmpty ? [] : perTitle(Shelf.movies.tiles(in: self, search: text) + Shelf.series.tiles(in: self, search: text))
+    }
+
     /// A series' seasons in order, specials last.
     static func seasons(of key: String, in tiles: [Tile]) -> [Tile] {
         let seasons = tiles.filter { $0.key == key && $0.season != nil }.sorted { ($0.season ?? 0) < ($1.season ?? 0) }

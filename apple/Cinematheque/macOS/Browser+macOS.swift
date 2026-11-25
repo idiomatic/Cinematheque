@@ -827,10 +827,7 @@ struct CoverGrid: View {
                     self.series = library.perTitle(tiles)
                     let keys = Set(self.series.map(\.key))
                     seasons = Dictionary(grouping: library.tiles.filter { $0.season != nil && keys.contains($0.key) }, by: \.key)
-                        .mapValues { list in
-                            let sorted = list.sorted { ($0.season ?? 0) < ($1.season ?? 0) }
-                            return sorted.filter { $0.season != 0 } + sorted.filter { $0.season == 0 }
-                        }
+                        .mapValues { Library.seasons(of: $0[0].key, in: $0) }
                 }
                 self.tiles = tiles
                 self.columns = columns
@@ -967,11 +964,7 @@ struct CoverGrid: View {
             anchor.top = top
             if restored { positions.note(top, shelf, search: search) }
         }
-        .overlay {
-            if tiles.isEmpty {
-                ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(shelf == .movies || shelf == .series ? "Add sources of videos in Settings." : shelf.empty))
-            }
-        }
+        .nothingHere(tiles, shelf == .movies || shelf == .series ? "Add sources of videos in Settings." : shelf.empty)
     }
 
     /// How many tiles a row holds, as laid out.

@@ -93,9 +93,7 @@ enum TopShelfPublisher {
             return log.error("Top Shelf not written: \(error.localizedDescription, privacy: .public)")
         }
         let started = generation
-        let rows = [("Continue Watching", Array(Shelf.home.tiles(in: library).prefix(most)))]
-            + library.lists.map { ($0.shownName, Array(Shelf.list($0.id).tiles(in: library).filter { !$0.isWanted }.prefix(most))) }
-            .filter { !$0.1.isEmpty }
+        let rows = library.homeRows.map { ($0.title, Array($0.tiles.filter { !$0.isWanted }.prefix(most))) }.filter { !$0.1.isEmpty }
         var missing = false
         /// What it shows, each cover as `image` finds it.
         func content(_ image: (Tile) async -> String?) async -> Content {

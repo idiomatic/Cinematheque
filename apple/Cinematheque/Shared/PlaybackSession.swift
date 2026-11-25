@@ -53,7 +53,7 @@ final class PlaybackSession {
         self.library = library
         describe = prepare
         start = request.start
-        item = request.item
+        item = request.first.item
         var entries: [ObjectIdentifier: PlayRequest.Entry] = [:]
         let all = [request.first] + request.queue
         let items = all.map { entry in

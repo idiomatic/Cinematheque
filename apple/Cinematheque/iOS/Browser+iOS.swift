@@ -100,19 +100,15 @@ private struct HomeView: View {
     @State private var settings = false
 
     var body: some View {
-        let going = Shelf.home.tiles(in: library)
-        let lists = library.lists.map { ($0, Shelf.list($0.id).tiles(in: library)) }.filter { !$0.1.isEmpty }
+        let rows = library.homeRows
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
-                if !going.isEmpty { Carousel(title: "Continue Watching", tiles: going) }
-                ForEach(lists, id: \.0.id) { list, tiles in
-                    Carousel(title: list.shownName, tiles: tiles, list: list.id, shared: list.isShared)
-                }
+                ForEach(rows) { Carousel(title: $0.title, tiles: $0.tiles, list: $0.list?.id, shared: $0.list?.isShared ?? false) }
             }
             .padding(.vertical)
         }
         .overlay {
-            if going.isEmpty && lists.isEmpty {
+            if rows.isEmpty {
                 ContentUnavailableView("Nothing in Progress", systemImage: "play.rectangle", description: Text(Shelf.home.empty))
             }
         }
@@ -305,9 +301,7 @@ private struct JustifiedGrid: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .padding()
         }
-        .overlay {
-            if tiles.isEmpty { ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(empty)) }
-        }
+        .nothingHere(tiles, empty)
     }
 }
 
@@ -337,9 +331,7 @@ struct CoverGrid: View {
             }
             .padding()
         }
-        .overlay {
-            if tiles.isEmpty { ContentUnavailableView("Nothing Here", systemImage: "film.stack", description: Text(empty)) }
-        }
+        .nothingHere(tiles, empty)
     }
 }
 
@@ -475,7 +467,7 @@ private struct SearchView: View {
     @State private var text = ""
 
     var body: some View {
-        CoverGrid(tiles: text.isEmpty ? [] : library.perTitle(Shelf.movies.tiles(in: library, search: text) + Shelf.series.tiles(in: library, search: text)), series: true, empty: text.isEmpty ? "Search by a title's name." : "Nothing has that name.")
+        CoverGrid(tiles: library.search(text), series: true, empty: text.isEmpty ? "Search by a title's name." : "Nothing has that name.")
             .navigationTitle("Search")
             .searchable(text: $text)
     }

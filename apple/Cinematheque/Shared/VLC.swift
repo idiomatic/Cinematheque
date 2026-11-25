@@ -12,7 +12,7 @@ enum VLC {
     /// Whether VLC takes a request: its copy is one Apple's players can't
     /// play, and VLC is installed.
     @MainActor static func takes(_ request: PlayRequest) -> Bool {
-        !Playback.playsNatively(request.url) && installed
+        !Playback.playsNatively(request.first.url) && installed
     }
 
     /// Hands a request to VLC if it takes it; whether it did.
@@ -31,7 +31,7 @@ enum VLC {
 
     @MainActor private static func open(_ request: PlayRequest) {
         guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else { return }
-        NSWorkspace.shared.open([request.url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+        NSWorkspace.shared.open([request.first.url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
     }
     #else
     /// VLC's x-callback-url scheme, which both its iPhone and Apple TV apps
@@ -48,11 +48,11 @@ enum VLC {
         parts.scheme = scheme
         parts.host = "x-callback-url"
         parts.path = "/stream"
-        parts.queryItems = [URLQueryItem(name: "url", value: request.url.absoluteString)]
+        parts.queryItems = [URLQueryItem(name: "url", value: request.first.url.absoluteString)]
         #if os(tvOS)
         // Back to the title's page once playback's done, as the Top Shelf
         // opens it.
-        if let tile = ItemKey(request.item)?.tile, let link = TopShelfPublisher.url(tile: tile) {
+        if let tile = ItemKey(request.first.item)?.tile, let link = TopShelfPublisher.url(tile: tile) {
             parts.queryItems?.append(URLQueryItem(name: "x-success", value: link.absoluteString))
         }
         #endif
