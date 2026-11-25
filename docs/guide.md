@@ -155,7 +155,7 @@ Where a source's files are all one quality though nothing says so (everything on
 * **Covers and descriptions** come from your sources:
   * a `poster.jpg` beside a movie, or a `season01-poster.jpg` beside a series, if you keep them;
   * else the cover and details your MP4 files carry, as HandBrake, iTunes, and tagging tools write them.
-* **Before a cover loads,** its tile shows a blurred likeness of it, which travels with the library, so even a newly paired device shows one at once.
+* **Before a cover loads,** its tile shows a color of its own, already the cover's shape, so nothing shifts as covers arrive.
 * **Lists** (a Watchlist, Favorites), like what you've watched, are yours alone, unless you share one with everyone in the library. A title not in the library yet can go on one too, by name, and takes its place when it comes.
 * **What plays:** Apple's players and browsers play MP4, M4V, and MOV files, not MKV or ISO. With [VLC](https://www.videolan.org/vlc/) installed, the Mac, iPhone, and Apple TV hand an MKV or ISO to it instead (Play says "Play in VLC"); where you stop there isn't saved.
 
