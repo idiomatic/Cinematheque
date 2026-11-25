@@ -15,14 +15,10 @@ extension TitleDetail {
     /// A movie's description, or a season's (its series').
     var summary: String? { fields["description"] ?? items.first?.fields["description"] }
 
-    /// The quality to play the items in (see `QualityChoice.best`).
-    func quality(for items: [Item]) -> String? {
-        QualityChoice.best(items)
-    }
-
-    /// `chosen`, if any of `items` has it, else the best this device plays.
+    /// `chosen`, if any of `items` has it, else the best this device plays
+    /// (`QualityChoice.best`).
     func quality(for items: [Item], chosen: String?) -> String? {
-        guard let chosen, items.contains(where: { $0.qualities.contains { $0.label == chosen } }) else { return quality(for: items) }
+        guard let chosen, items.contains(where: { $0.qualities.contains { $0.label == chosen } }) else { return QualityChoice.best(items) }
         return chosen
     }
 }

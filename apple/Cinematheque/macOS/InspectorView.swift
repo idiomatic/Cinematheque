@@ -34,7 +34,7 @@ struct InspectorView: View {
         .task(id: library.detailsRevision) {
             detail = library.detail(tile.key)
             // At first, the best of what Play plays, so it needs no stand-in.
-            if quality == nil { quality = detail.flatMap { d in Playback.nextItem(d, season: tile.season).flatMap { d.quality(for: [$0]) } ?? d.quality(for: Playback.items(d, season: tile.season)) } }
+            if quality == nil { quality = detail.flatMap { d in Playback.nextItem(d, season: tile.season).flatMap { QualityChoice.best([$0]) } ?? QualityChoice.best(Playback.items(d, season: tile.season)) } }
         }
         .task(id: tile.id) { await library.describeItems(of: tile.key, season: tile.season) }
         // Asked for by deleting an only copy, here or in an episode's menu.

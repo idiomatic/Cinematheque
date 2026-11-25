@@ -216,16 +216,13 @@ extension Library {
         seasons.first { !$0.watched } ?? seasons.first
     }
 
-    /// Whether a tile is on a list (`list`'s, else any).
-    func isListed(_ tile: Tile, on list: UserList? = nil) -> Bool {
-        (list.map { Set($0.titles) } ?? listed).contains(tile.id)
-    }
+    /// Whether a tile is on any of this person's lists.
+    func isListed(_ tile: Tile) -> Bool { listed.contains(tile.id) }
 
-    /// Whether a series' tile, standing for the whole series, is on a list
-    /// (`list`'s, else any): if any of its seasons is.
-    func isAnySeasonListed(_ tile: Tile, on list: UserList? = nil) -> Bool {
-        let titles = list.map { Set($0.titles) } ?? listed
-        return titles.contains(tile.id) || tile.isSeries && titles.contains { $0.hasPrefix(tile.key + "#") }
+    /// Whether a series' tile, standing for the whole series, is on any of
+    /// this person's lists: if any of its seasons is.
+    func isAnySeasonListed(_ tile: Tile) -> Bool {
+        listed.contains(tile.id) || tile.isSeries && listed.contains { $0.hasPrefix(tile.key + "#") }
     }
 }
 

@@ -100,7 +100,6 @@ extension Library {
     /// The path a Mac's downloads are served at, beside its folders'.
     static let downloadsPrefix = "downloads"
 
-
     /// Folders that aren't there now.
     private var foldersNotThere: Set<String> { Self.missing(folders) }
 
@@ -173,7 +172,6 @@ extension Library {
     }
 
     private var foldersKey: String { "folders-" + (status?.library ?? "") }
-
 
     func loadFolders() {
         guard loadedFoldersKey != foldersKey else { return }
@@ -296,7 +294,6 @@ extension Library {
         saveFolders()
         serve()
     }
-
 
     /// Serves this library to devices (their syncs, so this device's changes,
     /// such as progress, reach them), and this device's folders, while the
@@ -432,8 +429,6 @@ extension Library {
         let crawling = Duration.milliseconds(sources.reduce(0) { $0 + ($1.total_ms ?? 0) })
         crawlLog.notice("Looked for new videos in \(took.logged, privacy: .public): \(sources.count) sources in \(crawling.logged, privacy: .public), then describing (and the rest) \((took - crawling).logged, privacy: .public)")
     }
-
-
 }
 
 extension Library {

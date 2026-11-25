@@ -157,5 +157,4 @@ extension Library {
     func nearby() async -> [NearbyDevice] {
         decoded([NearbyDevice].self, await apart { coreData(cq_nearby($0)) } ?? nil) ?? []
     }
-
 }

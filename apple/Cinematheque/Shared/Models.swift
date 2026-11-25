@@ -330,23 +330,13 @@ struct NearbyDevice: Codable, Identifiable, Hashable {
     /// What kind of device, as one offering to be added says ("iPhone 13
     /// mini").
     let model: String?
-    let person: String?
-    /// Its person's key.
-    let person_key: String?
-    /// Of this library.
-    let ours: Bool
-    /// Its person is a member.
-    let member: Bool
-    let added: Bool
     /// For a new device offering to be added (`url` is where to pair it):
     /// `new`, as the member's device decides what it is.
     let pairing: String?
     var id: String { url }
-    /// Its device's and person's names, if any: the device's as the core
-    /// shows it (by its host's, where it advertised only a generic one, as
-    /// tvOS and iOS give apps).
+    /// Its device's name, if any, as the core shows it (by its host's,
+    /// where it advertised only a generic one, as tvOS and iOS give apps).
     var deviceName: String? { device.flatMap { $0.isEmpty ? nil : $0 } }
-    var personName: String? { person.flatMap { $0.isEmpty ? nil : $0 } }
 }
 
 /// A device just paired: its person's key and its own.
@@ -369,10 +359,7 @@ struct Status: Codable, Equatable {
     let person: String
     /// This device's key, for its own folders' addresses (`cqdevice://`).
     let device: String
-    /// Acting as the person of another of the person's devices.
-    let paired: Bool
     let library: String?
-    let members: Int
     /// How many other devices this person has, named or not.
     let others: Int
     /// How often refreshes not asked for look for new videos, in hours; 0,
@@ -384,12 +371,6 @@ struct Status: Codable, Equatable {
 /// the core allows (see cinematheque.h).
 nonisolated struct Handle: @unchecked Sendable {
     let pointer: OpaquePointer
-}
-
-/// The library, through the core's C interface.
-
-nonisolated extension ComparisonResult: @retroactive Comparable {
-    public static func < (a: ComparisonResult, b: ComparisonResult) -> Bool { a.rawValue < b.rawValue }
 }
 
 nonisolated extension URL {

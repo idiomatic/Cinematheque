@@ -101,10 +101,6 @@ struct TitlePage: View {
     }
 }
 
-extension PlayRequest: Identifiable {
-    var id: Self { self }
-}
-
 /// Playing, full screen, in the system's player: black while the stream
 /// warms up, paused, then its picture fading in as its sound rises; its
 /// close button lowers the curtain, then closes.

@@ -3,7 +3,7 @@ import Foundation
 /// What to play: a copy's URL, the item it's a copy of (for its progress),
 /// where to start, and what to play after it (e.g., the rest of a season).
 /// Each comes with the item's other copies, to play if one doesn't load.
-struct PlayRequest: Codable, Hashable {
+struct PlayRequest: Codable, Hashable, Identifiable {
     struct Entry: Codable, Hashable {
         var url: URL
         let item: String
@@ -25,6 +25,8 @@ struct PlayRequest: Codable, Hashable {
     var queue: [Entry] = []
     var alternates: [URL] = []
     var contenders = 1
+    /// Itself, for presenting a player by it.
+    var id: Self { self }
 
     /// The first entry, the one `url` plays.
     var first: Entry { Entry(url: url, item: item, title: title, alternates: alternates, contenders: contenders) }

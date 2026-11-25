@@ -60,7 +60,6 @@ final class Library {
     var detailsRevision: [Int] { [revision, described] }
 
     var hasLibrary: Bool { status?.library != nil }
-    var paired: Bool { status?.paired ?? false }
 
     /// Opens this device's data directory: `dataDir`, else
     /// `CINEMATHEQUE_DATA`, else the platform's default (see the core's
@@ -205,8 +204,6 @@ final class Library {
     func detail(_ key: String) -> TitleDetail? {
         decode(TitleDetail.self) { cq_title($0, key) }
     }
-
-
 
     // Stored for Library+Sources.swift (folders on this device), as an
     // extension can't store any.

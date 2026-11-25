@@ -116,5 +116,4 @@ extension Library {
         guard let handle else { return }
         _ = withCStrings(Array(titleKeys)) { cq_prioritize(handle.pointer, $0, $1) }
     }
-
 }

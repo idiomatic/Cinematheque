@@ -1,12 +1,12 @@
 #if os(tvOS)
 import SwiftUI
 
-/// A movie's page: its cover over a blurred backdrop of it, Play or Resume,
-/// the watchlist and watched marks, its versions, and its description.
 /// How a title's page opens: shown, or playing what Play plays at once,
 /// as the Top Shelf's select and Play/Pause do.
 enum Opening { case show, play }
 
+/// A movie's page: its cover over a blurred backdrop of it, Play or Resume,
+/// the Lists and watched marks, its versions, and its description.
 struct MovieView: View {
     let tile: Tile
     @Environment(Library.self) private var library

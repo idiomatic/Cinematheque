@@ -4,10 +4,6 @@ import os
 import SwiftUI
 import UIKit
 
-extension PlayRequest: Identifiable {
-    var id: Self { self }
-}
-
 /// How the Apple TV plays: the page fades to black (`Platform.fade`) while
 /// the session warms up, paused; then the system's player is presented over
 /// it, unanimated (black over black, were it animated), still paused,

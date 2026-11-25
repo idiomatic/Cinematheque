@@ -62,7 +62,6 @@ extension Library {
         let fetching: Fetching?
     }
 
-
     /// Where downloads go unless Settings says otherwise.
     static var defaultDownloads: String { URL.moviesDirectory.appending(path: "Cinematheque").path }
 
@@ -122,14 +121,14 @@ extension Library {
         isWanted(item) || (downloads?.ahead.contains(item) ?? false)
     }
 
-    /// Whether a key is an item's, or a title's or season's holding it
-    /// (`…/e/s01` holds `…/e/s01e02`).
     /// The qualities a title's, season's, or item's files still coming are
     /// wanted in (not those here already).
     func wantedQualities(_ key: String) -> Set<String> {
         Set((downloads?.wanted ?? []).filter { (Self.holds(wanted: $0.key, key) || Self.holds(wanted: key, $0.key)) && !isDownloaded($0.key) }.map(\.quality))
     }
 
+    /// Whether a key is an item's, or a title's or season's holding it
+    /// (`…/e/s01` holds `…/e/s01e02`).
     private static func holds(wanted: String, _ key: String) -> Bool {
         guard key.hasPrefix(wanted) else { return false }
         let rest = key.dropFirst(wanted.count)
@@ -141,7 +140,6 @@ extension Library {
     func onlyCopies(_ key: String) -> Int {
         downloads?.held.filter { $0.only && Self.holds(wanted: key, $0.item) }.count ?? 0
     }
-
 
     /// Deletes downloads, asking first (`deleting`) if any is the only
     /// copy: once deleted, it's gone from the library for everyone. If its
@@ -275,7 +273,6 @@ extension Library {
         await changeApart { cq_downloads_configure($0, path, url) }
     }
 
-
     /// Notes a playback session streaming, or not; when none is, what
     /// waited is fetched.
     func streaming(_ session: AnyObject, _ on: Bool) {
@@ -334,7 +331,6 @@ extension Library {
             }
         }
     }
-
 
     /// Says how many files are left for want of room.
     private func reportNoRoom(_ files: Int) {
