@@ -153,30 +153,18 @@ function placeholders(l) {
     const [key, season] = w.key.split("#");
     const year = Number(key.split("/").at(-1));
     return { key, name: w.name, year: year || null, kind: key.startsWith("t/s/") ? "series" : "movie", season: season == null ? null : Number(season),
-      wanted: w.note, wantedKey: w.key, order: {}, watched: false, progress: 0, started: false };
+      wanted: w.note, order: {}, watched: false, progress: 0, started: false };
   });
 }
 
 /// A placeholder's tile: dimmed, saying it's not in the library, its note
-/// an article's address to open, if it is one, and a button taking it off
-/// this person's lists, if it's on any.
+/// an article's address to open, if it is one.
 function wantedView(tile, underSeries) {
   const link = /^https?:\/\//.test(tile.wanted) ? tile.wanted : null;
-  const on = library.mine.filter((l) => (l.wanted || []).some((w) => w.key === tile.wantedKey));
   const a = el(link ? "a" : "div", { class: `tile wanted${tile.season == null ? "" : " season"}`, style: `--shape:${shapeOf(tile)}`, ...(link ? { href: link, target: "_blank", rel: "noopener" } : {}), title: tile.wanted || "Not in the library yet" },
     coverView(tile, underSeries ? seasonName(tile.season) : tile.name),
     el("div", { class: "name" }, underSeries ? seasonName(tile.season) : tile.name),
-    el("div", { class: "sub split" }, el("span", {}, "Not in library"),
-      on.length ? el("span", {},
-        el("button", { class: "mark", type: "button", title: "Edit", "aria-label": `Edit ${tile.name}`, onclick: (e) => {
-          e.preventDefault();
-          askWanted(on, tile);
-        } }, "✎"),
-        el("button", { class: "mark", type: "button", title: "Remove from list", "aria-label": `Remove ${tile.name} from the list`, onclick: async (e) => {
-          e.preventDefault();
-          for (const l of on) await api("listed", { list: l.id, key: tile.wantedKey, on: false });
-          await refresh();
-        } }, "✕")) : ""));
+    el("div", { class: "sub" }, "Not in library"));
   a.tileId = idOf(tile);
   a.underSeries = underSeries;
   a.looks = looks(tile);
@@ -616,7 +604,6 @@ const shelves = {
     // Another member's: theirs to change, so only its name.
     const heading = l.mine ? el("div", { class: "list-heading" },
       el("h2", {}, listLabel(l)),
-      el("button", { class: "mark", type: "button", title: "Add a missing title", "aria-label": `Add a title not in the library to ${l.name}`, onclick: () => askWanted([l]) }, "＋"),
       el("button", { class: "mark", type: "button", title: "Rename list", "aria-label": `Rename ${l.name}`, onclick: () => renameList(l) }, "✎"),
       el("button", { class: "mark", type: "button", "aria-pressed": isShared(l), title: isShared(l) ? "Shared with everyone in the library" : "Share with everyone in the library", "aria-label": isShared(l) ? `Stop sharing ${l.name}` : `Share ${l.name}`, onclick: () => shareList(l) }, isShared(l) ? "Shared" : "Share"),
       el("button", { class: "mark", type: "button", title: "Delete list", "aria-label": `Delete ${l.name}`, onclick: () => deleteList(l) }, "✕"))
@@ -647,44 +634,6 @@ const shelves = {
 function empty(text) { return el("p", { class: "empty" }, text); }
 
 // Lists.
-
-/// Asks for a title not in the library yet, to put on a list by name: a
-/// movie, or a series' season, with its year as its file will be named (so
-/// it's matched as it comes), and a note, as an article's address. Given a
-/// placeholder's tile (`editing`), changes it instead, on each of `lists`.
-function askWanted(lists, editing = null) {
-  const dialog = document.getElementById("want");
-  const form = dialog.querySelector("form");
-  form.reset();
-  const f = form.elements;
-  dialog.querySelector("h2").textContent = editing ? `Edit ${editing.name}` : `Add a missing title to ${lists[0].name}`;
-  form.querySelector("[type=submit]").textContent = editing ? "Save" : "Add";
-  if (editing) {
-    f.kind.value = editing.kind;
-    f.name.value = editing.name;
-    f.year.value = editing.year ?? "";
-    f.season.value = editing.season ?? 1;
-    f.note.value = editing.wanted || "";
-  }
-  const seasonRow = form.querySelector(".season");
-  const kind = () => f.kind.value;
-  seasonRow.hidden = kind() !== "series";
-  form.onchange = () => { seasonRow.hidden = kind() !== "series"; };
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const want = { kind: kind(), name: f.name.value.trim(), note: f.note.value.trim() };
-    if (f.year.value) want.year = Number(f.year.value);
-    if (want.kind === "series") want.season = Number(f.season.value || 1);
-    try {
-      for (const l of lists) await api(editing ? "list-want-edit" : "list-want", editing ? { list: l.id, key: editing.wantedKey, want } : { list: l.id, want });
-      dialog.close();
-      await refresh();
-    } catch (err) {
-      problem(err.message);
-    }
-  };
-  dialog.showModal();
-}
 
 /// The list whose page is shown (`#lists/<id>`).
 let shownList = null;

@@ -25,20 +25,17 @@ struct ShownList: Equatable {
     let window: UUID
     let list: UserList
     let rename: () -> Void
-    let addMissing: () -> Void
 
     static func == (a: ShownList, b: ShownList) -> Bool { a.window == b.window && a.list == b.list }
 }
 
-/// File's items for the list shown: Add Missing Title…, Rename List, Share
+/// File's items for the list shown: Rename List, Share
 /// List… or Stop Sharing List, and Delete List…; dimmed with none shown.
 struct ListCommands: View {
     @FocusedValue(\.shownList) private var shown
     @Environment(Library.self) private var library
 
     var body: some View {
-        Button("Add Missing Title…") { shown?.addMissing() }
-            .disabled(shown == nil)
         Button("Rename List") { shown?.rename() }
             .disabled(shown == nil)
         if let list = shown?.list, list.isShared {
@@ -228,8 +225,6 @@ struct Browser: View {
     @State private var shelf: Shelf?
     /// The list whose name is being edited in the sidebar, if any.
     @State private var renaming: String?
-    /// The list a title not in the library yet is being put on, by name.
-    @State private var wanting: UserList?
     @AppStorage("orders") private var orders = ShelfOrders()
     @AppStorage("groupsSeries") private var groupsSeries = true
     @State private var search = ""
@@ -271,7 +266,6 @@ struct Browser: View {
             // deleted) gives way.
             if shelf == nil { shelf = shown(lastShelf) ? lastShelf : .inProgress }
         }
-        .sheet(item: $wanting) { WantSheet.adding(to: $0, in: library) }
         .onChange(of: shelf) { if let shelf { lastShelf = shelf } }
         .onChange(of: library.lists) { if let shelf, !shown(shelf) { self.shelf = .inProgress } }
     }
@@ -293,7 +287,6 @@ struct Browser: View {
                                 // Another member's is theirs to change.
                                 if list.isMine {
                                     Button("Rename") { renaming = list.id }
-                                    Button("Add Missing Title…") { wanting = list }
                                     if list.isShared {
                                         Button("Stop Sharing") { library.stopSharingList(list.id) }
                                     } else {
@@ -409,7 +402,7 @@ struct Browser: View {
                         .id(tile.id)
                 } else if let key = selection, let wanted = library.wanted(key) {
                     // A placeholder, not in the library yet.
-                    WantedInspectorView(wanted: wanted) { selection = $0 }
+                    WantedInspectorView(wanted: wanted)
                         .id(key)
                 } else if let key = selection, let series = library.perTitle(library.tiles.filter { $0.key == key }).first {
                     // A series, selected by its key on the Series shelf.
@@ -444,7 +437,7 @@ struct Browser: View {
     /// to it.
     private var shownList: ShownList? {
         guard case .list(let id) = shelf, let list = library.lists.first(where: { $0.id == id }), list.isMine else { return nil }
-        return ShownList(window: window, list: list, rename: { renaming = id }, addMissing: { wanting = list })
+        return ShownList(window: window, list: list, rename: { renaming = id })
     }
 
     /// Makes a list, "New List" (numbered if that's taken), shows it, and
@@ -1251,12 +1244,8 @@ struct CoverGrid: View {
     /// A movie's or a season's context menu.
     @ViewBuilder
     private func tileMenu(_ tile: Tile) -> some View {
-        // A placeholder's: taken off its lists, as there's nothing else to it.
-        if tile.isWanted {
-            if library.isWantedByMe(tile.id) { Button("Remove from List") { library.unwant(tile.id) } }
-        } else {
-            titleMenu(tile)
-        }
+        // A placeholder's has none, as there's nothing to it but its tile.
+        if !tile.isWanted { titleMenu(tile) }
     }
 
     @ViewBuilder

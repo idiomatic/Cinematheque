@@ -309,7 +309,7 @@ echo "made a mock library in $dir"
 [[ -n $data ]] || exit 0
 
 # The library, crawled, with progress and lists, made through the web
-# client's API, as the command-line app makes no lists.
+# client's API, as the command-line app makes no lists (but placeholders).
 [[ -x $cq ]] || (cd $here/../cli && zig build --release=safe)
 d=(--data $data)
 $cq $d library create
@@ -334,8 +334,8 @@ api() {
 }
 listed() { for key in ${@:2}; do api listed "{\"list\":\"$1\",\"key\":\"$key\",\"on\":true}" > /dev/null; done }
 listed watchlist t/m/the-long-haul-contract/2025 t/s/lineages-of-the-sun/-#1 t/m/quiet-orbit/2022
-api list-want '{"list":"watchlist","want":{"kind":"series","name":"Worldhoppers","season":3,"note":"The third jump, due next spring"}}' > /dev/null
-api list-want '{"list":"watchlist","want":{"kind":"movie","name":"Station Siege","year":2026,"note":"Opens on the feeds next month"}}' > /dev/null
+$cq $d want add Watchlist Worldhoppers --season 3 --note "The third jump, due next spring" > /dev/null
+$cq $d want add Watchlist "Station Siege" --year 2026 --note "Opens on the feeds next month" > /dev/null
 favorites=$(api list-create '{"name":"Favorites"}' | tr -d '"')
 listed $favorites $moon#1 t/m/the-last-gate-station/2019 t/s/timestream-defenders-orion/-#1
 kill $serve_pid

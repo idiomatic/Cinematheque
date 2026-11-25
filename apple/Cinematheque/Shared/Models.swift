@@ -423,9 +423,8 @@ nonisolated struct UserList: Codable, Identifiable, Hashable {
     static let sharedSymbol = "person.2"
 }
 
-/// A placeholder's fields, as it's put on a list or changed: a movie, or a
-/// series' season, by its name and year as its file will be named, and a
-/// note (as an article's address).
+/// A placeholder's fields: a movie, or a series' season, by its name and
+/// year as its file will be named, and a note (as an article's address).
 nonisolated struct Wanting: Equatable {
     var kind: TitleKind = .movie
     var name = ""
@@ -447,7 +446,4 @@ nonisolated struct Wanting: Equatable {
         season = parts.count > 1 ? Int(parts[1]) : nil
         note = w.note
     }
-
-    /// Whether it can be put on a list: a name, at least.
-    var isComplete: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
 }

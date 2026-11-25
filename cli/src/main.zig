@@ -135,6 +135,7 @@ const nouns = [_]Noun{
     .{ .name = "source", .run = commands.source },
     .{ .name = "title", .run = commands.title },
     .{ .name = "progress", .run = commands.progress },
+    .{ .name = "want", .run = commands.want },
     .{ .name = "device", .run = commands.device },
 };
 
@@ -167,6 +168,9 @@ fn explain(err: anyerror) []const u8 {
         error.NoHome => "HOME isn't set, so give a data directory with --data",
         error.NoSuchTitle => "there's no such title (title list shows them)",
         error.NoSuchSource => "there's no such source (source list shows them)",
+        error.NoSuchList => "there's no such list of yours (want list shows those with placeholders; give one by name or ID)",
+        error.NoSuchPlaceholder => "that list has no such placeholder (want list shows their keys)",
+        error.BadPlaceholder => "a placeholder needs a name with a letter or digit in it, and a note of one line",
         error.BadKey => "that isn't a key (64 hex digits)",
         error.WrongCode => "that isn't the code the new device shows",
         error.Closed, error.TooManyWrongCodes => "pairing stopped after too many wrong codes: offer again, for a new code",

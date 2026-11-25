@@ -95,6 +95,16 @@ device list prints it.
                                mark an item watched, or not
   progress remove ITEM         forget this person's progress in an item
 
+  want list                    list placeholders on this person's lists
+                               (titles not in the library yet): the list,
+                               key, name, and note, tab-separated
+  want add LIST NAME [--year YEAR] [--season SEASON] [--note NOTE]
+                               put a title not in the library yet on a
+                               list (by name or ID), as a placeholder its
+                               file takes the place of when it comes: a
+                               movie, or with --season a series' season
+  want remove LIST KEY         take a placeholder off a list, by its key
+
   crawl [SOURCE] [--workers WORKERS] [--full]
                                crawl every source, or one, and update
                                copies, with concurrent workers (16);

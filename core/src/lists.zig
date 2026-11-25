@@ -270,24 +270,6 @@ pub fn want(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []con
     return k;
 }
 
-/// Changes a placeholder on a list (its name, year, season, or note), in
-/// one change: keyed by its name and year (and season), the old one is
-/// taken off as the new one goes on, unless they're keyed alike. Returns
-/// its key.
-pub fn editWant(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, id: []const u8, old: []const u8, w: WantJson) ![]const u8 {
-    const list = try own(replica, arena, id);
-    for (list.wanted) |had| {
-        if (!std.mem.eql(u8, had.key, old)) continue;
-        const k, const value = try wanting(arena, w);
-        if (std.mem.eql(u8, k, old))
-            try writeTitles(replica, arena, wall_ms, list, &.{.{ k, value }})
-        else
-            try writeTitles(replica, arena, wall_ms, list, &.{ .{ old, "" }, .{ k, value } });
-        return k;
-    }
-    return error.NotFound;
-}
-
 /// A placeholder's key, as its file will be keyed (a movie by its title, a
 /// series by season, as players list them), and its value on a list.
 fn wanting(arena: std.mem.Allocator, w: WantJson) !struct { []const u8, []const u8 } {
@@ -306,7 +288,7 @@ fn wanting(arena: std.mem.Allocator, w: WantJson) !struct { []const u8, []const 
     return .{ k, try std.fmt.allocPrint(arena, "w\t{s}\t{s}", .{ n, t }) };
 }
 
-/// A placeholder's fields, as the apps and the web client send them.
+/// A placeholder's fields, as the command-line app gives them.
 pub const WantJson = struct {
     /// `movie` or `series`; any other is refused.
     kind: library.TitleKind,
@@ -457,31 +439,6 @@ test "a placeholder is keyed as its file will be, so it's on the list as it arri
     try std.testing.expectEqual(@as(usize, 1), (try lists(&r, arena))[0].wanted.len);
     try std.testing.expectError(error.InvalidArgument, want(&r, arena, 4, watchlist_id, .{ .kind = .movie, .name = "..." }));
     try std.testing.expectError(error.InvalidArgument, want(&r, arena, 4, watchlist_id, .{ .kind = .movie, .name = "Alien", .year = 1979, .note = "a\nb" }));
-}
-
-test "a placeholder changed is keyed afresh, the old one taken off in the same change" {
-    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
-    defer r.close();
-    const old = try want(&r, arena, 1, watchlist_id, .{ .kind = .movie, .name = "Dune Part Three" });
-    // Its year added: keyed as its file will be, alone on the list.
-    const new = try editWant(&r, arena, 2, watchlist_id, old, .{ .kind = .movie, .name = "Dune: Part Three", .year = 2026, .note = "soon" });
-    try std.testing.expectEqualStrings("t/m/dune-part-three/2026", new);
-    var l = (try lists(&r, arena))[0];
-    try std.testing.expectEqual(@as(usize, 1), l.wanted.len);
-    try std.testing.expectEqualStrings(new, l.wanted[0].key);
-    try std.testing.expectEqualStrings("Dune: Part Three", l.wanted[0].name);
-    // Only its note changed: the same key.
-    try std.testing.expectEqualStrings(new, try editWant(&r, arena, 3, watchlist_id, new, .{ .kind = .movie, .name = "Dune: Part Three", .year = 2026, .note = "later" }));
-    l = (try lists(&r, arena))[0];
-    try std.testing.expectEqualStrings("later", l.wanted[0].note);
-    // One not on the list, or a title not a placeholder, isn't changed.
-    try std.testing.expectError(error.NotFound, editWant(&r, arena, 4, watchlist_id, old, .{ .kind = .movie, .name = "Dune" }));
-    try setListed(&r, arena, 5, watchlist_id, "t/m/alien/1979", true);
-    try std.testing.expectError(error.NotFound, editWant(&r, arena, 6, watchlist_id, "t/m/alien/1979", .{ .kind = .movie, .name = "Aliens" }));
 }
 
 test "a list shared keeps its titles, renamed and changed where they are" {

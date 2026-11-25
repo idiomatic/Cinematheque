@@ -492,7 +492,7 @@ struct Poster: View {
         // Typed, as destinations are found by the value's type.
         Group {
             if tile.isWanted {
-                // A placeholder: its own page, to change it or take it off.
+                // A placeholder: its own page, showing it.
                 NavigationLink(value: WantedPageID(key: tile.id)) { lockup }
             } else if opensSeasons {
                 NavigationLink(value: SeriesSeasons(key: tile.key)) { lockup }
@@ -509,11 +509,7 @@ struct Poster: View {
         // Pressed and held: a movie's or a season's lists (as only they
         // go on lists) and marks; a series' tile's, the whole series'.
         .contextMenu {
-            if tile.isWanted {
-                if library.isWantedByMe(tile.id) { Button("Remove from List", systemImage: "minus.circle") { library.unwant(tile.id) } }
-            } else {
-                titleMenu
-            }
+            if !tile.isWanted { titleMenu }
         }
     }
 

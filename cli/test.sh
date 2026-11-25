@@ -83,6 +83,11 @@ $cq $b library show | grep -q "every 168 hours" || { echo "FAIL: library set did
 $cq $b library set --crawl 24
 $cq $b sync http://127.0.0.1:8191 | grep -q " [1-9][0-9]* pushed" || { echo "FAIL: B pushed nothing"; exit 1; }
 $cq $a library show | grep -q "every 24 hours" || { echo "FAIL: B's push didn't reach A"; exit 1; }
+# A placeholder on a list, listed by its key, then taken off.
+$cq $a want add Watchlist "Movie 9999" --year 2030 --note soon > /dev/null
+$cq $a want list | grep -q "t/m/movie-9999/2030	Movie 9999	soon" || { echo "FAIL: want add"; exit 1; }
+$cq $a want remove Watchlist t/m/movie-9999/2030 > /dev/null
+$cq $a want list | grep -q . && { echo "FAIL: want remove"; exit 1; }
 
 pair $work/c "library join" $work/a "member pair"
 $cq $a member remove $($cq $c person show)

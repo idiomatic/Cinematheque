@@ -487,14 +487,6 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
     } else if (std.mem.eql(u8, name, "listed")) {
         const p = try std.json.parseFromSliceLeaky(struct { list: []const u8, key: []const u8, on: bool }, arena, body, .{});
         try core.lists.setListed(&r, arena, now(io), p.list, p.key, p.on);
-    } else if (std.mem.eql(u8, name, "list-want")) {
-        // A title not in the library yet, as a placeholder.
-        const p = try std.json.parseFromSliceLeaky(struct { list: []const u8, want: core.lists.WantJson }, arena, body, .{});
-        _ = try core.lists.want(&r, arena, now(io), p.list, p.want);
-    } else if (std.mem.eql(u8, name, "list-want-edit")) {
-        // A placeholder changed, keyed afresh.
-        const p = try std.json.parseFromSliceLeaky(struct { list: []const u8, key: []const u8, want: core.lists.WantJson }, arena, body, .{});
-        _ = try core.lists.editWant(&r, arena, now(io), p.list, p.key, p.want);
     } else if (std.mem.eql(u8, name, "list-create")) {
         const p = try std.json.parseFromSliceLeaky(struct { name: []const u8 }, arena, body, .{});
         created = try core.lists.create(io, &r, arena, now(io), p.name);

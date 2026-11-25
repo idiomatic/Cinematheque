@@ -43,7 +43,7 @@ The app keeps its state in its data directory, created on first use: by default 
 
 ## The command line
 
-State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `progress`, and `device`. Whole-app actions are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
+State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `progress`, `want`, and `device`. Whole-app actions are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
 
 * **Options** are named and may come anywhere. `--port PORT`, `--media DIR`, `--to DIR`, `--quality NAME`, `--skip PREFIX`, `--unavailable DIR`, `--crawl EVERY`, `--jitter SECONDS`, and `--workers WORKERS` take a value; `--web`, `--full`, `--leave`, `--watched`, and `--unwatched` are flags. `--data DIR` works with every command.
 * **Help:** [usage.txt](src/usage.txt) lists every command and is the help, built into the binary. `-h` or `--help` prints it all; with a noun or action (`cinematheque source -h`), or a noun alone, only that one's commands.
@@ -87,6 +87,22 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 * `progress set ITEM POSITION DURATION` records a position, in seconds, by the core's rules: within the last 5% marks the item watched, and within the first 10 seconds clears the position. `progress set ITEM --watched` (or `--unwatched`) marks it by hand, and `progress remove ITEM` forgets it.
 
 Progress is private: it's written on this device's private stream, and travels only directly between the person's devices.
+
+### Placeholders
+
+A placeholder is a title not in the library yet, put on one of your lists by name; its file's tile takes its place there when it comes, if the file is named as the placeholder is (see [the guide](../docs/guide.md#naming)). Players show placeholders; only this app adds and removes them.
+
+* `want list` prints the placeholders on your lists, tab-separated: the list's name, the placeholder's key, its name, and its note.
+* `want add LIST NAME` puts a movie on a list (by its name, ignoring case, or its ID), keyed as its file will be: `--year YEAR` as the file will have it, `--season SEASON` for a series' season instead, and `--note NOTE`, one line, such as where it's showing or an article's address.
+
+  ```sh
+  cinematheque want add "Coming Soon" "Pendulum" --year 2027
+  cinematheque want add "Coming Soon" "Silo" --season 3 --note "Apple TV"
+  ```
+
+* `want remove LIST KEY` takes a placeholder off a list, by the key `want list` prints (`t/s/silo/-#3`).
+
+Lists are private, as progress is, unless shared with every member.
 
 ### Devices, syncing, and serving
 
@@ -183,7 +199,7 @@ It's embedded in the app: plain HTML, CSS, and JavaScript, no framework. What it
   * the apps' tile and title JSON (shared with the C interface, in `views.zig`);
   * covers (a source's byte range, fetched by the server, since sources answer other sites' scripts nothing, and cached for good);
   * copy racing (`race`, `lost`), and describing an episode (`describe`);
-  * this person's writes (`progress`, `watched`, `listed`, `list-create`, `list-rename`, `list-remove`, `list-share`, and `list-want` and `list-want-edit`, a title not in the library yet put on a list, or changed);
+  * this person's writes (`progress`, `watched`, `listed`, `list-create`, `list-rename`, `list-remove`, and `list-share`);
   * a copy's file to save (`file`, streamed from its source as it comes, with its name, passing a `Range` on, under the core's download deadlines).
 
   It fetches and races only URLs within the library's sources.
@@ -201,7 +217,7 @@ What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 ## Sources
 
 * [main.zig](src/main.zig): the command line. `Args` parses words and options (an option not among the flags takes the next word as its value) and expands the `ls` and `show` shortcuts. `Command.is` matches a verb, its arity, and the options it allows. The nouns and actions are tables of functions; `help` prints a noun's or action's part of [usage.txt](src/usage.txt), which it embeds. It opens the data directory and the `App` every command acts with (the store, the output, and the clock), and turns `error.Usage` into help and status 2.
-* [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `device`, `source`, `title`, `progress`); sending pairing codes (`pairWith`, which finds the one device offering nearby); and `crawl` and `refresh`, which crawl sources and then describe them.
+* [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `device`, `source`, `title`, `progress`, `want`); sending pairing codes (`pairWith`, which finds the one device offering nearby); and `crawl` and `refresh`, which crawl sources and then describe them.
 * [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync`, which syncs with the device given, or with every device found by DNS-SD and in `local` (`address:URL`), as `syncEvery` does for `refresh`, through `exchangeAll`; the listing and adding of addresses behind `device`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
 * [web.zig](src/web.zig): the web client's server: its files, embedded; which browser acts as this device (`local`, by its loopback address, or any with `--permissive`); syncs answered as this device is now (`snapshot`); and the API for browsing, playing, lists, and downloads.
 * [setup.zig](src/setup.zig): setup (creating a library, or offering to join one at `/pair` on the same port, and advertising afresh as it changes) and settings' API, and `keepRefreshed`, which runs Refresh Library on a task of its own.

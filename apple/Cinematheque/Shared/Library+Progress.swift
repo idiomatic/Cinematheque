@@ -81,43 +81,10 @@ extension Library {
         changed()
     }
 
-    /// Puts a title not in the library yet on the list `id`, as a
-    /// placeholder, keyed as its file will be (`cq_list_want`), so it's on
-    /// the list as it comes.
-    func want(on id: String, _ wanting: Wanting) {
-        _ = wanting.withC { want in decode(String.self) { cq_list_want($0, id, &want) } }
-        readLists()
-        changed()
-    }
-
-    /// Changes the placeholder keyed `key` on every list of this person's
-    /// it's on (`cq_list_edit_want`): keyed afresh as its name and year
-    /// (and season) say, its old key taken off. Its key, as it's now.
-    @discardableResult
-    func editWant(_ key: String, _ wanting: Wanting) -> String? {
-        var now: String?
-        for list in myLists where list.wanted?.contains(where: { $0.key == key }) == true {
-            now = wanting.withC { want in decode(String.self) { cq_list_edit_want($0, list.id, key, &want) } } ?? now
-        }
-        readLists()
-        changed()
-        return now
-    }
-
     /// The placeholder keyed `key`, on whichever list, if any.
     func wanted(_ key: String) -> UserList.Wanted? {
         for list in lists { if let w = list.wanted?.first(where: { $0.key == key }) { return w } }
         return nil
-    }
-
-    /// Takes a placeholder off every list of this person's it's on.
-    func unwant(_ key: String) {
-        for list in myLists where list.wanted?.contains(where: { $0.key == key }) == true { setListed(key, on: list.id, false) }
-    }
-
-    /// Whether a placeholder is on any of this person's lists, to take off.
-    func isWantedByMe(_ key: String) -> Bool {
-        myLists.contains { $0.wanted?.contains { $0.key == key } == true }
     }
 
     /// Shares a list of this person's with everyone in the library.
@@ -162,16 +129,4 @@ extension Library {
         _ = withCStrings(Array(titleKeys)) { cq_prioritize(handle.pointer, $0, $1) }
     }
 
-}
-
-extension Wanting {
-    /// `body` given it as the core takes it, absent integers -1.
-    func withC<T>(_ body: (inout cq_want) -> T) -> T {
-        name.withCString { cName in
-            note.withCString { cNote in
-                var want = cq_want(kind: kind == .series ? CQ_SERIES : CQ_MOVIE, name: cName, year: Int32(year ?? -1), season: Int32(kind == .series ? season ?? -1 : -1), note: cNote)
-                return body(&want)
-            }
-        }
-    }
 }

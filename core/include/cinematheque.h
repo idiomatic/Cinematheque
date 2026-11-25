@@ -23,9 +23,6 @@ extern "C" {
 
 typedef struct cq_library cq_library;
 
-// A title's kind, as its key has it (t/m/..., t/s/...).
-typedef enum { CQ_MOVIE = 'm', CQ_SERIES = 's' } cq_title_kind;
-
 // A folder to serve as a source: the path it's served at, and the folder.
 typedef struct {
     const char *prefix;
@@ -39,15 +36,6 @@ typedef struct {
     cq_download_kind kind;
     unsigned int count; // CQ_DOWNLOAD_NEXT's, at least 1; else ignored
 } cq_download_choice;
-
-// A placeholder for a title not in the library yet.
-typedef struct {
-    cq_title_kind kind;
-    const char *name;
-    int year;         // -1: none
-    int season;       // a series'; -1: the first
-    const char *note; // NULL: none
-} cq_want;
 
 // Opens this device's data directory data_dir; if NULL, $CINEMATHEQUE_DATA, or
 // else the
@@ -192,10 +180,8 @@ char *cq_title(cq_library *library, const char *key);
 // titles, not in the library when listed: "key", "name", "note"); the
 // Watchlist's ID is "watchlist", whatever it's named. cq_list_share shares
 // a list of this person's with every member; cq_list_stop_sharing makes it
-// theirs alone again. cq_list_create returns a new list's ID
-// as a JSON string; cq_list_want puts a placeholder on one, returning its
-// key, as its file will be keyed when it comes, and cq_list_edit_want
-// changes one (keyed afresh, the old key taken off in the same change).
+// theirs alone again. cq_list_create returns a new list's ID as a JSON
+// string. Placeholders are put on lists by the command-line app.
 int cq_set_progress(cq_library *library, const char *item_key, unsigned long long position_ms, unsigned long long duration_ms);
 int cq_mark_watched(cq_library *library, const char *item_key);
 // Forgets where this person stopped too, so it plays from the beginning.
@@ -207,8 +193,6 @@ int cq_list_rename(cq_library *library, const char *id, const char *name);
 int cq_list_remove(cq_library *library, const char *id);
 int cq_list_add_title(cq_library *library, const char *id, const char *title_key);
 int cq_list_remove_title(cq_library *library, const char *id, const char *title_key);
-char *cq_list_want(cq_library *library, const char *id, const cq_want *want);
-char *cq_list_edit_want(cq_library *library, const char *id, const char *key, const cq_want *want);
 int cq_list_share(cq_library *library, const char *id);
 int cq_list_stop_sharing(cq_library *library, const char *id);
 

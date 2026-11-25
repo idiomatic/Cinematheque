@@ -356,6 +356,52 @@ pub fn progress(app: *App, c: Command) !void {
     } else return error.Usage;
 }
 
+/// Placeholders, titles not in the library yet, on this person's lists
+/// (see core's lists.zig): listed, added (a movie, or with `--season` a
+/// series' season), and removed, by their keys as `want list` prints them.
+pub fn want(app: *App, c: Command) !void {
+    if (c.is("list", 0, &.{})) {
+        var r = try app.open();
+        defer r.close();
+        for (try core.lists.lists(&r, app.arena)) |l| {
+            if (!l.mine) continue;
+            for (l.wanted) |w| try app.out.print("{s}\t{s}\t{s}\t{s}\n", .{ l.name, w.key, w.name, w.note });
+        }
+    } else if (c.is("add", 2, &.{ "--year", "--season", "--note" })) {
+        var r = try app.open();
+        defer r.close();
+        const list = try ownList(&r, app.arena, c.rest[0]);
+        const year: ?u16 = if (c.args.get("--year")) |y| std.fmt.parseInt(u16, y, 10) catch return error.Usage else null;
+        const season: ?u16 = if (c.args.get("--season")) |s| std.fmt.parseInt(u16, s, 10) catch return error.Usage else null;
+        const key = core.lists.want(&r, app.arena, app.now(), list.id, .{
+            .kind = if (season != null) .series else .movie,
+            .name = c.rest[1],
+            .year = year,
+            .season = season,
+            .note = c.args.get("--note") orelse "",
+        }) catch |err| return if (err == error.InvalidArgument) error.BadPlaceholder else err;
+        try app.out.print("{s}: {s}\n", .{ list.name, key });
+    } else if (c.is("remove", 2, &.{})) {
+        var r = try app.open();
+        defer r.close();
+        const list = try ownList(&r, app.arena, c.rest[0]);
+        for (list.wanted) |w| {
+            if (!std.mem.eql(u8, w.key, c.rest[1])) continue;
+            try core.lists.setListed(&r, app.arena, app.now(), list.id, w.key, false);
+            return app.out.print("{s}: removed {s}\n", .{ list.name, w.key });
+        }
+        return error.NoSuchPlaceholder;
+    } else return error.Usage;
+}
+
+/// One of this person's lists, by its ID or its name (ignoring case).
+fn ownList(r: *core.replica.Replica, arena: std.mem.Allocator, which: []const u8) !core.lists.List {
+    for (try core.lists.lists(r, arena)) |l| {
+        if (l.mine and (std.mem.eql(u8, l.id, which) or std.ascii.eqlIgnoreCase(l.name, which))) return l;
+    }
+    return error.NoSuchList;
+}
+
 fn printProgress(out: *Io.Writer, head: lib.Progress) !void {
     if (head.watched) try out.print("  watched", .{});
     if (head.position_ms > 0) try out.print("  at {d}:{d:0>2} of {d}:{d:0>2}", .{ head.position_ms / 60000, head.position_ms / 1000 % 60, head.duration_ms / 60000, head.duration_ms / 1000 % 60 });

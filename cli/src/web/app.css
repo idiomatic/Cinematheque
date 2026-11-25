@@ -201,19 +201,8 @@ button.mark .chevron { margin-left: 4px; font-size: 0.9em; }
 button.mark .mark-star { font-size: inherit; }
 /* A list's name with its Rename and Delete beside it. */
 .list-heading { display: flex; align-items: center; gap: 2px; margin: 24px 0 12px; }
-/* A placeholder: not in the library yet, dimmed, its ✕ taking it off. */
+/* A placeholder: not in the library yet, dimmed. */
 .tile.wanted .cover { opacity: 0.45; }
-.tile.wanted .sub .mark { padding: 0 4px; font-size: 12px; }
-#want { border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); border-radius: 12px; padding: 20px 24px; background: Canvas; color: inherit; width: min(440px, 90vw); }
-#want::backdrop { background: rgb(0 0 0 / 0.35); }
-#want h2 { margin: 0 0 4px; font-size: 17px; }
-#want form { display: grid; gap: 10px; }
-#want label { display: grid; gap: 4px; font-size: 13px; color: var(--dim); }
-#want .kinds { display: flex; gap: 16px; }
-#want .kinds label { display: flex; color: inherit; font-size: 15px; }
-#want input:not([type=radio]) { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); background: Canvas; color: CanvasText; }
-#want .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
-#want .season[hidden] { display: none; }
 .list-heading h2 { margin: 0 6px 0 0; }
 /* A shared list's mark: two people, in the text's color, before its name. */
 .shared-mark { display: inline-block; width: 1.1em; margin-right: 0.35em; vertical-align: -0.05em; }

@@ -204,10 +204,6 @@ struct InspectorView: View {
 /// by name, which its file's tile takes the place of when it comes.
 struct WantedInspectorView: View {
     let wanted: UserList.Wanted
-    /// Selects it anew, under its key as edited.
-    let select: (String) -> Void
-    @Environment(Library.self) private var library
-    @State private var editing = false
 
     var body: some View {
         let tile = Tile(wanted: wanted)
@@ -228,96 +224,10 @@ struct WantedInspectorView: View {
                     Text(wanted.note).textSelection(.enabled)
                 }
             }
-            if library.isWantedByMe(wanted.key) {
-                HStack {
-                    Button("Edit…") { editing = true }
-                    Button("Remove from List") { library.unwant(wanted.key) }
-                }
-            }
             Spacer()
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .sheet(isPresented: $editing) {
-            WantSheet(heading: "Edit \(wanted.name)", action: "Save", fields: Wanting(wanted)) { changed in
-                if let key = library.editWant(wanted.key, changed) { select(key) }
-            }
-        }
-    }
-}
-
-/// A title not in the library yet, by name, to put on a list or change
-/// there: a movie, or a series' season, with its year (as its file will be
-/// named, so it's matched as it comes), and a note, as an article's
-/// address.
-struct WantSheet: View {
-    let heading: String
-    /// The confirming button's name ("Add", "Save").
-    let action: String
-    let save: (Wanting) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var kind: TitleKind
-    @State private var name: String
-    @State private var year: String
-    @State private var season: Int
-    @State private var note: String
-
-    init(heading: String, action: String, fields: Wanting = .init(), save: @escaping (Wanting) -> Void) {
-        self.heading = heading
-        self.action = action
-        self.save = save
-        _kind = State(initialValue: fields.kind)
-        _name = State(initialValue: fields.name)
-        _year = State(initialValue: fields.year.map(String.init) ?? "")
-        _season = State(initialValue: fields.season ?? 1)
-        _note = State(initialValue: fields.note)
-    }
-
-    /// Adding to `list`.
-    static func adding(to list: UserList, in library: Library) -> WantSheet {
-        WantSheet(heading: "Add Missing Title to \(list.name)", action: "Add") { library.want(on: list.id, $0) }
-    }
-
-    var body: some View {
-        Form {
-            // Its title, in the form, as a sheet shows no navigation title.
-            Section {
-                Picker("Kind", selection: $kind) {
-                    Text("Movie").tag(TitleKind.movie)
-                    Text("Series").tag(TitleKind.series)
-                }
-                .pickerStyle(.segmented)
-                TextField("Name", text: $name)
-                TextField("Year", text: $year, prompt: Text("As its file will have it"))
-                if kind == .series {
-                    Stepper("Season \(season)", value: $season, in: 0...999)
-                }
-                TextField("Note", text: $note, prompt: Text("Optional, as an article's address"))
-            } header: {
-                Text(heading).font(.headline)
-            } footer: {
-                Text("It takes this place on the list as it comes, if its file is named as this is.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .frame(width: 420)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(action) {
-                    var fields = Wanting()
-                    fields.kind = kind
-                    fields.name = name
-                    fields.year = Int(year)
-                    fields.season = kind == .series ? season : nil
-                    fields.note = note
-                    save(fields)
-                    dismiss()
-                }
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || (!year.isEmpty && Int(year) == nil))
-            }
-        }
     }
 }
 
