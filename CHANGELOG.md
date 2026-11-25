@@ -6,6 +6,7 @@ All notable changes to Cinematheque are recorded here.
 
 * Mac: File › Describe All Episodes, a toggle, reads every episode not yet described for its name, description, and length (titles you've begun first), its progress in the status bar ("Describing 1,240 of 19,600 episodes…"), beside what else runs and paused while a video plays, so a season's episodes are named before it's opened; unchecked, it stops, and goes on where it stopped when checked again.
 * Apple TV: a source opens a page of its settings, as on the iPhone: its address, where its quality comes from, names to skip, and its unavailable folders' videos removed; a server is added with its quality and names to skip; your devices each open a page with their model and when last seen; and Settings gain Share While Open and say what a refresh is doing. iPhone and Apple TV Settings are one set of pages.
+* Apps: a series' Play or Resume names the season it plays ("Resume Season 2") on every player, with Start Over before it on the Mac's series inspector, the Apple TV's series page, and the iPhone's series page, which gains both.
 * iPhone: Start Over sits before Play on a title's page, as on the other players.
 * Apple TV: an episode of a dated series (a season a year) shows its own season's cover in the player's info panel and Now Playing, not another season's.
 * iPhone: setup, after the iPhone was removed from its library, says "This iPhone was removed", not "This Mac".

@@ -538,15 +538,16 @@ private struct SearchView: View {
     }
 }
 
-/// A series' seasons, as a page under its name: Play or Resume for the
-/// season to watch (the first not watched through), focused first, and
-/// the whole series' watched mark; then its seasons in square cells
-/// (specials last), each opening its page.
+/// A series' seasons, as a page under its name: Start Over and Play or
+/// Resume for the season to watch, named, Play focused first, and the
+/// whole series' watched mark; then its seasons in square cells (specials
+/// last), each opening its page.
 struct SeasonsView: View {
     let key: String
     @Environment(Library.self) private var library
     @State private var detail: TitleDetail?
     @State private var playing: PlayRequest?
+    @FocusState private var playFocused: Bool
 
     /// With its details as they are, so Play is there to focus first.
     init(key: String, detail: TitleDetail?) {
@@ -556,19 +557,13 @@ struct SeasonsView: View {
 
     var body: some View {
         let seasons = Library.seasons(of: key, in: library.tiles)
-        let up = Library.nextSeason(seasons)
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 Text(seasons.first?.name ?? "")
                     .font(.title3.weight(.semibold))
                 if let detail, let series = library.perTitle(seasons).first {
                     HStack(spacing: 30) {
-                        // The season it plays, by name ("Resume Season 2"),
-                        // as Play alone says nothing of which.
-                        let verb = Playback.nextItem(detail, season: up?.season)?.inProgress == true ? "Resume" : "Play"
-                        Button([verb, up?.seasonName].compactMap { $0 }.joined(separator: " "), systemImage: "play.fill") {
-                            playing = Playback.next(in: detail, season: up?.season)
-                        }
+                        SeriesPlayButtons(detail: detail, seasons: seasons, playFocus: $playFocused) { playing = $0 }
                         // The whole series': a status that pressing toggles,
                         // as a season's is.
                         WatchedToggle(watched: series.watched) { library.markSeriesWatched(series, !series.watched) }
@@ -584,6 +579,7 @@ struct SeasonsView: View {
             }
             .padding(.vertical, 40)
         }
+        .modifier(FocusesPlayFirst(focus: $playFocused))
         .task(id: library.detailsRevision) { detail = library.detail(key) }
         .modifier(PlaysFullScreen(request: $playing))
     }

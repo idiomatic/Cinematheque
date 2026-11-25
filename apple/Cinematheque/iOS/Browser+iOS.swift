@@ -335,11 +335,15 @@ struct CoverGrid: View {
     }
 }
 
-/// A series' seasons, a page of their own, as the Apple TV's: square
-/// cells, a portrait cover fit whole in its square.
+/// A series' seasons, a page of their own, as the Apple TV's: its name,
+/// the whole series' watched mark at its line's end, Start Over and Play or
+/// Resume for the season to watch, named; then square cells, a portrait
+/// cover fit whole in its square.
 private struct SeasonsPage: View {
     let key: String
     @Environment(Library.self) private var library
+    @State private var detail: TitleDetail?
+    @State private var playing: PlayRequest?
 
     /// Whether its heading has scrolled away, so the bar names the series.
     @State private var headingGone = false
@@ -348,13 +352,24 @@ private struct SeasonsPage: View {
         let seasons = Library.seasons(of: key, in: library.tiles)
         let name = seasons.first?.name ?? ""
         ScrollView {
-            // The series' name as the page's heading, whole, wrapping as it
-            // must: a large navigation title keeps to one line, cutting a
-            // long one short.
-            Text(name)
-                .font(.title.bold())
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
+            VStack(alignment: .leading, spacing: 16) {
+                // The series' name as the page's heading, whole, wrapping as
+                // it must: a large navigation title keeps to one line,
+                // cutting a long one short.
+                HStack(alignment: .firstTextBaseline) {
+                    Text(name).font(.title.bold())
+                    Spacer(minLength: 0)
+                    if let series = library.perTitle(seasons).first {
+                        WatchedToggle(watched: series.watched) { library.markSeriesWatched(series, !series.watched) }
+                            .labelStyle(.iconOnly)
+                    }
+                }
+                if let detail {
+                    HStack { SeriesPlayButtons(detail: detail, seasons: seasons) { playing = $0 } }
+                        .controlSize(.large)
+                }
+            }
+            .padding(.horizontal)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 12, alignment: .top)], spacing: 16) {
                 ForEach(seasons) { tile in
                     NavigationLink(value: tile) {
@@ -373,6 +388,8 @@ private struct SeasonsPage: View {
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 40 } action: { _, gone in headingGone = gone }
         .navigationTitle(headingGone ? name : "")
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: library.detailsRevision) { detail = library.detail(key) }
+        .modifier(PlaysFullScreen(request: $playing))
     }
 }
 

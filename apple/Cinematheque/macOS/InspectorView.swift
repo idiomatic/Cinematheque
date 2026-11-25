@@ -193,8 +193,9 @@ struct WantedInspectorView: View {
 }
 
 /// A series' details, selected as a whole on the Series shelf: its
-/// cover, Play for the season to watch, the whole series' watched mark,
-/// its description, and its seasons, each selected by clicking it.
+/// cover, the whole series' watched mark, Start Over and Play or Resume
+/// for the season to watch, named, its description, and its seasons, each
+/// selected by clicking it.
 struct SeriesInspectorView: View {
     let series: Tile
     /// Selects one of its seasons, by its tile's ID.
@@ -205,7 +206,6 @@ struct SeriesInspectorView: View {
 
     var body: some View {
         let seasons = Library.seasons(of: series.key, in: library.tiles)
-        let up = Library.nextSeason(seasons)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Color.clear
@@ -232,26 +232,11 @@ struct SeriesInspectorView: View {
                     .fixedSize()
                 }
                 if let detail {
-                    let next = Playback.nextItem(detail, season: up?.season)
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 12) {
-                            Button {
-                                if let request = Playback.next(in: detail, season: up?.season) { play(request) }
-                            } label: {
-                                Label(Playback.playLabel(next, in: detail, quality: nil), systemImage: "play.fill")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
-                            .disabled(next == nil)
-                        }
-                        if let name = up?.seasonName {
-                            Text("Up next: \(name)").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
+                    HStack(spacing: 12) { SeriesPlayButtons(detail: detail, seasons: seasons) { play($0) } }
+                        .controlSize(.large)
                     // A series' (no runtime, which a movie's facts give as
                     // its first item's).
-                    let facts = detail.facts(season: up?.season ?? 0)
+                    let facts = detail.facts(season: 0)
                     if !facts.isEmpty { Text(facts).foregroundStyle(.secondary) }
                     if let description = detail.fields["description"] {
                         Text(description).textSelection(.enabled)

@@ -92,11 +92,12 @@ extension Playback {
     static let startOverSymbol = "backward.end.fill"
 
     /// "Play", "Resume", "Play Episode 3", "Resume Special", "Play March 12"
-    /// (the episode's label, as the core gives it).
-    static func playLabel(_ next: TitleDetail.Item?) -> String {
+    /// (the episode's label, as the core gives it), or `season` in its
+    /// place ("Resume Season 2", a series' Play).
+    static func playLabel(_ next: TitleDetail.Item?, season: String? = nil) -> String {
         guard let next else { return "Play" }
         let verb = next.inProgress ? "Resume" : "Play"
-        if next.episode != nil { return "\(verb) \(next.label)" }
+        if let name = season ?? (next.episode != nil ? next.label : nil) { return "\(verb) \(name)" }
         return verb
     }
 
@@ -109,10 +110,10 @@ extension Playback {
     /// Play's label, saying so if it opens VLC (its first copy one Apple's
     /// players can't play, and VLC installed), which starts at the
     /// beginning, as where it stops isn't seen.
-    @MainActor static func playLabel(_ next: TitleDetail.Item?, in detail: TitleDetail, quality: String?) -> String {
+    @MainActor static func playLabel(_ next: TitleDetail.Item?, in detail: TitleDetail, quality: String?, season: String? = nil) -> String {
         guard let next, let first = copies(next, quality: quality, in: detail).copies.first.flatMap({ URL(string: $0.url) }),
-              !playsNatively(first), VLC.installed else { return playLabel(next) }
-        return next.episode != nil ? "Play \(next.label) in VLC" : "Play in VLC"
+              !playsNatively(first), VLC.installed else { return playLabel(next, season: season) }
+        return next.episode != nil ? "Play \(season ?? next.label) in VLC" : "Play in VLC"
     }
 }
 
@@ -254,11 +255,13 @@ struct ListActions: View {
 /// Start Over (partway) before Play or Resume, as a player's timeline
 /// starts at its leading edge: on the Mac and iPhone, Start Over by its
 /// symbol (named as help), Play filling the row; `playFocus`, if given,
-/// follows Play's focus.
+/// follows Play's focus. `named`, a season's name, names what Play plays,
+/// as a series' does.
 struct PlayButtons: View {
     let detail: TitleDetail
     let season: Int?
     let quality: String?
+    var named: String? = nil
     var playFocus: FocusState<Bool>.Binding? = nil
     let play: (PlayRequest) -> Void
 
@@ -277,7 +280,7 @@ struct PlayButtons: View {
         let button = Button {
             if let request = Playback.next(in: detail, season: season, quality: quality) { play(request) }
         } label: {
-            Label(Playback.playLabel(next, in: detail, quality: quality), systemImage: "play.fill")
+            Label(Playback.playLabel(next, in: detail, quality: quality, season: named), systemImage: "play.fill")
                 #if !os(tvOS)
                 .frame(maxWidth: .infinity)
                 #endif
@@ -287,6 +290,21 @@ struct PlayButtons: View {
         #endif
         .disabled(next == nil)
         if let playFocus { button.focused(playFocus) } else { button }
+    }
+}
+
+/// A series' Start Over and Play or Resume, for the season to watch (the
+/// first not watched through), named ("Resume Season 2"), as Play alone
+/// says nothing of which: on every platform's series page or inspector.
+struct SeriesPlayButtons: View {
+    let detail: TitleDetail
+    let seasons: [Tile]
+    var playFocus: FocusState<Bool>.Binding? = nil
+    let play: (PlayRequest) -> Void
+
+    var body: some View {
+        let up = Library.nextSeason(seasons)
+        PlayButtons(detail: detail, season: up?.season, quality: nil, named: up?.seasonName, playFocus: playFocus, play: play)
     }
 }
 
