@@ -8,12 +8,10 @@ const library = @import("../library.zig");
 const store_ = @import("../store.zig");
 const sync = @import("../sync.zig");
 const discover = @import("../discover.zig");
-const pair = @import("../pair.zig");
 const model = @import("../model.zig");
 const Library = capi.Library;
 const json = capi.json;
 const status = capi.status;
-const span = capi.span;
 const DeviceJson = capi.DeviceJson;
 const NearbyJson = capi.NearbyJson;
 

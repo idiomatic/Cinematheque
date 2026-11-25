@@ -209,12 +209,6 @@ pub fn spans(arena: std.mem.Allocator, items: ?[*]const [*:0]const u8, count: us
     return out;
 }
 
-/// An optional integer from C, -1 for none; any other out of range fails.
-pub fn optional(comptime T: type, value: c_int) !?T {
-    if (value == -1) return null;
-    return std.math.cast(T, value) orelse error.InvalidArgument;
-}
-
 /// A C enum's value as the Zig enum it mirrors, failing for any other.
 pub fn enumFrom(comptime E: type, value: c_int) !E {
     return std.enums.fromInt(E, value) orelse error.InvalidArgument;

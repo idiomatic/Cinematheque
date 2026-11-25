@@ -8,7 +8,6 @@ const long = @import("long.zig");
 const gpa = capi.gpa;
 const Library = capi.Library;
 const json = capi.json;
-const span = capi.span;
 
 /// The sources, in the order to list them (by `path`, devices' downloads
 /// last), as a JSON array of objects with `id`, `url`, `path` (its server

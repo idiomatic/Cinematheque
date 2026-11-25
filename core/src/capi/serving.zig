@@ -2,15 +2,12 @@
 
 const std = @import("std");
 const capi = @import("../capi.zig");
-const library = @import("../library.zig");
 const sync = @import("../sync.zig");
 const Host = @import("../host.zig").Host;
 const serve_ = @import("../serve.zig");
 const gpa = capi.gpa;
 const fail = capi.fail;
 const Library = capi.Library;
-const json = capi.json;
-const span = capi.span;
 
 /// Serving the library (and folders): the host, and what it needs that
 /// outlives the call that started it.

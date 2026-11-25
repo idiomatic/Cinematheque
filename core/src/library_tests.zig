@@ -4,7 +4,6 @@
 
 const std = @import("std");
 const Io = std.Io;
-const ascii = std.ascii;
 const Replica = @import("replica.zig").Replica;
 const crawl = @import("crawl.zig");
 const library = @import("library.zig");

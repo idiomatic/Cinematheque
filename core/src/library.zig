@@ -195,76 +195,6 @@ pub fn normalize(arena: std.mem.Allocator, text: []const u8) ![]const u8 {
     return out.items;
 }
 
-/// Folds Latin letters with diacritics to plain ones, for spotting close
-/// matches ("amélie" and "amelie").
-pub fn fold(arena: std.mem.Allocator, text: []const u8) ![]const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    // A name needn't be UTF-8 (a Latin-1 file's): then it's left as it is.
-    var it = (std.unicode.Utf8View.init(text) catch return text).iterator();
-    while (it.nextCodepoint()) |cp| {
-        if (cp < 0x80) {
-            try out.append(arena, @intCast(cp));
-        } else if (foldLatin(cp)) |plain| {
-            try out.appendSlice(arena, plain);
-        } else {
-            var buf: [4]u8 = undefined;
-            const n = std.unicode.utf8Encode(cp, &buf) catch continue;
-            try out.appendSlice(arena, buf[0..n]);
-        }
-    }
-    return out.items;
-}
-
-fn foldLatin(cp: u21) ?[]const u8 {
-    // Latin-1 Supplement and Latin Extended-A, lowercase and uppercase.
-    const table = [_]struct { u21, u21, []const u8 }{
-        .{ 0xC0, 0xC5, "a" },
-        .{ 0xE0, 0xE5, "a" },
-        .{ 0xC6, 0xC6, "ae" },
-        .{ 0xE6, 0xE6, "ae" },
-        .{ 0xC7, 0xC7, "c" },
-        .{ 0xE7, 0xE7, "c" },
-        .{ 0xC8, 0xCB, "e" },
-        .{ 0xE8, 0xEB, "e" },
-        .{ 0xCC, 0xCF, "i" },
-        .{ 0xEC, 0xEF, "i" },
-        .{ 0xD1, 0xD1, "n" },
-        .{ 0xF1, 0xF1, "n" },
-        .{ 0xD2, 0xD6, "o" },
-        .{ 0xF2, 0xF6, "o" },
-        .{ 0xD8, 0xD8, "o" },
-        .{ 0xF8, 0xF8, "o" },
-        .{ 0xD9, 0xDC, "u" },
-        .{ 0xF9, 0xFC, "u" },
-        .{ 0xDD, 0xDD, "y" },
-        .{ 0xFD, 0xFD, "y" },
-        .{ 0xFF, 0xFF, "y" },
-        .{ 0xDF, 0xDF, "ss" },
-        .{ 0x100, 0x105, "a" },
-        .{ 0x106, 0x10D, "c" },
-        .{ 0x10E, 0x111, "d" },
-        .{ 0x112, 0x11B, "e" },
-        .{ 0x11C, 0x123, "g" },
-        .{ 0x124, 0x127, "h" },
-        .{ 0x128, 0x131, "i" },
-        .{ 0x134, 0x135, "j" },
-        .{ 0x136, 0x138, "k" },
-        .{ 0x139, 0x142, "l" },
-        .{ 0x143, 0x14B, "n" },
-        .{ 0x14C, 0x151, "o" },
-        .{ 0x152, 0x153, "oe" },
-        .{ 0x154, 0x159, "r" },
-        .{ 0x15A, 0x161, "s" },
-        .{ 0x162, 0x167, "t" },
-        .{ 0x168, 0x173, "u" },
-        .{ 0x174, 0x175, "w" },
-        .{ 0x176, 0x178, "y" },
-        .{ 0x179, 0x17E, "z" },
-    };
-    for (table) |row| if (cp >= row[0] and cp <= row[1]) return row[2];
-    return null;
-}
-
 /// The keys a parsed path maps to.
 pub const Keys = struct {
     title: []const u8,
@@ -1235,7 +1165,7 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
 
 const testing = std.testing;
 
-test "normalize and fold" {
+test "normalize" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -1243,8 +1173,6 @@ test "normalize and fold" {
     try testing.expectEqualStrings("house-md", try normalize(a, "House, MD"));
     try testing.expectEqualStrings("oceans-eleven", try normalize(a, "Ocean's Eleven"));
     try testing.expectEqualStrings("amélie", try normalize(a, "Amélie"));
-    try testing.expectEqualStrings("amelie", try fold(a, "amélie"));
-    try testing.expectEqualStrings("leon-1", try fold(a, try normalize(a, "Léon #1")));
 }
 
 test "keys follow parsed identity" {

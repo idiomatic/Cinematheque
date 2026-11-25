@@ -2,16 +2,11 @@
 //! and refilling, as devices would.
 
 const std = @import("std");
-const Io = std.Io;
-const Ed25519 = std.crypto.sign.Ed25519;
 const Blake3 = std.crypto.hash.Blake3;
-const sqlite = @import("sqlite.zig");
 const merkle = @import("merkle.zig");
 const Hlc = @import("hlc.zig").Hlc;
 const op_ = @import("op.zig");
-const Op = op_.Op;
 const Device = op_.Device;
-const Hash = merkle.Hash;
 const replica = @import("replica.zig");
 const readVector = replica.readVector;
 const readOpFrame = @import("frames.zig").readOpFrame;

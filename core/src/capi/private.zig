@@ -9,7 +9,6 @@ const Replica = replica_.Replica;
 const Library = capi.Library;
 const json = capi.json;
 const status = capi.status;
-const span = capi.span;
 
 /// Records this person's progress in an item (a title's key and an item's,
 /// e.g., `t/m/alien/1979/v/-`).

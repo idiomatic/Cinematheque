@@ -12,10 +12,8 @@ const gpa = capi.gpa;
 const Library = capi.Library;
 const json = capi.json;
 const status = capi.status;
-const span = capi.span;
 const CrawlJson = capi.CrawlJson;
 const SyncJson = capi.SyncJson;
-const steps = capi.steps;
 
 pub fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
     _ = lib.connections.fetchAdd(1, .seq_cst);

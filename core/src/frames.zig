@@ -3,12 +3,9 @@
 //! receiver (see replica.zig, and ARCHITECTURE.md's Sync).
 
 const std = @import("std");
-const Io = std.Io;
 const Ed25519 = std.crypto.sign.Ed25519;
 const Blake3 = std.crypto.hash.Blake3;
-const sqlite = @import("sqlite.zig");
 const merkle = @import("merkle.zig");
-const Hlc = @import("hlc.zig").Hlc;
 const op_ = @import("op.zig");
 const Op = op_.Op;
 const Device = op_.Device;

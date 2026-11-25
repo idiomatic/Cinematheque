@@ -2,12 +2,10 @@
 
 const std = @import("std");
 const capi = @import("../capi.zig");
-const art = @import("../art.zig");
 const views = @import("../views.zig");
 const long = @import("long.zig");
 const Library = capi.Library;
 const json = capi.json;
-const span = capi.span;
 
 /// The grid's tiles, as a JSON array of objects with `key` (the title's),
 /// `name`, `year`, `kind` (`movie` or `series`), `season` (a series', or

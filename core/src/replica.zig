@@ -286,14 +286,6 @@ pub const Replica = struct {
         return if (try s.step()) @bitCast(s.int(1)) else null;
     }
 
-    fn holds(replica: *Replica, key: []const u8, field: []const u8) !bool {
-        const s = replica.select_winner;
-        defer s.reset();
-        try s.bindText(1, key);
-        try s.bindText(2, field);
-        return try s.step();
-    }
-
     /// Whether this device's own certificate, or its private stream's, as
     /// held, is valid for this library and names its person. Its own writes
     /// pass without one, so only others would notice one that isn't, by

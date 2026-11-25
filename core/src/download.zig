@@ -1466,7 +1466,6 @@ test "a series' choice of episodes: the next few, or all" {
         for (c.want, got) |w, g| try std.testing.expectEqualStrings(w, g);
     }
     for ([_][]const u8{ "", "0", "s02", "unwatched", "none" }) |none| try std.testing.expectEqual(@as(?Choice, null), Choice.parse(none));
-    // An earlier choice of the current episode reads as the next one.
 
     // Sizes: each file is 1,000 bytes, and none is here.
     try std.testing.expectEqual(Size{ .size = 2000, .needed = 2000 }, try sizeOf(&r, arena, "t/s/firefly/-", .{ .next = 2 }, null));
