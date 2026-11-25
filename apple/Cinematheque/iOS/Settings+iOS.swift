@@ -83,21 +83,6 @@ struct SettingsSheet: View {
                 }
             }
         }
-        #if DEBUG
-        // `CINEMATHEQUE_PAGE`: a page to open (adding, from its list's).
-        .onAppear {
-            switch Launch.page {
-            case "people": path = [.people]
-            case "add-someone": path = [.people]
-            case "devices": path = [.devices]
-            case "device": path = [.devices] + (library.devices.first { !$0.you }.map { [.device($0.key)] } ?? [])
-            case "add-device": path = [.devices]
-            case "sources": path = [.sources]
-            case "source": path = [.sources] + (library.sources.first { !$0.managed }.map { [.source($0.id)] } ?? [])
-            default: break
-            }
-        }
-        #endif
         // Hard to undo, so asked first.
         .alert(foundersOnly ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
             Button(foundersOnly ? "Leave and End It" : "Leave", role: .destructive) { if foundersOnly { end() } else { leave(successor: nil) } }
@@ -400,13 +385,6 @@ private struct NewDevices: View {
             if let problem { Text(problem).foregroundStyle(.red) } else { Text(added ?? about) }
         }
         .modifier(Nearby(devices: $nearby))
-        #if DEBUG
-        // `CINEMATHEQUE_PAIR`: a code for the device of the name given.
-        .task(id: offering.map(\.url)) {
-            guard let given = Launch.pair(among: offering.map(\.deviceName)) else { return }
-            if let device = offering.first(where: { $0.deviceName == given.name }) { pair(device, given.code) }
-        }
-        #endif
     }
 
     private func pair(_ device: NearbyDevice, _ typed: String) {
@@ -469,14 +447,6 @@ private struct SourcesPage: View {
         .navigationTitle("Sources")
         .sheet(isPresented: $adding) { AddServerSheet() }
         .removingSource($removing)
-        #if DEBUG
-        .onAppear {
-            if let server = Launch.server {
-                library.addSource(server, skip: nil)
-                Task { await library.crawl() }
-            }
-        }
-        #endif
     }
 
     /// Its count of videos, and any folders of it unavailable.

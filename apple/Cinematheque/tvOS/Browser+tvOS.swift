@@ -208,10 +208,6 @@ private struct Sections: View {
 /// and Delete in its heading's menu.
 private struct ListsView: View {
     @Environment(Library.self) private var library
-    #if DEBUG
-    /// A list's page opened at launch (`CINEMATHEQUE_PAGE`, `list:<id>`).
-    @State private var opened: String?
-    #endif
 
     var body: some View {
         ScrollView {
@@ -232,12 +228,6 @@ private struct ListsView: View {
             }
             .padding(.vertical, 40)
         }
-        #if DEBUG
-        .navigationDestination(item: $opened) { ListPage(id: $0) }
-        .onAppear {
-            if let page = Launch.page, page.hasPrefix("list:") { opened = String(page.dropFirst("list:".count)) }
-        }
-        #endif
     }
 }
 

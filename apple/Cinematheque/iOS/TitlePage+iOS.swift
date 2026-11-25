@@ -92,12 +92,6 @@ struct TitlePage: View {
         }
         .task(id: library.detailsRevision) {
             detail = library.detail(tile.key)
-            #if DEBUG
-            // Asked last, as asking uses it up, once its details are read.
-            if playing == nil, let detail, Launch.play != nil {
-                playing = Playback.next(in: detail, season: shown.season, quality: quality)
-            }
-            #endif
         }
         .task(id: shown.season) { if shown.isSeries { await library.describeItems(of: tile.key, season: shown.season) } }
         // A copy Apple's player can't play goes to VLC, if it's installed,

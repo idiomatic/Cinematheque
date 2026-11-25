@@ -48,9 +48,6 @@ struct OfferedCode: View {
         .frame(maxWidth: .infinity)
         .task(id: offers) {
             state = library.offerPairing()
-            #if DEBUG
-            Launch.note(code: state?.code)
-            #endif
             // Until paired or stopped.
             while !Task.isCancelled, state?.code != nil {
                 try? await Task.sleep(for: .seconds(1))

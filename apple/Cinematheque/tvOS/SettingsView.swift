@@ -102,31 +102,6 @@ struct SettingsView: View {
             case .interval: IntervalPage()
             }
         }
-        #if DEBUG
-        // `CINEMATHEQUE_PAGE`: a page to open (adding, from its list's).
-        .onAppear {
-            switch Launch.page {
-            case "people", "add-someone": page = .people
-            case "devices", "add-device": page = .devices
-            case "sources": page = .sources
-            default: break
-            }
-        }
-        // Once the library's people are read.
-        .task(id: me?.key) {
-            guard me != nil, let how = Launch.leave else { return }
-            askToLeave()
-            guard how == "confirm" else { return }
-            try? await Task.sleep(for: .seconds(1))
-            if choosingSuccessor, let first = others.first {
-                choosingSuccessor = false
-                leave(successor: first.key)
-            } else if confirmingLeave {
-                confirmingLeave = false
-                if foundersOnly { end() } else { leave(successor: nil) }
-            }
-        }
-        #endif
         // Hard to undo, so asked first.
         .alert(foundersOnly ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
             Button(foundersOnly ? "Leave and End It" : "Leave", role: .destructive) { if foundersOnly { end() } else { leave(successor: nil) } }

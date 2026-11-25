@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Apps' debug builds: the launch options no script used (`CINEMATHEQUE_CODE_FILE`, `PLAY`, `ITEM`, `LEAVE`, `PAGE`, `PAIR`, `PAIR_NAME`, and `SERVER`) are gone.
 * Command-line app: `title review`, `title facets`, and aliases are gone; no player showed them.
 * Mac: the status bar fades out before the grid's scroll bar, which it covered the bottom of.
 * Mac: the room the Series shelf keeps at its end for the tallest band says, quietly, "This space is intentionally left blank."

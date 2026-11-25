@@ -436,7 +436,6 @@ struct Browser: View {
                 // On the shelf it's on, whatever was shown last.
                 shelf = id.contains("#") ? .series : .movies
             }
-            if let url = Launch.play.flatMap(URL.init(string:)) { playing = PlayRequest(url: url, item: Launch.item ?? "", start: 0) }
         }
         #endif
     }

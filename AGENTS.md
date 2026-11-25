@@ -226,17 +226,11 @@ Their details, as built, are in [apple/README.md](apple/README.md#in-detail).
 * The apps log to the system's log (Xcode's console), under `com.rbrian.cinematheque`, a line where it helps tell what's slow: each start of playback, its steps' times (`playback`); each Top Shelf written (`topshelf`, how many rows of how many titles, or why not); and each crawl, the sources crawled (listing, listings read and reused, and recording) or failed, and describing's after (`crawl`), from `cq_crawl`'s results, those skipped as crawled lately unsaid. What was logged to find problems since fixed is gone.
 * Debug builds take launch options for driving the app unattended (in a VM by `open --env`; in the tvOS and iOS simulators by `simctl launch`, each prefixed `SIMCTL_CHILD_`):
   * `CINEMATHEQUE_DATA` (iOS and tvOS; the Mac's core reads it in any build): a data directory to run on, as a simulator's on one of the Mac's (a copy, as it's written to), its own left alone, and on tvOS, its Keychain's seeds neither read nor written.
-  * `CINEMATHEQUE_CODE_FILE`: a file each pairing code offered is written to, for a test to send from another device.
   * `CINEMATHEQUE_SELECT`: a tile (e.g., `t/s/firefly/-#1`), selected on macOS, its page opened on tvOS and iOS; or a series' seasons, by its key.
   * `CINEMATHEQUE_TAB`: on iOS, a tab (`home`, `movies`, `series`, `lists`, or `search`), or `settings`, Home's sheet; on tvOS, a section's page (`movies`, `series`, `lists`, `watched`, `search`, or `settings`), opened from Home; on both, in setup, a step, `join`, offering its code.
   * `CINEMATHEQUE_DNSSD`: the service type to announce and look for (`_cinemock._tcp` on the mock library, so it and a person's own devices never see each other); any build, read by the core; declared in Info.plist for iOS and tvOS.
   * `CINEMATHEQUE_DOWNLOAD_FLOOR`: the free space downloads keep, in bytes, for a VM's small disk; any build, read by the core.
-  * `CINEMATHEQUE_LEAVE` (tvOS, on Settings, once a launch): `ask` presses Leave This Library…, `confirm` confirms it too, the first other member taking over if asked.
-  * `CINEMATHEQUE_PAGE` (tvOS and iOS, once a launch): on Settings, a page (`people`, `devices`, `sources`, on iOS the first source's, `source`, or the first other device's, `device`; `add-someone` and `add-device` open People and Your Devices, which list devices offering to be added); on the Lists page, a list's (`list:<id>`).
-  * `CINEMATHEQUE_PAIR` and `CINEMATHEQUE_PAIR_NAME` (tvOS and iOS, once a launch, on People or Your Devices): a code to enter for the new device of that name, never another (a real device offering nearby), and none without a name.
-  * `CINEMATHEQUE_SERVER` (tvOS and iOS, once a launch, on Sources): an address to add.
   * `CINEMATHEQUE_APPEARANCE`: `dark` or `light`, the app's whatever the system's (the tvOS simulator's can't be set).
-  * `CINEMATHEQUE_PLAY` (once a launch): a URL to play on macOS, with `CINEMATHEQUE_ITEM`, its item key, for its progress; any value on tvOS and iOS, to play the opened title.
 
 ## Implementation
 

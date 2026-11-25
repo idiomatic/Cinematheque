@@ -82,9 +82,6 @@ struct MovieView: View {
                 playsAtOnce = false
                 playing = Playback.next(in: detail, season: nil, quality: quality)
             }
-            #if DEBUG
-            if playing == nil, let detail, Launch.play != nil { playing = Playback.next(in: detail, season: nil, quality: quality) }
-            #endif
         }
         .modifier(PlaysFullScreen(request: $playing, startsBlack: playsAtOnce))
     }
@@ -202,9 +199,6 @@ struct SeasonView: View {
                 playsAtOnce = false
                 playing = Playback.next(in: detail, season: shown.season, quality: quality)
             }
-            #if DEBUG
-            if playing == nil, let detail, Launch.play != nil { playing = Playback.next(in: detail, season: shown.season, quality: quality) }
-            #endif
         }
         // Its other episodes, described as they're shown.
         .task(id: shown.season) { await library.describeItems(of: tile.key, season: shown.season) }

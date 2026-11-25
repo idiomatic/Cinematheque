@@ -393,10 +393,6 @@ private struct ListsView: View {
     @State private var naming = false
     @State private var name = ""
     @FocusState private var typing: Bool
-    #if DEBUG
-    /// `CINEMATHEQUE_PAGE`'s list (`list:<id>`), opened at launch.
-    @State private var opened: ListOf?
-    #endif
 
     var body: some View {
         ScrollView {
@@ -427,12 +423,6 @@ private struct ListsView: View {
             Button("New List", systemImage: "plus") { naming = true }
                 .disabled(naming)
         }
-        #if DEBUG
-        .navigationDestination(item: $opened) { ListPage(id: $0.id) }
-        .onAppear {
-            if let page = Launch.page, page.hasPrefix("list:") { opened = ListOf(id: String(page.dropFirst("list:".count))) }
-        }
-        #endif
     }
 
     /// Makes the list named, unless it's blank, which drops it.

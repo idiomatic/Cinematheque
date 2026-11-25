@@ -178,9 +178,6 @@ struct SourcesPage: View {
         } message: { source in
             Text("\(source.copies == 1 ? "Its one video goes" : "Its \(source.copies.formatted()) videos go") from the library, on every device, though its files stay where they are. You can add it again.")
         }
-        #if DEBUG
-        .onAppear { if let server = Launch.server { add(server) } }
-        #endif
     }
 
     static let adding = "Adds a folder of videos on a server, such as a NAS, by its address as a browser would open it: http://nas.local/Video/Movies/."
@@ -279,13 +276,6 @@ struct NewDevices: View {
         }
         .listRowInsets(SettingsView.rowInsets)
         .modifier(Nearby(devices: $nearby))
-        #if DEBUG
-        // `CINEMATHEQUE_PAIR`: a code for the device of the name given.
-        .task(id: offering.map(\.url)) {
-            guard let given = Launch.pair(among: offering.map(\.deviceName)) else { return }
-            if let device = offering.first(where: { $0.deviceName == given.name }) { pair(device, given.code) }
-        }
-        #endif
     }
 
     private func pair(_ device: NearbyDevice, _ typed: String) {

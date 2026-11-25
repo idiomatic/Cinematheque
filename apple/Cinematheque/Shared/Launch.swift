@@ -15,14 +15,6 @@ enum Launch {
     /// a simulator, one of the Mac's), not the app's own.
     static var dataDir: String? { env["CINEMATHEQUE_DATA"] }
 
-    /// `CINEMATHEQUE_CODE_FILE`: a file to write each pairing code this
-    /// device offers to, so a test can send it (`person pair CODE` or
-    /// `member pair CODE` from another device).
-    static func note(code: String?) {
-        guard let path = env["CINEMATHEQUE_CODE_FILE"], let code else { return }
-        try? Data((code + "\n").utf8).write(to: URL(filePath: path))
-    }
-
     /// `CINEMATHEQUE_TAB`: a section's page to open (`movies`, `series`,
     /// `lists`, `watched`, `search`, or `settings`; tvOS), or in setup, a
     /// step (`join`), offering its code (both platforms).
@@ -35,61 +27,15 @@ enum Launch {
 
     /// Takes the selection, once a launch (iOS, where each tab's stack
     /// asks): whether it's this asker's to open.
-    static func takeSelection() -> Bool { taken.insert("CINEMATHEQUE_SELECT").inserted }
+    static func takeSelection() -> Bool {
+        guard !selectionTaken else { return false }
+        selectionTaken = true
+        return true
+    }
+    private static var selectionTaken = false
 
     /// The selection's title key.
     static var selectedTitle: String? { selection.map { String($0.split(separator: "#")[0]) } }
-
-    /// `CINEMATHEQUE_PLAY`, once a launch (the views that ask may appear
-    /// twice): a URL to play (macOS), or any value to play the opened title
-    /// (tvOS).
-    static var play: String? {
-        guard !played else { return nil }
-        played = true
-        return env["CINEMATHEQUE_PLAY"]
-    }
-    private static var played = false
-
-    /// `CINEMATHEQUE_LEAVE`, once a launch (tvOS, on Settings): presses
-    /// Leave This Library… (`ask`), or presses it and confirms (`confirm`,
-    /// the first other member taking over if it asks who).
-    static var leave: String? {
-        guard !left else { return nil }
-        left = true
-        return env["CINEMATHEQUE_LEAVE"]
-    }
-    private static var left = false
-
-    /// `CINEMATHEQUE_PAGE`, once a launch (tvOS and iOS, on Settings): a page to
-    /// open: `people`, `devices`, or `sources` (on iOS, `source`, the
-    /// first's own, or `device`, the first other device's); `add-device` and `add-someone` open Devices and People,
-    /// which list the devices offering to be added.
-    static var page: String? { once("CINEMATHEQUE_PAGE") }
-
-    /// `CINEMATHEQUE_PAIR` and `CINEMATHEQUE_PAIR_NAME`, once a launch (tvOS
-    /// and iOS, adding a device or someone): the code to enter for the new
-    /// device found by that name, never another (a real device offering
-    /// nearby, say); none without a name.
-    static func pair(among names: [String?]) -> (name: String, code: String)? {
-        guard let name = env["CINEMATHEQUE_PAIR_NAME"], !name.isEmpty, names.contains(name) else { return nil }
-        guard let code = once("CINEMATHEQUE_PAIR") else { return nil }
-        return (name, code)
-    }
-
-    /// `CINEMATHEQUE_SERVER`, once a launch (tvOS and iOS, on Sources): an
-    /// address to add, as Add Server does.
-    static var server: String? { once("CINEMATHEQUE_SERVER") }
-
-    private static var taken: Set<String> = []
-
-    private static func once(_ name: String) -> String? {
-        guard taken.insert(name).inserted else { return nil }
-        return env[name]
-    }
-
-    /// `CINEMATHEQUE_ITEM`: the item the URL played is a copy of, for its
-    /// progress (macOS).
-    static var item: String? { env["CINEMATHEQUE_ITEM"] }
 
     /// `CINEMATHEQUE_APPEARANCE`: `dark` or `light`, the app's whatever
     /// the system's, for screenshots in each (the tvOS simulator's can't
