@@ -134,6 +134,9 @@ char *cq_crawl_full(cq_library *library);
 // synced: skips sources a device crawled within the library's interval
 // (±1/24 of it), or all of them if it's 0 (only when asked).
 char *cq_crawl_due(cq_library *library);
+char *cq_describe_all(cq_library *library);
+char *cq_describe_steps(cq_library *library);
+void cq_describe_stop(cq_library *library);
 char *cq_crawl_source(cq_library *library, const char *source);
 // Sets that interval, for every device: 1, 3, 24 (the default), or 168
 // hours, or 0, only when asked (Refresh Library); cq_status gives it.

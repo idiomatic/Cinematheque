@@ -86,6 +86,9 @@ extension Library {
         // copies syncing brought, aren't crawled again.
         let crawled = await crawlSources { cq_crawl_due($0) }
         report(.refresh, synced ?? crawled)
+        #if os(macOS)
+        describeEpisodes()
+        #endif
         // The sources' servers' names, looked up now, so the first play's
         // copy racing finds them answered.
         let urls = sources.compactMap(\.address)
@@ -366,8 +369,44 @@ extension Library {
         report(.refresh, synced ?? crawled)
         #if os(macOS)
         reconcileSoon()
+        describeEpisodes()
         #endif
     }
+
+    #if os(macOS)
+    /// After a refresh, describes every episode no describing has read (its
+    /// title, description, and length), so they're there before a season's
+    /// opened: beside what else runs, its progress in the status bar, none
+    /// beginning while a stream plays. The first is the long one; later
+    /// ones read only what's new.
+    func describeEpisodes() {
+        guard let handle, hasLibrary, describing == nil, !leavingLibrary else { return }
+        describing = Task {
+            // Its progress, and what it's found, read back as it commits.
+            let watcher = Task {
+                var seen = cq_data_version(handle.pointer)
+                var tick = 0
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                    let steps = decode(Steps.self) { cq_describe_steps($0) }
+                    if steps != episodeSteps { episodeSteps = steps?.phase == nil ? nil : steps }
+                    tick += 1
+                    let now = cq_data_version(handle.pointer)
+                    if tick % 10 == 0, now != seen {
+                        seen = now
+                        await reloadApart()
+                    }
+                }
+            }
+            _ = await Task.detached { if let text = cq_describe_all(handle.pointer) { cq_free(text) } }.value
+            watcher.cancel()
+            episodeSteps = nil
+            describing = nil
+            reloadSoon()
+        }
+    }
+    #endif
 
     func crawl() async { report(.refresh, await crawlSources { cq_crawl($0) }) }
 

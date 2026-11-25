@@ -262,6 +262,53 @@ fn exchangeAll(lib: *Library, arena: std.mem.Allocator, r: *Replica, devices: sy
 
 /// Long: reads an item's metadata (an episode's title, description, and
 /// duration) from its first copy, if an MP4.
+/// Long: describes every item no describing has read (an episode's title,
+/// description, and duration), as a sweep after a refresh, so they're
+/// there before they're opened: titles this person has begun first, then
+/// the rest; titles on screen (`cq_prioritize`) before all; 4 workers,
+/// none beginning while a stream plays (`cq_downloads_hold`), committing as
+/// it goes. It runs beside other long operations, its progress apart
+/// (`cq_describe_steps`), until done or stopped (`cq_describe_stop`).
+/// Returns `{described, failed}`; one that couldn't be reached is tried at
+/// the next sweep.
+export fn cq_describe_all(lib: *Library) ?[*:0]u8 {
+    return json(lib, describeAll, .{});
+}
+
+const DescribedJson = struct { described: usize, failed: usize };
+
+fn describeAll(lib: *Library, arena: std.mem.Allocator) !DescribedJson {
+    var r = try connection(lib, arena);
+    defer release(lib, &r);
+    const person = std.fmt.bytesToHex(try lib.store.person(), .lower);
+    const jobs = try art.planItems(&r, arena, &person);
+    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
+    defer client.deinit();
+    lib.sweep_stop.store(false, .release);
+    lib.sweep.start(.episodes, jobs.len);
+    defer lib.sweep.finish();
+    const s = try art.run(lib.io(), &r, arena, &client, lib.now(), jobs, .{ .workers = 4, .priority = &lib.priority, .writer = &lib.writer, .done = &lib.sweep.done, .hold = &lib.hold, .stop = &lib.sweep_stop });
+    return .{ .described = s.described, .failed = s.failed };
+}
+
+/// How far the sweep (`cq_describe_all`) has come, as `cq_steps` tells
+/// other long operations: `{phase: "episodes" or null, done, total}`. Any
+/// thread.
+export fn cq_describe_steps(lib: *Library) ?[*:0]u8 {
+    return json(lib, sweepSteps, .{});
+}
+
+fn sweepSteps(lib: *Library, _: std.mem.Allocator) !capi.StepsJson {
+    const phase = lib.sweep.phase.load(.acquire);
+    return .{ .phase = if (phase == .idle) null else @tagName(phase), .done = lib.sweep.done.load(.monotonic), .total = lib.sweep.total.load(.monotonic) };
+}
+
+/// Stops the sweep under way: no more items begin, and it returns once
+/// those under way are described, as before leaving. Any thread.
+export fn cq_describe_stop(lib: *Library) void {
+    lib.sweep_stop.store(true, .release);
+}
+
 export fn cq_describe(lib: *Library, item_key: [*:0]const u8) c_int {
     return status(lib, describeItem, .{std.mem.span(item_key)});
 }

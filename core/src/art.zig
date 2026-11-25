@@ -109,6 +109,9 @@ pub const Job = struct {
     /// all) if its own has no cover, as one episode's or quality's file may
     /// have none where another's has.
     others: []const Job = &.{},
+    /// Its item alone, not its title's cover (`planItems`, the sweep of
+    /// items no describing read).
+    item_only: bool = false,
 
     /// The file the cover comes from.
     fn imageFile(j: Job) ImageFile {
@@ -322,6 +325,7 @@ pub const Write = struct { key: []const u8, field: []const u8, value: []const u8
 
 /// Describes one job, appending what it found to `writes`.
 fn describeJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, writes: *std.ArrayList(Write), stats: *Stats) !void {
+    if (job.item_only) return describeItemJob(arena, client, job, writes, stats);
     const t = job.target;
     const source = job.source;
     // A device's own source whose device hasn't said where: next crawl.
@@ -459,6 +463,11 @@ pub const RunOptions = struct {
     writer: ?*Io.Mutex = null,
     /// Counts the jobs done, for another thread to read.
     done: ?*std.atomic.Value(u32) = null,
+    /// While set (a stream playing), no job begins, as for downloads.
+    hold: ?*const std.atomic.Value(bool) = null,
+    /// Once set, no more jobs begin, and it returns when those under way
+    /// end.
+    stop: ?*const std.atomic.Value(bool) = null,
     /// How many movies and seasons to describe between commits, at most,
     /// and how long, so what's found shows as it's found.
     batch: usize = 24,
@@ -520,6 +529,7 @@ const Runner = struct {
         try r.mutex.lock(r.io);
         defer r.mutex.unlock(r.io);
         if (r.err != null) return null;
+        if (r.options.stop) |s| if (s.load(.acquire)) return null;
         if (r.options.priority) |p| {
             try p.mutex.lock(r.io);
             defer p.mutex.unlock(r.io);
@@ -536,7 +546,9 @@ const Runner = struct {
     }
 
     fn work(r: *Runner) Io.Cancelable!void {
-        while (try r.pick()) |i| {
+        while (true) {
+            if (r.options.hold) |h| while (h.load(.acquire) and !(if (r.options.stop) |s| s.load(.acquire) else false)) try r.io.sleep(.fromSeconds(1), .awake);
+            const i = try r.pick() orelse return;
             // Each job reads up to a few hundred kilobytes; keep none of it.
             var job_arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
             defer job_arena.deinit();
@@ -642,6 +654,103 @@ fn findSidecar(arena: std.mem.Allocator, images: anytype, titles_in: anytype, t:
 /// retagging it does), as a title's cover is (see `readStamp`).
 pub fn itemRead(arena: std.mem.Allocator, source: []const u8, path: []const u8, size: u64, mtime: []const u8) ![]const u8 {
     return std.fmt.allocPrint(arena, "{s}\t{s}\t{d}\t{s}", .{ source, path, size, mtime });
+}
+
+/// Describes an item alone, for the sweep (`planItems`): what its MP4 says
+/// of it (title, description, duration; its title's fields, which the
+/// title's own describing writes, left out), and what it read.
+fn describeItemJob(arena: std.mem.Allocator, client: *std.http.Client, job: Job, writes: *std.ArrayList(Write), stats: *Stats) !void {
+    const t = job.target;
+    const base = job.source.at() orelse return;
+    const info = mp4.read(arena, client, try fileUrl(arena, base, t.path)) catch |err| blk: {
+        stats.failed += 1;
+        if (unreachable_(err)) return; // to try again next sweep
+        // Read as nothing, so it isn't read again until it changes.
+        break :blk mp4.Info{};
+    };
+    var found: std.ArrayList(Write) = .empty;
+    try appendInfo(arena, &found, t, info);
+    for (found.items) |w| if (std.mem.eql(u8, w.key, t.item_key)) try writes.append(arena, w);
+    const tab = std.mem.indexOfScalar(u8, t.stamp, '\t') orelse t.stamp.len;
+    const size = std.fmt.parseInt(u64, t.stamp[0..tab], 10) catch 0;
+    const mtime = if (tab < t.stamp.len) t.stamp[tab + 1 ..] else "";
+    try writes.append(arena, .{ .key = t.item_key, .field = "read", .value = try itemRead(arena, &job.source.id, t.path, size, mtime) });
+    stats.described += 1;
+}
+
+/// The items no describing has read (no `read`, or none of their copies'
+/// files the one read), each with an MP4 to read: one whose source is
+/// reached and isn't unavailable there, a server's first. Those of titles
+/// `person` (hex) has begun come first, then the rest by key; one with no
+/// such MP4 is left, as nothing could be read of it.
+pub fn planItems(replica: *Replica, arena: std.mem.Allocator, person: []const u8) ![]Job {
+    var sources: std.StringHashMapUnmanaged(library.Source) = .empty;
+    for (try library.sources(replica, arena)) |s| if (s.at() != null and !s.managed) try sources.put(arena, try arena.dupe(u8, &s.id), s);
+    const unavailable = try library.UnavailableDirs.load(replica, arena);
+    var read_of: std.StringHashMapUnmanaged([]const u8) = .empty;
+    {
+        const s = try replica.db.prepare("SELECT key, value FROM winners WHERE field = 'read' AND length(value) > 0");
+        defer s.finalize();
+        while (try s.step()) try read_of.put(arena, try arena.dupe(u8, s.blob(0)), try arena.dupe(u8, s.blob(1)));
+    }
+    var begun: std.StringHashMapUnmanaged(void) = .empty;
+    {
+        const prefix = try std.fmt.allocPrint(arena, "p/{s}/", .{person});
+        const s = try replica.db.prepare("SELECT DISTINCT key FROM winners WHERE key > ?1 AND key < ?2 AND length(value) > 0");
+        defer s.finalize();
+        try s.bind(.{ try std.fmt.allocPrint(arena, "{s}t/", .{prefix}), try std.fmt.allocPrint(arena, "{s}t0", .{prefix}) });
+        while (try s.step()) {
+            const item = s.blob(0)[prefix.len..];
+            const end = library.pastTitle(item, "/e/") orelse library.pastTitle(item, "/v/") orelse item.len;
+            try begun.put(arena, try arena.dupe(u8, item[0..end]), {});
+        }
+    }
+    var first: std.ArrayList(Job) = .empty;
+    var rest: std.ArrayList(Job) = .empty;
+    const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key >= 't/' AND key < 't0' AND field LIKE 'held:%' AND length(value) > 0 ORDER BY key");
+    defer s.finalize();
+    var item: []const u8 = "";
+    var read_already = false;
+    var best: ?Job = null;
+    while (true) {
+        const more = try s.step();
+        const key = if (more) s.blob(0) else "";
+        const r_at = std.mem.lastIndexOf(u8, key, "/r/");
+        const this = if (r_at) |at| key[0..at] else key;
+        // The item before is done: planned if nothing read it.
+        if (item.len > 0 and (!more or !std.mem.eql(u8, this, item))) {
+            if (!read_already) if (best) |j| {
+                try (if (begun.contains(j.target.title_key)) &first else &rest).append(arena, j);
+            };
+            item = "";
+        }
+        if (!more) break;
+        if (r_at == null) continue;
+        if (item.len == 0) {
+            item = try arena.dupe(u8, this);
+            read_already = false;
+            best = null;
+        }
+        const source_id = s.blob(1)["held:".len..];
+        const value = s.blob(2);
+        const copy = library.CopyValue.parse(value);
+        if (read_of.get(item)) |read| if (std.mem.eql(u8, read, try itemRead(arena, source_id, copy.path, copy.size orelse 0, copy.mtime))) {
+            read_already = true;
+        };
+        if (!isMp4(copy.path)) continue;
+        const source = sources.get(source_id) orelse continue;
+        if (unavailable.has(source_id, value)) continue;
+        if (best) |b| if (steady(b.source.url) or !steady(source.url)) continue;
+        const end = library.pastTitle(item, "/e/") orelse library.pastTitle(item, "/v/") orelse item.len;
+        best = .{
+            .target = .{ .title_key = item[0..end], .item_key = item, .field = "", .path = try arena.dupe(u8, copy.path), .stamp = try std.fmt.allocPrint(arena, "{d}\t{s}", .{ copy.size orelse 0, copy.mtime }), .episode = 0, .is_episode = library.pastTitle(item, "/e/") != null },
+            .source = source,
+            .sidecar = null,
+            .item_only = true,
+        };
+    }
+    try first.appendSlice(arena, rest.items);
+    return first.items;
 }
 
 /// Describes one item from its first held copy (e.g., an episode the
@@ -890,7 +999,7 @@ pub const Steps = struct {
     done: std.atomic.Value(u32) = .init(0),
     total: std.atomic.Value(u32) = .init(0),
 
-    pub const Phase = enum(u8) { idle, crawling, describing, syncing };
+    pub const Phase = enum(u8) { idle, crawling, describing, episodes, syncing };
 
     pub fn start(p: *Steps, phase: Phase, total: usize) void {
         p.done.store(0, .monotonic);
@@ -1317,4 +1426,42 @@ test "of files alike, a server's describes a title, not a device's own folder's"
     const p = try plan(&r, arena, &crawled);
     try std.testing.expectEqual(@as(usize, 1), p.jobs.len);
     try std.testing.expectEqualStrings(&nas.id, &p.jobs[0].source.id);
+}
+
+test "the sweep reads each item no describing read, from an MP4, once" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "Devs");
+    try tmp.dir.writeFile(io, .{ .sub_path = "Devs/Devs S01E01.m4v", .data = try testMp4(arena, null) });
+    try tmp.dir.writeFile(io, .{ .sub_path = "Devs/Devs S01E02.m4v", .data = try testMp4(arena, null) });
+    try tmp.dir.writeFile(io, .{ .sub_path = "Devs/Devs S01E03.mkv", .data = "not an mp4" });
+    const root = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .mounts = &.{.{ .path = root, .index = false }} } };
+    try server.start();
+    defer server.stop();
+    const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
+    defer r.close();
+    _ = try library.addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
+    var client: std.http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    _ = try library.crawlSourceAfresh(&r, io, arena, &client, 2, (try library.sources(&r, arena))[0], 1);
+    const person: []const u8 = @as([64]u8, @splat('0'))[0..];
+    // Two MP4s to read; the MKV, nothing could be read of.
+    const jobs = try planItems(&r, arena, person);
+    try std.testing.expectEqual(@as(usize, 2), jobs.len);
+    const stats = try run(io, &r, arena, &client, 3, jobs, .{ .workers = 2 });
+    try std.testing.expectEqual(@as(usize, 2), stats.described);
+    try std.testing.expect(try library.fieldValue(&r, arena, "t/s/devs/-/e/s01e02", "read") != null);
+    // Read, they aren't read again; stopped, none begins.
+    try std.testing.expectEqual(@as(usize, 0), (try planItems(&r, arena, person)).len);
+    var stop: std.atomic.Value(bool) = .init(true);
+    try r.write(4, "t/s/devs/-/e/s01e02", "read", "");
+    const stopped = try run(io, &r, arena, &client, 5, try planItems(&r, arena, person), .{ .workers = 2, .stop = &stop });
+    try std.testing.expectEqual(@as(usize, 0), stopped.described);
 }

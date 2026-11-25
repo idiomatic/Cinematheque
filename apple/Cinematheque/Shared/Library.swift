@@ -48,7 +48,7 @@ final class Library {
     }
 
     /// The phase of a long operation, as the core names it.
-    enum Phase: String, Codable { case crawling, describing, syncing }
+    enum Phase: String, Codable { case crawling, describing, episodes, syncing }
     /// Counts changes, so views showing details can refresh.
     var revision = 0
     /// Counts items described from their files (an episode's title, say),
@@ -234,6 +234,10 @@ final class Library {
     #if os(macOS)
     var downloads: Downloads?
     var reconciling: Task<Void, Never>?
+    /// The sweep describing every episode no describing read, after a
+    /// refresh (`describeEpisodes`), and how far it's come.
+    var describing: Task<Void, Never>?
+    var episodeSteps: Steps?
     /// Downloads to delete once confirmed, since they hold only copies.
     var deleting: String?
     /// The tiles (movies, and seasons) with something downloaded, as of the
@@ -314,11 +318,24 @@ final class Library {
         afterChange?.cancel()
         leavingLibrary = true
         defer { leavingLibrary = false }
-        if let handle { cq_reconcile_stop(handle.pointer) }
-        while activity != nil || syncingQuietly || callsApart > 0 || reconcilingNow {
+        if let handle {
+            cq_reconcile_stop(handle.pointer)
+            cq_describe_stop(handle.pointer)
+        }
+        while activity != nil || syncingQuietly || callsApart > 0 || reconcilingNow || describingNow {
             try? await Task.sleep(for: .milliseconds(250))
         }
         return await body()
+    }
+
+    /// Whether the sweep of episodes runs (on the Mac, the only one that
+    /// sweeps).
+    private var describingNow: Bool {
+        #if os(macOS)
+        describing != nil
+        #else
+        false
+        #endif
     }
 
     /// Whether downloads are reconciling (on the Mac, the only one that

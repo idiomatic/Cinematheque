@@ -81,6 +81,11 @@ pub const Library = struct {
     fetching: download.Fetching = .{},
     /// Set while a stream plays (`cq_downloads_hold`): no download begins.
     hold: std.atomic.Value(bool) = .init(false),
+    /// The sweep of items no describing read (`cq_describe_all`): how far
+    /// it's come, apart from other long operations, as it runs beside them;
+    /// and set to stop it (`cq_describe_stop`).
+    sweep: art.Steps = .{},
+    sweep_stop: std.atomic.Value(bool) = .init(false),
     download_mb: std.atomic.Value(u32) = .init(0),
     /// Files the last pass of reconciling left for want of room, said while
     /// reconciling goes on (as syncing asks it to run again, it may not end
@@ -278,7 +283,8 @@ pub const StatusJson = struct { person: []const u8, device: []const u8, paired: 
 pub const StepsJson = struct { phase: ?[]const u8, done: u32, total: u32 };
 
 /// How far the long operation running has come: a JSON object with `phase`
-/// (`crawling`, `describing`, `syncing`, or null when none runs), and
+/// (`crawling`, `describing`, `episodes`, `syncing`, or null when none
+/// runs), and
 /// `done` and `total` steps of it. Any thread.
 export fn cq_steps(lib: *Library) ?[*:0]u8 {
     return json(lib, steps, .{});

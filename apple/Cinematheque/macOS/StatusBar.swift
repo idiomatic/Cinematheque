@@ -42,7 +42,7 @@ struct StatusBar: View {
 
     static let height: CGFloat = 30
 
-    private var sticky: Bool { library.problem != nil || library.activity != nil || hovering }
+    private var sticky: Bool { library.problem != nil || library.activity != nil || library.episodeSteps != nil || hovering }
     private var visible: Bool { fresh || sticky }
 
     /// The widest scroll bar's column, which the bar fades out before, so
@@ -66,12 +66,14 @@ struct StatusBar: View {
                     Text(counts).lineLimit(1).fixedSize()
                 }
                 Spacer(minLength: 12)
-                if let activity = library.activity {
-                    Text(Self.describe(activity, library.steps))
+                // What runs, else the sweep of episodes beside it.
+                if let activity = library.activity ?? (library.episodeSteps != nil ? "Describing episodes" : nil) {
+                    let steps = library.activity != nil ? library.steps : library.episodeSteps
+                    Text(Self.describe(activity, steps))
                         .lineLimit(1)
                         .monospacedDigit()
                         .layoutPriority(1)
-                    if let p = library.steps, p.total > 0 {
+                    if let p = steps, p.total > 0 {
                         ProgressView(value: Double(min(p.done, p.total)), total: Double(p.total))
                             .progressViewStyle(.linear)
                             .frame(width: 100)
@@ -123,6 +125,7 @@ struct StatusBar: View {
         return switch phase {
         case .crawling: "Looking in \(done) of \(total) \(p.total == 1 ? "source" : "sources")…"
         case .describing: p.total == 0 ? "Finding covers…" : "Finding covers for \(p.done.formatted()) of \(total)…"
+        case .episodes: "Describing \(p.done.formatted()) of \(total) episodes…"
         // Catching up, as a refresh does first, says only what it's for.
         case .syncing: activity + "…"
         }

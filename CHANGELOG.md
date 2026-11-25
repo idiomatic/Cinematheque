@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Mac: after each refresh, every episode not yet described is read for its name, description, and length (titles you've begun first), shown in the status bar ("Describing 1,240 of 19,600 episodes…"), beside what else runs and paused while a video plays, so a season's episodes are named before it's opened.
 * iPhone: Start Over sits before Play on a title's page, as on the other players.
 * Apple TV: an episode of a dated series (a season a year) shows its own season's cover in the player's info panel and Now Playing, not another season's.
 * iPhone: setup, after the iPhone was removed from its library, says "This iPhone was removed", not "This Mac".
