@@ -222,17 +222,24 @@ nonisolated struct Source: Codable, Identifiable, Hashable {
     enum QualityFrom: String, Codable, Hashable { case path, named, unknown }
 
     /// Its quality setting, the name with it.
-    var qualitySetting: Quality {
-        switch quality_from {
-        case .path: .path
-        case .named: .named(quality)
-        case .unknown: .unknown
-        }
-    }
+    var qualitySetting: Quality { Quality(from: quality_from, name: quality) }
 
     /// A quality setting: where it comes from, a name with `named`.
-    enum Quality: Hashable { case path, named(String), unknown }
+    enum Quality: Hashable {
+        case path, named(String), unknown
+
+        /// Where it comes from, and the name, if named.
+        init(from: QualityFrom, name: String) {
+            switch from {
+            case .path: self = .path
+            case .named: self = .named(name)
+            case .unknown: self = .unknown
+            }
+        }
+    }
     let copies: Int
+    /// How many videos it holds, in words: "1 video", "12 videos".
+    var videosText: String { copies == 1 ? "1 video" : "\(copies.formatted()) videos" }
     var unavailable: [Unavailable] = []
     /// A device's downloads, which no one crawls (see the core's
     /// download.zig).

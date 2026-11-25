@@ -224,6 +224,14 @@ final class Library {
     var loadedFoldersKey: String?
     /// The port this device serves on, while it does.
     var servingPort: Int?
+    /// Whether this device shares the library (serves it) while the app
+    /// runs: on unless turned off.
+    var sharing = UserDefaults.standard.object(forKey: "sharing") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(sharing, forKey: "sharing")
+            if sharing { serve() } else { stopServing() }
+        }
+    }
 
     // Stored for Library+Downloads.swift.
     #if os(macOS)

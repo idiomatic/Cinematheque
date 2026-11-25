@@ -125,6 +125,7 @@ Details, as built, are in [apple/README.md](apple/README.md#in-detail).
 * **Changes while busy:** a change refused as busy waits its turn, in order, and is made once the writer's free; leaving drops what's waiting.
 * **Reading back:** after a change, the catalog is read back off the main thread, the latest read winning; a tile's watched mark shows at once. Only launch, pairing, leaving, and a refresh's end read on the main thread.
 * **Addresses from other devices:** only http(s) addresses are opened or fetched as covers (no more than the cover's length), and only paths within a folder shown in Finder or played.
+* **Adding a server:** by its address, `http://` added if left off.
 * **Settings' notes** say why one would use a setting, then what bears on choosing it; a confirmation says what an action does.
 * **Modelessness:** dialogs only to confirm what's hard to undo, or where a platform has no other way to ask; names and settings typed in place; what's easy to undo done at once. Every flow has a way back out.
 * **Project:** Xcode's recommended settings but script sandboxing, the App Sandbox, the hardened runtime (until signing for distribution), and the macOS 15 minimum. Signing is in [Signing.xcconfig](apple/Signing.xcconfig), a developer's team in an ignored `Local.xcconfig`. [Info.plist](apple/Cinematheque/Info.plist) allows plain HTTP and local Bonjour, and declares `cinematheque://` on tvOS only.
@@ -162,7 +163,7 @@ Details, as built, are in [apple/README.md](apple/README.md#in-detail).
 * **Shelves:** a tab bar of Home (Continue Watching, a row per list with See All, Settings from its corner), Movies, Series (a justified layout of covers per series, each opening its seasons), Lists (New List named in place in the navigation bar; a list's page renamed in place by its title, its title's menu sharing and deleting it), and Search. Rows are carousels; grids give cells the column's width.
 * **Pages:** a movie's or season's, its cover in its own shape, Play or Resume, Start Over, quality, Lists and watched mark, versions or episodes; a season's neighbors (‹ ›) in the navigation bar.
 * **Playing:** full screen in AVKit's player, fading in and out.
-* **Settings:** a sheet of grouped pages: names typed in place; People and Your Devices (devices by kind's symbol, model, and when last seen; removing confirmed for people, by swipe or a device's page for devices), each ending with devices offering nearby, one chosen taking its code on the number pad; sharing; Sources (each a page: address, quality, prefix, unavailable folders, removing confirmed; Add Server… a sheet, `http://` added if left off); Refresh Library and Look for New Videos; Leave This Library….
+* **Settings:** a sheet of grouped pages: names typed in place; People and Your Devices (devices by kind's symbol, model, and when last seen; removing confirmed for people, by swipe or a device's page for devices), each ending with devices offering nearby, one chosen taking its code on the number pad; sharing; Sources (each a page: address, quality, prefix, unavailable folders, removing confirmed; Add Server… a sheet); Refresh Library and Look for New Videos; Leave This Library….
 * **Not yet:** its own setup (the Mac's welcome form, full screen); downloads.
 
 ## Apple TV player

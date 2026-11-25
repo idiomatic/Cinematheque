@@ -149,7 +149,6 @@ private struct PeoplePage: View {
 /// its code, and sharing.
 private struct DevicesPage: View {
     @Environment(Library.self) private var library
-    @State private var sharing = true
 
     var body: some View {
         List {
@@ -179,14 +178,12 @@ private struct DevicesPage: View {
             }
             NewDevices.device
             Section {
-                Toggle("Share While Open", isOn: $sharing)
-                    .onChange(of: sharing) { library.sharing = sharing }
+                Toggle("Share While Open", isOn: Bindable(library).sharing)
             } footer: {
                 Text("While Cinematheque is open, your other devices catch up with this iPhone directly, so what you watch here reaches them at once.")
             }
         }
         .navigationTitle("Your Devices")
-        .onAppear { sharing = library.sharing }
     }
 }
 
@@ -393,9 +390,8 @@ private struct SourcesPage: View {
 
     /// Its count of videos, and any folders of it unavailable.
     private func videos(_ source: Source) -> String {
-        let count = source.copies == 1 ? "1 video" : "\(source.copies.formatted()) videos"
         let gone = source.unavailable.count
-        return gone == 0 ? count : "\(count), \(gone == 1 ? "a folder" : "\(gone) folders") unavailable"
+        return gone == 0 ? source.videosText : "\(source.videosText), \(gone == 1 ? "a folder" : "\(gone) folders") unavailable"
     }
 }
 
@@ -429,20 +425,8 @@ private struct SourcePage: View {
                     LabeledContent("Videos", value: source.copies.formatted())
                 }
                 Section {
-                    Picker("Quality", selection: $from) {
-                        Text("From Names and Folders").tag(Source.QualityFrom.path)
-                        Text("Named").tag(Source.QualityFrom.named)
-                        // Kept as it is, unless another is chosen: a newer version's.
-                        if from == .unknown { Text("Set by a Newer Version").tag(Source.QualityFrom.unknown) }
-                    }
-                    .onChange(of: from) { saveQuality() }
-                    if from == .named {
-                        LabeledContent("Name") {
-                            TextField("Name", text: $quality, prompt: Text("4K HDR"))
-                                .multilineTextAlignment(.trailing)
-                                .onSubmit(saveQuality)
-                        }
-                    }
+                    SourceQualityPicker(from: $from, name: $quality, submit: saveQuality)
+                        .onChange(of: from) { saveQuality() }
                 } footer: {
                     Text("Each video's quality, so you can choose which plays, comes from its name, else the nearest folder above it that says one (as TV Shows/1080p/30 Rock/), taken whole (HQ 1080p30 Surround). If neither says it, name one for all of them.")
                 }
@@ -457,25 +441,7 @@ private struct SourcePage: View {
                 } footer: {
                     Text("Folders and files whose names start with this are left out of the library, and titles that do too.")
                 }
-                if !source.unavailable.isEmpty {
-                    Section {
-                        ForEach(source.unavailable, id: \.dir) { gone in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(gone.name)
-                                    Text("Since \(gone.date.formatted(date: .abbreviated, time: .omitted))").font(.footnote).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button("Remove Videos", role: .destructive) { library.removeUnavailable(source.id, gone.dir) }
-                                    .buttonStyle(.borderless)
-                            }
-                        }
-                    } header: {
-                        Text("Unavailable")
-                    } footer: {
-                        Text("Folders that are empty now, as when a drive is unplugged. Their videos stay, dimmed, so nothing's lost while it's away; remove them if it's gone for good. After a year, they go on their own.")
-                    }
-                }
+                UnavailableFolders(source: source)
                 Section {
                     Button("Remove Source…", role: .destructive) { removing = source }
                 }
@@ -498,11 +464,7 @@ private struct SourcePage: View {
     /// one's typed.
     private func saveQuality() {
         guard let source else { return }
-        let chosen: Source.Quality = switch from {
-        case .path: .path
-        case .named: .named(quality)
-        case .unknown: .unknown
-        }
+        let chosen = Source.Quality(from: from, name: quality)
         if case .named(let name) = chosen, name.isEmpty { return }
         if chosen != source.qualitySetting { library.setQuality(source.id, chosen) }
     }
@@ -534,15 +496,7 @@ private struct AddServerSheet: View {
                     Text("The address of a folder of videos on a server, as a browser would open it.")
                 }
                 Section {
-                    Picker("Quality", selection: $from) {
-                        Text("From Names and Folders").tag(Source.QualityFrom.path)
-                        Text("Named").tag(Source.QualityFrom.named)
-                    }
-                    if from == .named {
-                        LabeledContent("Name") {
-                            TextField("Name", text: $quality, prompt: Text("4K HDR")).multilineTextAlignment(.trailing)
-                        }
-                    }
+                    SourceQualityPicker(from: $from, name: $quality)
                 }
                 Section("Skip Names Starting With") {
                     TextField("Skip", text: $skip, prompt: Text("None"))
@@ -562,26 +516,11 @@ private struct AddServerSheet: View {
         }
     }
 
-    private var valid: Bool { webAddress(url) != nil && !(from == .named && quality.isEmpty) }
+    private var valid: Bool { Library.webAddress(url) != nil && !(from == .named && quality.isEmpty) }
 
     private func add() {
-        guard valid, let url = webAddress(url) else { return }
-        library.addSource(url, skip: skip.isEmpty ? nil : skip)
-        switch from {
-        case .named: library.setQuality(url, .named(quality))
-        case .path, .unknown: break
-        }
-        Task { await library.crawl() }
+        guard valid, library.addServer(url, quality: Source.Quality(from: from, name: quality), skip: skip) else { return }
         dismiss()
     }
-}
-
-/// An address as typed, made a web address: `http://` put first if it names
-/// no scheme ("nas.local/Video/Movies/"); nil if it isn't one even so.
-private func webAddress(_ typed: String) -> String? {
-    let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
-    let address = trimmed.contains("://") ? trimmed : "http://" + trimmed
-    return URL(web: address) != nil ? address : nil
 }
 #endif

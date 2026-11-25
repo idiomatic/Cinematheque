@@ -135,7 +135,7 @@ struct SourcesPage: View {
                             // The count alone, as the page is of videos; said
                             // whole to VoiceOver.
                             ValueLabel(title: source.displayName, path: source.path, value: source.copies.formatted())
-                                .accessibilityValue(source.copies == 1 ? "1 video" : "\(source.copies.formatted()) videos")
+                                .accessibilityValue(source.videosText)
                         }
                         .explained("source:" + source.id, hint(source), $focus)
                     }
@@ -174,13 +174,11 @@ struct SourcesPage: View {
     private func add(_ typed: String) {
         let address = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard address != "http://", !address.isEmpty else { return }
-        guard URL(web: address) != nil else {
-            problem = "“\(address)” isn't a server's address, which starts with http:// or https://, as http://nas.local/Video/Movies/ does."
+        guard library.addServer(address) else {
+            problem = "“\(address)” isn't a server's address, such as http://nas.local/Video/Movies/."
             return
         }
         problem = nil
-        library.addSource(address, skip: nil)
-        Task { await library.crawl() }
     }
 }
 

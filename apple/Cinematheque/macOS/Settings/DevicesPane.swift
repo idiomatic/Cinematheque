@@ -5,7 +5,6 @@ import SwiftUI
 struct DevicesPane: View {
     @Environment(Library.self) private var library
     @State private var nearby: [NearbyDevice] = []
-    @State private var sharing = true
 
     var body: some View {
         Form {
@@ -17,8 +16,7 @@ struct DevicesPane: View {
                 Text("Names tell your devices apart wherever they're listed. Remove one you've given away or no longer use: it leaves the library the next time it catches up, and comes back only by joining again.")
             }
             Section {
-                Toggle("Share this library on your network", isOn: $sharing)
-                    .onChange(of: sharing) { library.sharing = sharing }
+                Toggle("Share this library on your network", isOn: Bindable(library).sharing)
             } footer: {
                 Text(library.servingPort != nil
                     ? "Lets your other devices, and the people you share the library with, catch up with this Mac (such as where you stopped watching), and play from its folders and downloads, while Cinematheque is open."
@@ -37,7 +35,6 @@ struct DevicesPane: View {
         }
         .formStyle(.grouped)
         .modifier(Nearby(devices: $nearby))
-        .onAppear { sharing = library.sharing }
     }
 }
 

@@ -174,11 +174,7 @@ private struct SourceSheet: View {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
                 Button(source == nil ? "Add" : "Save") {
-                    let chosen: Source.Quality = switch from {
-                    case .path: .path
-                    case .named: .named(quality)
-                    case .unknown: .unknown
-                    }
+                    let chosen = Source.Quality(from: from, name: quality)
                     if let source {
                         if chosen != source.qualitySetting { library.setQuality(source.id, chosen) }
                         if skip != source.skip { library.setSkip(source.id, skip) }
@@ -186,13 +182,11 @@ private struct SourceSheet: View {
                             Task { await library.changeFolder(folder, to: path) }
                         }
                     } else {
-                        library.addSource(url, skip: skip.isEmpty ? nil : skip)
-                        if chosen != .path { library.setQuality(url, chosen) }
-                        Task { await library.crawl() }
+                        library.addServer(url, quality: chosen, skip: skip)
                     }
                     dismiss()
                 }
-                .disabled((source == nil && URL(web: url) == nil) || (from == .named && quality.isEmpty))
+                .disabled((source == nil && Library.webAddress(url) == nil) || (from == .named && quality.isEmpty))
             }
         }
         .onAppear {
@@ -237,41 +231,15 @@ private struct SourceSheet: View {
                 }
             }
             Section {
-                Picker("Quality", selection: $from) {
-                    Text("From Names and Folders").tag(Source.QualityFrom.path)
-                    Text("Named").tag(Source.QualityFrom.named)
-                    // Kept as it is, unless another is chosen: a newer version's.
-                    if from == .unknown { Text("Set by a Newer Version").tag(Source.QualityFrom.unknown) }
-                }
-                // Only for a name, as Settings show a choice's details.
-                if from == .named {
-                    TextField("Name", text: $quality, prompt: Text("4K HDR"))
-                }
+                SourceQualityPicker(from: $from, name: $quality)
                 TextField("Skip Names Starting With", text: $skip, prompt: Text("None"))
             } footer: {
                 Text("Each video's quality, so you can choose which plays, comes from its name, else the nearest folder above it that says one (as TV Shows/1080p/30 Rock/), taken whole (HQ 1080p30 Surround). If neither says it, name one for all of them. To leave files out of the library, put them in folders whose names start with what Skip says; titles starting with it are left out too.")
                     .foregroundStyle(.secondary)
             }
             // As it is now, so one removed leaves the list.
-            if let current = library.sources.first(where: { $0.id == source?.id }), !current.unavailable.isEmpty {
-                Section {
-                    ForEach(current.unavailable, id: \.dir) { gone in
-                        LabeledContent {
-                            Button("Remove Videos", systemImage: "minus.circle") { library.removeUnavailable(current.id, gone.dir) }
-                                .labelStyle(.iconOnly)
-                                .buttonStyle(.borderless)
-                                .foregroundStyle(.secondary)
-                                .help("Remove its videos; they return if the folder does")
-                        } label: {
-                            Label(gone.name, systemImage: "externaldrive.badge.questionmark")
-                            Text("Since \(gone.date.formatted(date: .abbreviated, time: .omitted))")
-                        }
-                    }
-                } header: {
-                    Text("Unavailable")
-                } footer: {
-                    Text("Folders that are empty now, as when a drive is unplugged. Their videos stay, dimmed, so nothing's lost while it's away; remove them if it's gone for good. After a year, they go on their own.")
-                }
+            if let current = library.sources.first(where: { $0.id == source?.id }) {
+                UnavailableFolders(source: current)
             }
         }
         .formStyle(.grouped)

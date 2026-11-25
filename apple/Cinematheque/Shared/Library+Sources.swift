@@ -8,8 +8,29 @@ import AppKit
 extension Library {
     // Managing.
 
-    func addSource(_ url: String, skip: String?) {
+    private func addSource(_ url: String, skip: String?) {
         checkAndReload { cq_repo_add($0, url, skip) }
+    }
+
+    /// Adds a server by its address as typed (see `webAddress`), its files'
+    /// quality from `quality`, names starting with `skip` left out (none if
+    /// empty), and looks for its videos; false if it isn't a web address.
+    @discardableResult
+    func addServer(_ typed: String, quality: Source.Quality = .path, skip: String = "") -> Bool {
+        guard let url = Self.webAddress(typed) else { return false }
+        addSource(url, skip: skip.isEmpty ? nil : skip)
+        if quality != .path { setQuality(url, quality) }
+        Task { await crawl() }
+        return true
+    }
+
+    /// An address as typed, made a web address: `http://` put first if it
+    /// names no scheme ("nas.local/Video/Movies/"); nil if it isn't one even so.
+    nonisolated static func webAddress(_ typed: String) -> String? {
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let address = trimmed.contains("://") ? trimmed : "http://" + trimmed
+        return URL(web: address) != nil ? address : nil
     }
 
     /// Sets the prefix of names a source skips, by ID or URL, none if
@@ -323,16 +344,6 @@ extension Library {
         for folder in folders where !folder.url.isEmpty {
             guard let source = sources.first(where: { $0.url == folder.url }), source.path.last != folder.name else { continue }
             check { cq_repo_name($0, source.id, folder.name) }
-        }
-    }
-
-    /// Whether this device shares the library (serves it) while the app
-    /// runs: on unless turned off.
-    var sharing: Bool {
-        get { UserDefaults.standard.object(forKey: "sharing") as? Bool ?? true }
-        set {
-            UserDefaults.standard.set(newValue, forKey: "sharing")
-            if newValue { serve() } else { stopServing() }
         }
     }
 
