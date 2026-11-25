@@ -185,11 +185,6 @@ char *cq_steps(cq_library *library);
 char *cq_tiles(cq_library *library);
 char *cq_title(cq_library *library, const char *key);
 
-// A tile's placeholder (its `thumb`, a ThumbHash in base64) as RGBA
-// pixels, not premultiplied, 32 on the longer side, into 32*32*4 bytes;
-// 0, or -1 if it isn't one. Any thread.
-int cq_thumbhash(const char *hash_base64, unsigned char *rgba, int *width, int *height);
-
 // This person's private data: progress in items (e.g.,
 // "t/m/alien/1979/v/-"), and lists of titles (movies' title keys, seasons'
 // tiles, "<title key>#<season>"): cq_lists is them all, by name, then

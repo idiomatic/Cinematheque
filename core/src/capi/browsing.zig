@@ -12,8 +12,8 @@ const span = capi.span;
 /// The grid's tiles, as a JSON array of objects with `key` (the title's),
 /// `name`, `year`, `kind` (`movie` or `series`), `season` (a series', or
 /// null), and `cover` (null, or `url`, `offset`, `length`, and `stamp`, a
-/// byte range to fetch, and what changes when it does), `thumb` (null, or
-/// the cover's placeholder, a ThumbHash in base64, for `cq_thumbhash`), and
+/// byte range to fetch, and what changes when it does), `aspect` (null, or
+/// the cover's width over its height, to lay it out before it loads), and
 /// this person's `watched` (every item), `progress` (0 to 1, by running time),
 /// `elapsed` and `runtime` (milliseconds played, of how many), and `started`;
 /// `items`, how many it holds; and `unavailable`, whether every copy it has is under an unavailable directory.

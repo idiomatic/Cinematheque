@@ -518,7 +518,7 @@ fn crawlAndDescribe(app: *App, r: *core.replica.Replica, workers: usize, sources
     const start = Io.Timestamp.now(app.io, .awake);
     const plan = try core.art.plan(r, app.arena, crawled.items);
     const a = try core.art.run(app.io, r, app.arena, &client, app.now(), plan.jobs, .{ .workers = workers });
-    try app.out.print("described {d} movies and seasons ({d} unchanged) in {d} ms: {d} covers found, {d} placeholders made, {d} files read, {d} failed\n", .{
-        plan.jobs.len, plan.unchanged, start.durationTo(Io.Timestamp.now(app.io, .awake)).toMilliseconds(), a.covers, a.thumbs, a.described, a.failed,
+    try app.out.print("described {d} movies and seasons ({d} unchanged) in {d} ms: {d} covers found, {d} files read, {d} failed\n", .{
+        plan.jobs.len, plan.unchanged, start.durationTo(Io.Timestamp.now(app.io, .awake)).toMilliseconds(), a.covers, a.described, a.failed,
     });
 }

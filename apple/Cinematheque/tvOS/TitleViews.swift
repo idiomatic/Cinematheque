@@ -31,7 +31,7 @@ struct MovieView: View {
             Color.clear
                 .aspectRatio(2.0 / 3.0, contentMode: .fit)
                 .frame(width: 460)
-                .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, size: .large) }
+                .overlay { CoverImage(cover: tile.cover, aspect: tile.aspect, title: tile.name, size: .large) }
                 .clipShape(RoundedRectangle(cornerRadius: 16))
             VStack(alignment: .leading, spacing: 30) {
                 Text(tile.name).font(.title)
@@ -126,7 +126,7 @@ struct SeasonView: View {
                 .aspectRatio(2.0 / 3.0, contentMode: .fit)
                 .frame(width: 460)
                 .overlay(alignment: .top) {
-                    CoverImage(cover: shown.cover, thumb: shown.thumb, title: shown.name, size: .large, shaped: true)
+                    CoverImage(cover: shown.cover, aspect: shown.aspect, title: shown.name, size: .large, shaped: true)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
             ScrollView {
@@ -235,7 +235,7 @@ private struct Backdrop: View {
     let tile: Tile
 
     var body: some View {
-        CoverImage(cover: tile.cover, thumb: tile.thumb, title: "", size: .large)
+        CoverImage(cover: tile.cover, aspect: tile.aspect, title: "", size: .large)
             .blur(radius: 60)
             .opacity(0.35)
             .ignoresSafeArea()

@@ -510,7 +510,6 @@ fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, reques
         const choices = try std.json.parseFromSliceLeaky([]const []const u8, arena, try param(arena, q, "choices") orelse "[\"\"]", .{});
         return sendJson(arena, request, try core.download.sizes(&r, arena, try param(arena, q, "key") orelse return error.BadRequest, choices, try param(arena, q, "quality")));
     }
-    if (get and std.mem.eql(u8, name, "thumb")) return thumb(arena, request, try param(arena, q, "hash") orelse return error.BadRequest);
     if (request.head.method != .POST) return error.NotFound;
 
     var body_buf: [4096]u8 = undefined;
@@ -762,59 +761,4 @@ fn imageType(bytes: []const u8) []const u8 {
     if (std.mem.startsWith(u8, bytes, "\x89PNG")) return "image/png";
     if (std.mem.startsWith(u8, bytes, "\xff\xd8")) return "image/jpeg";
     return "application/octet-stream";
-}
-
-/// A cover's placeholder, its ThumbHash drawn as a small bitmap (BMP, which
-/// needs no compression) for the browser to scale up, as the apps do.
-fn thumb(arena: std.mem.Allocator, request: *http.Server.Request, hash_base64: []const u8) !void {
-    var hash: [core.thumbhash.max_len]u8 = undefined;
-    const len = std.base64.standard.Decoder.calcSizeForSlice(hash_base64) catch return error.BadRequest;
-    if (len > hash.len) return error.BadRequest;
-    std.base64.standard.Decoder.decode(hash[0..len], hash_base64) catch return error.BadRequest;
-    var rgba: [core.thumbhash.max_pixels * 4]u8 = undefined;
-    const rendered = core.thumbhash.decode(hash[0..len], &rgba) catch return error.BadRequest;
-    try request.respond(try bmp(arena, rendered.width, rendered.height, &rgba), .{ .extra_headers = &([_]http.Header{
-        .{ .name = "content-type", .value = "image/bmp" },
-        .{ .name = "cache-control", .value = "max-age=31536000, immutable" },
-    } ++ guarded) });
-}
-
-/// RGBA pixels as a 24-bit BMP: a 54-byte header, then rows bottom-up, each
-/// blue, green, red, padded to 4 bytes. (Placeholders are opaque.)
-fn bmp(arena: std.mem.Allocator, width: usize, height: usize, rgba: []const u8) ![]u8 {
-    const row = (width * 3 + 3) & ~@as(usize, 3);
-    const size = 54 + row * height;
-    const out = try arena.alloc(u8, size);
-    @memset(out, 0);
-    out[0] = 'B';
-    out[1] = 'M';
-    std.mem.writeInt(u32, out[2..6], @intCast(size), .little);
-    std.mem.writeInt(u32, out[10..14], 54, .little);
-    std.mem.writeInt(u32, out[14..18], 40, .little);
-    std.mem.writeInt(i32, out[18..22], @intCast(width), .little);
-    std.mem.writeInt(i32, out[22..26], @intCast(height), .little);
-    std.mem.writeInt(u16, out[26..28], 1, .little);
-    std.mem.writeInt(u16, out[28..30], 24, .little);
-    std.mem.writeInt(u32, out[34..38], @intCast(row * height), .little);
-    for (0..height) |y| {
-        const dst = out[54 + (height - 1 - y) * row ..];
-        for (0..width) |x| {
-            const p = rgba[(y * width + x) * 4 ..];
-            dst[x * 3] = p[2];
-            dst[x * 3 + 1] = p[1];
-            dst[x * 3 + 2] = p[0];
-        }
-    }
-    return out;
-}
-
-test "a bitmap's header and pixels" {
-    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_state.deinit();
-    const rgba = [_]u8{ 255, 0, 0, 255, 0, 0, 255, 255 };
-    const b = try bmp(arena_state.allocator(), 2, 1, &rgba);
-    try std.testing.expectEqual(@as(usize, 54 + 8), b.len);
-    try std.testing.expectEqualSlices(u8, "BM", b[0..2]);
-    // Red, then blue, as blue-green-red triples.
-    try std.testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255, 0, 0 }, b[54..60]);
 }

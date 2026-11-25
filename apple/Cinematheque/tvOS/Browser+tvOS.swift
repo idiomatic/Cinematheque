@@ -439,9 +439,9 @@ struct Poster: View {
     private var cover: some View {
         Group {
             if tile.isSeries || inRow {
-                CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, shaped: true)
+                CoverImage(cover: tile.cover, aspect: tile.aspect, title: tile.name, shaped: true)
             } else {
-                CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name)
+                CoverImage(cover: tile.cover, aspect: tile.aspect, title: tile.name)
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)
             }
         }

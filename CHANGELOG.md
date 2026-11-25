@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Covers: before one loads, its tile shows a color of its own, not a blurred likeness; the core reads only a JPEG's width and height (`shape`), so rows are still laid out before covers load. `cq_thumbhash` and the web client's `/api/thumb` are gone.
 * Apps' debug builds: the launch options no script used (`CINEMATHEQUE_CODE_FILE`, `PLAY`, `ITEM`, `LEAVE`, `PAGE`, `PAIR`, `PAIR_NAME`, and `SERVER`) are gone.
 * Command-line app: `title review`, `title facets`, and aliases are gone; no player showed them.
 * Mac: the status bar fades out before the grid's scroll bar, which it covered the bottom of.

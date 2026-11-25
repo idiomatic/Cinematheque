@@ -92,7 +92,6 @@ function coverURL(cover) {
   return "api/cover?" + q;
 }
 
-function thumbURL(hash) { return "api/thumb?" + new URLSearchParams({ hash }); }
 
 function el(tag, attributes = {}, ...children) {
   const e = document.createElement(tag);
@@ -106,7 +105,7 @@ function el(tag, attributes = {}, ...children) {
   return e;
 }
 
-/// Covers and placeholders are fetched only as their tiles near the screen:
+/// Covers are fetched only as their tiles near the screen:
 /// a shelf of thousands asked for them all at once, and the browser's few
 /// connections to the server queued them behind one another. A tile that
 /// leaves before its cover starts loading gives up its turn.
@@ -119,8 +118,8 @@ const nearScreen = new IntersectionObserver((entries) => {
 
 /// Covers come from sources through the server, which waits on a NAS's
 /// disks as they wake: so a few at a time, nearest the screen first, never
-/// all of the browser's six connections to the server, which placeholders,
-/// pages, and playing need meanwhile (a page opened while a shelf's covers
+/// all of the browser's six connections to the server, which pages and
+/// playing need meanwhile (a page opened while a shelf's covers
 /// waited took 20 seconds). A page left behind abandons its covers.
 const covers = { waiting: new Set(), loading: new Set(), most: 3 };
 
@@ -211,7 +210,7 @@ function idOf(item) {
 /// What a tile shows of its data: its name and year, cover, marks, and
 /// lists; changed, it's drawn again.
 function looks(t) {
-  return JSON.stringify([t.name, t.year, t.cover, t.thumb, t.watched, t.progress, t.unavailable, listsOf(listKey(t)).map((l) => l.id)]);
+  return JSON.stringify([t.name, t.year, t.cover, t.aspect, t.watched, t.progress, t.unavailable, listsOf(listKey(t)).map((l) => l.id)]);
 }
 
 /// Covers' shapes, width over height: nearly all are a poster's (2:3) or
@@ -224,19 +223,9 @@ function nearestShape(ratio) {
 }
 
 /// A tile's shape, for a carousel to size it before its cover loads: its
-/// placeholder's (a ThumbHash keeps its image's approximate width over
-/// height, as the core's `thumbhash.aspectRatio` reads it), else a movie's
-/// 2:3 or a season's square.
+/// cover's, as the core read it, else a movie's 2:3 or a season's square.
 function shapeOf(tile) {
-  if (tile.thumb && tile.thumb !== "-") {
-    try {
-      const h = Uint8Array.from(atob(tile.thumb), (c) => c.charCodeAt(0));
-      const alpha = (h[2] & 0x80) !== 0, landscape = (h[4] & 0x80) !== 0;
-      const lx = landscape ? (alpha ? 5 : 7) : h[3] & 7;
-      const ly = landscape ? h[3] & 7 : (alpha ? 5 : 7);
-      if (lx && ly) return nearestShape(lx / ly);
-    } catch { /* No placeholder to go by. */ }
-  }
+  if (tile.aspect) return nearestShape(tile.aspect);
   return tile.season == null ? 2 / 3 : 1;
 }
 
@@ -245,13 +234,8 @@ function shapeOf(tile) {
 /// line's end (`marksView`), leaving its corners to the art, as the apps'.
 function coverView(tile, title = tile.name) {
   const cover = el("div", { class: "cover" });
-  if ((tile.thumb && tile.thumb !== "-") || tile.cover) {
-    let placed = false;
+  if (tile.cover) {
     cover.near = () => {
-      // Its placeholder at once, as the server draws it; its cover in turn.
-      if (!placed && tile.thumb && tile.thumb !== "-") cover.style.backgroundImage = `url("${thumbURL(tile.thumb)}")`;
-      placed = true;
-      if (!tile.cover) return nearScreen.unobserve(cover);
       covers.waiting.add(cover);
       nextCovers();
     };
@@ -263,11 +247,11 @@ function coverView(tile, title = tile.name) {
         if (!covers.loading.delete(img)) return;
         nextCovers();
       };
-      // Shown at once, once loaded, without a fade, over its placeholder.
+      // Shown at once, once loaded, without a fade.
       img.style.visibility = "hidden";
       img.onload = () => {
         img.style.visibility = "";
-        // In a carousel, the cover's own shape, if its placeholder's differs.
+        // In a carousel, the cover's own shape, if it differs from what was read.
         if (img.naturalHeight) cover.closest(".tile")?.style.setProperty("--shape", nearestShape(img.naturalWidth / img.naturalHeight));
         done();
       };
@@ -281,9 +265,7 @@ function coverView(tile, title = tile.name) {
     };
     nearScreen.observe(cover);
   }
-  if (!tile.thumb && !tile.cover) {
-    cover.append(el("div", { class: "initials" }, title));
-  }
+  if (!tile.cover) cover.append(el("div", { class: "initials" }, title));
   if (!tile.watched && tile.progress > 0) cover.append(el("div", { class: "meter" }, el("span", { style: `width:${Math.round(tile.progress * 100)}%` })));
   return cover;
 }
@@ -903,9 +885,8 @@ async function titlePage(key, season) {
     || library.tiles.find((t) => t.key === key);
   const artCover = detail.covers[isSeries ? `art:s${String(season).padStart(2, "0")}` : "art"] || detail.covers.art;
   const art = el("div", { class: `art${isSeries ? " square" : ""}` });
-  if (tile?.thumb && tile.thumb !== "-") art.style.backgroundImage = `url("${thumbURL(tile.thumb)}")`;
   if (artCover) {
-    // As a tile's: shown once loaded, else gone, leaving its placeholder.
+    // As a tile's: shown once loaded, else gone.
     const img = el("img", { alt: "", src: coverURL(artCover) });
     img.style.visibility = "hidden";
     img.onload = () => { img.style.visibility = ""; };

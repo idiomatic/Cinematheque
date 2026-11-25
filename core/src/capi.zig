@@ -18,7 +18,6 @@ pub const std_options: std.Options = .{ .log_level = .warn };
 const Io = std.Io;
 pub const library = @import("library.zig");
 pub const art = @import("art.zig");
-pub const thumbhash = @import("thumbhash.zig");
 pub const store_ = @import("store.zig");
 pub const sync = @import("sync.zig");
 pub const discover = @import("discover.zig");
@@ -120,21 +119,6 @@ pub const Library = struct {
 
 export fn cq_error() [*:0]const u8 {
     return &last_error;
-}
-
-/// Renders a ThumbHash in base64 as RGBA pixels (not premultiplied) into
-/// `rgba`, which holds 32×32×4 bytes, 32 pixels on its longer side; sets
-/// `width` and `height`. Returns 0, or -1 if the hash isn't one. Any thread.
-export fn cq_thumbhash(hash_base64: [*:0]const u8, rgba: *[thumbhash.max_pixels * 4]u8, width: *c_int, height: *c_int) c_int {
-    var bytes: [thumbhash.max_len]u8 = undefined;
-    const text = std.mem.span(hash_base64);
-    const len = std.base64.standard.Decoder.calcSizeForSlice(text) catch return -1;
-    if (len > bytes.len) return -1;
-    std.base64.standard.Decoder.decode(bytes[0..len], text) catch return -1;
-    const r = thumbhash.decode(bytes[0..len], rgba) catch return -1;
-    width.* = @intCast(r.width);
-    height.* = @intCast(r.height);
-    return 0;
 }
 
 /// What this build is, as JSON (`version`, `mode`, `zig`); see

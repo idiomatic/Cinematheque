@@ -21,7 +21,7 @@ struct TitlePage: View {
         let shown = index.map { seasons[$0] } ?? tile
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                CoverImage(cover: shown.cover, thumb: shown.thumb, title: shown.name, size: .large, shaped: true)
+                CoverImage(cover: shown.cover, aspect: shown.aspect, title: shown.name, size: .large, shaped: true)
                     .clipShape(.rect(cornerRadius: 12))
                     .frame(maxHeight: 280)
                     .frame(maxWidth: .infinity)

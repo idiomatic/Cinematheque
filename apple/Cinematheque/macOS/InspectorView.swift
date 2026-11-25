@@ -16,7 +16,7 @@ struct InspectorView: View {
                 // No taller than leaves room for the details below it.
                 Color.clear
                     .aspectRatio(tile.isSeries ? 1 : 2.0 / 3.0, contentMode: .fit)
-                    .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, size: .large, fit: tile.isSeries) }
+                    .overlay { CoverImage(cover: tile.cover, aspect: tile.aspect, title: tile.name, size: .large, fit: tile.isSeries) }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
                     .frame(maxHeight: 340)
@@ -339,7 +339,7 @@ struct SeriesInspectorView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Color.clear
                     .aspectRatio(1, contentMode: .fit)
-                    .overlay { CoverImage(cover: series.cover, thumb: series.thumb, title: series.name, size: .large, fit: true) }
+                    .overlay { CoverImage(cover: series.cover, aspect: series.aspect, title: series.name, size: .large, fit: true) }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
                     .frame(maxHeight: 340)

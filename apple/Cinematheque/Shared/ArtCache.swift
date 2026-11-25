@@ -143,37 +143,15 @@ nonisolated final class CGImageBox: @unchecked Sendable {
     init(_ image: CGImage) { self.image = image }
 }
 
-/// Covers' placeholders, rendered by the core from their ThumbHashes (32
-/// pixels on the longer side, blurred further by scaling up), and kept in
-/// memory.
-enum Placeholder {
-    /// NSCache is safe to use from any thread.
-    nonisolated(unsafe) private static let memory = NSCache<NSString, CGImageBox>()
-
-    static func image(_ hash: String) -> CGImage? {
-        if let box = memory.object(forKey: hash as NSString) { return box.image }
-        var rgba = [UInt8](repeating: 0, count: 32 * 32 * 4)
-        var width: Int32 = 0
-        var height: Int32 = 0
-        guard cq_thumbhash(hash, &rgba, &width, &height) == 0,
-              let provider = CGDataProvider(data: Data(rgba[0..<Int(width * height * 4)]) as CFData),
-              let image = CGImage(width: Int(width), height: Int(height), bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: Int(width) * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
-        else { return nil }
-        memory.setObject(CGImageBox(image), forKey: hash as NSString)
-        return image
-    }
-}
-
-/// A cover, or until it's loaded, its placeholder: a blurred likeness from
-/// its ThumbHash, or without one, a color of its own with its title; in a
-/// fixed frame, so the grid never waits on an image. A cover fills its
-/// frame, cropped, unless `fit`, then it's whole and centered in it (e.g.,
-/// a season's cover of another shape in a square); or, `shaped`, it takes
-/// its own shape within the frame, as large as fits: the cover's, else its
-/// placeholder's (a ThumbHash keeps it), else a square.
+/// A cover, on a color of its own until it's loaded (with its title, if
+/// it has none), in a fixed frame, so the grid never waits on an image. A
+/// cover fills its frame, cropped, unless `fit`, then it's whole and
+/// centered in it (e.g., a season's cover of another shape in a square);
+/// or, `shaped`, it takes its own shape within the frame, as large as
+/// fits: the image's, else as the core read it, else a square.
 struct CoverImage: View {
     let cover: Cover?
-    let thumb: String?
+    let aspect: Double?
     let title: String
     let size: ArtCache.Size
     let fit: Bool
@@ -182,9 +160,9 @@ struct CoverImage: View {
     /// so scrolling back shows no placeholder, else when it arrives.
     @State private var image: CGImage?
 
-    init(cover: Cover?, thumb: String? = nil, title: String, size: ArtCache.Size = .tile, fit: Bool = false, shaped: Bool = false) {
+    init(cover: Cover?, aspect: Double? = nil, title: String, size: ArtCache.Size = .tile, fit: Bool = false, shaped: Bool = false) {
         self.cover = cover
-        self.thumb = thumb
+        self.aspect = aspect
         self.title = title
         self.size = size
         self.fit = fit
@@ -238,17 +216,14 @@ struct CoverImage: View {
         return context.makeImage()!
     }()
 
-    /// Width over height: the cover's, else its placeholder's, else 1.
+    /// Width over height: the image's, else as the core read it, else 1.
     private var shape: CGFloat {
         if let image, image.height > 0 { return CGFloat(image.width) / CGFloat(image.height) }
-        return Self.shape(thumb: thumb)
+        return Self.shape(aspect: aspect)
     }
 
-    /// A cover's shape before it's loaded: its placeholder's, else 1.
-    static func shape(thumb: String?) -> CGFloat {
-        if let thumb, let p = Placeholder.image(thumb), p.height > 0 { return CGFloat(p.width) / CGFloat(p.height) }
-        return 1
-    }
+    /// A cover's shape before it's loaded: as the core read it, else 1.
+    static func shape(aspect: Double?) -> CGFloat { aspect.map { CGFloat($0) } ?? 1 }
 
     /// An image filling the frame offered, cropped to it: an image scaled
     /// to fill reports a size larger than its frame.
@@ -258,25 +233,18 @@ struct CoverImage: View {
             .clipped()
     }
 
-    @ViewBuilder
     private var placeholder: some View {
-        if let thumb, let image = Placeholder.image(thumb) {
-            Self.filling(Image(decorative: image, scale: 1).resizable().interpolation(.high))
-        } else {
-            colored
-        }
-    }
-
-    private var colored: some View {
         // Stable across launches, unlike hashValue.
         let hue = Double(title.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xffff } % 360) / 360
         return ZStack {
             Color(hue: hue, saturation: 0.35, brightness: 0.45)
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.white.opacity(0.85))
-                .multilineTextAlignment(.center)
-                .padding(8)
+            if cover == nil {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                    .padding(8)
+            }
         }
     }
 }

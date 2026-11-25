@@ -1385,7 +1385,7 @@ struct TileView: View {
         VStack(alignment: .leading, spacing: Self.spacing) {
             Color.clear
                 .aspectRatio(aspect, contentMode: .fit)
-                .overlay { CoverImage(cover: tile.cover, thumb: tile.thumb, title: isSeries ? tile.name : tile.seasonName ?? tile.name, fit: tile.isSeries) }
+                .overlay { CoverImage(cover: tile.cover, aspect: tile.aspect, title: isSeries ? tile.name : tile.seasonName ?? tile.name, fit: tile.isSeries) }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 // Its copies are all on drives that aren't there, or it's a
                 // placeholder, not in the library yet.

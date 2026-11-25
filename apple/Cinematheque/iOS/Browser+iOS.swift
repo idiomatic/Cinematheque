@@ -182,7 +182,7 @@ struct TileCover: View {
     let tile: Tile
 
     var body: some View {
-        CoverImage(cover: tile.cover, thumb: tile.thumb, title: tile.name, shaped: true)
+        CoverImage(cover: tile.cover, aspect: tile.aspect, title: tile.name, shaped: true)
             .opacity(tile.unavailable || tile.isWanted ? 0.4 : 1)
             .overlay(alignment: .bottom) { CoverProgress(tile: tile) }
             .clipShape(.rect(cornerRadius: 8))
@@ -274,7 +274,7 @@ private struct JustifiedGrid: View {
         var row: [(tile: Tile, shape: CGFloat)] = []
         func widthAt(_ h: CGFloat) -> CGFloat { row.reduce(0) { $0 + $1.shape * h } + spacing * CGFloat(max(row.count - 1, 0)) }
         for tile in tiles {
-            row.append((tile, CoverImage.shape(thumb: tile.thumb)))
+            row.append((tile, CoverImage.shape(aspect: tile.aspect)))
             if widthAt(height) >= width {
                 let gaps = spacing * CGFloat(row.count - 1)
                 rows.append(Row(tiles: row, height: (width - gaps) / row.reduce(0) { $0 + $1.shape }))

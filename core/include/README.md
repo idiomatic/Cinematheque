@@ -137,7 +137,6 @@ A new device offers to be added and shows a code; a member's device, given the c
 |---|---|
 | `cq_tiles(library)` | *Any thread,* on a connection of its own (it reads the whole catalog). The tiles, below |
 | `cq_title(library, key)` | One title, below; fails with `NoSuchTitle` |
-| `cq_thumbhash(hash_base64, rgba, width, height)` | *Any thread.* Renders a tile's `thumb` into `rgba` (32×32×4 bytes: RGBA, not premultiplied, 32 pixels on its longer side), setting `width` and `height`. Returns 0, or -1 if it isn't a ThumbHash |
 
 A **tile** is a movie or a season, with this person's progress ([views.zig](../src/views.zig)):
 
@@ -146,7 +145,7 @@ A **tile** is a movie or a season, with this person's progress ([views.zig](../s
 | `key`, `name`, `year` | The title's key, name, and year (or null) |
 | `kind`, `season` | `"movie"` or `"series"`; a season's number, else null |
 | `cover` | Null, or `{url, offset, length, stamp}`: a byte range to fetch, and what changes when it does |
-| `thumb` | Null, or the cover's placeholder, a ThumbHash in base64 (`"-"` for a cover not a JPEG) |
+| `aspect` | Null, or the cover's width over its height, to lay it out before it loads |
 | `watched`, `progress`, `elapsed`, `runtime`, `started` | Every item watched; the share of its running time played (0 to 1); milliseconds played, of how many; whether any item has progress |
 | `items`, `unavailable` | How many items it holds; whether every copy it has is unavailable |
 | `order` | Its title's place in each order, `{title, released, added, modified, watched}`, each counted from what comes first in the order's usual direction, null for no place (see [AGENTS.md](../../AGENTS.md#library)) |

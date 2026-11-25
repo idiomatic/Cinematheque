@@ -175,7 +175,7 @@ extension Library {
             let runtime = seasons.reduce(0) { $0 + $1.runtime }
             return Tile(
                 key: tile.key, name: tile.name, year: tile.year, kind: tile.kind, season: tile.season,
-                cover: shown.cover, thumb: shown.thumb,
+                cover: shown.cover, aspect: shown.aspect,
                 watched: seasons.allSatisfy(\.watched),
                 progress: runtime > 0 ? Double(elapsed) / Double(runtime) : 0,
                 elapsed: elapsed, runtime: runtime,

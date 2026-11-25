@@ -9,7 +9,7 @@ const library = @import("library.zig");
 const Replica = @import("replica.zig").Replica;
 
 pub const CoverJson = struct { url: []const u8, offset: u64, length: u64, stamp: []const u8 };
-pub const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: library.TitleKind, season: ?u16, cover: ?CoverJson, thumb: ?[]const u8, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, items: usize, unavailable: bool, order: order.Order };
+pub const TileJson = struct { key: []const u8, name: []const u8, year: ?u16, kind: library.TitleKind, season: ?u16, cover: ?CoverJson, aspect: ?f64, watched: bool, progress: f64, elapsed: u64, runtime: u64, started: bool, items: usize, unavailable: bool, order: order.Order };
 
 pub fn tiles(r: *Replica, arena: std.mem.Allocator) ![]const TileJson {
     const bases = try sourceBases(r, arena);
@@ -23,7 +23,7 @@ pub fn tiles(r: *Replica, arena: std.mem.Allocator) ![]const TileJson {
         .kind = t.kind,
         .season = t.season,
         .cover = if (t.cover) |c| try coverJson(arena, bases, c) else null,
-        .thumb = t.thumb,
+        .aspect = t.aspect,
         .watched = t.watched,
         .progress = t.progress,
         .elapsed = t.played,

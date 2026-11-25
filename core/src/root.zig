@@ -13,7 +13,6 @@ pub const url = @import("url.zig");
 pub const mp4 = @import("mp4.zig");
 pub const art = @import("art.zig");
 pub const jpeg = @import("jpeg.zig");
-pub const thumbhash = @import("thumbhash.zig");
 pub const store = @import("store.zig");
 pub const pair = @import("pair.zig");
 pub const host = @import("host.zig");
@@ -42,7 +41,6 @@ test {
     _ = mp4;
     _ = art;
     _ = jpeg;
-    _ = thumbhash;
     _ = store;
     _ = pair;
     _ = host;

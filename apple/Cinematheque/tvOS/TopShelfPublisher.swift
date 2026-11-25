@@ -181,11 +181,11 @@ enum TopShelfPublisher {
     /// A tile's placeholder as the app draws it, rather than the Top
     /// Shelf's dots, for a title without a cover, or until it's fetched.
     @MainActor private static func placeholder(_ tile: Tile, in directory: URL) -> String? {
-        let name = name("placeholder \(tile.name) \(tile.thumb ?? "") \(tile.season != nil)")
+        let name = name("placeholder \(tile.name) \(tile.season != nil)")
         let file = directory.appending(path: name)
         if FileManager.default.fileExists(atPath: file.path) { return name }
         let width = CGFloat(ArtCache.Size.tile.rawValue) * 2 / 3
-        let renderer = ImageRenderer(content: CoverImage(cover: nil, thumb: tile.thumb, title: tile.name)
+        let renderer = ImageRenderer(content: CoverImage(cover: nil, title: tile.name)
             .frame(width: width, height: tile.season != nil ? width : width * 3 / 2))
         renderer.scale = 2
         guard let image = renderer.cgImage, write(image, to: file) else { return nil }

@@ -55,8 +55,7 @@ External specifications and papers Cinematheque relies on. They're linked, not c
 
 | Title | Source | Why it applies |
 |---|---|---|
-| ITU-T T.81, JPEG | https://www.w3.org/Graphics/JPEG/itu-t81.pdf | Huffman-coded sequential and progressive scans, whose DC coefficients the core decodes for placeholders. |
-| ThumbHash (MIT) | https://github.com/evanw/thumbhash | The placeholder format, and the reference implementation the core's port reproduces. |
+| ITU-T T.81, JPEG | https://www.w3.org/Graphics/JPEG/itu-t81.pdf | Frame headers (SOF), from which the core reads covers' sizes. |
 | QuickTime File Format: metadata | https://developer.apple.com/documentation/quicktime-file-format | Atom layout, and the `ilst` items (`covr`, `©nam`, `ldes`) MP4 covers and metadata come from. |
 
 ## Apple players

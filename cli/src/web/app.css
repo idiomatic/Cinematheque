@@ -151,8 +151,8 @@ main > h2:first-child, main > .list-heading:first-child { margin-top: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .band { transition: none; } }
 /* Carousels (Home's rows, and Lists'): every cover one height, each its
-   own width, by its shape (`--shape`, width over height: its cover's, else
-   its placeholder's), the row scrolling sideways; a carousel isn't a grid,
+   own width, by its shape (`--shape`, width over height: its cover's, as
+   the core read it), the row scrolling sideways; a carousel isn't a grid,
    so its gaps needn't line up across rows. */
 .row-heading { display: flex; align-items: baseline; gap: 12px; margin: 24px 0 10px; }
 .row-heading h2 { margin: 0; flex: 1 1 auto; min-width: 0; }

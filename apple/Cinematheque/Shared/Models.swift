@@ -22,8 +22,8 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
     let kind: TitleKind
     let season: Int?
     let cover: Cover?
-    /// The cover's placeholder, a ThumbHash in base64.
-    let thumb: String?
+    /// The cover's width over its height, if the core could read it.
+    let aspect: Double?
     /// This person's: every item watched; how far along (0 to 1), by running
     /// time: how many milliseconds have `elapsed` (watched items whole,
     /// those partway to their positions) of the `runtime`; and whether any
@@ -53,12 +53,12 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
     init(wanted w: UserList.Wanted) {
         let fields = Wanting(w)
         self.init(key: String(w.key.split(separator: "#", maxSplits: 1)[0]), name: w.name, year: fields.year, kind: fields.kind,
-                  season: fields.season, cover: nil, thumb: nil, watched: false, progress: 0, elapsed: 0,
+                  season: fields.season, cover: nil, aspect: nil, watched: false, progress: 0, elapsed: 0,
                   runtime: 0, started: false, items: 0, order: .init(title: .max, released: nil, added: nil, modified: nil, watched: nil),
                   wanted: w.note)
     }
 
-    init(key: String, name: String, year: Int?, kind: TitleKind, season: Int?, cover: Cover?, thumb: String?, watched: Bool, progress: Double,
+    init(key: String, name: String, year: Int?, kind: TitleKind, season: Int?, cover: Cover?, aspect: Double?, watched: Bool, progress: Double,
          elapsed: Int, runtime: Int, started: Bool, items: Int, unavailable: Bool = false, order: Order, wanted: String? = nil) {
         self.key = key
         self.name = name
@@ -66,7 +66,7 @@ nonisolated struct Tile: Codable, Identifiable, Hashable {
         self.kind = kind
         self.season = season
         self.cover = cover
-        self.thumb = thumb
+        self.aspect = aspect
         self.watched = watched
         self.progress = progress
         self.elapsed = elapsed
