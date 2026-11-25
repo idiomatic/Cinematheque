@@ -601,7 +601,7 @@ private struct DownloadControls: View {
         .disabled(held || coming)
         .help(help)
         // Under a heading, as Show in Finder's places are.
-        .contextMenu { if !held && !coming { DownloadSection(key: key, items: items) } }
+        .contextMenu { if !held { DownloadSection(key: key, items: items) } }
     }
 
     /// The movie's trash button's help: what it does, warning of an only
@@ -751,6 +751,8 @@ struct DownloadMenuItems: View {
             Button(library.onlyCopies(key) > 0 ? "Delete Only Copy…" : "Delete Download") { library.deleteDownload(key) }
         } else if keys.contains(where: library.isWanted) {
             Button("Cancel Download") { library.removeDownload(key) }
+            // Another quality instead, one that's there now, say.
+            DownloadSection(key: key, items: items)
         } else {
             DownloadSection(key: key, items: items)
         }
@@ -760,7 +762,10 @@ struct DownloadMenuItems: View {
 /// Downloading, in a menu: under a heading, each quality the items have,
 /// by its short name, with what its files come to (a warning symbol for one
 /// whose files not here yet wouldn't fit, as menus can't be colored), then
-/// the space available.
+/// the space available. One whose copies are all unavailable (a drive
+/// unplugged) may still be chosen, to come when it's back, as a clock says;
+/// one waiting already says so, and choosing another (one that's there)
+/// takes its place.
 struct DownloadSection: View {
     let key: String
     let items: [TitleDetail.Item]
@@ -776,7 +781,12 @@ struct DownloadSection: View {
                 // What isn't here yet, as the inspector's Download weighs it.
                 let needed = library.downloadSizes(key, choices: [""], quality: label)[""]?.needed ?? size
                 let fits = space.map { needed <= $0 } ?? true
-                Button("\(short) — \(Self.bytes(size))", systemImage: fits ? "arrow.down.circle" : "exclamationmark.triangle") {
+                // Every copy unavailable (a drive unplugged): still chosen,
+                // to come when it's back, as said.
+                let away = qualities.allSatisfy { $0.copies.allSatisfy(\.unavailable) } ? qualities.first?.copies.first.map { library.sourceName($0.source) } : nil
+                let waiting = away != nil && library.wantedQuality(key) == label
+                let title = "\(short) — \(Self.bytes(size))" + (away.map { waiting ? ", waiting for \($0)" : ", when \($0) is back" } ?? "")
+                Button(title, systemImage: away != nil ? "clock" : fits ? "arrow.down.circle" : "exclamationmark.triangle") {
                     library.download(key, quality: label)
                 }
             }

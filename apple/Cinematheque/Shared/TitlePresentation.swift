@@ -126,7 +126,10 @@ extension Playback {
 enum QualityChoice {
     static func best(_ items: [TitleDetail.Item]) -> String? {
         let limit = Platform.displayHeight >= 2160 ? 2160 : 1080
-        let qualities = items.flatMap(\.qualities)
+        // Those with a copy that's there (not on a drive unplugged), if any.
+        let all = items.flatMap(\.qualities)
+        let present = all.filter { $0.copies.contains { !$0.unavailable } }
+        let qualities = present.isEmpty ? all : present
         let playable = qualities.filter { r in r.copies.contains { URL(string: $0.url).map(Playback.playsNatively) ?? false } }
         return (playable.isEmpty ? qualities : playable).max { score($0.height, limit) < score($1.height, limit) }?.label
     }

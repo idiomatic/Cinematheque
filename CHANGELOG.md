@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Mac: a folder of its own that goes (a drive unplugged) or comes back is looked through at once, so its videos show as unavailable, and Play passes over them, right away, on every device, and downloads waiting on it start when it's back. The Download menu marks a quality whose copies are all unavailable with a clock ("when Archive1841 is back"), still to be chosen, and while one waits, offers the others.
 * A download whose copies are away (an unplugged drive, a server off) waits quietly for them to come back, not "Downloading failed: not found."
 * Downloads, and the web client's relay of a file to a browser, run at the drive's or network's speed: a deadline on every read, canceled as each came, held a download from a Mac's own drive to 8 MB/s; now one watchdog gives each mebibyte its minute.
 * Titles keep a word that's a scene token too ("Madame Web", "The Darjeeling Limited" were cut short), and a season folder naming its series (`Ahsoka Season 1`) holds that series' episodes, not a movie per episode.

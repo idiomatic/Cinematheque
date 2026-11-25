@@ -124,6 +124,11 @@ extension Library {
 
     /// Whether a key is an item's, or a title's or season's holding it
     /// (`…/e/s01` holds `…/e/s01e02`).
+    /// The quality a title, season, or item is wanted in, if it is.
+    func wantedQuality(_ key: String) -> String? {
+        downloads?.wanted.first { Self.holds(wanted: $0.key, key) || Self.holds(wanted: key, $0.key) }?.quality
+    }
+
     private static func holds(wanted: String, _ key: String) -> Bool {
         guard key.hasPrefix(wanted) else { return false }
         let rest = key.dropFirst(wanted.count)

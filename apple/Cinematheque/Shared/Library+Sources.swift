@@ -91,14 +91,34 @@ extension Library {
         }.map(\.prefix))
     }
 
-    /// Notes folders that have come back, or gone, for Settings to show.
+    /// Notes folders that have come back, or gone, for Settings to show,
+    /// and crawls each one's source at once: gone (a drive unplugged), its
+    /// copies are marked unavailable (one field) for every device, so Play
+    /// passes over them; back, the mark goes, and downloads waiting on it
+    /// come.
     func checkFolders() {
         // Off the main actor: a share that's hung can hold a stat for its timeout.
         let folders = folders
         Task {
             let now = await Task.detached { Self.missing(folders) }.value
-            if now != unavailableFolders { unavailableFolders = now }
+            guard now != unavailableFolders else { return }
+            let changed = now.symmetricDifference(unavailableFolders)
+            unavailableFolders = now
+            for folder in folders where changed.contains(folder.prefix) {
+                if let source = sources.first(where: { $0.url == folder.url }) { await crawlQuietly(source.id) }
+            }
         }
+    }
+
+    /// Crawls one source, unshown (it's this Mac's own folder, come or
+    /// gone), then reads back, and fetches what waited on it.
+    private func crawlQuietly(_ source: String) async {
+        guard let handle, hasLibrary, !leavingLibrary else { return }
+        await Task.detached { if let text = cq_crawl_source(handle.pointer, source) { cq_free(text) } }.value
+        reloadSoon()
+        #if os(macOS)
+        reconcileSoon()
+        #endif
     }
 
     private var foldersKey: String { "folders-" + (status?.library ?? "") }
@@ -148,6 +168,13 @@ extension Library {
     /// download plays first), else in one of its folders.
     func fileHere(_ item: TitleDetail.Item) -> URL? {
         item.qualities.flatMap(\.copies).lazy.compactMap(Playback.downloaded).first.flatMap { URL(string: $0.url) } ?? folderFile(item)
+    }
+
+    /// A source's name as a person knows it: a folder of this Mac's by its
+    /// own name, else its server and folders ("sulaco › Video › TV Shows").
+    func sourceName(_ id: String) -> String {
+        guard let source = sources.first(where: { $0.id == id }) else { return "its source" }
+        return folder(of: source)?.name ?? source.displayName
     }
 
     /// The folder a source serves from this device, if it's one.

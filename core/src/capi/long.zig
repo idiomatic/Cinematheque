@@ -72,6 +72,21 @@ export fn cq_crawl_full(lib: *Library) ?[*:0]u8 {
     return json(lib, crawlAllAfresh, .{});
 }
 
+/// Long: as `cq_crawl`, for one source (by ID or URL), as a Mac crawls its
+/// own folder as it comes or goes (a drive plugged in or unplugged), so
+/// its copies are known unavailable at once (one field), or available
+/// again, rather than at the next refresh.
+export fn cq_crawl_source(lib: *Library, source: [*:0]const u8) ?[*:0]u8 {
+    return json(lib, crawlOne, .{std.mem.span(source)});
+}
+
+fn crawlOne(lib: *Library, arena: std.mem.Allocator, which: []const u8) ![]const CrawlJson {
+    var r = try connection(lib, arena);
+    defer release(lib, &r);
+    const source = try library.findSource(&r, arena, which);
+    return crawlAndDescribe(lib, arena, &r, &.{source}, library.crawlSource);
+}
+
 /// Long: as `cq_crawl`, but for a refresh not asked for (at launch, or on
 /// a timer), once synced: skips sources a device crawled within the
 /// library's interval (`cq_crawl_every`), give or take a 24th of it
