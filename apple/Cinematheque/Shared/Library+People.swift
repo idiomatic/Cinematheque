@@ -39,32 +39,35 @@ extension Library {
 
     /// Adds the new device `device` as another of this person's devices,
     /// given the code it shows: sends it the library and this person's
-    /// secret. Returns who it is (for `welcome`), or what went wrong, in
-    /// words.
-    func pairPerson(_ device: NearbyDevice, code: String) async -> (Paired?, String?) {
+    /// secret, then takes it in (`welcome`). Returns what went wrong, in
+    /// words, if anything did.
+    func pairPerson(_ device: NearbyDevice, code: String) async -> String? {
         await pair(device, code: code) { cq_pair_person($0, $1, $2) }
     }
 
-    /// Adds the new device `device` as a new member's, given the code it
-    /// shows: sends it the library alone. Returns who it is (for
-    /// `welcomeMember`), or what went wrong, in words.
-    func pairMember(_ device: NearbyDevice, code: String) async -> (Paired?, String?) {
-        await pair(device, code: code) { cq_pair_member($0, $1, $2) }
+    /// As `pairPerson`, as a new member's device: sends it the library
+    /// alone, and adds its person as a member.
+    func pairMember(_ device: NearbyDevice, code: String) async -> String? {
+        await pair(device, code: code, by: { cq_pair_member($0, $1, $2) }) { paired in self.check { cq_member_add($0, paired.person) } }
     }
 
-    private func pair(_ device: NearbyDevice, code: String, by send: @escaping @Sendable (OpaquePointer, String, String) -> UnsafeMutablePointer<CChar>?) async -> (Paired?, String?) {
+    private func pair(_ device: NearbyDevice, code: String, by send: @escaping @Sendable (OpaquePointer, String, String) -> UnsafeMutablePointer<CChar>?, admit: (Paired) -> Void = { _ in }) async -> String? {
         let url = device.url
         let name = device.deviceName ?? "The device"
         let called: (Paired?, String?)? = await apart { handle in
             guard let data = coreData(send(handle, url, code)) else { return (nil, String(cString: cq_error())) }
             return (decoded(Paired.self, data), nil)
         }
-        guard let (paired, failure) = called else { return (nil, "The library isn't open.") }
-        guard let failure else { return (paired, nil) }
+        guard let (paired, failure) = called else { return "The library isn't open." }
         switch failure {
-        case "WrongCode": return (nil, "That isn't the code \(name) shows. Check it, and try again.")
-        case "Closed": return (nil, "\(name) stopped taking codes from this \(Self.deviceKind) after too many wrong ones. On it, show a new code.")
-        default: return (nil, "Couldn't pair with \(name): \(failure).")
+        case nil:
+            guard let paired else { return "Couldn't pair with \(name)." }
+            admit(paired)
+            welcome(paired, from: device)
+            return nil
+        case "WrongCode": return "That isn't the code \(name) shows. Check it, and try again."
+        case "Closed": return "\(name) stopped taking codes from this \(Self.deviceKind) after too many wrong ones. On it, show a new code."
+        case let failure?: return "Couldn't pair with \(name): \(failure)."
         }
     }
 
@@ -114,18 +117,11 @@ extension Library {
     /// Takes in a device just paired: names it as it advertised itself, or
     /// as its host is named if that's generic (until it names itself), so
     /// it's among its person's devices at once.
-    func welcome(_ paired: Paired, from device: NearbyDevice) {
+    private func welcome(_ paired: Paired, from device: NearbyDevice) {
         if let name = device.deviceName {
             check { cq_name($0, paired.device, paired.person, name) }
         }
         reloadSoon()
-    }
-
-    /// As `welcome`, for a new person's device: adds its person as a member
-    /// too.
-    func welcomeMember(_ paired: Paired, from device: NearbyDevice) {
-        check { cq_member_add($0, paired.person) }
-        welcome(paired, from: device)
     }
 
     // Names and devices.

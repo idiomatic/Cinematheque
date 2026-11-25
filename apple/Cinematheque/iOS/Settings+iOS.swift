@@ -240,17 +240,14 @@ private struct NewDevices: View {
     /// What to do, before anything's chosen.
     let about: String
     /// Adds the device by its code, as whose it is.
-    let add: (Library, NearbyDevice, String) async -> (Paired?, String?)
-    /// Names the device added, and its person, if new.
-    let welcome: (Library, Paired, NearbyDevice) -> Void
+    let add: (Library, NearbyDevice, String) async -> String?
 
     /// Another of this person's devices.
     static var device: NewDevices {
         NewDevices(
             title: "Add a Device",
             about: "On your device, choose Join a Library; it shows here, then enter the code it shows. Add only your own: it can act as you, sharing your progress and lists.",
-            add: { await $0.pairPerson($1, code: $2) },
-            welcome: { $0.welcome($1, from: $2) })
+            add: { await $0.pairPerson($1, code: $2) })
     }
 
     /// Someone new's device, who joins as a member.
@@ -258,32 +255,18 @@ private struct NewDevices: View {
         NewDevices(
             title: "Add Someone",
             about: "On their device, have them choose Join a Library; it shows here, then enter the code it shows. They keep their own progress and lists.",
-            add: { await $0.pairMember($1, code: $2) },
-            welcome: { $0.welcomeMember($1, from: $2) })
+            add: { await $0.pairMember($1, code: $2) })
     }
 
     @Environment(Library.self) private var library
-    @State private var nearby: [NearbyDevice] = []
-    /// The device whose code is asked for, in a field under it.
-    @State private var entering: NearbyDevice?
-    @State private var code = ""
+    @State private var adding = AddingDevices()
     @FocusState private var typingCode: Bool
-    @State private var pairing: NearbyDevice?
-    @State private var problem: String?
-    @State private var added: String?
-
-    private var offering: [NearbyDevice] { nearby.filter { $0.pairing != nil } }
 
     var body: some View {
         Section {
-            ForEach(offering) { device in
-                Button {
-                    problem = nil
-                    added = nil
-                    code = ""
-                    // Again, it closes.
-                    entering = entering?.url == device.url ? nil : device
-                } label: {
+            ForEach(adding.offering) { device in
+                // Again, it closes.
+                Button { adding.choose(device) } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(device.deviceName ?? "A New Device")
@@ -292,63 +275,33 @@ private struct NewDevices: View {
                             }
                         }
                         Spacer()
-                        if pairing?.url == device.url { ProgressView() }
+                        if adding.pairing?.url == device.url { ProgressView() }
                     }
                 }
                 .foregroundStyle(.primary)
-                .disabled(pairing != nil)
+                .disabled(adding.pairing != nil)
                 // Its code, typed in place on the number pad; the last digit
                 // adds it.
-                if entering?.url == device.url {
-                    TextField("Code", text: $code, prompt: Text("The \(CodeBoxes.length)-digit code it shows"))
+                if adding.entering == device.url {
+                    TextField("Code", text: $adding.code, prompt: Text("The \(CodeBoxes.length)-digit code it shows"))
                         .keyboardType(.numberPad)
                         .focused($typingCode)
-                        .disabled(pairing != nil)
+                        .disabled(adding.pairing != nil)
                         .onAppear { typingCode = true }
-                        .onChange(of: code) {
-                            let digits = String(code.filter(\.isNumber).prefix(CodeBoxes.length))
-                            if digits != code { code = digits }
-                            if digits.count == CodeBoxes.length { pair(device, digits) }
+                        .onChange(of: adding.code) {
+                            let digits = String(adding.code.filter(\.isNumber).prefix(CodeBoxes.length))
+                            if digits != adding.code { adding.code = digits }
+                            if digits.count == CodeBoxes.length { adding.pair(device, digits) { await add(library, $0, $1) } }
                         }
                 }
             }
-            if offering.isEmpty {
-                HStack(spacing: 12) {
-                    ProgressView()
-                    Text("Looking for new devices nearby…").foregroundStyle(.secondary)
-                }
-            }
+            if adding.offering.isEmpty { Looking() }
         } header: {
             Text(title)
         } footer: {
-            if let problem { Text(problem).foregroundStyle(.red) } else { Text(added ?? about) }
+            if let problem = adding.problem { Text(problem).foregroundStyle(.red) } else { Text(adding.note ?? about) }
         }
-        .modifier(Nearby(devices: $nearby))
-    }
-
-    private func pair(_ device: NearbyDevice, _ typed: String) {
-        let code = typed.filter(\.isNumber)
-        guard code.count == CodeBoxes.length else {
-            problem = "The code is \(CodeBoxes.length) digits, as \(device.deviceName ?? "the device") shows it."
-            return
-        }
-        pairing = device
-        problem = nil
-        Task {
-            let (joined, why) = await add(library, device, code)
-            pairing = nil
-            guard let joined else {
-                // Cleared, to type again.
-                self.code = ""
-                problem = why ?? "Couldn't add it."
-                return
-            }
-            entering = nil
-            welcome(library, joined, device)
-            // Gone from here as it stops offering, it's listed above.
-            nearby.removeAll { $0.id == device.id }
-            added = "Added \(device.deviceName ?? "it")."
-        }
+        .modifier(Nearby(devices: $adding.nearby))
     }
 }
 

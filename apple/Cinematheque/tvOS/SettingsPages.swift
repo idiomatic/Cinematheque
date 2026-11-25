@@ -11,8 +11,7 @@ import SwiftUI
 /// adding someone, by their device's code.
 struct PeoplePage: View {
     @Environment(Library.self) private var library
-    /// What adding someone last said (a wrong code, someone added).
-    @State private var adding: String?
+    @State private var adding = AddingDevices()
     /// Someone to remove, once confirmed: they come back only as someone new.
     @State private var removing: Member?
     @FocusState private var focus: String?
@@ -29,7 +28,7 @@ struct PeoplePage: View {
                     }
                 }
                 .listRowInsets(SettingsView.rowInsets)
-                NewDevices.someone(focus: $focus, said: $adding)
+                NewDevices.someone(focus: $focus, adding: adding)
             }
             .scrollClipDisabled()
         }
@@ -38,7 +37,7 @@ struct PeoplePage: View {
 
     private var explanation: String {
         guard let focus else { return SettingsRow.people.explanation }
-        if focus.hasPrefix(NewDevices.prefix) { return adding ?? NewDevices.someoneAbout }
+        if focus.hasPrefix(NewDevices.prefix) { return adding.said ?? NewDevices.someoneAbout }
         return library.members.first { "member:" + $0.key == focus }.map(hint) ?? ""
     }
 
@@ -54,8 +53,7 @@ struct PeoplePage: View {
 /// adding another, by its code.
 struct DevicesPage: View {
     @Environment(Library.self) private var library
-    /// What adding a device last said (a wrong code, a device added).
-    @State private var adding: String?
+    @State private var adding = AddingDevices()
     /// A device pressed: what to do with it, asked.
     @State private var acting: Device?
     /// The device whose name's keyboard is up.
@@ -81,7 +79,7 @@ struct DevicesPage: View {
                     }
                 }
                 .listRowInsets(SettingsView.rowInsets)
-                NewDevices.device(focus: $focus, said: $adding)
+                NewDevices.device(focus: $focus, adding: adding)
             }
             .scrollClipDisabled()
         }
@@ -101,7 +99,7 @@ struct DevicesPage: View {
 
     private var explanation: String {
         guard let focus else { return SettingsRow.devices.explanation }
-        if focus.hasPrefix(NewDevices.prefix) { return adding ?? NewDevices.deviceAbout }
+        if focus.hasPrefix(NewDevices.prefix) { return adding.said ?? NewDevices.deviceAbout }
         return library.devices.first { "device:" + $0.key == focus }.map(hint) ?? ""
     }
 
@@ -193,84 +191,51 @@ struct SourcesPage: View {
 struct NewDevices: View {
     let title: String
     /// Adds the device by its code, as whose it is.
-    let add: (Library, NearbyDevice, String) async -> (Paired?, String?)
-    /// Names the device added, and its person, if new.
-    let welcome: (Library, Paired, NearbyDevice) -> Void
+    let add: (Library, NearbyDevice, String) async -> String?
     var focus: FocusState<String?>.Binding
-    @Binding var said: String?
+    let adding: AddingDevices
 
     /// Its rows' focus IDs' prefix, for the page's explanation.
     static let prefix = "new:"
-    static let deviceAbout = "On your device, choose Join a Library, then choose it here and enter the code it shows. Add only your own: it can act as you, sharing your progress and watchlist."
-    static let someoneAbout = "On their device, have them choose Join a Library, then choose it here and enter the code it shows. They keep their own progress and watchlist."
+    static let deviceAbout = "On your device, choose Join a Library, then choose it here and enter the code it shows. Add only your own: it can act as you, sharing your progress and lists."
+    static let someoneAbout = "On their device, have them choose Join a Library, then choose it here and enter the code it shows. They keep their own progress and lists."
 
     /// Another of this person's devices.
-    static func device(focus: FocusState<String?>.Binding, said: Binding<String?>) -> NewDevices {
-        NewDevices(title: "Add a Device", add: { await $0.pairPerson($1, code: $2) }, welcome: { $0.welcome($1, from: $2) }, focus: focus, said: said)
+    static func device(focus: FocusState<String?>.Binding, adding: AddingDevices) -> NewDevices {
+        NewDevices(title: "Add a Device", add: { await $0.pairPerson($1, code: $2) }, focus: focus, adding: adding)
     }
 
     /// Someone new's device, who joins as a member.
-    static func someone(focus: FocusState<String?>.Binding, said: Binding<String?>) -> NewDevices {
-        NewDevices(title: "Add Someone", add: { await $0.pairMember($1, code: $2) }, welcome: { $0.welcomeMember($1, from: $2) }, focus: focus, said: said)
+    static func someone(focus: FocusState<String?>.Binding, adding: AddingDevices) -> NewDevices {
+        NewDevices(title: "Add Someone", add: { await $0.pairMember($1, code: $2) }, focus: focus, adding: adding)
     }
 
     @Environment(Library.self) private var library
-    @State private var nearby: [NearbyDevice] = []
-    /// The device whose code's keyboard is up.
-    @State private var entering: String?
-    @State private var pairing: NearbyDevice?
-
-    private var offering: [NearbyDevice] { nearby.filter { $0.pairing != nil } }
 
     var body: some View {
+        @Bindable var adding = adding
         Section {
-            ForEach(offering) { device in
-                Button { said = nil; entering = device.url } label: {
+            ForEach(adding.offering) { device in
+                Button { adding.choose(device) } label: {
                     // What kind of device it is as its value, at the row's
                     // end, as the system's rows keep one height.
-                    ValueLabel(title: device.deviceName ?? "A New Device", opens: true, value: pairing?.url == device.url ? "Adding…" : device.model ?? "")
+                    ValueLabel(title: device.deviceName ?? "A New Device", opens: true, value: adding.pairing?.url == device.url ? "Adding…" : device.model ?? "")
                 }
-                .disabled(pairing != nil)
+                .disabled(adding.pairing != nil)
                 .background {
-                    KeyboardField(title: "The code \(device.deviceName ?? "it") shows", text: "", keyboard: .numberPad, typing: Binding(get: { entering == device.url }, set: { if !$0 { entering = nil } })) {
-                        pair(device, $0)
+                    KeyboardField(title: "The code \(device.deviceName ?? "it") shows", text: "", keyboard: .numberPad, typing: Binding(get: { adding.entering == device.url }, set: { if !$0 { adding.entering = nil } })) {
+                        adding.pair(device, $0) { await add(library, $0, $1) }
                     }
                     .unseen()
                 }
                 .focused(focus, equals: Self.prefix + device.url)
             }
-            if offering.isEmpty {
-                HStack(spacing: 20) {
-                    ProgressView()
-                    Text("Looking for new devices nearby…").foregroundStyle(.secondary)
-                }
-            }
+            if adding.offering.isEmpty { Looking() }
         } header: {
             Text(title).bold()
         }
         .listRowInsets(SettingsView.rowInsets)
-        .modifier(Nearby(devices: $nearby))
-    }
-
-    private func pair(_ device: NearbyDevice, _ typed: String) {
-        let code = typed.filter(\.isNumber)
-        guard code.count == CodeBoxes.length else {
-            said = "The code is \(CodeBoxes.length) digits, as \(device.deviceName ?? "the device") shows it. Choose it again to enter it."
-            return
-        }
-        pairing = device
-        said = "Adding \(device.deviceName ?? "the device")…"
-        Task {
-            let (joined, why) = await add(library, device, code)
-            pairing = nil
-            guard let joined else {
-                said = why ?? "Couldn't add it."
-                return
-            }
-            welcome(library, joined, device)
-            nearby.removeAll { $0.id == device.id }
-            said = "Added \(device.deviceName ?? "it")."
-        }
+        .modifier(Nearby(devices: $adding.nearby))
     }
 }
 

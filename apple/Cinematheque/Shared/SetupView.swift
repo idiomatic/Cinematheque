@@ -73,6 +73,78 @@ struct Nearby: ViewModifier {
     }
 }
 
+/// While looking for new devices nearby, and none is found yet.
+struct Looking: View {
+    var body: some View {
+        HStack(spacing: Self.spacing) {
+            ProgressView()
+                #if os(macOS)
+                .controlSize(.small)
+                #endif
+            Text("Looking for new devices nearby…").foregroundStyle(.secondary)
+        }
+    }
+
+    #if os(tvOS)
+    private static let spacing: CGFloat? = 20
+    #elseif os(iOS)
+    private static let spacing: CGFloat? = 12
+    #else
+    private static let spacing: CGFloat? = nil
+    #endif
+}
+
+#if !os(macOS)
+/// Adding a device nearby by the code it shows, as the iPhone's and Apple
+/// TV's Settings list them: which is chosen, which is being added, and what
+/// adding last said (a wrong code, a device added).
+@MainActor @Observable
+final class AddingDevices {
+    var nearby: [NearbyDevice] = []
+    /// The device whose code is asked for, by URL.
+    var entering: String?
+    var code = ""
+    private(set) var pairing: NearbyDevice?
+    private(set) var problem: String?
+    private(set) var note: String?
+    /// What it last said, if anything.
+    var said: String? { problem ?? note }
+
+    var offering: [NearbyDevice] { nearby.filter { $0.pairing != nil } }
+
+    /// Asks for a device's code, or with it asked for already, stops.
+    func choose(_ device: NearbyDevice) {
+        problem = nil
+        note = nil
+        code = ""
+        entering = entering == device.url ? nil : device.url
+    }
+
+    /// Adds a device by `add` (`Library.pairPerson` or `pairMember`), given
+    /// the code typed; once added, it's listed with the rest, not here.
+    func pair(_ device: NearbyDevice, _ typed: String, by add: @escaping (NearbyDevice, String) async -> String?) {
+        let code = typed.filter(\.isNumber)
+        let name = device.deviceName ?? "the device"
+        guard code.count == CodeBoxes.length else {
+            problem = "The code is \(CodeBoxes.length) digits, as \(name) shows it. Choose it again to enter it."
+            return
+        }
+        pairing = device
+        problem = nil
+        note = "Adding \(name)…"
+        Task {
+            problem = await add(device, code)
+            pairing = nil
+            // Cleared, to type again.
+            guard problem == nil else { return self.code = "" }
+            entering = nil
+            nearby.removeAll { $0.id == device.id }
+            note = "Added \(device.deviceName ?? "it")."
+        }
+    }
+}
+#endif
+
 /// A pairing code's six digits, a squircle each, in two groups of three
 /// (as codes are read): filled as far as `digits` goes, the rest empty,
 /// so the boxes show how long a code is before it's typed. The box the

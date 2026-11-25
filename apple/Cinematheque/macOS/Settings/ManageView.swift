@@ -33,16 +33,6 @@ struct RemoveButton: View {
     }
 }
 
-/// While looking for new devices nearby, and none is found yet.
-struct Looking: View {
-    var body: some View {
-        HStack {
-            ProgressView().controlSize(.small)
-            Text("Looking for new devices nearby…").foregroundStyle(.secondary)
-        }
-    }
-}
-
 extension View {
     /// A row's symbol in one width, whatever its own (a laptop's is wider
     /// than a phone's), so the rows' names line up, as an iOS list lines

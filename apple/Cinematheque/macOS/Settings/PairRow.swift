@@ -58,31 +58,26 @@ struct PairRow: View {
     }
 
     /// Adds it as another of this person's devices.
-    private func pairYours() { pair(library.pairPerson, then: library.welcome) }
+    private func pairYours() { pair(library.pairPerson) }
 
     /// Adds it as a new member's.
-    private func pairSomeoneNew() { pair(library.pairMember, then: library.welcomeMember) }
+    private func pairSomeoneNew() { pair(library.pairMember) }
 
-    private func pair(_ adding: @escaping (NearbyDevice, String) async -> (Paired?, String?), then welcome: @escaping (Paired, NearbyDevice) -> Void) {
+    private func pair(_ adding: @escaping (NearbyDevice, String) async -> String?) {
         guard code.count == CodeBoxes.length, !pairing else { return }
         pairing = true
         Task {
-            let (joined, why) = await adding(device, code)
-            failure = why
+            failure = await adding(device, code)
             // A wrong code: shaken off, to type again. Paired, it stays
             // pairing (its buttons dimmed) until it leaves New Devices, as
             // the device stops offering.
-            if joined == nil {
+            if failure != nil {
                 pairing = false
                 withAnimation(.linear(duration: 0.4)) { shakes += 1 }
                 code = ""
-            }
-            // Out of New Devices, and into Your Devices (or People).
-            if let joined {
-                withAnimation {
-                    welcome(joined, device)
-                    paired(device)
-                }
+            } else {
+                // Out of New Devices, and into Your Devices (or People).
+                withAnimation { paired(device) }
             }
         }
     }
