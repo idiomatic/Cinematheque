@@ -116,30 +116,7 @@ fn leave(app: *App) !void {
             else => return err,
         };
         defer r.close();
-        const me = try app.person();
-        var others: usize = 0;
-        for (try r.devicesOf(app.arena, me)) |d| {
-            if (!std.mem.eql(u8, &d, &r.device()) and try r.revoked(d) == null) others += 1;
-        }
-        const members = try r.members(app.arena);
-        if (members.len == 1 and others == 0) break :told;
-        // Written once: leaving again, after no one could be reached, only
-        // syncs.
-        try r.removeSelf(app.now());
-        const found = try core.sync.everyDevice(app.io, app.arena, &r, try app.store.serviceName(app.arena));
-        var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
-        defer client.deinit();
-        for (found.urls) |u| {
-            // A device that took the removal, or that had already removed
-            // this one, is enough.
-            if (core.sync.exchange(app.arena, &client, &r, u, app.now())) |_| {
-                break :told;
-            } else |err| switch (err) {
-                error.Removed => break :told,
-                else => try app.out.print("{s}: {s}\n", .{ u, @errorName(err) }),
-            }
-        }
-        return error.NoOneReached;
+        try core.sync.leave(app.io, app.gpa, app.arena, &r, try app.store.serviceName(app.arena));
     }
     try app.store.forget(app.arena);
     try app.out.print("left the library; this device will pair again as a new one\n", .{});

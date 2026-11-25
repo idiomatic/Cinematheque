@@ -32,6 +32,7 @@ const discover = @import("discover.zig");
 const library_ = @import("library.zig");
 const testkit = @import("testkit.zig");
 const Replica = replica_.Replica;
+const art = @import("art.zig");
 
 /// Where devices answer syncs, as they advertise it.
 pub const path = "/sync";
@@ -506,6 +507,61 @@ fn exchangeNow(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, ur
 
 const Pulled = struct { stats: replica_.Stats, person: ?[32]u8 };
 
+pub const Synced = struct { url: []const u8, result: anyerror!Exchanged, ms: i64 };
+
+pub const EachOptions = struct {
+    /// Taken for one device at a time, so a write waits out one exchange.
+    writer: ?*Io.Mutex = null,
+    steps: ?*art.Steps = null,
+};
+
+/// Syncs with each device at `urls` in turn, until one says this device was
+/// removed: no use syncing with the rest.
+pub fn exchangeEach(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r: *Replica, urls: []const []const u8, options: EachOptions) ![]const Synced {
+    var client: http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    const out = try arena.alloc(Synced, urls.len);
+    if (options.steps) |s| s.start(.syncing, urls.len);
+    for (urls, out, 1..) |u, *o, n| {
+        defer if (options.steps) |s| s.step();
+        if (options.writer) |w| try w.lock(io);
+        defer if (options.writer) |w| w.unlock(io);
+        if (options.writer != null) try r.refresh();
+        const start = Io.Timestamp.now(io, .awake);
+        const result = exchange(arena, &client, r, u, art.now(io));
+        o.* = .{ .url = u, .result = result, .ms = start.durationTo(Io.Timestamp.now(io, .awake)).toMilliseconds() };
+        if (o.result) |_| {} else |err| switch (err) {
+            error.Canceled => return err,
+            error.Removed => return out[0..n],
+            else => {},
+        }
+    }
+    return out;
+}
+
+/// Leaves the library of its own accord: removes this device (once, so
+/// leaving again only syncs), then syncs until a device takes the removal
+/// (or had it already); `error.NoOneReached` if none does.
+pub fn leave(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r: *Replica, own: []const u8) !void {
+    var others: usize = 0;
+    for (try r.devicesOf(arena, r.personKey())) |d| {
+        if (!std.mem.eql(u8, &d, &r.device()) and try r.revoked(d) == null) others += 1;
+    }
+    if ((try r.members(arena)).len == 1 and others == 0) return;
+    try r.removeSelf(art.now(io));
+    const found = try everyDevice(io, arena, r, own);
+    var client: http.Client = .{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    for (found.urls) |u| {
+        if (exchange(arena, &client, r, u, art.now(io))) |_| return else |err| switch (err) {
+            error.Removed => return,
+            error.Canceled => return err,
+            else => std.log.warn("leaving: syncing with {s}: {t}", .{ u, err }),
+        }
+    }
+    return error.NoOneReached;
+}
+
 /// Where this device keeps when it last synced with each other device,
 /// either way (in its own `local`, which doesn't replicate, as writing it
 /// for every device to see would be an operation per sync).
@@ -899,4 +955,13 @@ test "a device refills what a removal dropped, over HTTP" {
     defer s.finalize();
     try std.testing.expect(try s.step());
     try std.testing.expectEqualStrings("Alien", s.blob(0));
+}
+
+test "leaving a library with no one else in it tells no one" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    var r = try testkit.replica(1);
+    defer r.close();
+    try leave(std.testing.io, std.testing.allocator, arena_state.allocator(), &r, "cinematheque-test");
+    try std.testing.expectEqual(@as(?u64, null), try r.revoked(r.device()));
 }

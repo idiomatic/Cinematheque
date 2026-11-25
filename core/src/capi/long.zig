@@ -250,25 +250,12 @@ fn lookNearby(lib: *Library, arena: std.mem.Allocator, r: *Replica) !sync.Device
     return fresh;
 }
 
-/// Syncs with `devices`, found before writing, so looking (however long the
-/// network makes it) holds up no one else's writes; taking the writer for
-/// one device at a time, caught up with others' writes first, so a quick
-/// change waits out one exchange, not all.
 fn exchangeAll(lib: *Library, arena: std.mem.Allocator, r: *Replica, devices: sync.Devices) ![]const SyncJson {
-    var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
-    defer client.deinit();
-    const out = try arena.alloc(SyncJson, devices.urls.len);
-    lib.steps.start(.syncing, devices.urls.len);
-    for (devices.urls, out) |u, *o| {
-        defer lib.steps.step();
-        try lib.writer.lock(lib.io());
-        defer lib.writer.unlock(lib.io());
-        try r.refresh();
-        const exchanged = sync.exchange(arena, &client, r, u, lib.now()) catch |err| {
-            o.* = .{ .url = u, .name = devices.names.get(u), .new = 0, .@"error" = @errorName(err) };
-            continue;
-        };
-        o.* = .{ .url = u, .name = devices.names.get(u), .new = exchanged.stats.won, .sent = exchanged.sent, .@"error" = null };
+    const synced = try sync.exchangeEach(lib.io(), gpa, arena, r, devices.urls, .{ .writer = &lib.writer, .steps = &lib.steps });
+    const out = try arena.alloc(SyncJson, synced.len);
+    for (synced, out) |s, *o| {
+        const name = devices.names.get(s.url);
+        o.* = if (s.result) |x| .{ .url = s.url, .name = name, .new = x.stats.won, .sent = x.sent, .@"error" = null } else |err| .{ .url = s.url, .name = name, .new = 0, .@"error" = @errorName(err) };
     }
     return out;
 }

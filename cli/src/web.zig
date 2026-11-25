@@ -125,24 +125,19 @@ pub const Web = struct {
         defer r.close();
         // Found before writing, so looking holds up no page's writes.
         const found = try core.sync.everyDevice(io, arena, &r, (try w.snapshot(io, arena)).own);
-        var client: http.Client = .{ .allocator = gpa, .io = io };
-        defer client.deinit();
         // The writer taken for one device at a time, so a page's writes
         // (progress saved as it plays) wait out one exchange, not them all.
-        for (found.urls) |u| {
-            try w.writer.lock(io);
-            defer w.writer.unlock(io);
-            try r.refresh();
-            if (core.sync.exchange(arena, &client, &r, u, now(io))) |_| {
-                if (w.asleep.woke(io, u)) std.log.info("{s} answers again", .{u});
+        for (try core.sync.exchangeEach(io, gpa, arena, &r, found.urls, .{ .writer = &w.writer })) |s| {
+            if (s.result) |_| {
+                if (w.asleep.woke(io, s.url)) std.log.info("{s} answers again", .{s.url});
             } else |err| if (err == error.Removed) {
                 // Told, under a member's signature, that this device was
-                // removed: no use syncing with the rest.
+                // removed.
                 return error.Removed;
             } else if (!Asleep.unreachable_(err)) {
-                std.log.warn("syncing with {s}: {t}", .{ u, err });
-            } else if (w.asleep.fell(io, gpa, u)) {
-                std.log.info("{s} can't be reached ({t}), as a phone or tablet whose app is napping can't; it's synced with when it answers again", .{ u, err });
+                std.log.warn("syncing with {s}: {t}", .{ s.url, err });
+            } else if (w.asleep.fell(io, gpa, s.url)) {
+                std.log.info("{s} can't be reached ({t}), as a phone or tablet whose app is napping can't; it's synced with when it answers again", .{ s.url, err });
             }
         }
     }

@@ -203,20 +203,17 @@ fn serviceName(p: *App) ![]const u8 {
 
 /// Syncs both ways with each of `found`, printing how it went.
 fn exchangeAll(p: *App, r: *Replica, found: core.sync.Devices) !void {
-    var client: std.http.Client = .{ .allocator = p.gpa, .io = p.io };
-    defer client.deinit();
     if (found.urls.len == 0) try p.out.print("no devices of this library found or added\n", .{});
-    for (found.urls) |u| {
-        const start = Io.Timestamp.now(p.io, .awake);
-        const exchanged = core.sync.exchange(p.arena, &client, r, u, p.now()) catch |err| {
-            try p.out.print("{s}: {t}\n", .{ u, err });
+    for (try core.sync.exchangeEach(p.io, p.gpa, p.arena, r, found.urls, .{})) |s| {
+        const exchanged = s.result catch |err| {
+            try p.out.print("{s}: {t}\n", .{ s.url, err });
             if (err == error.Removed) try p.out.print("this device was removed from the library; `library leave`, then pair again\n", .{});
             continue;
         };
         const stats = exchanged.stats;
         try p.out.print("{s}: {d} operations ({d} new, {d} lost, {d} known, {d} rejected, {d} refused) in {d} batches, {d:.1} KB; {d} pushed; {d} ms\n", .{
-            u,                                               stats.sent,     stats.won,                                                         stats.lost, stats.known, stats.rejected, stats.refused, stats.batches,
-            @as(f64, @floatFromInt(stats.wire_bytes)) / 1e3, exchanged.sent, start.durationTo(Io.Timestamp.now(p.io, .awake)).toMilliseconds(),
+            s.url,                                           stats.sent,     stats.won, stats.lost, stats.known, stats.rejected, stats.refused, stats.batches,
+            @as(f64, @floatFromInt(stats.wire_bytes)) / 1e3, exchanged.sent, s.ms,
         });
     }
 }

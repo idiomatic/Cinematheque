@@ -467,30 +467,13 @@ fn pairDevice(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator,
 /// no one else in the library, it only forgets.
 fn leave(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, request: *http.Server.Request) !void {
     if (w.refreshing.steps.phase.load(.acquire) != .idle) return error.Busy;
-    alone: {
+    {
         try w.writer.lock(io);
         defer w.writer.unlock(io);
         var r = try web.open(w, io, gpa);
         defer r.close();
-        const me = try personOf((try w.snapshot(io, arena)).identity);
-        var others: usize = 0;
-        for (try r.devicesOf(arena, me)) |d| {
-            if (!std.mem.eql(u8, &d, &r.device()) and try r.revoked(d) == null) others += 1;
-        }
-        const members = try r.members(arena);
-        if (members.len == 1 and others == 0) break :alone;
-        try r.removeSelf(web.now(io));
         // Another device takes the removal, so it stands.
-        const found = try core.sync.everyDevice(io, arena, &r, (try w.snapshot(io, arena)).own);
-        var client: http.Client = .{ .allocator = gpa, .io = io };
-        defer client.deinit();
-        var reached = false;
-        for (found.urls) |u| {
-            if (core.sync.exchange(arena, &client, &r, u, web.now(io))) |_| {
-                reached = true;
-            } else |err| std.log.warn("leaving: syncing with {s}: {t}", .{ u, err });
-        }
-        if (!reached) return error.NoOneReached;
+        try core.sync.leave(io, gpa, arena, &r, (try w.snapshot(io, arena)).own);
     }
     try forgetLibrary(w, io, gpa, arena);
     return web.sendJson(arena, request, true);
