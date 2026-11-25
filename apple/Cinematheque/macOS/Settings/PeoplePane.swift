@@ -82,7 +82,7 @@ private struct MemberRow: View {
                     TextField("Your name", text: $name, prompt: Text("Your name"))
                         .labelsHidden()
                         .textFieldStyle(.plain)
-                        .onSubmit { library.setName(.person, name) }
+                        .onSubmit { library.setPersonName(name) }
                         .help("Rename yourself")
                     Text("You")
                 } else {
@@ -100,7 +100,7 @@ private struct MemberRow: View {
         }
         .onAppear { name = member.name ?? "" }
         .onChange(of: member.name) { name = member.name ?? "" }
-        .onDisappear { if member.you, name != (member.name ?? "") { library.setName(.person, name) } }
+        .onDisappear { if member.you, name != (member.name ?? "") { library.setPersonName(name) } }
     }
 }
 #endif

@@ -26,8 +26,8 @@ struct SettingsSheet: View {
                     Section { Text(shown).foregroundStyle(.red) }
                 }
                 Section {
-                    NameField(title: "This iPhone", name: library.devices.first(where: \.you)?.name) { library.setName(.device, $0) }
-                    NameField(title: "You", name: me?.name) { library.setName(.person, $0) }
+                    NameField(title: "This iPhone", name: library.devices.first(where: \.you)?.name) { library.setDeviceName($0) }
+                    NameField(title: "You", name: me?.name) { library.setPersonName($0) }
                 } header: {
                     Text("Names")
                 } footer: {
@@ -245,7 +245,7 @@ private struct DevicePage: View {
             if let device {
                 Section {
                     NameField(title: "Name", name: device.name) { name in
-                        if device.you { library.setName(.device, name) } else { library.renameDevice(device.key, name) }
+                        if device.you { library.setDeviceName(name) } else { library.renameDevice(device.key, name) }
                     }
                     if let model = device.model {
                         LabeledContent("Model", value: model)

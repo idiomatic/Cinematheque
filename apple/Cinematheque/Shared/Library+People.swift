@@ -135,17 +135,17 @@ extension Library {
 
     // Names and devices.
 
-    enum Named { case person, device }
+    /// Names this person, for every device to show in place of keys, and
+    /// advertises the new name.
+    func setPersonName(_ name: String) { setName(name) { cq_set_person_name($0, $1) } }
 
-    /// Names this person or this device, for every device to show in place of
-    /// keys, and advertises the new name.
-    func setName(_ which: Named, _ name: String) {
+    /// As `setPersonName`, this device.
+    func setDeviceName(_ name: String) { setName(name) { cq_set_device_name($0, $1) } }
+
+    private func setName(_ name: String, by set: @escaping (OpaquePointer, String) -> Int32) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        switch which {
-        case .person: checkAndReload { cq_set_person_name($0, trimmed) }
-        case .device: checkAndReload { cq_set_device_name($0, trimmed) }
-        }
+        checkAndReload { set($0, trimmed) }
         if servingPort != nil { serve() }
     }
 

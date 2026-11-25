@@ -13,7 +13,7 @@ struct SettingsView: View {
     @State private var leaving = false
     @State private var problem: String?
     /// The name whose keyboard is up.
-    @State private var naming: Library.Named?
+    @State private var naming: SettingsRow?
     /// The page open, if one is.
     @State private var page: Page?
     enum Page: Hashable { case people, devices, sources, interval }
@@ -42,9 +42,9 @@ struct SettingsView: View {
     private var list: some View {
         Form {
             Section {
-                nameRow("This Apple TV", library.devices.first(where: \.you)?.name, .device)
+                nameRow("This Apple TV", library.devices.first(where: \.you)?.name, .device, save: library.setDeviceName)
                     .settingsRow(.device, $focus)
-                nameRow("You", me?.name, .person)
+                nameRow("You", me?.name, .person, save: library.setPersonName)
                     .settingsRow(.person, $focus)
             } header: {
                 Text("Names").bold()
@@ -114,14 +114,14 @@ struct SettingsView: View {
     /// holding the name (an unseen UIKit field's: a SwiftUI field in a row
     /// draws a plate of its own in the row's and crowds the name); saved as
     /// it's submitted (a blank one ignored), and Back leaves it as it was.
-    private func nameRow(_ title: String, _ name: String?, _ which: Library.Named) -> some View {
+    private func nameRow(_ title: String, _ name: String?, _ which: SettingsRow, save: @escaping (String) -> Void) -> some View {
         Button { naming = which } label: {
             // A chevron, as the system's Name row has, though a keyboard opens.
             ValueLabel(title: title, opens: true, value: name ?? "Unnamed")
         }
         .background {
             KeyboardField(title: title, text: name ?? "", typing: Binding(get: { naming == which }, set: { if !$0 { naming = nil } })) {
-                library.setName(which, $0)
+                save($0)
             }
             .unseen()
         }

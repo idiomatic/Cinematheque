@@ -82,7 +82,7 @@ private struct DeviceRow: View {
     /// This Mac's name is advertised too, so it's set as this device's;
     /// another's, under this person.
     private func rename() {
-        if device.you { library.setName(.device, name) } else { library.renameDevice(device.key, name) }
+        if device.you { library.setDeviceName(name) } else { library.renameDevice(device.key, name) }
     }
 }
 #endif
