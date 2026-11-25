@@ -189,11 +189,48 @@ pub fn json(lib: *Library, comptime f: anytype, args: anytype) ?[*:0]u8 {
 pub fn status(lib: *Library, comptime f: anytype, args: anytype) c_int {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
-    @call(.auto, f, .{ lib, arena_state.allocator() } ++ args) catch |err| {
+    _ = @call(.auto, f, .{ lib, arena_state.allocator() } ++ args) catch |err| {
         fail(err);
         return -1;
     };
     return 0;
+}
+
+/// Runs `f(replica, arena, now, args...)` as `writing` does, returning 0,
+/// or -1 on failure.
+pub fn write(lib: *Library, comptime f: anytype, args: anytype) c_int {
+    return status(lib, writing, .{ f, args });
+}
+
+/// Runs `f(replica, arena, now, args...)` on the main connection, caught
+/// up, holding the writer: `Busy` while another connection holds it.
+pub fn writing(lib: *Library, arena: std.mem.Allocator, comptime f: anytype, args: anytype) !Payload(f) {
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    return @call(.auto, f, .{ try lib.main(), arena, lib.now() } ++ args);
+}
+
+/// Runs `f(replica, arena, now, args...)` as `writingPrivate` does,
+/// returning 0, or -1 on failure.
+pub fn writePrivate(lib: *Library, comptime f: anytype, args: anytype) c_int {
+    return status(lib, writingPrivate, .{ f, args });
+}
+
+/// Runs `f(replica, arena, now, args...)` on the main connection for a
+/// private write, which needs the writer only for the device's first (whose
+/// private stream's certificate is public).
+pub fn writingPrivate(lib: *Library, arena: std.mem.Allocator, comptime f: anytype, args: anytype) !Payload(f) {
+    const r = try lib.main();
+    if (r.private_seq > 0) return @call(.auto, f, .{ r, arena, lib.now() } ++ args);
+    if (!lib.writer.tryLock()) return error.Busy;
+    defer lib.writer.unlock(lib.io());
+    try r.refresh();
+    return @call(.auto, f, .{ r, arena, lib.now() } ++ args);
+}
+
+/// What `f` returns, but its errors.
+fn Payload(comptime f: anytype) type {
+    return @typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?).error_union.payload;
 }
 
 pub fn span(text: ?[*:0]const u8) ?[]const u8 {

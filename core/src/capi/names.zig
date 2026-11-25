@@ -21,9 +21,7 @@ export fn cq_set_person_name(lib: *Library, name: [*:0]const u8) c_int {
 }
 
 fn setPersonName(lib: *Library, arena: std.mem.Allocator, name: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    try library.setName(try lib.main(), arena, lib.now(), try lib.store.person(), name, null);
+    try capi.writing(lib, arena, library.setName, .{ try lib.store.person(), name, null });
 }
 
 /// Names this device, as its person's, for every device to show in place of
@@ -33,9 +31,7 @@ export fn cq_set_device_name(lib: *Library, name: [*:0]const u8) c_int {
 }
 
 fn setDeviceName(lib: *Library, arena: std.mem.Allocator, name: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    try library.setName(try lib.main(), arena, lib.now(), try lib.store.device(), name, try lib.store.person());
+    try capi.writing(lib, arena, library.setName, .{ try lib.store.device(), name, try lib.store.person() });
 }
 
 /// Records this device's model (an Apple identifier, as `iPhone14,4`, shown
@@ -46,9 +42,7 @@ export fn cq_set_device_model(lib: *Library, model_: [*:0]const u8) c_int {
 }
 
 fn setDeviceModel(lib: *Library, arena: std.mem.Allocator, given: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    try library.recordModel(try lib.main(), arena, lib.now(), try lib.store.device(), model.shown(given));
+    try capi.writing(lib, arena, library.recordModel, .{ try lib.store.device(), model.shown(given) });
 }
 
 /// What this device names itself as, told `name` by its platform, at `host`
@@ -72,9 +66,7 @@ export fn cq_name(lib: *Library, device: [*:0]const u8, person: [*:0]const u8, n
 }
 
 fn nameDevice(lib: *Library, arena: std.mem.Allocator, device: []const u8, person: []const u8, name: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    try library.setName(try lib.main(), arena, lib.now(), try store_.parseKey(device), name, try store_.parseKey(person));
+    try capi.writing(lib, arena, library.setName, .{ try store_.parseKey(device), name, try store_.parseKey(person) });
 }
 
 /// This person's devices that have names, as a JSON array of objects with

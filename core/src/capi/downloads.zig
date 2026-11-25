@@ -11,6 +11,7 @@ const gpa = capi.gpa;
 const Library = capi.Library;
 const json = capi.json;
 const status = capi.status;
+const write = capi.write;
 const span = capi.span;
 
 /// Long, on a connection of its own, waiting its turn to write: sets
@@ -216,56 +217,31 @@ fn sourceAdd(lib: *Library, arena: std.mem.Allocator, target: []const u8, skip: 
 
 /// Sets the prefix of names a source's crawls skip, applied at the next.
 export fn cq_repo_skip(lib: *Library, source: [*:0]const u8, skip: [*:0]const u8) c_int {
-    return status(lib, sourceSkip, .{ std.mem.span(source), std.mem.span(skip) });
-}
-
-fn sourceSkip(lib: *Library, arena: std.mem.Allocator, source: []const u8, skip: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    _ = try library.setSkip(try lib.main(), arena, lib.now(), source, skip);
+    return write(lib, library.setSkip, .{ std.mem.span(source), std.mem.span(skip) });
 }
 
 /// Takes a source's files' quality from the nearest of each file's name and
 /// its folders that says one (`QualityFrom.path`), as new sources do.
 /// Copies move at the next crawl.
 export fn cq_repo_quality_from_path(lib: *Library, source: [*:0]const u8) c_int {
-    return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom.path });
+    return write(lib, library.setQualityFrom, .{ std.mem.span(source), library.QualityFrom.path });
 }
 
 /// Names one quality for all a source's files (e.g., a HandBrake preset's).
 export fn cq_repo_quality_named(lib: *Library, source: [*:0]const u8, name: [*:0]const u8) c_int {
-    return status(lib, sourceQuality, .{ std.mem.span(source), library.QualityFrom{ .named = std.mem.span(name) } });
-}
-
-/// Writes where the source's quality comes from: its value, written alike.
-fn sourceQuality(lib: *Library, arena: std.mem.Allocator, source: []const u8, quality: library.QualityFrom) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    _ = try library.setQualityFrom(try lib.main(), arena, lib.now(), source, quality);
+    return write(lib, library.setQualityFrom, .{ std.mem.span(source), library.QualityFrom{ .named = std.mem.span(name) } });
 }
 
 /// Names a source (by ID) as its owner calls it, as a folder's own name its
 /// address had to put otherwise; only its owner's naming counts. Writes
 /// nothing if it's named so already.
 export fn cq_repo_name(lib: *Library, source: [*:0]const u8, name: [*:0]const u8) c_int {
-    return status(lib, sourceName, .{ std.mem.span(source), std.mem.span(name) });
-}
-
-fn sourceName(lib: *Library, arena: std.mem.Allocator, source: []const u8, name: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    try library.setSourceName(try lib.main(), arena, lib.now(), source, name);
+    return write(lib, library.setSourceName, .{ std.mem.span(source), std.mem.span(name) });
 }
 
 /// Removes a source, by ID or URL, and the copies it held.
 export fn cq_repo_remove(lib: *Library, source: [*:0]const u8) c_int {
-    return status(lib, sourceRemove, .{std.mem.span(source)});
-}
-
-fn sourceRemove(lib: *Library, arena: std.mem.Allocator, source: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    _ = try library.removeSource(try lib.main(), arena, lib.now(), source);
+    return write(lib, library.removeSource, .{std.mem.span(source)});
 }
 
 /// Records where this device serves its own sources now (`served`, an
@@ -277,7 +253,5 @@ export fn cq_set_served(lib: *Library, served: [*:0]const u8) c_int {
 }
 
 fn setServed(lib: *Library, arena: std.mem.Allocator, served: []const u8) !void {
-    if (!lib.writer.tryLock()) return error.Busy;
-    defer lib.writer.unlock(lib.io());
-    try library.recordServed(try lib.main(), arena, lib.now(), try lib.store.device(), served);
+    try capi.writing(lib, arena, library.recordServed, .{ try lib.store.device(), served });
 }
