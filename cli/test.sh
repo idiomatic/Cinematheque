@@ -65,7 +65,7 @@ pair $work/b "library join" $work/a "member pair"
 $cq $b sync http://127.0.0.1:8191
 [[ $(digest $a) == $(digest $b) ]] || { echo "FAIL: B differs from A after sync"; exit 1; }
 
-$cq $a alias add t/m/movie-0001/1921 t/m/movie-0002/1922
+$cq $a library set --crawl 168
 $cq $b sync
 [[ $(digest $a) == $(digest $b) ]] || { echo "FAIL: B differs from A after a change"; exit 1; }
 $cq $b ls "Movie 0001"
@@ -77,16 +77,12 @@ set +e
 $cq $b nonsense > /dev/null 2>&1
 [[ $? -eq 2 ]] || { echo "FAIL: a bad command line didn't exit with status 2"; exit 1; }
 set -e
-$cq $b title facets | grep -q . || { echo "FAIL: title facets"; exit 1; }
-$cq $b alias list | grep -q "movie-0001/1921 -> " || { echo "FAIL: alias list"; exit 1; }
-$cq $a alias remove t/m/movie-0001/1921
-$cq $b sync http://127.0.0.1:8191
-$cq $b alias list | grep -q . && { echo "FAIL: alias remove"; exit 1; }
+$cq $b library show | grep -q "every 168 hours" || { echo "FAIL: library set didn't reach B"; exit 1; }
 [[ $($cq $b member list | wc -l) -eq 2 ]] || { echo "FAIL: member list"; exit 1; }
 # B's change reaches A by B's push, A pulling nothing.
-$cq $b alias add t/m/movie-0004/1924 t/m/movie-0005/1925
+$cq $b library set --crawl 24
 $cq $b sync http://127.0.0.1:8191 | grep -q " [1-9][0-9]* pushed" || { echo "FAIL: B pushed nothing"; exit 1; }
-$cq $a alias list | grep -q "movie-0004/1924 -> " || { echo "FAIL: B's push didn't reach A"; exit 1; }
+$cq $a library show | grep -q "every 24 hours" || { echo "FAIL: B's push didn't reach A"; exit 1; }
 
 pair $work/c "library join" $work/a "member pair"
 $cq $a member remove $($cq $c person show)

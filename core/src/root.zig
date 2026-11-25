@@ -6,7 +6,6 @@ pub const sync = @import("sync.zig");
 pub const crawl = @import("crawl.zig");
 pub const naming = @import("naming.zig");
 pub const library = @import("library.zig");
-pub const review = @import("review.zig");
 pub const serve = @import("serve.zig");
 pub const discover = @import("discover.zig");
 pub const model = @import("model.zig");
@@ -37,7 +36,6 @@ test {
     _ = @import("library_tests.zig");
     _ = @import("download_tests.zig");
     _ = library;
-    _ = review;
     _ = serve;
     _ = discover;
     _ = url;

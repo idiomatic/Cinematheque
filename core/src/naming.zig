@@ -279,7 +279,7 @@ pub fn parse(path: []const u8, scratch: []u8) Parsed {
         p.edition = p.edition orelse folder.edition;
     }
     // A name of numbers alone, without a year (e.g., a camera's "00501"),
-    // names no title; it goes to review. "1917 (2019)" has its year.
+    // names no title, and goes unparsed. "1917 (2019)" has its year.
     if (p.kind == .movie and p.year == null) {
         for (p.title) |c| {
             if (ascii.isAlphabetic(c) or c >= 0x80) break;

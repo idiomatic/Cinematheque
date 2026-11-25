@@ -114,8 +114,6 @@ TV Shows/Worldhoppers/Worldhoppers The Lost Signal.m4v
   %(channel)s/%(channel)s %(upload_date>%Y-%m-%d)s %(title).150B [youtube-%(id)s].%(ext)s
   ```
 
-* **Inconsistent names** (a year off by one, a title spelled two ways, a file copied twice): the command-line app's review lists what looks related, and an alias, recorded once, tells every device that two entries are the same title; see [cli/README.md](../cli/README.md#titles).
-
 ### Quality
 
 A file's quality comes from its name (its resolution, origin, codec, and dynamic range), so a title's qualities can sit side by side, and the apps' Quality picker chooses which to play:

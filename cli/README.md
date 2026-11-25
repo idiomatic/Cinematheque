@@ -1,6 +1,6 @@
 # Command-line app
 
-The command-line app, `cinematheque`, for macOS and Linux, built on the [core](../core/README.md). It does everything a player does but play: it founds or joins a library, pairs devices, crawls sources, reviews what it found, records progress, and serves and syncs with other devices. Run in the background, it's a library's always-on hub.
+The command-line app, `cinematheque`, for macOS and Linux, built on the [core](../core/README.md). It does everything a player does but play: it founds or joins a library, pairs devices, crawls sources, records progress, and serves and syncs with other devices. Run in the background, it's a library's always-on hub.
 
 ## Building
 
@@ -43,7 +43,7 @@ The app keeps its state in its data directory, created on first use: by default 
 
 ## The command line
 
-State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `alias`, `progress`, and `device`. Whole-app actions are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
+State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, `member`, `source`, `title`, `progress`, and `device`. Whole-app actions are single words: `crawl`, `sync`, `serve`, and `refresh`. `ls` and `show` are shortcuts for `title list` and `title show`.
 
 * **Options** are named and may come anywhere. `--port PORT`, `--media DIR`, `--downloads DIR`, `--to DIR`, `--quality NAME`, `--quality-by path|folder|name`, `--skip PREFIX`, `--unavailable DIR`, `--crawl EVERY`, `--jitter SECONDS`, and `--workers WORKERS` take a value; `--web`, `--full`, `--leave`, `--watched`, and `--unwatched` are flags. `--data DIR` works with every command.
 * **Help:** [usage.txt](src/usage.txt) lists every command and is the help, built into the binary. `-h` or `--help` prints it all; with a noun or action (`cinematheque source -h`), or a noun alone, only that one's commands.
@@ -79,19 +79,9 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 
 ### Titles
 
-* `title list [TEXT]` (`ls`) prints each title some source holds whose name contains the text, ignoring case: its year, kind, episodes or versions, qualities, and key, with `-> TARGET` if it's an alias. A count ends the list.
-* `title show TITLE` (`show`) prints a title's fields, its aliases, and each item: its fields, your progress, and per quality, every copy's size, modification time, and URL.
+* `title list [TEXT]` (`ls`) prints each title some source holds whose name contains the text, ignoring case: its year, kind, episodes or versions, qualities, and key. A count ends the list.
+* `title show TITLE` (`show`) prints a title's fields and each item: its fields, your progress, and per quality, every copy's size, modification time, and URL.
 * `title download TITLE` fetches a title's files (or a season's, `TITLE/e/s01`, or an item's) into the current directory or `--to DIR`, under their paths in the source, so the directory can be served and added as a source of its own. It takes `--quality NAME`, else the quality most of the items have; tries the copy whose server answers first, then the others; and resumes a file cut short (`<path>.part`) by a range request. Mind the size: a 2160p remux runs to 60 GB.
-* `title review` prints close matches and duplicate files, tab-separated: the reason, then the two titles or files. A summary ends it.
-
-  ```
-  year off by one   t/m/rogue-protocol/2018   t/m/rogue-protocol/2019
-  year missing      t/s/worldhoppers/-        t/s/worldhoppers/2024
-  duplicate         .../Worldhoppers 105.m4v  .../Worldhoppers 105.mp4
-  ```
-
-  Some are mistakes to fix in the source; others are different titles (a series and its reboot may share a name). `alias add TITLE TARGET` records that two are the same, `alias remove TITLE` undoes it, and `alias list` prints them. Aliases replicate, so one device records each once for everyone.
-* `title facets` counts titles by kind, decade, and quality, tab-separated.
 
 ### Progress
 
@@ -137,7 +127,6 @@ Run `serve` with systemd on Linux (or keep it running however you like), and `re
 cinematheque library create
 cinematheque source add http://nas.local/Video/
 cinematheque crawl
-cinematheque title review
 cinematheque serve &              # share it while it runs
 
 # on perihelion, another of your devices
@@ -223,7 +212,7 @@ What's planned for them is in [DEVELOPMENT.md](../DEVELOPMENT.md).
 ## Sources
 
 * [main.zig](src/main.zig): the command line. `Args` parses words and options (an option not among the flags takes the next word as its value) and expands the `ls` and `show` shortcuts. `Command.is` matches a verb, its arity, and the options it allows. The nouns and actions are tables of functions; `help` prints a noun's or action's part of [usage.txt](src/usage.txt), which it embeds. It opens the data directory and the `App` every command acts with (the store, the output, and the clock), and turns `error.Usage` into help and status 2.
-* [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `device`, `source`, `title`, `alias`, `progress`); sending pairing codes (`pairWith`, which finds the one device offering nearby); and `crawl` and `refresh`, which crawl sources and then describe them.
+* [commands.zig](src/commands.zig): the state nouns, a function each (`person`, `library`, `member`, `device`, `source`, `title`, `progress`); sending pairing codes (`pairWith`, which finds the one device offering nearby); and `crawl` and `refresh`, which crawl sources and then describe them.
 * [network.zig](src/network.zig): `serve`, which advertises once it knows its port; `sync`, which syncs with the device given, or with every device found by DNS-SD and in `local` (`address:URL`), as `syncEvery` does for `refresh`, through `exchangeAll`; the listing and adding of addresses behind `device`; and `offerPairing`, which serves a pairing offer until it's taken, or until 3 wrong codes.
 * [web.zig](src/web.zig): the web client's server: its files, embedded; which browser acts as this device (`local`, by its loopback address, or any with `--permissive`); syncs answered as this device is now (`snapshot`); and the API for browsing, playing, lists, and downloads.
 * [setup.zig](src/setup.zig): setup (creating a library, or offering to join one at `/pair` on the same port, and advertising afresh as it changes) and settings' API, and `keepRefreshed`, which runs Refresh Library on a task of its own.

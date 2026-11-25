@@ -880,7 +880,7 @@ pub fn tiles(replica: *Replica, arena: std.mem.Allocator) ![]Tile {
         if (!g.found_existing or c.at_ms > g.value_ptr.*) g.value_ptr.* = c.at_ms;
     };
     for (try library.titles(replica, arena)) |t| {
-        if (t.qualities == 0 or t.alias != null) continue;
+        if (t.qualities == 0) continue;
         const own = coverOf(try coverField(arena, &covers, t.key, "art"));
         const sort = try coverField(arena, &covers, t.key, "sort");
         const released = try coverField(arena, &covers, t.key, "released");

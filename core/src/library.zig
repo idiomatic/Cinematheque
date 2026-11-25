@@ -1,7 +1,6 @@
 //! The library's domain on top of the replica: keys derived from titles'
 //! parsed identities, sources and their layouts, copies ingested
-//! from crawls, and progress; the review of close matches and aliases is
-//! [review.zig](review.zig)'s.
+//! from crawls, and progress.
 //!
 //! Keys:
 //! * `t/<kind>/<title>/<year>`: a title; kind `m` (movie) or `s` (series),
@@ -17,8 +16,6 @@
 //!   empty if unknown), `skip` (the prefix of names to skip), and
 //!   `absent:<directory>` (when it was noticed, in milliseconds), for each
 //!   directory that held files and lists none now, its copies kept.
-//! * `aliases`: field `<title key>`, value the title key it's an alias of,
-//!   or empty if none.
 //! * `u/<path>`: files that didn't parse, with `held:<source>`.
 //! * `p/<person>/<item key>`: a person's progress in an item (a version,
 //!   episode, or part), private to that person's devices: fields `position`
@@ -807,7 +804,7 @@ pub fn ingest(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, source:
         const k = try keys(arena, owned);
         var quality = try std.fmt.allocPrint(arena, "{s}/r/{s}", .{ k.item, try qualityOf(arena, source.layout, owned, as.folder) });
         // Two files of one quality in one source are duplicates (or
-        // misnamed); keep both, numbered, and count them for review.
+        // misnamed); keep both, numbered.
         if (wanted.contains(quality)) {
             stats.duplicates += 1;
             var n: usize = 2;
@@ -1075,18 +1072,10 @@ pub const Title = struct {
     qualities: usize = 0,
     /// Distinct quality labels held.
     labels: std.ArrayList([]const u8) = .empty,
-    /// The title it's an alias of, if any.
-    alias: ?[]const u8 = null,
 };
 
 /// Every title, with counts of its items and held qualities.
 pub fn titles(replica: *Replica, arena: std.mem.Allocator) ![]Title {
-    var alias_of: std.StringHashMapUnmanaged([]const u8) = .empty;
-    {
-        const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = 'aliases' AND length(value) > 0");
-        defer s.finalize();
-        while (try s.step()) try alias_of.put(arena, try arena.dupe(u8, s.blob(0)), try arena.dupe(u8, s.blob(1)));
-    }
     var out: std.ArrayList(Title) = .empty;
     var last_item: []const u8 = "";
     const s = try replica.db.prepare("SELECT key, field, value FROM winners WHERE key >= 't/' AND key < 't0' ORDER BY key");
@@ -1098,7 +1087,7 @@ pub fn titles(replica: *Replica, arena: std.mem.Allocator) ![]Title {
             // A kind this build doesn't know (a newer device's) isn't shown.
             const kind = std.enums.fromInt(TitleKind, key[2]) orelse continue;
             const tk = try arena.dupe(u8, key[0..title_len]);
-            try out.append(arena, .{ .key = tk, .kind = kind, .name = "", .year = null, .alias = alias_of.get(tk) });
+            try out.append(arena, .{ .key = tk, .kind = kind, .name = "", .year = null });
         }
         const t = &out.items[out.items.len - 1];
         const field = s.blob(1);
@@ -1273,10 +1262,6 @@ pub const Detail = struct {
     key: []const u8,
     name: []const u8 = "",
     year: ?u16 = null,
-    /// The title this one is an alias of, if any.
-    alias_of: ?[]const u8 = null,
-    /// Titles that are aliases of this one.
-    aliases: std.ArrayList([]const u8) = .empty,
     items: std.ArrayList(Item) = .empty,
     /// Metadata and covers (see art.zig): `description`, `genre`,
     /// `released`, `network`, `art`, `art:s01`, and so on.
@@ -1288,15 +1273,6 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
     var d: Detail = .{ .key = key };
     var found = false;
     const unavailable = try UnavailableDirs.load(replica, arena);
-    {
-        const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = 'aliases' AND length(value) > 0 AND (field = ?1 OR value = CAST(?1 AS BLOB))");
-        defer s.finalize();
-        try s.bindText(1, key);
-        while (try s.step()) {
-            if (std.mem.eql(u8, s.blob(0), key)) d.alias_of = try arena.dupe(u8, s.blob(1)) //
-            else try d.aliases.append(arena, try arena.dupe(u8, s.blob(0)));
-        }
-    }
     var item_fields: std.StringHashMapUnmanaged(std.StringArrayHashMapUnmanaged([]const u8)) = .empty;
     const lower = try std.fmt.allocPrint(arena, "{s}/", .{key});
     const upper = try std.fmt.allocPrint(arena, "{s}0", .{key});
@@ -1353,38 +1329,6 @@ pub fn detail(replica: *Replica, arena: std.mem.Allocator, key: []const u8) !?De
     return d;
 }
 
-pub const Facet = struct { facet: []const u8, value: []const u8, count: usize };
-
-/// Counts of titles by kind, decade, and quality held.
-pub fn facets(arena: std.mem.Allocator, all: []const Title) ![]Facet {
-    var counts: std.StringArrayHashMapUnmanaged(usize) = .empty;
-    for (all) |t| {
-        if (t.alias != null or t.qualities == 0) continue;
-        try bump(arena, &counts, try std.fmt.allocPrint(arena, "kind\t{t}", .{t.kind}));
-        if (t.year) |y| try bump(arena, &counts, try std.fmt.allocPrint(arena, "decade\t{d}s", .{y / 10 * 10}));
-        for (t.labels.items) |l| try bump(arena, &counts, try std.fmt.allocPrint(arena, "quality\t{s}", .{l}));
-    }
-    var out: std.ArrayList(Facet) = .empty;
-    var it = counts.iterator();
-    while (it.next()) |e| {
-        const tab = std.mem.indexOfScalar(u8, e.key_ptr.*, '\t').?;
-        try out.append(arena, .{ .facet = e.key_ptr.*[0..tab], .value = e.key_ptr.*[tab + 1 ..], .count = e.value_ptr.* });
-    }
-    std.mem.sort(Facet, out.items, {}, struct {
-        fn lessThan(_: void, a: Facet, b: Facet) bool {
-            const o = std.mem.order(u8, a.facet, b.facet);
-            return if (o != .eq) o == .lt else std.mem.order(u8, a.value, b.value) == .lt;
-        }
-    }.lessThan);
-    return out.items;
-}
-
-fn bump(arena: std.mem.Allocator, counts: *std.StringArrayHashMapUnmanaged(usize), key: []const u8) !void {
-    const gop = try counts.getOrPut(arena, key);
-    if (!gop.found_existing) gop.value_ptr.* = 0;
-    gop.value_ptr.* += 1;
-}
-
 const testing = std.testing;
 
 test "normalize and fold" {
@@ -1411,7 +1355,7 @@ test "keys follow parsed identity" {
     try testing.expectEqualStrings("t/s/friends/-/e/s04e23", episode.item);
 }
 
-test "state: sources, aliases, progress, and members can be listed, set, and removed" {
+test "state: sources, progress, and members can be listed, set, and removed" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -1430,12 +1374,6 @@ test "state: sources, aliases, progress, and members can be listed, set, and rem
     try r.write(4000, try std.fmt.allocPrint(arena, "r/{s}", .{&id}), "quality-by", "file");
     try std.testing.expectEqual(QualityFrom.unknown, (try findSource(&r, arena, &id)).layout.quality);
     try std.testing.expectEqualStrings("", (try findSource(&r, arena, &id)).layout.skip);
-
-    const review = @import("review.zig");
-    try review.addAlias(&r, 3000, "t/m/rogue-protocol/2019", "t/m/rogue-protocol/2018");
-    try std.testing.expectEqual(@as(usize, 1), (try review.aliases(&r, arena)).len);
-    try review.removeAlias(&r, 4000, "t/m/rogue-protocol/2019");
-    try std.testing.expectEqual(@as(usize, 0), (try review.aliases(&r, arena)).len);
 
     try setProgress(&r, arena, 5000, "t/m/network-effect/2020/v/-", 60_000, 6_000_000);
     try markWatched(&r, arena, 6000, "t/s/worldhoppers/-/e/s01e02");

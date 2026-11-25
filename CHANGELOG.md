@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Command-line app: `title review`, `title facets`, and aliases are gone; no player showed them.
 * Mac: the status bar fades out before the grid's scroll bar, which it covered the bottom of.
 * Mac: the room the Series shelf keeps at its end for the tallest band says, quietly, "This space is intentionally left blank."
 * Covers: a season whose first episode's MP4 has no cover takes the next one that has (another quality's, or the next episode's), as Black Sails' and Homeland's did; and of files alike, a server's is preferred to a Mac's own drive's, whose covers go missing as it's unplugged (Andor's second season).

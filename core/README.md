@@ -29,7 +29,6 @@ It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` als
 | [thumbhash](src/thumbhash.zig) | ThumbHash placeholders, encoded and rendered; a port of the MIT-licensed reference |
 | [art](src/art.zig) | Covers and metadata for movies and seasons, from sidecar images or MP4s, planned across sources and described by concurrent workers, prioritized titles first; the browsing grid's tiles, with this person's progress and whether begun |
 | [library](src/library.zig) | Keys from titles' parsed identities; sources, crawled into copies; titles, a title's details, facets, and progress |
-| [review](src/review.zig) | Close matches and duplicates for a person to resolve, and the aliases that resolve them |
 | [lists](src/lists.zig) | A person's lists (a Watchlist, Favorites), placeholders for titles not in the library yet, and lists shared with every member |
 | [order](src/order.zig) | The orders shelves sort in, each tile's place in each |
 | [views](src/views.zig) | What players show, as JSON: the grid's tiles and a title's detail, for the C interface and the web client alike |

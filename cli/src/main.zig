@@ -134,7 +134,6 @@ const nouns = [_]Noun{
     .{ .name = "member", .run = commands.member },
     .{ .name = "source", .run = commands.source },
     .{ .name = "title", .run = commands.title },
-    .{ .name = "alias", .run = commands.alias },
     .{ .name = "progress", .run = commands.progress },
     .{ .name = "device", .run = commands.device },
 };

@@ -29,8 +29,7 @@ fn tiles(lib: *Library, arena: std.mem.Allocator) ![]const views.TileJson {
     return views.tiles(&r, arena);
 }
 
-/// One title, as a JSON object with `key`, `name`, `year`, `aliasOf`,
-/// `aliases`, `fields` (its metadata, e.g., `description` and `genre`),
+/// One title, as a JSON object with `key`, `name`, `year`, `fields` (its metadata, e.g., `description` and `genre`),
 /// `covers` (by field, `art` or `art:s01`...), and `items`, each with its
 /// `key`, `fields` (e.g., an episode's `title`), this person's `position`,
 /// `duration` (milliseconds), and `watched`, and `qualities`, each with

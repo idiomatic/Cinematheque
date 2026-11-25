@@ -90,8 +90,8 @@ device list prints it.
 
   title list [TEXT]            list titles, or those whose names hold
                                the text (shortcut: ls)
-  title show TITLE             show a title: its aliases, episodes or
-                               versions, and where each quality is
+  title show TITLE             show a title: its episodes or versions,
+                               and where each quality is
                                (shortcut: show)
   title download TITLE [--quality NAME] [--to DIR]
                                fetch a title's files, or a season's
@@ -100,12 +100,6 @@ device list prints it.
                                from whichever copy answers first; in the
                                quality given, else the one most items
                                have; resuming a download cut short
-  title review                 list close matches and duplicates
-  title facets                 count titles by facet
-
-  alias list                   list titles that are aliases of others
-  alias add TITLE TARGET       record the title as an alias of the target
-  alias remove TITLE           stop a title being an alias of another
 
   progress list [TITLE]        list this person's progress
   progress set ITEM POSITION DURATION

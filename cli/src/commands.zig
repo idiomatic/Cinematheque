@@ -4,7 +4,6 @@ const std = @import("std");
 const Io = std.Io;
 const core = @import("core");
 const lib = core.library;
-const review = core.review;
 const main = @import("main.zig");
 const network = @import("network.zig");
 const App = main.App;
@@ -321,7 +320,7 @@ pub fn title(app: *App, c: Command) !void {
                 .series => "episodes",
             }, t.qualities, if (t.qualities == 1) "quality" else "qualities" });
             for (t.labels.items, 0..) |l, i| try out.print("{s}{s}", .{ if (i > 0) ", " else "", l });
-            try out.print("]  {s}{s}{s}\n", .{ t.key, if (t.alias != null) " -> " else "", t.alias orelse "" });
+            try out.print("]  {s}\n", .{t.key});
         }
         try out.print("{d} titles", .{shown});
         if (unheld > 0) try out.print(" ({d} more held by no source)", .{unheld});
@@ -336,8 +335,6 @@ pub fn title(app: *App, c: Command) !void {
         if (d.year) |y| try out.print(" ({d})", .{y});
         try out.print("  {s}\n", .{d.key});
         for (d.fields.keys(), d.fields.values()) |k, v| try out.print("  {s}: {s}\n", .{ k, v });
-        if (d.alias_of) |to| try out.print("  an alias of {s}\n", .{to});
-        for (d.aliases.items) |from| try out.print("  {s} is an alias of it\n", .{from});
         for (d.items.items) |item| {
             try out.print("  {s}", .{item.key});
             try printProgress(out, item.progress);
@@ -351,21 +348,8 @@ pub fn title(app: *App, c: Command) !void {
                 }
             }
         }
-    } else if (c.is("review", 0, &.{})) {
-        var r = try app.open();
-        defer r.close();
-        const all = try lib.titles(&r, app.arena);
-        const matches = try review.closeMatches(app.arena, all);
-        for (matches) |m| try out.print("{s}\t{s}\t{s}\n", .{ m.reason, m.a, m.b });
-        const dups = try review.duplicates(&r, app.arena);
-        for (dups) |m| try out.print("{s}\t{s}\t{s}\n", .{ m.reason, m.a, m.b });
-        try out.print("{d} close matches among {d} titles; {d} duplicate files\n", .{ matches.len, all.len, dups.len });
     } else if (c.is("download", 1, &.{ "--quality", "--to" })) {
         try download(app, c);
-    } else if (c.is("facets", 0, &.{})) {
-        var r = try app.open();
-        defer r.close();
-        for (try lib.facets(app.arena, try lib.titles(&r, app.arena))) |f| try out.print("{s}\t{s}\t{d}\n", .{ f.facet, f.value, f.count });
     } else return error.Usage;
 }
 
@@ -419,24 +403,6 @@ const Shown = struct {
         return .go_on;
     }
 };
-
-pub fn alias(app: *App, c: Command) !void {
-    if (c.is("list", 0, &.{})) {
-        var r = try app.open();
-        defer r.close();
-        for (try review.aliases(&r, app.arena)) |a| try app.out.print("{s} -> {s}\n", .{ a.from, a.to });
-    } else if (c.is("add", 2, &.{})) {
-        var r = try app.open();
-        defer r.close();
-        try review.addAlias(&r, app.now(), c.rest[0], c.rest[1]);
-        try app.out.print("{s} -> {s}\n", .{ c.rest[0], c.rest[1] });
-    } else if (c.is("remove", 1, &.{})) {
-        var r = try app.open();
-        defer r.close();
-        try review.removeAlias(&r, app.now(), c.rest[0]);
-        try app.out.print("removed alias of {s}\n", .{c.rest[0]});
-    } else return error.Usage;
-}
 
 pub fn progress(app: *App, c: Command) !void {
     const watched = c.args.has("--watched");

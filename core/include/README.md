@@ -151,7 +151,7 @@ A **tile** is a movie or a season, with this person's progress ([views.zig](../s
 | `items`, `unavailable` | How many items it holds; whether every copy it has is unavailable |
 | `order` | Its title's place in each order, `{title, released, added, modified, watched}`, each counted from what comes first in the order's usual direction, null for no place (see [AGENTS.md](../../AGENTS.md#library)) |
 
-A **title**: `key`, `name`, `year`, `aliasOf` (the key it's an alias of, or null), `aliases`, `fields` (its metadata: `description`, `genre`, `released`, ...), `covers` (by field, `art` or `art:s01`..., each as a tile's `cover`), `seasons` (a series', in order, specials, 0, last), and `items`, in order (each season's episodes by number, specials last), each with:
+A **title**: `key`, `name`, `year`, `fields` (its metadata: `description`, `genre`, `released`, ...), `covers` (by field, `art` or `art:s01`..., each as a tile's `cover`), `seasons` (a series', in order, specials, 0, last), and `items`, in order (each season's episodes by number, specials last), each with:
 
 | Field | |
 |---|---|

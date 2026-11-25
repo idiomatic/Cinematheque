@@ -96,8 +96,6 @@ pub const Title = struct {
     key: []const u8,
     name: []const u8,
     year: ?u16,
-    aliasOf: ?[]const u8,
-    aliases: []const []const u8,
     fields: std.json.ArrayHashMap([]const u8),
     covers: std.json.ArrayHashMap(CoverJson),
     /// In order: each season's episodes by number, specials last; a movie's
@@ -172,8 +170,6 @@ pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
         .key = d.key,
         .name = d.name,
         .year = d.year,
-        .aliasOf = d.alias_of,
-        .aliases = d.aliases.items,
         .fields = .{ .map = fields },
         .covers = .{ .map = covers },
         .items = items,
