@@ -62,8 +62,8 @@ export fn cq_reconcile_stop(lib: *Library) void {
 }
 
 /// Chooses which of a series' episodes download, as it's watched: the
-/// next N after where this person is (`3`), the watched ones going as their
-/// space is needed, or `all` of them, kept however they're watched; empty
+/// next N after where this person is (`3`), the watched ones going once
+/// another source holds them alike, or `all` of them, kept however they're watched; empty
 /// or `0`, none.
 export fn cq_download_next(lib: *Library, title_key: [*:0]const u8, choice: [*:0]const u8) c_int {
     return status(lib, downloadNext, .{ std.mem.span(title_key), std.mem.span(choice) });

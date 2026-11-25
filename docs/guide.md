@@ -170,7 +170,7 @@ On a Mac, download what you'll watch away from home, or keep on hand when the ne
 * **While something streams,** downloads wait, so as not to slow it.
 * **Sharing:** your downloads are a source like any other, so your other devices play from them while the app runs.
 * **What stays:** what you download yourself stays until you delete it, with the trash button beside the Download controls, which asks first if it's the only copy.
-* **What goes:** a series' episodes you've watched are deleted when their space is needed (unless you chose All), but only if a source still holds the same file, never the only copy.
+* **What goes:** a series' episodes you've watched are deleted (unless you chose All), but only if a source still holds the same file, never the only copy.
 
 ## Sharing a library
 

@@ -81,7 +81,6 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 
 * `title list [TEXT]` (`ls`) prints each title some source holds whose name contains the text, ignoring case: its year, kind, episodes or versions, qualities, and key. A count ends the list.
 * `title show TITLE` (`show`) prints a title's fields and each item: its fields, your progress, and per quality, every copy's size, modification time, and URL.
-* `title download TITLE` fetches a title's files (or a season's, `TITLE/e/s01`, or an item's) into the current directory or `--to DIR`, under their paths in the source, so the directory can be served and added as a source of its own. It takes `--quality NAME`, else the quality most of the items have; tries the copy whose server answers first, then the others; and resumes a file cut short (`<path>.part`) by a range request. Mind the size: a 2160p remux runs to 60 GB.
 
 ### Progress
 

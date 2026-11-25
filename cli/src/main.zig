@@ -167,7 +167,6 @@ fn explain(err: anyerror) []const u8 {
         error.NoHome => "HOME isn't set, so give a data directory with --data",
         error.NoSuchTitle => "there's no such title (title list shows them)",
         error.NoSuchSource => "there's no such source (source list shows them)",
-        error.NothingHeld => "no source holds it (in that quality, if one was given)",
         error.BadKey => "that isn't a key (64 hex digits)",
         error.WrongCode => "that isn't the code the new device shows",
         error.Closed, error.TooManyWrongCodes => "pairing stopped after too many wrong codes: offer again, for a new code",

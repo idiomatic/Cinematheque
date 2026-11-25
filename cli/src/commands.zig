@@ -348,61 +348,8 @@ pub fn title(app: *App, c: Command) !void {
                 }
             }
         }
-    } else if (c.is("download", 1, &.{ "--quality", "--to" })) {
-        try download(app, c);
     } else return error.Usage;
 }
-
-/// Fetches a title's, a season's, or an item's files into a directory, under
-/// their sources' paths (see core's download.zig).
-fn download(app: *App, c: Command) !void {
-    const out = app.out;
-    const files = blk: {
-        var r = try app.open();
-        defer r.close();
-        break :blk core.download.plan(&r, app.arena, c.rest[0], c.args.get("--quality")) catch |err| switch (err) {
-            error.NotFound => return error.NothingHeld,
-            else => |e| return e,
-        };
-    };
-    var dir = try Io.Dir.cwd().createDirPathOpen(app.io, c.args.get("--to") orelse ".", .{});
-    defer dir.close(app.io);
-    var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
-    defer client.deinit();
-    var memory: core.race.Memory = .{};
-    defer memory.deinit(app.gpa);
-    var failed: usize = 0;
-    for (files) |f| {
-        try out.print("{s}  {d:.2} GB  {s}", .{ f.path, @as(f64, @floatFromInt(f.size)) / 1e9, f.quality });
-        try out.flush();
-        var shown = Shown{ .out = out };
-        const fetched = core.download.fetch(app.io, app.gpa, app.arena, &client, &memory, dir, f, app.now(), .{ .context = &shown, .report = Shown.report }) catch |err| {
-            try out.print("  failed: {t}\n", .{err});
-            failed += 1;
-            continue;
-        };
-        try out.print("{s}\n", .{if (fetched == .kept) "  already here" else "  done"});
-    }
-    if (failed > 0) return error.Incomplete;
-}
-
-/// A download's percentage, as it rises, in tens.
-const Shown = struct {
-    out: *Io.Writer,
-    percent: u64 = 0,
-
-    /// Shows it; and goes on, as nothing here stops wanting it.
-    fn report(context: *anyopaque, done: u64, total: u64) core.download.Verdict {
-        const s: *Shown = @ptrCast(@alignCast(context));
-        // In tens, to keep to one line.
-        const percent = if (total == 0) 100 else done * 10 / total * 10;
-        if (percent == s.percent) return .go_on;
-        s.percent = percent;
-        s.out.print("  {d}%", .{percent}) catch {};
-        s.out.flush() catch {};
-        return .go_on;
-    }
-};
 
 pub fn progress(app: *App, c: Command) !void {
     const watched = c.args.has("--watched");

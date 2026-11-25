@@ -36,7 +36,7 @@ struct DownloadsPane: View {
                     }
                 }
             } footer: {
-                Text("Download to watch when a server's asleep or out of reach. Your other devices can play what this Mac downloads while Cinematheque is open. What you download stays until you delete it; a series' watched episodes go when space is needed (unless you chose All, or it's the only copy), always leaving \(floor) free. If you choose another folder, downloads come again there; the old folder's files stay until you delete them.")
+                Text("Download to watch when a server's asleep or out of reach. Your other devices can play what this Mac downloads while Cinematheque is open. What you download stays until you delete it; a series' watched episodes go once watched (unless you chose All, or it's the only copy), always leaving \(floor) free. If you choose another folder, downloads come again there; the old folder's files stay until you delete them.")
                     .foregroundStyle(.secondary)
             }
         }

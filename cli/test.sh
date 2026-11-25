@@ -202,24 +202,4 @@ $cq $c device list | grep -q "8191/sync  added" || { echo "FAIL: device add"; ex
 $cq $c device forget http://127.0.0.1:8191
 $cq $c device list | grep -q "  added" && { echo "FAIL: device forget"; exit 1; }
 
-# A downloads a movie under its path in the source, resumes one cut short,
-# and keeps one already whole: a small file, real, from a server of its
-# own (the generated source's are sparse, up to 40 GB each, which a
-# download would write out in full).
-small="Small Movie (1999)/Small Movie (1999).mp4"
-mkdir -p "$work/small/${small%/*}"
-head -c 300000 /dev/urandom > "$work/small/$small"
-$cq $a serve --port 8195 --media $work/small > $work/small.log 2>&1 &
-d_pid=$!
-sleep 1
-$cq $a source add http://127.0.0.1:8195/media/ > /dev/null
-$cq $a crawl http://127.0.0.1:8195/media/ > /dev/null
-movie=t/m/small-movie/1999
-$cq $a title download $movie --to $work/dl > /dev/null
-cmp -s "$work/dl/$small" "$work/small/$small" || { echo "FAIL: title download"; exit 1; }
-head -c 1000 "$work/small/$small" > "$work/dl/$small.part"; rm "$work/dl/$small"
-$cq $a title download $movie --to $work/dl | grep -q "done$" || { echo "FAIL: download resumed"; exit 1; }
-cmp -s "$work/dl/$small" "$work/small/$small" && [ ! -e "$work/dl/$small.part" ] || { echo "FAIL: download resumed whole"; exit 1; }
-$cq $a title download $movie --to $work/dl | grep -q "already here$" || { echo "FAIL: download kept"; exit 1; }
-kill $d_pid
 echo PASS

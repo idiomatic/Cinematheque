@@ -93,13 +93,6 @@ device list prints it.
   title show TITLE             show a title: its episodes or versions,
                                and where each quality is
                                (shortcut: show)
-  title download TITLE [--quality NAME] [--to DIR]
-                               fetch a title's files, or a season's
-                               (TITLE/e/s01) or an ITEM's, into a directory
-                               (the current one), under their source paths,
-                               from whichever copy answers first; in the
-                               quality given, else the one most items
-                               have; resuming a download cut short
 
   progress list [TITLE]        list this person's progress
   progress set ITEM POSITION DURATION
