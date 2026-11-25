@@ -67,10 +67,8 @@ extension Library {
         report(.refresh, synced ?? crawled)
         // The sources' servers' names, looked up now, so the first play's
         // copy racing finds them answered.
-        if let handle {
-            let urls = sources.compactMap(\.address)
-            Task.detached { withCStrings(urls) { cq_race_warm(handle.pointer, $0, $1) } }
-        }
+        let urls = sources.compactMap(\.address)
+        Task { _ = await apart { handle in withCStrings(urls) { cq_race_warm(handle, $0, $1) } } }
         #if os(macOS)
         reconcileSoon()
         #endif
@@ -145,8 +143,8 @@ extension Library {
     /// Crawls one source, unshown (it's this Mac's own folder, come or
     /// gone), then reads back, and fetches what waited on it.
     private func crawlQuietly(_ source: String) async {
-        guard let handle, hasLibrary, !leavingLibrary else { return }
-        await Task.detached { if let text = cq_crawl_source(handle.pointer, source) { cq_free(text) } }.value
+        guard hasLibrary else { return }
+        await apart { if let text = cq_crawl_source($0, source) { cq_free(text) } }
         reloadSoon()
         #if os(macOS)
         reconcileSoon()

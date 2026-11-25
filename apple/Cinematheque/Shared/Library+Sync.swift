@@ -55,15 +55,15 @@ extension Library {
     func syncKnownQuietly() async -> Bool { await syncQuietly { cq_sync_known($0) } }
 
     private func syncQuietly(_ sync: @escaping @Sendable (OpaquePointer) -> UnsafeMutablePointer<CChar>?) async -> Bool {
-        guard let handle, hasLibrary, activity == nil, !syncingQuietly, !leavingLibrary else { return false }
+        guard handle != nil, hasLibrary, activity == nil, !syncingQuietly, !leavingLibrary else { return false }
         syncingQuietly = true
         defer { syncingQuietly = false }
         lastSync = .now
-        let data: Data? = await Task.detached {
-            guard let text = sync(handle.pointer) else { return nil }
+        let data: Data? = await apart { handle in
+            guard let text = sync(handle) else { return nil }
             defer { cq_free(text) }
             return Data(bytes: text, count: strlen(text))
-        }.value
+        } ?? nil
         if let data { noteReceived(data) }
         reloadSoon()
         // What's watched, here or elsewhere, moves kept series along.

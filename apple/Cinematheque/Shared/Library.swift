@@ -362,7 +362,8 @@ final class Library {
     }
 
     /// Syncs with every device found or added, off the main thread; returns
-    /// whether any was reached.
+    /// whether any was reached. Not `apart`, which refuses while leaving:
+    /// it's leaving's own, which awaits it.
     private nonisolated static func reachesAny(_ handle: Handle) async -> Bool {
         await Task.detached {
             guard let text = cq_sync(handle.pointer) else { return false }

@@ -292,7 +292,7 @@ extension Library {
     func reconcileSoon() {
         guard let handle, hasLibrary, downloads?.dir != nil, !leavingLibrary else { return }
         guard reconciling == nil else {
-            Task.detached { if let text = cq_reconcile(handle.pointer) { cq_free(text) } }
+            Task { _ = await apart { if let text = cq_reconcile($0) { cq_free(text) } } }
             return
         }
         reconciling = Task {
