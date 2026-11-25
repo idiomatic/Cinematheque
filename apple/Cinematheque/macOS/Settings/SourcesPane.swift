@@ -98,18 +98,7 @@ struct SourcesPane: View {
             }
         }
         .padding()
-        // The one confirmation: removing a source can't be undone but by
-        // adding it again and looking for its videos anew.
-        .confirmationDialog(
-            removing.map { "Remove “\(name(of: $0))”?" } ?? "",
-            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-            presenting: removing
-        ) { source in
-            Button("Remove", role: .destructive) { remove(source) }
-            Button("Cancel", role: .cancel) {}
-        } message: { source in
-            Text(removalMessage(source))
-        }
+        .confirmsRemoving(source: $removing)
         .sheet(isPresented: $adding) { SourceSheet(source: nil) }
         // A folder to serve from this Mac: a local one, or a mounted
         // share's (e.g., /Volumes/Shared).
@@ -140,21 +129,6 @@ struct SourcesPane: View {
             NSWorkspace.shared.open(url)
         }
     }
-
-    private func name(of source: Source) -> String {
-        library.folder(of: source)?.name ?? source.displayName
-    }
-
-    private func removalMessage(_ source: Source) -> String {
-        let copies = source.copies == 1 ? "Its one video goes" : "Its \(source.copies.formatted()) videos go"
-        let sharing = library.folder(of: source) == nil ? "" : " This Mac stops sharing the folder."
-        return "\(copies) from the library, on every device, though its files stay where they are.\(sharing) You can add it again."
-    }
-
-    private func remove(_ source: Source) {
-        if let folder = library.folder(of: source) { library.removeFolder(folder) } else { library.removeSource(source.id) }
-    }
-
 }
 
 /// Adding a source by its address, or editing one: where its files'

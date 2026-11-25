@@ -33,18 +33,7 @@ struct PeoplePage: View {
             }
             .scrollClipDisabled()
         }
-        // Hard to undo, so asked first.
-        .confirmationDialog(
-            "Remove \(removing?.name ?? "Them")?",
-            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-            titleVisibility: .visible,
-            presenting: removing
-        ) { member in
-            Button("Remove", role: .destructive) { library.removeMember(member.key) }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("They and their devices leave the library, and what they change from then on is refused. To come back, they join again as someone new; their watchlist and progress don't come back with them.")
-        }
+        .confirmsRemoving(member: $removing)
     }
 
     private var explanation: String {
@@ -164,19 +153,7 @@ struct SourcesPage: View {
             }
             .scrollClipDisabled()
         }
-        // Removing a source can't be undone but by adding it again and
-        // looking for its videos anew.
-        .confirmationDialog(
-            "Remove “\(removing?.displayName ?? "")”?",
-            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-            titleVisibility: .visible,
-            presenting: removing
-        ) { source in
-            Button("Remove", role: .destructive) { library.removeSource(source.id) }
-            Button("Cancel", role: .cancel) {}
-        } message: { source in
-            Text("\(source.copies == 1 ? "Its one video goes" : "Its \(source.copies.formatted()) videos go") from the library, on every device, though its files stay where they are. You can add it again.")
-        }
+        .confirmsRemoving(source: $removing)
     }
 
     static let adding = "Adds a folder of videos on a server, such as a NAS, by its address as a browser would open it: http://nas.local/Video/Movies/."

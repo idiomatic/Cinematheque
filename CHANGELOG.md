@@ -7,6 +7,7 @@ All notable changes to Cinematheque are recorded here.
 * Apple TV: an episode of a dated series (a season a year) shows its own season's cover in the player's info panel and Now Playing, not another season's.
 * iPhone: setup, after the iPhone was removed from its library, says "This iPhone was removed", not "This Mac".
 * Apps: leaving a library waits out a copy race, a crawl of a Mac's folder come or gone, and a download pass under way, rather than failing as busy.
+* Apps: Settings' confirmations (leaving, removing someone, removing a source) read alike on every device: a device comes back by joining again, and someone removed loses their lists, not only their watchlist.
 * iPhone: no longer called a prototype.
 * Mac: a folder that overlaps the downloads folder (is it, holds it, or is inside it) can't be added as a source, nor a downloads folder chosen that overlaps a source's, as cleanup could then take a download's own record for a copy held elsewhere and delete the only copy.
 * Show Sync Activity is gone from the apps; each sync's exchanges that changed something are logged instead (`sync`, in Console). A device's push is noticed by the library's data version, and `cq_served` and `cq_received` are gone.

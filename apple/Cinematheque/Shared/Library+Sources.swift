@@ -29,7 +29,7 @@ extension Library {
         }
     }
 
-    func removeSource(_ id: String) { checkAndReload { cq_repo_remove($0, id) } }
+    private func removeSource(_ id: String) { checkAndReload { cq_repo_remove($0, id) } }
 
     /// Removes a member, for good: they come back only as someone new.
     func removeMember(_ key: String) { checkAndReload { cq_member_remove($0, key) } }
@@ -261,8 +261,14 @@ extension Library {
         await crawl()
     }
 
+    /// Removes a source, and if it's one of this device's folders, stops
+    /// serving it.
+    func remove(_ source: Source) {
+        if let folder = folder(of: source) { removeFolder(folder) } else { removeSource(source.id) }
+    }
+
     /// Stops serving a folder, and removes its source.
-    func removeFolder(_ folder: Folder) {
+    private func removeFolder(_ folder: Folder) {
         loadFolders()
         if let source = sources.first(where: { $0.url == folder.url }) { removeSource(source.id) }
         folders.removeAll { $0.prefix == folder.prefix }

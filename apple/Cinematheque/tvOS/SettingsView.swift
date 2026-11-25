@@ -9,9 +9,7 @@ import SwiftUI
 /// source's quality, stay on the Mac.
 struct SettingsView: View {
     @Environment(Library.self) private var library
-    @State private var confirmingLeave = false
-    @State private var leaving = false
-    @State private var problem: String?
+    @State private var leaving = Leaving()
     /// The name whose keyboard is up.
     @State private var naming: SettingsRow?
     /// The page open, if one is.
@@ -25,17 +23,14 @@ struct SettingsView: View {
     /// than a form's.
     static let rowInsets = EdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
 
-    /// No one else in the library, nor another device of yours: leaving ends it.
-    private var alone: Bool { library.members.count == 1 && library.status?.others == 0 }
-
     var body: some View {
         SettingsPage(explanation: explanation) { list }
     }
 
     /// What the focused row does; a problem leaving, whatever's focused.
     private var explanation: String {
-        if leaving { return "Leaving…" }
-        if let problem { return problem }
+        if leaving.underWay { return "Leaving…" }
+        if let problem = leaving.problem { return problem }
         return focus?.explanation ?? ""
     }
 
@@ -65,7 +60,7 @@ struct SettingsView: View {
                 Button("Refresh Library") {
                     Task { await library.refresh() }
                 }
-                .disabled(library.activity != nil || leaving)
+                .disabled(library.activity != nil || leaving.underWay)
                 .settingsRow(.refresh, $focus)
                 Button { page = .interval } label: {
                     ValueLabel(title: "Look for New Videos", opens: true, value: Library.crawlChoices.first { $0.hours == library.crawlEvery }?.name ?? "")
@@ -76,8 +71,8 @@ struct SettingsView: View {
             }
             .listRowInsets(Self.rowInsets)
             Section {
-                Button("Leave This Library…", role: .destructive, action: askToLeave)
-                    .disabled(leaving)
+                Button("Leave This Library…", role: .destructive, action: leaving.ask)
+                    .disabled(leaving.underWay)
                     .settingsRow(.leave, $focus)
             }
             .listRowInsets(Self.rowInsets)
@@ -92,15 +87,7 @@ struct SettingsView: View {
             case .interval: IntervalPage()
             }
         }
-        // Hard to undo, so asked first.
-        .alert(alone ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
-            Button(alone ? "Leave and End It" : "Leave", role: .destructive) { if alone { end() } else { leave() } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(alone
-                ? "No one else is in this library, so once this Apple TV leaves, it's gone for good. Its videos stay where they are."
-                : "This Apple TV leaves the library, and your other devices no longer list it. To come back, pair it again.")
-        }
+        .confirmsLeaving(leaving)
     }
 
     /// A row opening a page, with how many it lists.
@@ -124,23 +111,6 @@ struct SettingsView: View {
                 save($0)
             }
             .unseen()
-        }
-    }
-
-    /// Asks first, as it's hard to undo.
-    private func askToLeave() { confirmingLeave = true }
-
-    private func leave() { leaving { await library.leaveLibrary() } }
-
-    /// Leaves a library no one else is in, ending it.
-    private func end() { leaving { await library.endLibrary() } }
-
-    private func leaving(_ by: @escaping () async -> String?) {
-        leaving = true
-        problem = nil
-        Task {
-            problem = await by()
-            leaving = false
         }
     }
 }

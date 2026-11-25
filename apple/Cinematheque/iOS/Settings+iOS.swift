@@ -11,18 +11,14 @@ struct SettingsSheet: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var path: [SettingsPage] = []
-    @State private var confirmingLeave = false
-    @State private var leaving = false
-    @State private var problem: String?
+    @State private var leaving = Leaving()
 
     private var me: Member? { library.members.first(where: \.you) }
-    /// No one else in the library, nor another device of yours: leaving ends it.
-    private var alone: Bool { library.members.count == 1 && library.status?.others == 0 }
 
     var body: some View {
         NavigationStack(path: $path) {
             Form {
-                if let shown = problem ?? library.problem {
+                if let shown = leaving.problem ?? library.problem {
                     Section { Text(shown).foregroundStyle(.red) }
                 }
                 Section {
@@ -44,7 +40,7 @@ struct SettingsSheet: View {
                 Section {
                     NavigationLink(value: SettingsPage.sources) { LabeledContent("Sources", value: library.sources.filter { !$0.managed }.count.formatted()) }
                     Button("Refresh Library") { Task { await library.refresh() } }
-                        .disabled(library.activity != nil || leaving)
+                        .disabled(library.activity != nil || leaving.underWay)
                     if let activity = library.activity {
                         Text(activity + "…").foregroundStyle(.secondary)
                     }
@@ -58,8 +54,8 @@ struct SettingsSheet: View {
                     Text("Refresh to see videos just added, now. Looking less often lets a NAS's disks rest, as each look wakes them; this applies to everyone in the library.")
                 }
                 Section {
-                    Button(leaving ? "Leaving…" : "Leave This Library…", role: .destructive, action: askToLeave)
-                        .disabled(leaving)
+                    Button(leaving.underWay ? "Leaving…" : "Leave This Library…", role: .destructive, action: leaving.ask)
+                        .disabled(leaving.underWay)
                 } footer: {
                     Text("Takes this iPhone out of the library, to join another or give it to someone. Its videos stay where they are.")
                 }
@@ -78,32 +74,7 @@ struct SettingsSheet: View {
                 }
             }
         }
-        // Hard to undo, so asked first.
-        .alert(alone ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
-            Button(alone ? "Leave and End It" : "Leave", role: .destructive) { if alone { end() } else { leave() } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(alone
-                ? "No one else is in this library, so once this iPhone leaves, it's gone for good. Its videos stay where they are."
-                : "This iPhone leaves the library, and your other devices no longer list it. To come back, pair it again.")
-        }
-    }
-
-    /// Asks first, as it's hard to undo.
-    private func askToLeave() { confirmingLeave = true }
-
-    private func leave() { leaving { await library.leaveLibrary() } }
-
-    /// Leaves a library no one else is in, ending it.
-    private func end() { leaving { await library.endLibrary() } }
-
-    private func leaving(_ by: @escaping () async -> String?) {
-        leaving = true
-        problem = nil
-        Task {
-            problem = await by()
-            leaving = false
-        }
+        .confirmsLeaving(leaving)
     }
 }
 
@@ -167,18 +138,7 @@ private struct PeoplePage: View {
             NewDevices.someone
         }
         .navigationTitle("People")
-        // Hard to undo, so asked first.
-        .confirmationDialog(
-            "Remove \(removing?.name ?? "Them")?",
-            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-            titleVisibility: .visible,
-            presenting: removing
-        ) { member in
-            Button("Remove", role: .destructive) { library.removeMember(member.key) }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("They and their devices leave the library, and what they change from then on is refused. To come back, they join again as someone new; their lists and progress don't come back with them.")
-        }
+        .confirmsRemoving(member: $removing)
     }
 
     private func removable(_ member: Member) -> Bool { !member.you }
@@ -428,7 +388,7 @@ private struct SourcesPage: View {
         }
         .navigationTitle("Sources")
         .sheet(isPresented: $adding) { AddServerSheet() }
-        .removingSource($removing)
+        .confirmsRemoving(source: $removing)
     }
 
     /// Its count of videos, and any folders of it unavailable.
@@ -531,7 +491,7 @@ private struct SourcePage: View {
         }
         // Gone (removed here or elsewhere): back to the list.
         .onChange(of: source == nil) { if source == nil { dismiss() } }
-        .removingSource($removing)
+        .confirmsRemoving(source: $removing)
     }
 
     /// Saves where the quality comes from, once it can be: a name, once
@@ -623,32 +583,5 @@ private func webAddress(_ typed: String) -> String? {
     guard !trimmed.isEmpty else { return nil }
     let address = trimmed.contains("://") ? trimmed : "http://" + trimmed
     return URL(web: address) != nil ? address : nil
-}
-
-private extension View {
-    /// Asks before removing a source: it can't be undone but by adding it
-    /// again and looking for its videos anew.
-    func removingSource(_ removing: Binding<Source?>) -> some View {
-        modifier(RemovingSource(removing: removing))
-    }
-}
-
-private struct RemovingSource: ViewModifier {
-    @Binding var removing: Source?
-    @Environment(Library.self) private var library
-
-    func body(content: Content) -> some View {
-        content.confirmationDialog(
-            "Remove “\(removing?.displayName ?? "")”?",
-            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-            titleVisibility: .visible,
-            presenting: removing
-        ) { source in
-            Button("Remove", role: .destructive) { library.removeSource(source.id) }
-            Button("Cancel", role: .cancel) {}
-        } message: { source in
-            Text("\(source.copies == 1 ? "Its one video goes" : "Its \(source.copies.formatted()) videos go") from the library, on every device, though its files stay where they are. You can add it again.")
-        }
-    }
 }
 #endif
