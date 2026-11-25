@@ -6,7 +6,6 @@ struct DevicesPane: View {
     @Environment(Library.self) private var library
     @State private var nearby: [NearbyDevice] = []
     @State private var sharing = true
-    @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
 
     var body: some View {
         Form {
@@ -34,11 +33,6 @@ struct DevicesPane: View {
                 Text("New Devices")
             } footer: {
                 Text("To add a device, choose Join a Library on it, and enter the code it shows here. Choose Yours for your own device, or Someone New to give the person using it their own progress and watchlist.")
-            }
-            Section {
-                Toggle("Show sync activity", isOn: $showsSyncActivity)
-            } footer: {
-                Text("Shows in the status bar when your devices last caught up with this Mac, to check that a change made elsewhere has arrived.")
             }
         }
         .formStyle(.grouped)

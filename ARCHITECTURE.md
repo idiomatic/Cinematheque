@@ -118,7 +118,7 @@ As only winners are sent, a sync carries the current state of what changed, not 
 
 * **Refill:** a removal drops the winners its stream wrote past its cutoff, and what they overwrote is gone, its writes already covered by the vector. So a device that dropped any sends its next pull with an empty vector, takes every winner the other holds, comparing even those it covers (what it holds loses or ties), and ends refilling. A value neither held is lost.
 
-The apps' status line ("Received 3 changes from firefly") counts operations: received, those that won their fields; sent, those a response or a push carried.
+A sync's results count operations: received, those that won their fields; sent, those a response or a push carried.
 
 ## HTTP endpoints
 

@@ -67,10 +67,6 @@ pub const Library = struct {
     serving: ?*Serving = null,
     /// Offering to pair, while it does (`cq_pair_offer`).
     pairing: ?*Pairing = null,
-    /// The last sync served (`cq_served`), and the last push taken
-    /// (`cq_received`), from the server's task.
-    served: Heard = .{},
-    received: Heard = .{},
     /// Servers whose copies didn't answer lately (`cq_race`).
     racing: race.Memory = .{},
     /// The devices a sync last found nearby, for one that doesn't look
@@ -90,16 +86,6 @@ pub const Library = struct {
     /// reconciling goes on (as syncing asks it to run again, it may not end
     /// for a while).
     no_room: std.atomic.Value(u32) = .init(0),
-
-    pub fn onServed(context: ?*anyopaque, device: [32]u8, operations: usize) void {
-        const lib: *Library = @ptrCast(@alignCast(context.?));
-        lib.served.note(lib, device, operations);
-    }
-
-    pub fn onReceived(context: ?*anyopaque, device: [32]u8, operations: usize) void {
-        const lib: *Library = @ptrCast(@alignCast(context.?));
-        lib.received.note(lib, device, operations);
-    }
 
     pub fn io(lib: *Library) Io {
         return lib.threaded.io();
@@ -264,37 +250,6 @@ pub const CrawlJson = struct {
 /// it serves (`away`), as a device away is no failure.
 pub const Skipped = enum { lately, manual, downloads, away };
 pub const SyncJson = struct { url: []const u8, name: ?[]const u8 = null, new: usize, sent: usize = 0, @"error": ?[]const u8 };
-pub const HeardJson = struct { device: []const u8, name: ?[]const u8, operations: usize, at: u64 };
-
-/// An exchange the server had with a device, recorded on the server's task:
-/// with which device, how many operations, and when.
-pub const Heard = struct {
-    mutex: Io.Mutex = .init,
-    device: [32]u8 = @splat(0),
-    operations: usize = 0,
-    at: u64 = 0,
-
-    pub fn note(h: *Heard, lib: *Library, device: [32]u8, operations: usize) void {
-        h.mutex.lockUncancelable(lib.io());
-        defer h.mutex.unlock(lib.io());
-        h.device = device;
-        h.operations = operations;
-        h.at = lib.now();
-    }
-
-    /// As JSON, with the device's name if it has one; null if none yet.
-    pub fn json(h: *Heard, lib: *Library, arena: std.mem.Allocator) !?HeardJson {
-        h.mutex.lockUncancelable(lib.io());
-        const device = h.device;
-        const operations = h.operations;
-        const at = h.at;
-        h.mutex.unlock(lib.io());
-        if (at == 0) return null;
-        const key = try arena.dupe(u8, &std.fmt.bytesToHex(device, .lower));
-        const named = library.names(try lib.main(), arena) catch &.{};
-        return .{ .device = key, .name = library.nameOf(named, key), .operations = operations, .at = at };
-    }
-};
 pub const StatusJson = struct { person: []const u8, device: []const u8, paired: bool, library: ?[]const u8, members: usize, others: usize, crawl_every: u64 = library.default_crawl_hours };
 
 /// How far a long operation has come, in steps of its phase (sources

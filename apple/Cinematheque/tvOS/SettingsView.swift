@@ -17,7 +17,6 @@ struct SettingsView: View {
     /// The page open, if one is.
     @State private var page: Page?
     enum Page: Hashable { case people, devices, sources, interval }
-    @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
     /// The focused row, whose explanation shows under the picture.
     @FocusState private var focus: SettingsRow?
 
@@ -72,12 +71,6 @@ struct SettingsView: View {
                     ValueLabel(title: "Look for New Videos", opens: true, value: Library.crawlChoices.first { $0.hours == library.crawlEvery }?.name ?? "")
                 }
                 .settingsRow(.interval, $focus)
-                // A toggle's row, its state as its value, as the system's.
-                Button { showsSyncActivity.toggle() } label: {
-                    ValueLabel(title: "Show Sync Activity", value: showsSyncActivity ? "On" : "Off")
-                }
-                .accessibilityAddTraits(.isToggle)
-                .settingsRow(.activity, $focus)
             } header: {
                 Text("Library").bold()
             }
@@ -154,7 +147,7 @@ struct SettingsView: View {
 
 /// A row of Settings, by what it does.
 enum SettingsRow: Hashable {
-    case device, person, people, devices, sources, refresh, interval, activity, leave
+    case device, person, people, devices, sources, refresh, interval, leave
 
     /// Shown under the picture as the row's focused, and read by VoiceOver
     /// as its hint, since what's shown only on focus it never reaches.
@@ -167,7 +160,6 @@ enum SettingsRow: Hashable {
         case .sources: "The servers that hold your videos, such as a NAS. Add one by its address, or remove one."
         case .refresh: "Added videos to a server or folder? Refresh to see them now, rather than waiting for the next look."
         case .interval: "Look more often to see new videos sooner, or less often to let a NAS's disks rest; each look wakes them."
-        case .activity: "Shows when your devices catch up with one another, to check that a change made elsewhere has arrived."
         case .leave: "Takes this Apple TV out of the library, to join another or give it to someone. Its videos stay where they are."
         }
     }

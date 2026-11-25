@@ -144,12 +144,6 @@ char *cq_sync_with(cq_library *library, const char *url);
 // nearby (and those added), without looking again (two seconds); if none
 // has, it looks. For a change to reach other devices at once.
 char *cq_sync_known(cq_library *library);
-// The last sync this device served, while serving: which device asked, and
-// how many operations it was sent.
-char *cq_served(cq_library *library);
-// The last push this device took, while serving: from which device, and how
-// many of its operations won.
-char *cq_received(cq_library *library);
 int cq_describe(cq_library *library, const char *item_key);
 
 // While a crawl describes, which titles to take first (title keys, e.g.,

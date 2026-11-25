@@ -4,6 +4,7 @@ All notable changes to Cinematheque are recorded here.
 
 ## Unreleased
 
+* Show Sync Activity is gone from the apps; each sync's exchanges that changed something are logged instead (`sync`, in Console). A device's push is noticed by the library's data version, and `cq_served` and `cq_received` are gone.
 * Placeholders: added and removed only by the command-line app's new `want` commands (`want list`, `want add`, `want remove`); the apps and the web client show them but no longer add, change, or remove them (the Mac's Add Missing Title… and Edit…, the Apple TV's editing page, the web client's ＋ and ✎, and Remove from List). `cq_list_want` and `cq_list_edit_want` are gone.
 * Command-line app: `serve --downloads` and the web client's Keep (its Keep buttons, a season's Keep choice, and the Kept shelf) are gone; only the Mac app keeps downloads for other devices. Download, to the browser's computer, stays.
 * Sync: a device that took a removed device's later writes before hearing of the removal gets back what they overwrote by pulling everything once, in place of repair's own exchange; requests no longer carry a repair digest.

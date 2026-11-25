@@ -59,9 +59,6 @@ fn startServing(lib: *Library, port: u16, folders: []const Folder) !c_int {
         .path = try lib.store.replicaPath(arena),
         .creator = try lib.store.creator(arena),
         .identity = lib.store.identity,
-        .served = Library.onServed,
-        .received = Library.onReceived,
-        .context = lib,
     };
     s.host = .{
         .io = lib.io(),

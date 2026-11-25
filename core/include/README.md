@@ -9,11 +9,11 @@ The core's interface for apps in other languages: [cinematheque.h](cinematheque.
 * **Strings in** are NUL-terminated UTF-8, copied if kept, so the caller may free them once a call returns. Keys are lowercase hex (64 digits for a person's or a device's).
 * **Arrays and records in:** an array is a pointer and a count (`const char *const *urls, size_t count`; NULL with a count of 0 for none); a record is a struct in [cinematheque.h](cinematheque.h), passed by pointer; a kind is a C enum, and a value it doesn't name fails with `InvalidArgument`.
 * **Optional arguments:** a pointer (a string, a record's string) is NULL when absent; an integer is -1.
-* **Results** are JSON, every string valid UTF-8 (a name that isn't, from a Latin-1 file, gets U+FFFD for its bad bytes). Each `char *` returned is the caller's, freed with `cq_free` (which takes NULL). A result may be JSON `null`, as `cq_served`'s before any sync.
+* **Results** are JSON, every string valid UTF-8 (a name that isn't, from a Latin-1 file, gets U+FFFD for its bad bytes). Each `char *` returned is the caller's, freed with `cq_free` (which takes NULL). A result may be JSON `null`.
 * **Failure:** a function returning `char *` returns NULL, one returning `int` returns -1 (else 0, or a count or port as said), and `cq_error` says why: a Zig error's name, such as `Busy`, `NoLibrary`, or `WrongCode`. It's per thread, so read it on the thread that failed, before its next call. Functions returning `void` can't fail, or fail silently where nothing hangs on them (`cq_race_warm`, `cq_race_lost`).
 * **Threads:** functions belong to one thread, the app's main one, on the library's own connection, unless marked *any thread* or *long* below. A long one (crawling, syncing, describing, pairing, looking for devices, reconciling downloads) blocks until done, so call it off the main thread; each runs on a connection of its own. The main connection catches up with other connections' writes before it acts.
 * **Writing:** one connection writes as this device at a time. While a long operation writes, most other changes fail with `Busy` rather than wait: try again once it's done. Progress, and changes to a list of this person's that isn't shared, don't need to wait, and don't fail (but for this device's first private write, which certifies its private stream). Long ones that change little (`cq_downloads_configure`, `cq_download_remove`, `cq_describe`) wait their turn instead.
-* **Reloading:** a long operation commits as it goes. `cq_data_version` changes once another connection has committed, so poll it and reload (`cq_tiles`, `cq_title`) when it does; `cq_steps` says how far the operation has come. A device that pushes to this one changes `cq_received`.
+* **Reloading:** a long operation commits as it goes. `cq_data_version` changes once another connection has committed, so poll it and reload (`cq_tiles`, `cq_title`) when it does; `cq_steps` says how far the operation has come. A device that pushes to this one changes it too.
 * **Leaving:** `cq_leave` refuses with `Busy` while another thread has a connection open; none opens while it leaves. So an app stops reconciling (`cq_reconcile_stop`), starts no long operation, and waits out those under way first.
 
 ## Errors
@@ -124,8 +124,6 @@ A new device offers to be added and shows a code; a member's device, given the c
 |---|---|
 | `cq_serve(library, port, folders, count)` | Serves the library to devices and folders as sources (each a `cq_folder`, `{prefix, path}`: the path it's served at, and the folder), on `port`, else 8008, else any free port, advertised by DNS-SD, on a task of its own until stopped or closed. Returns once listening, with the port; serving again restarts it |
 | `cq_stop_serving(library)` | Stops serving |
-| `cq_served(library)` | The last sync served: `{device, name, operations, at}` (the device's key and name, operations sent, and when, in milliseconds since the epoch), or `null` |
-| `cq_received(library)` | The last push taken, in the same form (operations won); reload when it changes |
 
 ## Browsing
 

@@ -247,9 +247,6 @@ final class Library {
     #endif
 
     // Stored for Library+Sync.swift.
-    /// What last came in from devices, and what last went out to one.
-    var received: Exchange?
-    var sent: Exchange?
     var syncingQuietly = false
     /// Whether the app is at the front (its scene active); not observed, so
     /// setting it redraws nothing.
@@ -261,8 +258,6 @@ final class Library {
     var afterChange: Task<Void, Never>?
     /// Leaving the library, so no quiet sync starts.
     var leavingLibrary = false
-    /// When a device last pushed here, as `notePushed` last saw it.
-    var lastPush: Date?
 
     // Setting up.
 
@@ -393,9 +388,6 @@ final class Library {
         // downloaded, nor what's under way.
         afterChange?.cancel()
         afterChange = nil
-        received = nil
-        sent = nil
-        lastPush = nil
         folders = []
         loadedFoldersKey = nil
         unavailableFolders = []

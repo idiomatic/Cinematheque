@@ -15,7 +15,6 @@ const status = capi.status;
 const span = capi.span;
 const CrawlJson = capi.CrawlJson;
 const SyncJson = capi.SyncJson;
-const HeardJson = capi.HeardJson;
 const steps = capi.steps;
 
 pub fn connection(lib: *Library, arena: std.mem.Allocator) !Replica {
@@ -315,29 +314,6 @@ fn exchangeAll(lib: *Library, arena: std.mem.Allocator, r: *Replica, devices: sy
         o.* = .{ .url = u, .name = devices.names.get(u), .new = exchanged.stats.won, .sent = exchanged.sent, .@"error" = null };
     }
     return out;
-}
-
-/// The last sync this device served, while serving, as JSON: `device` (the
-/// key of the device that asked), its `name` if it has one, how many
-/// `operations` it was sent, and when (`at`, in milliseconds since the
-/// epoch); or null if none yet.
-export fn cq_served(lib: *Library) ?[*:0]u8 {
-    return json(lib, served, .{});
-}
-
-/// The last push this device took, while serving, as `cq_served` tells of a
-/// sync: from which device, and how many of its operations won; an app
-/// reloads when it changes.
-export fn cq_received(lib: *Library) ?[*:0]u8 {
-    return json(lib, receivedPush, .{});
-}
-
-fn receivedPush(lib: *Library, arena: std.mem.Allocator) !?HeardJson {
-    return lib.received.json(lib, arena);
-}
-
-fn served(lib: *Library, arena: std.mem.Allocator) !?HeardJson {
-    return lib.served.json(lib, arena);
 }
 
 /// Long: reads an item's metadata (an episode's title, description, and

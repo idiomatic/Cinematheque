@@ -249,13 +249,6 @@ pub const Sharing = struct {
     path: [:0]const u8,
     creator: [32]u8,
     identity: replica_.Identity,
-    /// Told of each sync served: the device that asked, and how many
-    /// operations it was sent (for apps to show).
-    served: ?*const fn (context: ?*anyopaque, device: [32]u8, operations: usize) void = null,
-    /// Told of each push taken: the device that pushed, and how many of its
-    /// operations won (for apps to reload, and show).
-    received: ?*const fn (context: ?*anyopaque, device: [32]u8, operations: usize) void = null,
-    context: ?*anyopaque = null,
 
     pub fn handler(sharing: *Sharing) serve_.Handler {
         return .{ .context = sharing, .function = respond };
@@ -401,19 +394,18 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     if (pushed) {
         var gunzip: flate.Decompress = .init(&whole, .gzip, window);
         src.now_ms = now;
-        const stats = replica_.readSync(&src, &gunzip.reader, null, .{ .request = head.?[head.?.len - 64 ..][0..64].*, .sender = checked[0].device }) catch |err| {
+        _ = replica_.readSync(&src, &gunzip.reader, null, .{ .request = head.?[head.?.len - 64 ..][0..64].*, .sender = checked[0].device }) catch |err| {
             try request.respond(@errorName(err), .{ .status = .bad_request });
             return true;
         };
         try request.respond("", .{ .status = .no_content });
-        if (sharing.received) |f| f(sharing.context, checked[0].device, stats.won);
         return true;
     }
 
     // Who's answering, for the device to push to: its key and certificate.
     var out: Io.Writer.Allocating = try .initCapacity(arena, 64 * 1024);
     var gz = try flate.Compress.init(&out.writer, window, .gzip, .fastest);
-    const sent = try replica_.writeSync(&src, arena, checked[0].vector, reader, head.?[head.?.len - 64 ..][0..64].*, &gz.writer);
+    _ = try replica_.writeSync(&src, arena, checked[0].vector, reader, head.?[head.?.len - 64 ..][0..64].*, &gz.writer);
     try gz.finish();
     var answer: Answer = .init(io, keys.?);
     try request.respond(try seal.seal(arena, answer.key, .response, out.written()), .{ .extra_headers = answer.headers(&.{
@@ -421,7 +413,6 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         .{ .name = device_header, .value = &device_hex },
         .{ .name = certificate_header, .value = &certificate_hex },
     }) });
-    if (sharing.served) |f| f(sharing.context, checked[0].device, sent);
     return true;
 }
 

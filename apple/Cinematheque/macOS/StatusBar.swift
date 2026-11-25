@@ -39,7 +39,6 @@ struct StatusBar: View {
     let hovering: Bool
     @Environment(Library.self) private var library
     @State private var fresh = true
-    @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
 
     static let height: CGFloat = 30
 
@@ -79,13 +78,6 @@ struct StatusBar: View {
                     } else {
                         ProgressView().controlSize(.small)
                     }
-                } else if library.problem == nil, showsSyncActivity {
-                    // The last exchange with devices each way, for diagnosis
-                    // (making way for a problem, which matters more).
-                    Text(library.syncLine)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .layoutPriority(1)
                 }
             }
             .font(.callout)
@@ -114,7 +106,7 @@ struct StatusBar: View {
         .allowsHitTesting(visible)
         .animation(.easeInOut(duration: 0.6), value: visible)
         // Shown afresh whenever it changes, then faded after a while.
-        .task(id: "\(counts)|\(library.problem ?? "")|\(sticky)|\(showsSyncActivity ? "\(library.received?.at ?? .distantPast)|\(library.sent?.at ?? .distantPast)" : "")") {
+        .task(id: "\(counts)|\(library.problem ?? "")|\(sticky)") {
             fresh = true
             guard !sticky else { return }
             try? await Task.sleep(for: .seconds(3))

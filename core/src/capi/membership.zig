@@ -81,8 +81,6 @@ fn leave(lib: *Library, arena: std.mem.Allocator) !void {
     lib.known = .{};
     try lib.store.forget(arena);
     lib.store = try store_.Store.open(lib.io(), gpa, lib.arena_state.allocator(), lib.store.dir);
-    lib.served = .{};
-    lib.received = .{};
 }
 
 /// Creates a library, with this person its first member. (Joining one is

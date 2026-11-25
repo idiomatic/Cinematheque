@@ -10,7 +10,6 @@ import SwiftUI
 struct SettingsSheet: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
     @State private var path: [SettingsPage] = []
     @State private var confirmingLeave = false
     @State private var leaving = false
@@ -53,7 +52,6 @@ struct SettingsSheet: View {
                         ForEach(Library.crawlChoices, id: \.hours) { Text($0.name).tag($0.hours) }
                     }
                     .pickerStyle(.navigationLink)
-                    Toggle("Show Sync Activity", isOn: $showsSyncActivity)
                 } header: {
                     Text("Library")
                 } footer: {
