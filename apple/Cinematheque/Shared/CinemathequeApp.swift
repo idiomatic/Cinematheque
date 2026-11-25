@@ -122,7 +122,12 @@ struct RootView: View {
         .task(id: library.hasLibrary) {
             Platform.keep()
             await library.startAtLaunch(device: Platform.deviceName, person: Platform.personName)
-            await library.keepInSync()
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await library.keepInSync() }
+                #if os(macOS)
+                group.addTask { await library.watchFolders() }
+                #endif
+            }
         }
         .background { PhaseWatcher() }
         .modifier(ListRequests())

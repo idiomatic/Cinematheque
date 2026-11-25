@@ -25,6 +25,7 @@ pub const lists = @import("lists.zig");
 pub const version = @import("version.zig");
 pub const json = @import("json.zig");
 pub const deadline = @import("deadline.zig");
+pub const volumes = @import("volumes.zig");
 
 test {
     _ = replica;
@@ -49,6 +50,7 @@ test {
     _ = host;
     _ = race;
     _ = download;
+    _ = volumes;
     _ = views;
     _ = json;
     _ = @import("deadline.zig");

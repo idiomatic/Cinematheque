@@ -44,6 +44,10 @@ pub const Options = struct {
     /// Set (then `wake`) to stop: the server checks it whenever `accept`
     /// returns. Canceling alone can miss a thread blocked in `accept`.
     stop: ?*const std.atomic.Value(bool) = null,
+    /// Counted up as the volumes change (a drive plugged in or out): an
+    /// `INDEX` built before is built afresh at its next request, not once
+    /// it's a minute old.
+    volumes: ?*const std.atomic.Value(u32) = null,
 };
 
 const Context = struct {
@@ -52,6 +56,7 @@ const Context = struct {
     mounts: []Served,
     handler: ?Handler,
     connections: *Connections,
+    volumes: ?*const std.atomic.Value(u32),
 };
 
 /// How many connections are open at once, at most; the rest are refused
@@ -134,12 +139,16 @@ const Served = struct {
     index: ?[]u8,
     index_etag: [18]u8 = undefined,
     index_built_ms: i64 = 0,
+    /// The volumes' count (`Options.volumes`) it was built at.
+    index_volumes: u32 = 0,
     index_mutex: Io.Mutex = .init,
 
-    /// Builds its `INDEX` afresh, if it has one and it's stale.
-    fn freshen(m: *Served, io: Io, gpa: std.mem.Allocator, now_ms: i64) !void {
+    /// Builds its `INDEX` afresh, if it has one and it's stale, or the
+    /// volumes changed since (`volumes`, their count).
+    fn freshen(m: *Served, io: Io, gpa: std.mem.Allocator, now_ms: i64, volumes: u32) !void {
         const old = m.index orelse return;
-        if (now_ms - m.index_built_ms < index_max_age_ms) return;
+        if (now_ms - m.index_built_ms < index_max_age_ms and volumes == m.index_volumes) return;
+        m.index_volumes = volumes;
         const index = try buildIndex(io, gpa, m.root.?);
         gpa.free(old);
         m.setIndex(index, now_ms);
@@ -254,6 +263,7 @@ pub fn serve(io: Io, gpa: std.mem.Allocator, options: Options) !void {
         .mounts = mounts,
         .handler = options.handler,
         .connections = &connections,
+        .volumes = options.volumes,
     };
 
     const address = try Io.net.IpAddress.parse(options.host, options.port);
@@ -385,7 +395,7 @@ fn respond(ctx: *const Context, request: *http.Server.Request, peer: Io.net.IpAd
         var etag: [18]u8 = undefined;
         const body = blk: {
             defer mount.index_mutex.unlock(ctx.io);
-            try mount.freshen(ctx.io, ctx.gpa, nowMs(ctx.io));
+            try mount.freshen(ctx.io, ctx.gpa, nowMs(ctx.io), if (ctx.volumes) |v| v.load(.acquire) else 0);
             etag = mount.index_etag;
             if (header(request, "if-none-match")) |tag| if (std.mem.eql(u8, tag, &etag)) break :blk null;
             break :blk try ctx.gpa.dupe(u8, mount.index.?);

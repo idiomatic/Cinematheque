@@ -50,6 +50,9 @@ pub const Web = struct {
     /// The folder `serve --media` shares, and its address, which settings
     /// may add as a source (no other folder, so a browser can't share one).
     media: ?struct { dir: []const u8, url: []const u8 } = null,
+    /// Counted up as the computer's volumes change, for the server to build
+    /// the media's `INDEX` afresh (`watchVolumes`).
+    volumes: std.atomic.Value(u32) = .init(0),
     /// Where `serve --downloads` keeps them, configured once there's a
     /// library, and the port it serves on.
     downloads_dir: ?[]const u8 = null,
@@ -181,6 +184,56 @@ pub const Web = struct {
     }
 
     const reconcile_every_ms = 10 * 60 * 1000;
+
+    /// While serving media: as the computer's volumes change (a drive
+    /// plugged in or out under it), its `INDEX` is built afresh and it's
+    /// crawled at once, so its copies are marked unavailable (one field),
+    /// or available again, for every device, and downloads waiting on it
+    /// come. The mount table is read every 2 seconds, one small read
+    /// however many drives, as `Io` has no way to wait on the kernel's
+    /// notice of it.
+    pub fn watchVolumes(w: *Web, io: Io, gpa: std.mem.Allocator) Io.Cancelable!void {
+        var last = core.volumes.signature(io, gpa);
+        while (true) {
+            try io.sleep(.fromSeconds(2), .awake);
+            const now_ = core.volumes.signature(io, gpa);
+            if (now_ == last) continue;
+            last = now_;
+            _ = w.volumes.fetchAdd(1, .acq_rel);
+            if (w.founder == null) continue;
+            w.crawlMedia(io, gpa) catch |err| switch (err) {
+                error.Canceled => return error.Canceled,
+                else => std.log.warn("looking through the media: {t}", .{err}),
+            };
+            // Downloads waiting on it, and other devices told.
+            w.reconcile_again.store(true, .release);
+            w.changed.store(@intCast(now(io)), .release);
+        }
+    }
+
+    /// Crawls this device's media, if it's a source, then describes what's
+    /// new.
+    fn crawlMedia(w: *Web, io: Io, gpa: std.mem.Allocator) !void {
+        const media = w.media orelse return;
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        var r = try open(w, io, gpa);
+        defer r.close();
+        const source = for (try core.library.sources(&r, arena)) |s| {
+            if (std.mem.eql(u8, s.url, media.url)) break s;
+        } else return;
+        var client: http.Client = .{ .allocator = gpa, .io = io };
+        defer client.deinit();
+        const stats = blk: {
+            try w.writer.lock(io);
+            defer w.writer.unlock(io);
+            try r.refresh();
+            break :blk try core.library.crawlSource(&r, io, arena, &client, now(io), source, 16);
+        };
+        const plan = try core.art.plan(&r, arena, &.{.{ .source = source, .entries = stats.entries }});
+        _ = try core.art.run(io, &r, arena, &client, now(io), plan.jobs, .{ .workers = 16, .writer = &w.writer });
+    }
 
     fn reconcile(w: *Web, io: Io, gpa: std.mem.Allocator) !void {
         var arena_state = std.heap.ArenaAllocator.init(gpa);

@@ -28,6 +28,7 @@ const deadline = @import("deadline.zig");
 const race = @import("race.zig");
 const art = @import("art.zig");
 const views = @import("views.zig");
+const volumes = @import("volumes.zig");
 const Replica = @import("replica.zig").Replica;
 
 /// One file to fetch.
@@ -842,8 +843,8 @@ pub fn freeBytes(arena: std.mem.Allocator, dir: []const u8) ?u64 {
     const path = arena.dupeSentinel(u8, dir, 0) catch return null;
     switch (@import("builtin").os.tag) {
         .macos => {
-            var st: Statfs = undefined;
-            if (statfs(path.ptr, &st) != 0) return null;
+            var st: volumes.Statfs = undefined;
+            if (volumes.statfs(path.ptr, &st) != 0) return null;
             return st.f_bavail * st.f_bsize;
         },
         .linux => {
@@ -866,30 +867,6 @@ const Statvfs = extern struct {
     f_rest: [16]c_ulong,
 };
 extern "c" fn statvfs(path: [*:0]const u8, buf: *Statvfs) c_int;
-
-/// macOS's `struct statfs` (64-bit inodes).
-const Statfs = extern struct {
-    f_bsize: u32,
-    f_iosize: i32,
-    f_blocks: u64,
-    f_bfree: u64,
-    f_bavail: u64,
-    f_files: u64,
-    f_ffree: u64,
-    f_fsid: [2]i32,
-    f_owner: u32,
-    f_type: u32,
-    f_flags: u32,
-    f_fssubtype: u32,
-    f_fstypename: [16]u8,
-    f_mntonname: [1024]u8,
-    f_mntfromname: [1024]u8,
-    f_flags_ext: u32,
-    f_reserved: [7]u32,
-};
-const statfs = @extern(*const fn ([*:0]const u8, *Statfs) callconv(.c) c_int, .{
-    .name = if (@import("builtin").cpu.arch == .x86_64) "statfs$INODE64" else "statfs",
-});
 
 /// What reconciling did.
 pub const Reconciled = struct {

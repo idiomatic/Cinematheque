@@ -223,6 +223,10 @@ final class Library {
     /// unmounted), by prefix: served all the same, listed empty while gone,
     /// so crawls find them unavailable, their titles dimmed, not failed.
     var unavailableFolders: Set<String> = []
+    /// Whether folders are being looked at (`checkFolders`), and whether
+    /// to look again once done, as a mount came meanwhile.
+    var checkingFolders = false
+    var checkFoldersAgain = false
     /// The key the folders were loaded under: another library's are others.
     var loadedFoldersKey: String?
     /// The port this device serves on, while it does.

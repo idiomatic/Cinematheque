@@ -1,6 +1,9 @@
 import CCinematheque
 import Foundation
 import os
+#if os(macOS)
+import AppKit
+#endif
 
 extension Library {
     // Managing.
@@ -96,19 +99,50 @@ extension Library {
     /// copies are marked unavailable (one field) for every device, so Play
     /// passes over them; back, the mark goes, and downloads waiting on it
     /// come.
+    /// One look at a time: asked while looking, it looks again after.
     func checkFolders() {
-        // Off the main actor: a share that's hung can hold a stat for its timeout.
-        let folders = folders
+        guard !checkingFolders else {
+            checkFoldersAgain = true
+            return
+        }
+        checkingFolders = true
         Task {
-            let now = await Task.detached { Self.missing(folders) }.value
-            guard now != unavailableFolders else { return }
-            let changed = now.symmetricDifference(unavailableFolders)
-            unavailableFolders = now
-            for folder in folders where changed.contains(folder.prefix) {
-                if let source = sources.first(where: { $0.url == folder.url }) { await crawlQuietly(source.id) }
-            }
+            defer { checkingFolders = false }
+            repeat {
+                checkFoldersAgain = false
+                // Off the main actor: a share that's hung can hold a stat
+                // for its timeout.
+                let folders = folders
+                let now = await Task.detached { Self.missing(folders) }.value
+                guard now != unavailableFolders else { continue }
+                let changed = now.symmetricDifference(unavailableFolders)
+                unavailableFolders = now
+                for folder in folders where changed.contains(folder.prefix) {
+                    if let source = sources.first(where: { $0.url == folder.url }) { await crawlQuietly(source.id) }
+                }
+            } while checkFoldersAgain
         }
     }
+
+    #if os(macOS)
+    /// While the app runs, front or not: looks at its folders as a volume
+    /// mounts or unmounts (a drive plugged in or out), as macOS says, and
+    /// once a minute besides, for a share gone without unmounting (its
+    /// server asleep).
+    func watchFolders() async {
+        let center = NSWorkspace.shared.notificationCenter
+        let observers = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification].map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.checkFolders() }
+            }
+        }
+        defer { for o in observers { center.removeObserver(o) } }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(60))
+            checkFolders()
+        }
+    }
+    #endif
 
     /// Crawls one source, unshown (it's this Mac's own folder, come or
     /// gone), then reads back, and fetches what waited on it.

@@ -117,7 +117,7 @@ pub fn serve(p: *App, c: Command) !void {
     var host: core.host.Host = .{
         .io = p.io,
         .gpa = p.gpa,
-        .options = .{ .host = "::", .port = port orelse default_port, .fallback = port == null, .mounts = mounts.items, .handler = handler },
+        .options = .{ .host = "::", .port = port orelse default_port, .fallback = port == null, .mounts = mounts.items, .handler = handler, .volumes = &browsers.volumes },
         .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
         .txt = txt,
     };
@@ -155,6 +155,8 @@ pub fn serve(p: *App, c: Command) !void {
     defer if (refreshing) |*f| f.cancel(p.io) catch {};
     var fetching: ?Io.Future(Io.Cancelable!void) = if (downloads != null) try p.io.concurrent(web.Web.keepDownloads, .{ &browsers, p.io, p.gpa }) else null;
     defer if (fetching) |*f| f.cancel(p.io) catch {};
+    var watching: ?Io.Future(Io.Cancelable!void) = if (media != null) try p.io.concurrent(web.Web.watchVolumes, .{ &browsers, p.io, p.gpa }) else null;
+    defer if (watching) |*f| f.cancel(p.io) catch {};
     const with_media = if (media != null) " with media from " else "";
     if (founder) |f| {
         try p.out.print("serving library {s} on port {d}{s}{s}, as {s}\n", .{ &std.fmt.bytesToHex(core.replica.libraryId(f), .lower), host.port, with_media, media orelse "", host.name });

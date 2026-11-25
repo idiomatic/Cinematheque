@@ -47,10 +47,7 @@ extension Library {
             guard active else { continue }
             tick += 1
             notePushed()
-            if tick % 5 == 0 {
-                noteServed()
-                checkFolders()
-            }
+            if tick % 5 == 0 { noteServed() }
             if Date.now.timeIntervalSince(lastSync) >= 60 { await syncQuietly() }
         }
     }
