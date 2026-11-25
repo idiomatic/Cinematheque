@@ -134,7 +134,11 @@ pub const Plan = struct {
 /// one file for each, keeping the one already described while its file
 /// is unchanged, else a sidecar image, else an MP4, else any file; jobs for
 /// those to describe, in title order. A title held in several sources
-/// (e.g., one per quality) is described from one of them.
+/// (e.g., one per quality) is described from one of them; one described
+/// from a source not crawled now (another drive, a NAS crawled lately)
+/// stays while that source does, unless a better file is crawled (an
+/// image, then an MP4): else a drive's MKVs, crawled alone as it's plugged
+/// in, replaced a NAS's MP4s' covers with none.
 pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawled) !Plan {
     var candidates: std.StringArrayHashMapUnmanaged(std.ArrayList(Job)) = .empty;
     for (crawled) |c| {
@@ -183,11 +187,21 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
     }
     var jobs: std.ArrayList(Job) = .empty;
     var unchanged: usize = 0;
+    var crawled_ids: std.StringHashMapUnmanaged(void) = .empty;
+    for (crawled) |c| try crawled_ids.put(arena, &c.source.id, {});
+    var known: ?std.StringHashMapUnmanaged(void) = null;
     next: for (candidates.values()) |list| {
         const first = list.items[0];
+        var best = first;
+        for (list.items) |j| if (rank(j) > rank(best)) {
+            best = j;
+        };
         if (try library.fieldValue(replica, arena, first.target.title_key, first.target.field)) |old| if (Cover.parse(old)) |c| {
             for (list.items) |j| {
                 const src = j.imageFile();
+                // Kept while unchanged, unless a better file's here now
+                // (an MP4 beside the MKV it was described from).
+                if (rank(j) < rank(best)) continue;
                 if (std.mem.eql(u8, c.source, &j.source.id) and std.mem.eql(u8, c.path, src.path) and std.mem.eql(u8, c.stamp, try j.readStamp(arena))) {
                     if (c.length > 0 and try library.fieldValue(replica, arena, j.target.title_key, try thumbField(arena, j.target.field)) == null) {
                         var again = j;
@@ -198,9 +212,19 @@ pub fn plan(replica: *Replica, arena: std.mem.Allocator, crawled: []const Crawle
                 }
             }
         };
-        var best = first;
-        for (list.items) |j| if (rank(j) > rank(best)) {
-            best = j;
+        // Described from a source not crawled now, still in the library,
+        // from a file as good: kept.
+        if (try library.fieldValue(replica, arena, first.target.title_key, first.target.field)) |old| if (Cover.parse(old)) |c| {
+            if (!crawled_ids.contains(c.source) and fileRank(c.path) >= rank(best)) {
+                if (known == null) {
+                    known = .empty;
+                    for (try library.sources(replica, arena)) |s| try known.?.put(arena, try arena.dupe(u8, &s.id), {});
+                }
+                if (known.?.contains(c.source)) {
+                    unchanged += 1;
+                    continue :next;
+                }
+            }
         };
         try jobs.append(arena, best);
     }
@@ -220,7 +244,13 @@ fn isMp4(path: []const u8) bool {
 
 fn rank(j: Job) u8 {
     if (j.sidecar != null) return 2;
-    return if (isMp4(j.target.path)) 1 else 0;
+    return fileRank(j.target.path);
+}
+
+/// A cover's file's rank, as `rank`'s: an image, an MP4, else another.
+fn fileRank(path: []const u8) u8 {
+    if (isImage(path)) return 2;
+    return if (isMp4(path)) 1 else 0;
 }
 
 pub const Write = struct { key: []const u8, field: []const u8, value: []const u8 };
@@ -1021,6 +1051,44 @@ test "a title in several sources is described once, from its best file, and kept
     const settled = try plan(&r, arena, &crawled);
     try std.testing.expectEqual(@as(usize, 0), settled.jobs.len);
     try std.testing.expectEqual(@as(usize, 1), settled.unchanged);
+}
+
+test "a cover from a source not crawled now stays, unless a better file is crawled" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
+    defer r.close();
+    const nas_id = try library.addSource(&r, 1, "http://nas/tv/", .{});
+    const drive: library.Source = .{ .id = "dddddddddddddddd".*, .url = "http://mac/drive/", .layout = .{} };
+    // Described from the NAS's MP4.
+    try r.write(2, "t/m/network-effect/2020", "art", try (Cover{ .source = &nas_id, .path = "Network Effect (2020).m4v", .offset = 9, .length = 9, .stamp = "2\tt\t" ++ reads }).format(arena));
+    try r.write(2, "t/m/network-effect/2020", "thumb", "-");
+    // The drive crawled alone: its MKV is no better, so the cover stays.
+    const mkv = [_]Crawled{.{ .source = drive, .entries = &.{.{ .url = "http://mac/drive/Network%20Effect%20(2020).mkv", .parent = "http://mac/drive/", .is_dir = false, .size = 1, .mtime = "t" }} }};
+    const kept = try plan(&r, arena, &mkv);
+    try std.testing.expectEqual(@as(usize, 0), kept.jobs.len);
+    try std.testing.expectEqual(@as(usize, 1), kept.unchanged);
+    // Its own poster is better: described from it.
+    const poster = [_]Crawled{.{ .source = drive, .entries = &.{
+        .{ .url = "http://mac/drive/Network%20Effect%20(2020).mkv", .parent = "http://mac/drive/", .is_dir = false, .size = 1, .mtime = "t" },
+        .{ .url = "http://mac/drive/Network%20Effect%20(2020)-poster.jpg", .parent = "http://mac/drive/", .is_dir = false, .size = 1, .mtime = "t" },
+    } }};
+    try std.testing.expectEqual(@as(usize, 1), (try plan(&r, arena, &poster)).jobs.len);
+    // Crawled together, once described from the drive's MKV, the NAS's MP4
+    // is better: described from it, though the MKV's unchanged.
+    try r.write(4, "t/m/network-effect/2020", "art", try (Cover{ .source = &drive.id, .path = "Network Effect (2020).mkv", .offset = 0, .length = 0, .stamp = "1\tt\t" ++ reads }).format(arena));
+    const nas = (try library.sources(&r, arena))[0];
+    const both = [_]Crawled{ mkv[0], .{ .source = nas, .entries = &.{.{ .url = "http://nas/tv/Network%20Effect%20(2020).m4v", .parent = "http://nas/tv/", .is_dir = false, .size = 2, .mtime = "t" }} } };
+    const better = try plan(&r, arena, &both);
+    try std.testing.expectEqual(@as(usize, 1), better.jobs.len);
+    try std.testing.expectEqualStrings(&nas_id, &better.jobs[0].source.id);
+    // Described from the NAS again, then the NAS gone from the library:
+    // described from what's crawled.
+    try r.write(5, "t/m/network-effect/2020", "art", try (Cover{ .source = &nas_id, .path = "Network Effect (2020).m4v", .offset = 9, .length = 9, .stamp = "2\tt\t" ++ reads }).format(arena));
+    _ = try library.removeSource(&r, arena, 6, &nas_id);
+    try std.testing.expectEqual(@as(usize, 1), (try plan(&r, arena, &mkv)).jobs.len);
 }
 
 test "a movie with a poster is described again when its video changes, as a tool adding a sort name changes it" {
