@@ -39,7 +39,7 @@ fn pairWith(app: *App, c: Command, kind: core.pair.Kind) ![32]u8 {
     defer client.deinit();
     const joined = try core.pair.send(app.io, app.arena, &client, new.url, kind, c.rest[0], .{
         .person = app.store.identity.person,
-        .founder = try app.store.founder(app.arena),
+        .creator = try app.store.creator(app.arena),
     });
     // A paired device acts as this person from now on, not as the one it had.
     const acting = if (kind == .pair) try app.person() else joined.person;
@@ -72,9 +72,9 @@ pub fn library(app: *App, c: Command) !void {
     if (c.is("show", 0, &.{})) {
         var r = try app.open();
         defer r.close();
-        try app.out.print("library  {s}\nfounder  {s}\nmembers  {d}\ndigest   {s}\n", .{
+        try app.out.print("library  {s}\ncreator  {s}\nmembers  {d}\ndigest   {s}\n", .{
             std.fmt.bytesToHex(r.library, .lower),
-            hex(r.founder),
+            hex(r.genesis),
             (try r.members(app.arena)).len,
             hex(try r.digest()),
         });
@@ -95,27 +95,21 @@ pub fn library(app: *App, c: Command) !void {
     } else if (c.is("join", 0, &.{})) {
         try network.offerPairing(app);
     } else if (c.is("create", 0, &.{})) {
-        try app.store.setFounder(app.arena, try app.person());
+        try app.store.setCreator(app.arena, try app.person());
         var r = try app.open();
         defer r.close();
         try app.out.print("created library {s}\n", .{std.fmt.bytesToHex(r.library, .lower)});
-    } else if (c.is("leave", 0, &.{"--to"})) {
-        try leave(app, c.args.get("--to"));
-    } else if (c.is("handover", 1, &.{"--leave"})) {
-        var r = try app.open();
-        defer r.close();
-        try r.handOver(app.now(), try parseKey(c.rest[0]), !c.args.has("--leave"));
-        try app.out.print("handed over to {s}\n", .{c.rest[0]});
+    } else if (c.is("leave", 0, &.{})) {
+        try leave(app);
     } else return error.Usage;
 }
 
 /// Leaves the library, as the apps' Leave This Library does: removes this
-/// device (handing the library over first, to `to`, if this person founded
-/// it and this is their only device) and syncs, so another device takes the
+/// device and syncs, so another device takes the
 /// removal, then forgets the library and this device's identity, to pair
 /// again as a new device. With no one else in it, or once the library has
 /// removed this device, it only forgets.
-fn leave(app: *App, to: ?[]const u8) !void {
+fn leave(app: *App) !void {
     told: {
         var r = app.open() catch |err| switch (err) {
             error.NoLibrary => break :told,
@@ -129,12 +123,9 @@ fn leave(app: *App, to: ?[]const u8) !void {
         }
         const members = try r.members(app.arena);
         if (members.len == 1 and others == 0) break :told;
-        const founding = std.mem.eql(u8, &me, &r.founder) and others == 0 and members.len > 1;
-        const successor: ?[32]u8 = if (to) |s| try parseKey(s) else null;
-        if (founding and successor == null) return error.NeedsSuccessor;
         // Written once: leaving again, after no one could be reached, only
         // syncs.
-        try r.removeSelf(app.now(), if (founding) successor else null);
+        try r.removeSelf(app.now());
         const found = try core.sync.everyDevice(app.io, app.arena, &r, try app.store.serviceName(app.arena));
         var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
         defer client.deinit();
@@ -161,7 +152,6 @@ pub fn member(app: *App, c: Command) !void {
         const me = try app.person();
         for (try r.members(app.arena)) |m| {
             try app.out.print("{s}", .{hex(m)});
-            if (std.mem.eql(u8, &m, &r.founder)) try app.out.print("  founder", .{});
             if (std.mem.eql(u8, &m, &me)) try app.out.print("  you", .{});
             try app.out.print("\n", .{});
         }

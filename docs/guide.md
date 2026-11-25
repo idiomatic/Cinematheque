@@ -183,8 +183,7 @@ On a Mac, download what you'll watch away from home, or keep on hand when the ne
 Devices find each other on your network, and sync on their own while the apps run: a minute after they last did, whenever one comes to the front, and a second after you make a change.
 
 * **The code** seals what's sent, so only the device showing it can open it. The new device stops answering an address after 3 wrong tries from it, and everyone after 30, until it offers a new code.
-* **The founder,** whoever created the library, can hand it over to another member.
-* **Removing** a member or a device stops their later changes everywhere, while what they did before stands. Any member can remove another, but not the founder.
+* **Removing** a member or a device stops their later changes everywhere, while what they did before stands. Any member can remove another; every member has the same say, whoever created the library.
 * **Trust:** each device checks, by signature, that every change comes from a member, so a device that relays the library can't alter it. Each serves the library only to members' devices.
 
 ## In a browser

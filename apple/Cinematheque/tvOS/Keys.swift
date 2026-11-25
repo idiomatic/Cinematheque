@@ -4,7 +4,7 @@ import Security
 
 /// Keeps the data directory's seeds in the Keychain, since tvOS may purge
 /// the caches that hold it: `identity` (the device's), `user` (the person's,
-/// once paired), and `library` (its founder's key). The replica is rebuilt by
+/// once paired), and `library` (its creator's key). The replica is rebuilt by
 /// syncing and crawling; these are not.
 enum Keys {
     private static let files = ["identity", "user", "library"]

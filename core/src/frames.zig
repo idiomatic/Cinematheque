@@ -367,7 +367,6 @@ pub fn readSync(dst: *Replica, r: *std.Io.Reader, theirs: ?Theirs, binding: Bind
     // What the sender holds is believed only from a member's device: a
     // stranger's word could have this device skip any stream's writes.
     // Nor for this device's own streams, which only it numbers.
-    // (A member then: a founder handing over and leaving is one no more.)
     const believed = sender_was_member or try dst.admission(binding.sender, &.{}) == .all;
     const own_private = dst.private_pair.public_key.toBytes();
     // Don't claim what was rejected, so it can be accepted once its

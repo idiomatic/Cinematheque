@@ -158,12 +158,9 @@ pub const Replica = struct {
     gpa: std.mem.Allocator,
     db: sqlite.Db,
     library: op_.Library,
-    /// The person who created the library, from whom its ID derives.
+    /// The person who created the library, from whom its ID derives: a
+    /// member from the start, without a `members` write, until removed.
     genesis: Device,
-    /// The founder now: the genesis founder, or the last successor in the
-    /// chain of handovers. The founder is always a member and can't be
-    /// removed.
-    founder: Device,
     /// The person this device acts for, who certifies its key.
     person: Ed25519.KeyPair,
     key_pair: Ed25519.KeyPair,
@@ -207,7 +204,7 @@ pub const Replica = struct {
     insert_device: sqlite.Stmt,
     insert_batch: sqlite.Stmt,
 
-    /// Opens a replica of the library `founder` created, as the device and
+    /// Opens a replica of the library `creator` created, as the device and
     /// person `identity` gives. A device writes its certificate with its first
     /// write, so devices that only read never need one.
     /// Renames tables from replicas made before their names changed (`vv`
@@ -220,7 +217,7 @@ pub const Replica = struct {
         };
     }
 
-    pub fn open(gpa: std.mem.Allocator, io: Io, path: [:0]const u8, founder: Device, identity: Identity) !Replica {
+    pub fn open(gpa: std.mem.Allocator, io: Io, path: [:0]const u8, creator: Device, identity: Identity) !Replica {
         const db = try sqlite.Db.open(path, io);
         // The replica closes the database once it's built, not before.
         var built = false;
@@ -230,9 +227,8 @@ pub const Replica = struct {
         var replica: Replica = .{
             .gpa = gpa,
             .db = db,
-            .library = libraryId(founder),
-            .genesis = founder,
-            .founder = founder,
+            .library = libraryId(creator),
+            .genesis = creator,
             .person = try Ed25519.KeyPair.generateDeterministic(identity.person),
             .key_pair = try Ed25519.KeyPair.generateDeterministic(identity.device),
             .private_pair = try Ed25519.KeyPair.generateDeterministic(derive("cinematheque private", identity.device)),
@@ -263,7 +259,6 @@ pub const Replica = struct {
         replica.private_own = try replica.deviceId(replica.private_pair.public_key.toBytes());
         replica.private_seq = try replica.seen(replica.private_own);
         replica.repairing = try replica.repairsPending() > 0;
-        replica.founder = (try replica.founderAt(std.math.maxInt(u32))).person;
         try replica.observeOwn();
         return replica;
     }
@@ -401,62 +396,8 @@ pub const Replica = struct {
         try replica.setMember(wall_ms, "members", &std.fmt.bytesToHex(person, .lower), true);
     }
 
-    /// Hands the library over to `successor`, who becomes a member if not
-    /// one already; this person stays a member if `stay`. Only the founder may.
-    pub fn handOver(replica: *Replica, wall_ms: u64, successor: Device, stay: bool) !void {
-        const me = replica.person.public_key.toBytes();
-        if (!std.mem.eql(u8, &me, &replica.founder)) return error.NotFounder;
-        if (!try replica.isMemberPerson(successor)) try replica.addMember(wall_ms, successor);
-        if (stay) try replica.addMember(wall_ms, me);
-        const now = try replica.founderAt(std.math.maxInt(u32));
-        var field: [10]u8 = undefined;
-        try replica.write(wall_ms, "founders", try std.fmt.bufPrint(&field, "{d:0>6}", .{now.generation + 1}), &successor);
-    }
-
-    const Founder = struct { person: Device, generation: u32 };
-
-    /// Follows the chain of handovers held (`founders`, fields numbered
-    /// from 1, each naming a successor and written by a device of the
-    /// previous founder) up to `generation`, or as far as it goes.
-    fn founderAt(replica: *Replica, generation: u32) !Founder {
-        var holder = replica.genesis;
-        var n: u32 = 0;
-        while (n < generation) : (n += 1) {
-            var field: [10]u8 = undefined;
-            const s = try replica.db.prepare("SELECT device, value FROM winners WHERE key = 'founders' AND field = ?1");
-            defer s.finalize();
-            try s.bindText(1, try std.fmt.bufPrint(&field, "{d:0>6}", .{n + 1}));
-            if (!try s.step() or s.blob(1).len != 32) break;
-            const author = try replica.keyOf(s.int(0));
-            const person = try replica.certifiedPerson(author, &.{}) orelse break;
-            if (!std.mem.eql(u8, &person, &holder)) break;
-            holder = s.blob(1)[0..32].*;
-        }
-        return .{ .person = holder, .generation = n };
-    }
-
-    /// Checks a batch's handovers: each must come from the founder of the
-    /// generation before it. `error.Unauthorized` defers the batch while
-    /// that generation is missing; ill-made handovers are marked in
-    /// `refused`.
-    fn checkHandovers(replica: *Replica, device_key: Device, ops: []const Op, refused: *std.StaticBitSet(merkle.max_leaves)) !void {
-        for (ops, 0..) |op, i| {
-            if (!std.mem.eql(u8, op.key, "founders")) continue;
-            const n = std.fmt.parseInt(u32, op.field, 10) catch 0;
-            const author = try replica.certifiedPerson(device_key, ops);
-            if (n == 0 or op.value.len != 32 or author == null) {
-                refused.set(i);
-                continue;
-            }
-            const before = try replica.founderAt(n - 1);
-            if (before.generation < n - 1) return error.Unauthorized;
-            if (!std.mem.eql(u8, &author.?, &before.person)) refused.set(i);
-        }
-    }
-
     pub fn isMemberPerson(replica: *Replica, person: Device) !bool {
-        return std.mem.eql(u8, &person, &replica.founder) or
-            try replica.isMember("members", &std.fmt.bytesToHex(person, .lower));
+        return try replica.isMember("members", &std.fmt.bytesToHex(person, .lower));
     }
 
     /// What a device's batches may hold: everything (its person is a
@@ -543,7 +484,7 @@ pub const Replica = struct {
                 refused.set(i);
             } else if (std.mem.startsWith(u8, op.key, "c/") and !try replica.certificateAllowed(device_key, op, ops)) {
                 refused.set(i);
-            } else if (std.mem.eql(u8, op.key, "revoked") and !try replica.removalAllowed(device_key, op, ops)) {
+            } else if (std.mem.eql(u8, op.key, "revoked") and !removalAllowed(op)) {
                 refused.set(i);
             } else if (op.key.len == 18 and std.mem.startsWith(u8, op.key, "r/") and !try replica.sourceFieldAllowed(device_key, op, ops)) {
                 refused.set(i);
@@ -554,18 +495,9 @@ pub const Replica = struct {
     }
 
     /// A cutoff (`revoked`) is 8 bytes, a sequence number a stream can
-    /// reach (past it, no device could store it), and of the founder's
-    /// streams, the founder's own devices', or the stream's own, alone: no
-    /// one else may remove the founder's device, whose leaving would forget
-    /// the founder.
-    fn removalAllowed(replica: *Replica, writer: Device, op: Op, ops: []const Op) !bool {
-        if (op.value.len != 8 or std.mem.readInt(u64, op.value[0..8], .little) > max_seq) return false;
-        const stream = parseHex(op.field) orelse return false;
-        if (std.mem.eql(u8, &stream, &writer)) return true;
-        const c = try replica.certified(stream, ops) orelse return true;
-        if (!std.mem.eql(u8, &c.person, &replica.founder)) return true;
-        const author = try replica.certifiedPerson(writer, ops) orelse return false;
-        return std.mem.eql(u8, &author, &replica.founder);
+    /// reach (past it, no device could store it).
+    fn removalAllowed(op: Op) bool {
+        return op.value.len == 8 and std.mem.readInt(u64, op.value[0..8], .little) <= max_seq and parseHex(op.field) != null;
     }
 
     /// A source's address (`url`) is the one its ID hashes, or empty (as
@@ -664,25 +596,19 @@ pub const Replica = struct {
     /// it already has, and could pair afresh as another device.
     pub fn revokeDevice(replica: *Replica, wall_ms: u64, device_key: Device) !void {
         if (std.mem.eql(u8, &device_key, &replica.device())) return error.ThisDevice;
-        // The founder's devices are the founder's to remove.
-        if (try replica.certifiedPerson(device_key, &.{})) |p| if (std.mem.eql(u8, &p, &replica.founder) and !std.mem.eql(u8, &replica.personKey(), &replica.founder))
-            return error.FoundersDevice;
         try replica.revokeStreams(wall_ms, device_key);
     }
 
-    /// Removes this device from the library, as it leaves: first, if it's
-    /// the founder's, handing the library over to `successor` (the founder
-    /// staying a member); then cutting off its own streams just past these
-    /// writes, in one transaction, so other devices take the removal (and
-    /// the handover) and refuse anything after. Once removed, it does
+    /// Removes this device from the library, as it leaves: cutting off its
+    /// own streams just past these writes, in one transaction, so other
+    /// devices take the removal and refuse anything after. Once removed, it does
     /// nothing, so leaving can be tried again until a sync reaches another
     /// device. (`revokeDevice` refuses this device: cut off where it is, its
     /// own removal would be past the cut.)
-    pub fn removeSelf(replica: *Replica, wall_ms: u64, successor: ?Device) !void {
+    pub fn removeSelf(replica: *Replica, wall_ms: u64) !void {
         if (try replica.revoked(replica.device()) != null) return;
         try replica.begin();
         errdefer replica.rollback();
-        if (successor) |s| try replica.handOver(wall_ms, s, true);
         // A certificate this writes first would be numbered before the cut.
         try replica.checkCertificate(wall_ms);
         var arena_state = std.heap.ArenaAllocator.init(replica.gpa);
@@ -764,10 +690,8 @@ pub const Replica = struct {
     /// Removes `person` from the library, and cuts off each of their devices
     /// as `revokeDevice` does: their writes up to what this replica has
     /// seen stand; later ones are refused. A device the remover didn't
-    /// know isn't admitted, its person no longer a member. The founder (as
-    /// handed over, if it was) can't be removed.
+    /// know isn't admitted, its person no longer a member.
     pub fn removeMember(replica: *Replica, wall_ms: u64, person: Device) !void {
-        if (std.mem.eql(u8, &person, &replica.founder)) return error.FounderIsPermanent;
         var arena_state = std.heap.ArenaAllocator.init(replica.gpa);
         defer arena_state.deinit();
         try replica.setMember(wall_ms, "members", &std.fmt.bytesToHex(person, .lower), false);
@@ -863,13 +787,12 @@ pub const Replica = struct {
     }
 
     /// Catches up with what another connection to the same database wrote:
-    /// devices it learned of, this device's sequence numbers, and the
-    /// founder. Only one connection may write as this device at a time.
+    /// devices it learned of, and this device's sequence numbers. Only one
+    /// connection may write as this device at a time.
     pub fn refresh(replica: *Replica) !void {
         try replica.internAdded();
         replica.seq = try replica.seen(replica.own);
         replica.private_seq = try replica.seen(replica.private_own);
-        replica.founder = (try replica.founderAt(std.math.maxInt(u32))).person;
         try replica.observeOwn();
     }
 
@@ -970,17 +893,17 @@ pub const Replica = struct {
         try replica.writeOp(.causal_length, wall_ms, key, element, &value);
     }
 
-    /// The library's members: the founder, then the people added and not
-    /// removed.
+    /// The library's members: its creator, unless removed, then the people
+    /// added and not removed.
     pub fn members(replica: *Replica, arena: std.mem.Allocator) ![]Device {
         var out: std.ArrayList(Device) = .empty;
-        try out.append(arena, replica.founder);
+        if (try replica.isMemberPerson(replica.genesis)) try out.append(arena, replica.genesis);
         const s = try replica.db.prepare("SELECT field, value FROM winners WHERE key = 'members' ORDER BY field");
         defer s.finalize();
         while (try s.step()) {
             if (op_.causalLength(s.blob(1)) % 2 == 0) continue;
             const person = parseHex(s.blob(0)) orelse continue;
-            if (!std.mem.eql(u8, &person, &replica.founder)) try out.append(arena, person);
+            if (!std.mem.eql(u8, &person, &replica.genesis)) try out.append(arena, person);
         }
         return out.items;
     }
@@ -994,7 +917,9 @@ pub const Replica = struct {
         defer s.reset();
         try s.bindText(1, key);
         try s.bindText(2, element);
-        return if (try s.step()) op_.causalLength(s.blob(3)) else 0;
+        if (try s.step()) return op_.causalLength(s.blob(3));
+        // The creator was a member from the start.
+        return if (std.mem.eql(u8, key, "members") and std.mem.eql(u8, element, &std.fmt.bytesToHex(replica.genesis, .lower))) 1 else 0;
     }
 
     pub fn writeOp(replica: *Replica, kind: op_.Kind, wall_ms: u64, key: []const u8, field: []const u8, value: []const u8) !void {
@@ -1074,7 +999,6 @@ pub const Replica = struct {
         const admitted = try replica.admission(batch.device, ops);
         if (admitted == .none) return error.Unauthorized;
         var bad: std.StaticBitSet(merkle.max_leaves) = .empty;
-        try replica.checkHandovers(batch.device, ops, &bad);
         try replica.checkPrivate(batch.device, ops, &bad);
         try replica.checkOps(batch.device, ops, &bad);
         const id = try replica.deviceId(batch.device);
@@ -1119,7 +1043,6 @@ pub const Replica = struct {
         const admitted = try replica.admission(batch.device, ops);
         if (admitted == .none) return error.Unauthorized;
         var bad: std.StaticBitSet(merkle.max_leaves) = .empty;
-        try replica.checkHandovers(batch.device, ops, &bad);
         try replica.checkPrivate(batch.device, ops, &bad);
         try replica.checkOps(batch.device, ops, &bad);
         const id = try replica.deviceId(batch.device);
@@ -1145,10 +1068,7 @@ pub const Replica = struct {
                 .lww => blk: {
                     const hlc: u64 = @bitCast(s.int(1));
                     const order = std.mem.order(u8, &op.device, &try replica.keyOf(s.int(2)));
-                    // But a handover stands once made: the earliest of a
-                    // generation's wins, so a founder can't take one back.
-                    if (std.mem.eql(u8, op.key, "founders")) break :blk op.hlc < hlc or (op.hlc == hlc and order == .lt);
-                    // And a removal only stands or tightens: the lower
+                    // But a removal only stands or tightens: the lower
                     // cutoff wins, so no one can undo another's.
                     if (std.mem.eql(u8, op.key, "revoked")) {
                         const held = s.blob(3);
@@ -1176,7 +1096,6 @@ pub const Replica = struct {
         try u.bindBlob(7, op.value);
         _ = try u.step();
         if (std.mem.eql(u8, op.key, "revoked")) try replica.cut(op.field, op.value);
-        if (std.mem.eql(u8, op.key, "founders")) replica.founder = (try replica.founderAt(std.math.maxInt(u32))).person;
         return .won;
     }
 
@@ -1292,11 +1211,10 @@ pub fn personKeyPair(seed: [32]u8) !Ed25519.KeyPair {
     return Ed25519.KeyPair.generateDeterministic(Identity.from(seed).person);
 }
 
-/// A library's ID derives from its founder, so every device can tell who
-/// founded it.
-pub fn libraryId(founder: Device) op_.Library {
+/// A library's ID derives from its creator's person key.
+pub fn libraryId(creator: Device) op_.Library {
     var out: [32]u8 = undefined;
-    Blake3.hash(&founder, &out, .{});
+    Blake3.hash(&creator, &out, .{});
     return out[0..16].*;
 }
 

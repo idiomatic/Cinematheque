@@ -24,30 +24,26 @@ device list prints it.
                                pair CODE); library join does the same
   person pair CODE [URL]       pair the new device showing CODE (found
                                nearby, or at URL), sending it this person's
-                               secret and the library's founder; found
+                               secret and the library's key; found
                                nearby, it's named as it advertised itself,
                                else (at URL) unnamed until it names itself
 
-  library show                 print the library's ID, founder, member
+  library show                 print the library's ID, creator, member
                                count, digest, and how often it's crawled
-  library create               create a library, founded by this person
+  library create               create a library, with this person
   library join                 on a new device, as person pair
-  library leave [--to PERSON]  remove this device from the library and
+  library leave                remove this device from the library and
                                sync, so another device hears of it, then
                                forget the library and this device's
-                               identity, to pair again as a new device;
-                               --to hands the library over first, if this
-                               person founded it and has no other device
+                               identity, to pair again as a new device
   library set --crawl EVERY    how often refreshes crawl the sources: 1,
                                3, 24 (the default), or 168 hours, or
                                manually (only crawl does), for every device
-  library handover PERSON [--leave]
-                               hand the library over to a member
 
   member list                  list members
   member pair CODE [URL]       admit the person of the new device showing
                                CODE (found nearby, or at URL), sending it
-                               the library's founder; its device is named
+                               the library's key; its device is named
                                as person pair names one
   member remove PERSON         remove a member
 

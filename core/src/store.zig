@@ -1,6 +1,6 @@
 //! A device's data directory: its identity (`identity`, a random seed from
 //! which its device keys derive, and `user`, its person's seed, shared with the
-//! person's other devices, or else derived from the device's), the founder of
+//! person's other devices, or else derived from the device's), the creator of
 //! its library, and its replica.
 
 const std = @import("std");
@@ -112,7 +112,7 @@ pub const Store = struct {
         return std.fmt.allocPrint(arena, "cinematheque-{s}", .{std.fmt.bytesToHex(try s.device(), .lower)[0..8]});
     }
 
-    pub fn founder(s: *const Store, arena: std.mem.Allocator) ![32]u8 {
+    pub fn creator(s: *const Store, arena: std.mem.Allocator) ![32]u8 {
         // Only a missing file means no library; any other failure (out of
         // file descriptors, say) is itself, not taken for one.
         const text = Io.Dir.cwd().readFileAlloc(s.io, try path(arena, s.dir, "library"), arena, .limited(128)) catch |err| switch (err) {
@@ -122,8 +122,8 @@ pub const Store = struct {
         return parseKey(std.mem.trim(u8, text, " \n"));
     }
 
-    /// Records the library this device belongs to, by its founder's key.
-    pub fn setFounder(s: *const Store, arena: std.mem.Allocator, key: [32]u8) !void {
+    /// Records the library this device belongs to, by its creator's key.
+    pub fn setCreator(s: *const Store, arena: std.mem.Allocator, key: [32]u8) !void {
         const file = try path(arena, s.dir, "library");
         if (Io.Dir.cwd().access(s.io, file, .{})) |_| return error.LibraryExists else |_| {}
         try Io.Dir.cwd().writeFile(s.io, .{ .sub_path = file, .data = &std.fmt.bytesToHex(key, .lower) });
@@ -145,7 +145,7 @@ pub const Store = struct {
     }
 
     pub fn openReplica(s: *const Store, arena: std.mem.Allocator) !Replica {
-        return Replica.open(s.gpa, s.io, try s.replicaPath(arena), try s.founder(arena), s.identity);
+        return Replica.open(s.gpa, s.io, try s.replicaPath(arena), try s.creator(arena), s.identity);
     }
 };
 

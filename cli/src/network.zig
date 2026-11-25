@@ -76,14 +76,14 @@ pub fn serve(p: *App, c: Command) !void {
         break :blk try Io.Dir.cwd().realPathFileAlloc(p.io, d, p.arena);
     } else null;
     // With the web client, a library can be made or joined from it.
-    const founder: ?[32]u8 = p.store.founder(p.arena) catch |err| switch (err) {
+    const creator: ?[32]u8 = p.store.creator(p.arena) catch |err| switch (err) {
         error.NoLibrary => if (browsing) null else return err,
         else => |e| return e,
     };
     const name = try advertisedName(p);
     var sharing: core.sync.Sharing = .{
         .path = try p.store.replicaPath(p.arena),
-        .founder = founder orelse undefined,
+        .creator = creator orelse undefined,
         .identity = p.store.identity,
     };
     var long = std.heap.ArenaAllocator.init(p.gpa);
@@ -92,7 +92,7 @@ pub fn serve(p: *App, c: Command) !void {
     // before the media.
     var browsers: web.Web = .{
         .store = p.store,
-        .founder = founder,
+        .creator = creator,
         .long = long.allocator(),
         .path = sharing.path,
         .permissive = c.args.has("--permissive"),
@@ -100,7 +100,7 @@ pub fn serve(p: *App, c: Command) !void {
     };
     defer browsers.deinit(p.gpa);
     const handler = if (browsing) browsers.handler() else sharing.handler();
-    const txt = if (founder != null) blk: {
+    const txt = if (creator != null) blk: {
         var r = try p.open();
         defer r.close();
         // Its model, for its person's other devices to show it by, before
@@ -125,7 +125,7 @@ pub fn serve(p: *App, c: Command) !void {
     browsers.host = &host;
     // Where it serves its own sources now: one field, should its port have
     // changed, rather than every copy (their addresses are port-free).
-    if (founder != null) {
+    if (creator != null) {
         var r = try p.open();
         defer r.close();
         try core.library.recordServed(&r, p.arena, p.now(), try p.store.device(), try std.fmt.allocPrint(p.arena, "http://{s}.local:{d}/", .{ name, host.port }));
@@ -134,7 +134,7 @@ pub fn serve(p: *App, c: Command) !void {
     // port-free address, one added before by its port moved there once.
     if (media) |m| {
         const path = "/" ++ media_prefix ++ "/";
-        browsers.media = .{ .dir = m, .url = if (founder != null) blk: {
+        browsers.media = .{ .dir = m, .url = if (creator != null) blk: {
             var r = try p.open();
             defer r.close();
             break :blk try core.library.ownSource(&r, p.arena, p.now(), try p.store.device(), path);
@@ -143,12 +143,12 @@ pub fn serve(p: *App, c: Command) !void {
     if (downloads) |d| {
         browsers.downloads_dir = d;
         // Else once there's a library.
-        if (founder != null) try keepDownloadsIn(p, d);
-        browsers.downloads = founder != null;
+        if (creator != null) try keepDownloadsIn(p, d);
+        browsers.downloads = creator != null;
     }
     // Synced with at once, as the apps sync at launch: what changed while
     // it was off arrives, and a device removed meanwhile hears so and leaves.
-    if (founder != null) browsers.changed.store(1, .release);
+    if (creator != null) browsers.changed.store(1, .release);
     var syncing: ?Io.Future(Io.Cancelable!void) = if (browsing) try p.io.concurrent(web.Web.keepInSync, .{ &browsers, p.io, p.gpa }) else null;
     defer if (syncing) |*f| f.cancel(p.io) catch {};
     var refreshing: ?Io.Future(Io.Cancelable!void) = if (browsing) try p.io.concurrent(setup.keepRefreshed, .{ &browsers, p.io, p.gpa }) else null;
@@ -158,14 +158,14 @@ pub fn serve(p: *App, c: Command) !void {
     var watching: ?Io.Future(Io.Cancelable!void) = if (media != null) try p.io.concurrent(web.Web.watchVolumes, .{ &browsers, p.io, p.gpa }) else null;
     defer if (watching) |*f| f.cancel(p.io) catch {};
     const with_media = if (media != null) " with media from " else "";
-    if (founder) |f| {
+    if (creator) |f| {
         try p.out.print("serving library {s} on port {d}{s}{s}, as {s}\n", .{ &std.fmt.bytesToHex(core.replica.libraryId(f), .lower), host.port, with_media, media orelse "", host.name });
     } else try p.out.print("serving on port {d}{s}{s}, as {s}, with no library yet\n", .{ host.port, with_media, media orelse "", host.name });
     if (downloads) |d| try p.out.print("keeping downloads in {s}\n", .{d});
     if (browsing) {
         // As other computers on the network reach it: `firefly.local`.
         try p.out.print("web client at http://{s}.local:{d}/\n", .{ name, host.port });
-        if (founder == null) try p.out.print("to create a library, or join one, open http://localhost:{d}/ on this computer\n", .{host.port});
+        if (creator == null) try p.out.print("to create a library, or join one, open http://localhost:{d}/ on this computer\n", .{host.port});
         if (!browsers.permissive) try p.out.print("only a browser on this computer acts as this device (--permissive lets every browser)\n", .{});
     }
     try p.out.flush();
@@ -195,7 +195,7 @@ fn keepDownloadsIn(p: *App, dir: []const u8) !void {
 }
 
 pub fn offerPairing(p: *App) !void {
-    if (p.store.founder(p.arena)) |_| return error.LibraryExists else |_| {}
+    if (p.store.creator(p.arena)) |_| return error.LibraryExists else |_| {}
     var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .person = try p.person(), .device = try p.store.device() };
     var host: core.host.Host = .{
         .io = p.io,
@@ -215,8 +215,8 @@ pub fn offerPairing(p: *App) !void {
         const received, const closed = offer.outcome(p.io);
         if (received) |secrets| {
             if (!secrets.joining()) try p.store.pair(p.arena, &std.fmt.bytesToHex(secrets.person, .lower));
-            try p.store.setFounder(p.arena, secrets.founder);
-            try p.out.print("paired: this device acts as person {s}, in the library {s} founded\n", .{ std.fmt.bytesToHex(try p.person(), .lower), std.fmt.bytesToHex(secrets.founder, .lower) });
+            try p.store.setCreator(p.arena, secrets.creator);
+            try p.out.print("paired: this device acts as person {s}, in the library {s} created\n", .{ std.fmt.bytesToHex(try p.person(), .lower), std.fmt.bytesToHex(secrets.creator, .lower) });
             return;
         }
         if (closed) return error.TooManyWrongCodes;

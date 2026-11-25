@@ -405,8 +405,8 @@ test "lists: the Watchlist first, then made, renamed, listed, and deleted" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
+    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
 
     // The Watchlist, unnamed, is there from the start.
@@ -439,8 +439,8 @@ test "a placeholder is keyed as its file will be, so it's on the list as it arri
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
+    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
     const movie = try want(&r, arena, 1, watchlist_id, .{ .kind = .movie, .name = "Dune: Part Three", .year = 2026, .note = "https://example.com/dune" });
     // As the file `Dune Part Three (2026).m4v` will be keyed.
@@ -463,8 +463,8 @@ test "a placeholder changed is keyed afresh, the old one taken off in the same c
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
+    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
     const old = try want(&r, arena, 1, watchlist_id, .{ .kind = .movie, .name = "Dune Part Three" });
     // Its year added: keyed as its file will be, alone on the list.
@@ -488,8 +488,8 @@ test "a list shared keeps its titles, renamed and changed where they are" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
+    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
     try setListed(&r, arena, 1, watchlist_id, "t/m/alien/1979", true);
     try share(std.testing.io, &r, arena, 2, watchlist_id);

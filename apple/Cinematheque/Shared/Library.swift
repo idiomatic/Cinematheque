@@ -286,21 +286,20 @@ final class Library {
     }
 
     /// Leaves the library of this person's own accord (Settings): removes
-    /// this device from it, handing the library over to `successor` first if
-    /// this is the founder's only device, then syncs so other devices hear
+    /// this device from it, then syncs so other devices hear
     /// of it, and forgets it all, for setup to pair it anew. A device must
     /// hear of it before this one forgets, else they'd list it for good: so it syncs
     /// first, to know one can be reached, and if the sync after removing
     /// fails anyway, leaving again (the removal written once) tries again.
     /// Returns why it couldn't, if it couldn't.
-    func leaveLibrary(successor: String?) async -> String? {
+    func leaveLibrary() async -> String? {
         guard let handle else { return nil }
         return await quietly {
             let unreachable = "None of the library's other devices could be reached, so they wouldn't hear this one left. Try again while one is on."
             guard await Self.reachesAny(handle) else { return unreachable }
             // On the main thread, as it writes on the main connection
             // (which the core gives one thread), and it's quick.
-            let removed: String? = cq_remove_self(handle.pointer, successor) == 0 ? nil : String(cString: cq_error())
+            let removed: String? = cq_remove_self(handle.pointer) == 0 ? nil : String(cString: cq_error())
             if let removed { return "Couldn't leave the library: \(Self.reason(removed))." }
             guard await Self.reachesAny(handle) else { return unreachable }
             return forgetLibrary()
@@ -457,7 +456,6 @@ final class Library {
         case "UnknownHostName", "NameServerFailure", "TemporaryNameServerFailure": "no server by that name was found"
         case "NetworkUnreachable", "HostUnreachable": "it can't be reached from this network"
         case "Busy": "something else is using the library: try again in a moment"
-        case "FoundersDevice": "only the founder can remove the founder's devices"
         case "Stale": "its clock and this one's are more than ten minutes apart"
         case "WrongRecipient": "another device answered at its address"
         case "Refused": "that device refused (is it up to date? Devices sync only with others as new)"

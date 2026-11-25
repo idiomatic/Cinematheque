@@ -7,8 +7,8 @@ import SwiftUI
 // focused. Pressing a row acts on it (asking first what to do, or whether
 // to), as rows in tvOS have no buttons of their own.
 
-/// The library's people: you, the founder, and others, any of whom (but the
-/// founder) you may remove; and adding someone, by their device's code.
+/// The library's people: you, and others, any of whom you may remove; and
+/// adding someone, by their device's code.
 struct PeoplePage: View {
     @Environment(Library.self) private var library
     /// What adding someone last said (a wrong code, someone added).
@@ -23,7 +23,7 @@ struct PeoplePage: View {
                 Section {
                     ForEach(library.members) { member in
                         Button { if removable(member) { removing = member } } label: {
-                            ValueLabel(title: member.name ?? "Someone Unnamed", value: [member.you ? "You" : nil, member.founder ? "Founder" : nil].compactMap(\.self).joined(separator: ", "))
+                            ValueLabel(title: member.name ?? "Someone Unnamed", value: member.you ? "You" : "")
                         }
                         .explained("member:" + member.key, hint(member), $focus)
                     }
@@ -53,11 +53,10 @@ struct PeoplePage: View {
         return library.members.first { "member:" + $0.key == focus }.map(hint) ?? ""
     }
 
-    private func removable(_ member: Member) -> Bool { !member.you && !member.founder }
+    private func removable(_ member: Member) -> Bool { !member.you }
 
     private func hint(_ member: Member) -> String {
         if member.you { return "You, by the name everyone in the library sees, which you change under Names." }
-        if member.founder { return "Founded the library, so stays in it until they hand it over, as they leave." }
         return "Press to remove them from the library, with their devices."
     }
 }

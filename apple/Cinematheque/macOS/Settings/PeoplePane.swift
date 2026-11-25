@@ -5,17 +5,13 @@ import SwiftUI
 struct PeoplePane: View {
     @Environment(Library.self) private var library
     @State private var confirmingLeave = false
-    @State private var choosingSuccessor = false
     @State private var leaving = false
     @State private var problem: String?
     /// Closes Settings once this Mac has left: there's nothing to set.
     @Environment(\.dismiss) private var dismiss
 
-    private var me: Member? { library.members.first(where: \.you) }
-    private var others: [Member] { library.members.filter { !$0.you } }
-    /// The founder's only device: leaving takes the founder with it, so it
-    /// hands the library over first, or, if no one else is in it, ends it.
-    private var foundersOnly: Bool { me?.founder == true && library.status?.others == 0 }
+    /// No one else in the library, nor another device of yours: leaving ends it.
+    private var alone: Bool { library.members.count == 1 && library.status?.others == 0 }
 
     var body: some View {
         Form {
@@ -35,32 +31,20 @@ struct PeoplePane: View {
         }
         .formStyle(.grouped)
         // Hard to undo, so asked first.
-        .alert(foundersOnly ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
-            Button(foundersOnly ? "Leave and End It" : "Leave", role: .destructive) { if foundersOnly { end() } else { leave(successor: nil) } }
+        .alert(alone ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
+            Button(alone ? "Leave and End It" : "Leave", role: .destructive) { if alone { end() } else { leave() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(foundersOnly
+            Text(alone
                 ? "No one else is in this library, so once this Mac leaves, it's gone for good. Its videos stay where they are."
                 : "This Mac leaves the library, and your other devices no longer list it. To come back, join again.")
         }
-        // The founder's only device leaving: someone takes over first.
-        .confirmationDialog("Who takes over the library?", isPresented: $choosingSuccessor, titleVisibility: .visible) {
-            ForEach(others) { member in
-                Button(member.name ?? "Someone Unnamed") { leave(successor: member.key) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You founded this library, and this Mac is your only device in it, so someone takes over as its founder before it leaves.")
-        }
     }
 
-    /// Asks first: who takes over, if the founder's only device leaves with
-    /// others in the library; else whether to leave.
-    private func askToLeave() {
-        if foundersOnly, !others.isEmpty { choosingSuccessor = true } else { confirmingLeave = true }
-    }
+    /// Asks first, as it's hard to undo.
+    private func askToLeave() { confirmingLeave = true }
 
-    private func leave(successor: String?) { leaving { await library.leaveLibrary(successor: successor) } }
+    private func leave() { leaving { await library.leaveLibrary() } }
 
     /// Leaves a library no one else is in, ending it.
     private func end() { leaving { await library.endLibrary() } }
@@ -87,9 +71,7 @@ private struct MemberRow: View {
 
     var body: some View {
         LabeledContent {
-            if member.founder {
-                Text("Founder")
-            } else if !member.you {
+            if !member.you {
                 RemoveButton(help: "Remove from the library, with their devices") {
                     confirmingRemoval = true
                 }

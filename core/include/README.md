@@ -24,7 +24,7 @@ The names the apps put in words, and what they mean:
 |---|---|
 | `Busy` | Another connection is writing as this device (a long operation), or one is open while leaving |
 | `NoLibrary` | This device has no library yet |
-| `LibraryExists` | It has one already (founding, or offering to pair) |
+| `LibraryExists` | It has one already (creating one, or offering to pair) |
 | `WrongCode` | Pairing: the code doesn't match the one shown |
 | `Closed` | Pairing: the new device stopped offering, after too many wrong codes |
 | `Removed` | A sync: this device was removed from the library; call `cq_leave` |
@@ -32,7 +32,6 @@ The names the apps put in words, and what they mean:
 | `Refused` | The other device refused a request (it may be too old) |
 | `Stale` | The two devices' clocks are more than ten minutes apart |
 | `WrongRecipient` | Another device answered at that address |
-| `FoundersDevice` | Only the founder's devices may remove the founder's devices |
 | `PathTaken` | Downloading: another file is where this one would go |
 | `BadAddress` | Not a web address (http or https, with a host, and no query or fragment) |
 | `TooMany`, `TooDeep` | Crawling: a source lists more than any library holds, or nests too deeply |
@@ -55,13 +54,13 @@ Others are the system's or the network's (`ConnectionRefused`, `ConnectionTimedO
 
 | Function | What it does |
 |---|---|
-| `cq_status(library)` | This device: `person` (its person's key), `device` (its own key, for its own folders' port-free addresses, `cqdevice://<key>/<path>`), `paired` (acting as another of its person's devices), `library` (the library's ID, or null), `founder` (the founder's person key, or null), `members` (how many), `others` (how many other devices its person has, not removed), and `crawl_every` (the library's interval in hours, 0 for only when asked) |
-| `cq_found(library)` | Creates a library, founded by this person |
-| `cq_members(library)` | The members: an array of `{key, name, founder, you}`, `name` null if unset |
+| `cq_status(library)` | This device: `person` (its person's key), `device` (its own key, for its own folders' port-free addresses, `cqdevice://<key>/<path>`), `paired` (acting as another of its person's devices), `library` (the library's ID, or null), `members` (how many), `others` (how many other devices its person has, not removed), and `crawl_every` (the library's interval in hours, 0 for only when asked) |
+| `cq_found(library)` | Creates a library, this person its first member |
+| `cq_members(library)` | The members: an array of `{key, name, you}`, `name` null if unset |
 | `cq_member_add(library, person_key)` | Adds a person as a member |
 | `cq_member_remove(library, person_key)` | Removes a member, for good: they come back only as someone new |
 | `cq_remove_device(library, device_key)` | Removes another device: its writes past where this one has seen them are refused everywhere, and it's served no more; its downloads (a source it marked as its own) are removed too, as no one would serve them again |
-| `cq_remove_self(library, successor)` | Removes this device, as it leaves: first handing the library over to `successor` (a person's key, or NULL), if this person founded it; then cutting off its streams just past these writes. Sync so another device takes the removal, then `cq_leave` |
+| `cq_remove_self(library)` | Removes this device, as it leaves, cutting off its streams just past these writes. Sync so another device takes the removal, then `cq_leave` |
 | `cq_leave(library)` | Forgets the library and this device's identity (seeds and replica), stopping serving and pairing, so it can pair again as a new device |
 
 ## Pairing
@@ -74,7 +73,7 @@ A new device offers to be added and shows a code; a member's device, given the c
 | `cq_pair_check(library)` | The offer's state: `{code, paired, closed}`: `code` to show while offering (else null); `paired` once it has the library (and, if added as another of a person's devices, that person); `closed` once it stopped after too many wrong codes. Poll it while showing the code |
 | `cq_pair_stop(library)` | Stops offering |
 | `cq_pair_person(library, url, code)` | *Long.* On a member's device: adds the device offering at `url` (a `cq_nearby` result whose `pairing` is set), given its code, as another of this person's devices, sending it this person's secret. Returns `{person, device}`: this person's key, and the new device's (to name by `cq_name`). Fails with `WrongCode` or `Closed` |
-| `cq_pair_member(library, url, code)` | *Long.* As `cq_pair_person`, but adds the device as a new member's, sending it only the library's founder's key; `person` is the new member's, to add by `cq_member_add` |
+| `cq_pair_member(library, url, code)` | *Long.* As `cq_pair_person`, but adds the device as a new member's, sending it only the library's key; `person` is the new member's, to add by `cq_member_add` |
 
 ## Names and devices
 

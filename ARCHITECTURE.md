@@ -8,7 +8,7 @@ An operation is one device's write of one field of one key. Everything that repl
 
 | Part | Size | Meaning |
 |---|---|---|
-| library | 16 bytes | The library's ID: the first 16 bytes of the BLAKE3 hash of its founder's person key |
+| library | 16 bytes | The library's ID: the first 16 bytes of the BLAKE3 hash of its creator's person key |
 | device | 32 bytes | The Ed25519 public key of the stream that wrote it |
 | seq | u64 | Its place in that stream, from 1, without gaps |
 | hlc | u64 | When it was written, by hybrid logical clock |
@@ -23,7 +23,7 @@ Values are bytes, mostly UTF-8 text: numbers in decimal, flags as `1` and `0` (o
 
 ### Kinds
 
-* **Last writer wins** (`lww`), for everything but `members`: of two operations on one field, the later clock wins; on a tie, the greater device key. Handovers (`founders`) are the exception: the earliest wins, so a handover stands once made.
+* **Last writer wins** (`lww`), for everything but `members`: of two operations on one field, the later clock wins; on a tie, the greater device key.
 * **Causal length** (`causal_length`), for `members` alone: the field is the element, and the value a u32 count: 1 once added, even once removed. A removal outranks any addition, whatever the clocks, so it's for good: a person removed comes back as someone new. (Otherwise a count could be written so high that no removal outranked it.)
 
 ### Clocks
@@ -72,27 +72,25 @@ Receiving an operation:
 
 In whatever order operations arrive, every replica ends with the same winners, so devices converge without coordinating.
 
-Two keys act when they win: `revoked` (a removal) drops the removed stream's later writes and notes their fields for repair, and `founders` (a handover) moves the founder along the chain.
+One key acts when it wins: `revoked` (a removal) drops the removed stream's later writes and notes their fields for repair.
 
 ## Admission
 
 A batch is applied only if its stream may write it, as decided by operations that replicate like any other:
 
 * **Certificates** (`c/<stream key>`): field `user` for a device's own stream, `private` for its private stream. The value is the person's key and the person's signature over `"cinematheque device "` (or `"cinematheque private"`), the library ID, and the stream key. A batch may carry its own certificate.
-* **Members** (`members`): a set of person keys, by causal length. The founder is always a member.
+* **Members** (`members`): a set of person keys, by causal length. The library's creator is a member from the start (a count of 1 without a write), until removed.
 * **Removals** (`revoked`): per removed stream (a removed device's, or each of a removed member's devices'), the last sequence number that stands.
-* **Handovers** (`founders`): fields numbered from `000001`, each naming the next founder, and counting only if written by a device of the founder before it.
 
 So a stream's batches are admitted if its certificate names a member: whole, or up to its cutoff if the stream was removed; otherwise not yet. Within an admitted stream, these operations are refused:
 
-* a handover not from the previous founder;
 * private data (`p/<person>/...`) not on that person's private stream;
 * anything but its person's private data on a private stream;
 * an operation of the wrong kind for its key, or a `members` count but 1 or an even one;
 * an operation dated more than a day ahead;
 * a source's `url` that its ID doesn't hash, or not from the device whose `url` is held; its `managed` but from that device (and a device's own folder, `cqdevice://<key>/…`, is no source but from that device, as any member could otherwise aim devices at another's paths; nor is its `served` but its own, both ignored as read, not refused);
 * a shared list's field (`l/<owner>/<id>`) not from one of its owner's devices, or not its `name`, a mode change, or a title;
-* a cutoff (`revoked`) of the founder's devices but from the founder's own, or the device itself, else not 8 bytes; and between cutoffs, the lower wins, so a removal can't be undone;
+* a cutoff (`revoked`) not 8 bytes; and between cutoffs, the lower wins, so a removal can't be undone;
 * a certificate (`c/<stream key>`) but a device's own `user` one, or a `private` one naming its writer's person when the receiver holds none naming another, so no member can claim another's private stream and be sent its data.
 
 A batch overlapping a range a held batch covers (but that same batch) is refused, as a stream numbers each write once.
@@ -101,7 +99,7 @@ A device always admits its own streams, so one whose replica was lost gets its p
 
 A response is applied in one transaction. A batch whose stream isn't admitted yet waits until the response's end, which may bring the certificate or membership that admits it. If nothing has by then, it's rejected, and its stream isn't advanced in the version vector, so a later sync offers it again. Held batches count against the response's limit by all they hold (text, leaves, and operations).
 
-The version vector a response ends with is taken only from a member's device (a member before the response or after it, as a founder handing over and leaving is), and never for the receiver's own streams, which only it numbers. Else a stranger who answered could make a device skip any stream's writes, or number its own past what any device accepts.
+The version vector a response ends with is taken only from a member's device (a member before the response or after it), and never for the receiver's own streams, which only it numbers. Else a stranger who answered could make a device skip any stream's writes, or number its own past what any device accepts.
 
 ## Sync
 
@@ -171,7 +169,7 @@ A repair is a `POST /sync` with `Content-Type: application/x-cinematheque-repair
 Answered only while a new device offers to be added, by the 6-digit code it shows. The member's device decides what it is, sending the person's seed (another of its person's devices) or zeros (a new member's). Both sides derive the session's generator, a ristretto255 point, from SHA-512 over, each prefixed by its length in a byte: `CPaceRistretto255`, the code, `Cinematheque pairing`, `pair` (once the offer's kind, now fixed, so older offers still pair), and the session ID. The key is the first 32 bytes of SHA-512 over, prefixed likewise: `CPaceRistretto255_ISK`, the session ID, the shared point, the sender's share, and the new device's share.
 
 * **`GET`** starts an attempt, ending any other: 200 with the session ID (16) and the new device's share (32). Once paired, or after 3 wrong codes from the asking address, or 30 from all, 410, `Closed`.
-* **`POST`** answers the attempt: the session ID (16), the sender's share (32), and the sealed secrets (80): the person's seed (zeros when joining) and the founder's key, sealed with ChaCha20-Poly1305 under the key, nonce 0, and associated data `Cinematheque pairing secrets`. 200 answers with the sealed reply (80): the new device's person key and device key, under the key, nonce 1, and `Cinematheque pairing reply`. A wrong code is 403, `WrongCode`, and counts toward the 3; an attempt that isn't the current one, or a body of the wrong size, is 400; a closed offer is 410.
+* **`POST`** answers the attempt: the session ID (16), the sender's share (32), and the sealed secrets (80): the person's seed (zeros when joining) and the library's key (its creator's), sealed with ChaCha20-Poly1305 under the key, nonce 0, and associated data `Cinematheque pairing secrets`. 200 answers with the sealed reply (80): the new device's person key and device key, under the key, nonce 1, and `Cinematheque pairing reply`. A wrong code is 403, `WrongCode`, and counts toward the 3; an attempt that isn't the current one, or a body of the wrong size, is 400; a closed offer is 410.
 
 ### Media
 
@@ -202,7 +200,6 @@ The library ([library.zig](core/src/library.zig), [art.zig](core/src/art.zig)) w
 | `c/<stream hex>` | `user` or `private`: a certificate | Each device, first |
 | `members` | `<person hex>`: causal length | Adding and removing members |
 | `revoked` | `<stream hex>`: the last sequence number that stands, u64 | Removing a device, or a member |
-| `founders` | `000001`...: the next founder's key | Handing over |
 
 Title and item keys derive from a file's parsed identity, so devices crawling the same files write the same keys, whose operations merge field by field rather than duplicating titles.
 

@@ -227,10 +227,9 @@ void cq_stop_serving(cq_library *library);
 // they're of this library and their people members.
 int cq_name(cq_library *library, const char *device_key, const char *person_key, const char *name);
 int cq_remove_device(cq_library *library, const char *device_key);
-// Removes this device from the library, as it leaves: handing it over to
-// successor (a person's key; NULL for none) first, if this person founded
-// it; other devices take the removal once synced with. Then cq_leave.
-int cq_remove_self(cq_library *library, const char *successor);
+// Removes this device from the library, as it leaves; other devices take
+// the removal once synced with. Then cq_leave.
+int cq_remove_self(cq_library *library);
 int cq_set_person_name(cq_library *library, const char *name);
 int cq_set_device_name(cq_library *library, const char *name);
 // Records this device's model (an Apple identifier, shown by its name; or

@@ -1360,8 +1360,8 @@ test "state: sources, progress, and members can be listed, set, and removed" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const replica_ = @import("replica.zig");
-    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
+    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
 
     const id = try addSource(&r, 1000, "http://nas.local/Movies/", .{});
@@ -1518,14 +1518,14 @@ test "people and devices are named, a device with its person" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(1)));
+    const creator = (try @import("replica.zig").personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
-    try setName(&r, arena, 1, founder, " Brian ", null);
-    try setName(&r, arena, 2, r.device(), "Brian's MacBook Pro", founder);
+    try setName(&r, arena, 1, creator, " Brian ", null);
+    try setName(&r, arena, 2, r.device(), "Brian's MacBook Pro", creator);
     const list = try names(&r, arena);
     try std.testing.expectEqual(@as(usize, 2), list.len);
-    try std.testing.expectEqualStrings("Brian", nameOf(list, &std.fmt.bytesToHex(founder, .lower)).?);
+    try std.testing.expectEqualStrings("Brian", nameOf(list, &std.fmt.bytesToHex(creator, .lower)).?);
     const device = std.fmt.bytesToHex(r.device(), .lower);
-    for (list) |n| if (std.mem.eql(u8, n.key, &device)) try std.testing.expectEqualStrings(&std.fmt.bytesToHex(founder, .lower), n.person.?);
+    for (list) |n| if (std.mem.eql(u8, n.key, &device)) try std.testing.expectEqualStrings(&std.fmt.bytesToHex(creator, .lower), n.person.?);
 }

@@ -228,7 +228,6 @@ nonisolated struct Source: Codable, Identifiable, Hashable {
 struct Member: Codable, Identifiable, Hashable {
     let key: String
     let name: String?
-    let founder: Bool
     let you: Bool
     var id: String { key }
 }
@@ -349,7 +348,6 @@ struct Status: Codable, Equatable {
     /// Acting as the person of another of the person's devices.
     let paired: Bool
     let library: String?
-    let founder: String?
     let members: Int
     /// How many other devices this person has, named or not.
     let others: Int

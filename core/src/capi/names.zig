@@ -117,20 +117,18 @@ fn removeDevice(lib: *Library, arena: std.mem.Allocator, device: []const u8) !vo
     try library.removeDownloadsOf(r, arena, lib.now(), key);
 }
 
-/// Removes this device from the library, as it leaves: if `successor` (a
-/// person's key) is given, first handing the library over to them (this
-/// device's person must be the founder, and stays a member); then cutting
-/// off this device's own streams just past these writes, so other devices,
+/// Removes this device from the library, as it leaves: cutting off this
+/// device's own streams just past these writes, so other devices,
 /// once synced with, take the removal and refuse anything after. Sync, then
 /// `cq_leave`, to finish leaving.
-export fn cq_remove_self(lib: *Library, successor: ?[*:0]const u8) c_int {
-    return status(lib, removeSelf, .{span(successor)});
+export fn cq_remove_self(lib: *Library) c_int {
+    return status(lib, removeSelf, .{});
 }
 
-fn removeSelf(lib: *Library, _: std.mem.Allocator, successor: ?[]const u8) !void {
+fn removeSelf(lib: *Library, _: std.mem.Allocator) !void {
     if (!lib.writer.tryLock()) return error.Busy;
     defer lib.writer.unlock(lib.io());
-    try (try lib.main()).removeSelf(lib.now(), if (successor) |s| try store_.parseKey(s) else null);
+    try (try lib.main()).removeSelf(lib.now());
 }
 
 /// Long (it listens for 2 seconds): the devices found on the network, by

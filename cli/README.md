@@ -1,6 +1,6 @@
 # Command-line app
 
-The command-line app, `cinematheque`, for macOS and Linux, built on the [core](../core/README.md). It does everything a player does but play: it founds or joins a library, pairs devices, crawls sources, records progress, and serves and syncs with other devices. Run in the background, it's a library's always-on hub.
+The command-line app, `cinematheque`, for macOS and Linux, built on the [core](../core/README.md). It does everything a player does but play: it creates or joins a library, pairs devices, crawls sources, records progress, and serves and syncs with other devices. Run in the background, it's a library's always-on hub.
 
 ## Building
 
@@ -36,7 +36,7 @@ The app keeps its state in its data directory, created on first use: by default 
 |---|---|
 | `identity` | The device's random seed, from which its keys derive |
 | `user` | The person's seed, once this device is paired as another of the person's; until then, the person's seed derives from the device's |
-| `library` | The library's founder's person key, once this device has a library |
+| `library` | The library's creator's person key, once this device has a library |
 | `replica.db` | The replica: the library's operations, and in its `local` table, what's this device's alone (crawl snapshots, and devices added by URL) |
 
 `identity` and `user` are secrets: anyone with the person's seed can act as the person. Don't copy a data directory to another device, as each device needs its own identity; pair the other device instead.
@@ -56,18 +56,17 @@ State commands are `NOUN VERB [ARGUMENTS]`, over the nouns `person`, `library`, 
 
 ### People and libraries
 
-* `person show` prints this person's key, as `member remove` and `library handover` take it.
-* `person pair`, on a new device without a library, prints a 6-digit code and the port it listens on, and waits, serving `/pair` on that port and advertising itself (`pair=new`, named by the computer's host name). On a member's device, `person pair CODE` finds it nearby, or at the URL given, and adds it as another of this person's devices, sending it the person's seed and the library's founder, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device prints whose it is and exits. A sender that found it nearby names it as it advertised itself, under its person.
-* `library create` founds a library with this person as founder, and prints its ID. `library join` offers a code, as `person pair` does. A code is the only way in, so the person's seed is never shown.
-* `library show` prints the library's ID, founder, member count, and digest: a hash of every field's winning value, the same on two devices that have synced fully.
-* `library handover PERSON` makes a member the founder; this person stays a member unless `--leave`. Only the founder may.
+* `person show` prints this person's key, as `member remove` takes it.
+* `person pair`, on a new device without a library, prints a 6-digit code and the port it listens on, and waits, serving `/pair` on that port and advertising itself (`pair=new`, named by the computer's host name). On a member's device, `person pair CODE` finds it nearby, or at the URL given, and adds it as another of this person's devices, sending it the person's seed and the library's key, sealed by the code (see [pair.zig](../core/src/pair.zig)). The new device prints whose it is and exits. A sender that found it nearby names it as it advertised itself, under its person.
+* `library create` creates a library with this person as its first member, and prints its ID. `library join` offers a code, as `person pair` does. A code is the only way in, so the person's seed is never shown.
+* `library show` prints the library's ID, creator, member count, and digest: a hash of every field's winning value, the same on two devices that have synced fully.
 
 ### Members
 
-* `member list` prints the members' keys, marking the founder and you.
-* `member pair CODE [URL]` adds a new device offering a code as a new member's, admitting its person, and sends it the library's founder.
-* `device list` prints this person's devices (named or not). `device remove DEVICE` removes one: its later writes are refused, and when it next syncs it's told so, signed, and prints that it should `library leave`, which forgets the library and its identity so it can pair again as a new device. Leaving of its own accord, `library leave` first removes this device and syncs, so another device hears of it, as the apps' Leave This Library does (`--to PERSON` handing the library over, if this person founded it and has no other device). `person set --name NAME` and `device set [DEVICE] --name NAME` name this person and their devices, as everyone sees them.
-* `member remove PERSON` removes a member, but not the founder. Their devices' writes up to what this device has seen stand; later ones are refused everywhere.
+* `member list` prints the members' keys, marking you.
+* `member pair CODE [URL]` adds a new device offering a code as a new member's, admitting its person, and sends it the library's key.
+* `device list` prints this person's devices (named or not). `device remove DEVICE` removes one: its later writes are refused, and when it next syncs it's told so, signed, and prints that it should `library leave`, which forgets the library and its identity so it can pair again as a new device. Leaving of its own accord, `library leave` first removes this device and syncs, so another device hears of it, as the apps' Leave This Library does. `person set --name NAME` and `device set [DEVICE] --name NAME` name this person and their devices, as everyone sees them.
+* `member remove PERSON` removes a member, the library's creator too. Their devices' writes up to what this device has seen stand; later ones are refused everywhere.
 
 ### Sources and crawling
 
@@ -103,7 +102,7 @@ Progress is private: it's written on this device's private stream, and travels o
 
 `serve` serves a web client at the root (`http://<host>:8008/`). On a device with no library yet, it starts anyway, and the web client sets one up: Create a Library, or Join a Library, showing a code for a member's device to add it by (as `person pair` offers, at `/pair` on the same port, advertised as a new device). So one command, `serve --media DIR`, then a browser on the same computer, makes a working library with no other device: create it, add the served folder as a source, and Refresh Library.
 
-* Settings, as the Mac's panes have them: names; people (removing them, and adding someone new by the code their device shows); this person's devices (renaming, removing, and adding them by their codes, from those offering nearby, listed as they're found, in a section at the end of each list while Settings shows, or by the address one prints); sources (adding a server's address, or the folder `--media` serves, but no other folder, so a browser can't share one of this computer's; removing one, or an unavailable folder's videos); how often sources are looked through, and Refresh Library (or Fully); and Leave This Library, removing this device and syncing that before forgetting, as the apps do (asking who takes it over if this person founded it and has no other device).
+* Settings, as the Mac's panes have them: names; people (removing them, and adding someone new by the code their device shows); this person's devices (renaming, removing, and adding them by their codes, from those offering nearby, listed as they're found, in a section at the end of each list while Settings shows, or by the address one prints); sources (adding a server's address, or the folder `--media` serves, but no other folder, so a browser can't share one of this computer's; removing one, or an unavailable folder's videos); how often sources are looked through, and Refresh Library (or Fully); and Leave This Library, removing this device and syncing that before forgetting, as the apps do.
 * Movies, Series, Watching, Watched, and your lists in a sidebar, with search, as the Mac app has them; in a narrow window, a tab bar of Home, Movies, Series, Lists, and Search, as an iPhone's.
 * Each title's page, with its seasons and episodes (read from their files as a season's shown, as the apps do).
 * A player that resumes where you left off and goes on to the next episode. Videos play straight from their sources (the server picks the copy whose server answers first). Browsers play MP4, M4V, and MOV files, not MKV or ISO.

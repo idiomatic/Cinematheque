@@ -17,7 +17,7 @@ const StatusJson = capi.StatusJson;
 
 /// This device, as JSON: `person` (its person's key), `paired` (acting as the
 /// person of another of the person's devices), `library` (the library's ID,
-/// or null if it has none yet), `founder`, `members` (how many), and
+/// or null if it has none yet), `members` (how many), and
 /// `others` (how many other devices its person has, certified or named, and
 /// not removed: none, and leaving takes the person's devices with it), and
 /// `crawl_every` (`cq_crawl_every`'s hours, 0 for Manually).
@@ -30,7 +30,7 @@ fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
     // This device's key, for its own sources' addresses (`cqdevice://`).
     const device = try arena.dupe(u8, &std.fmt.bytesToHex(try lib.store.device(), .lower));
     const paired = lib.store.paired();
-    const r = lib.main() catch return .{ .person = person, .device = device, .paired = paired, .library = null, .founder = null, .members = 0, .others = 0 };
+    const r = lib.main() catch return .{ .person = person, .device = device, .paired = paired, .library = null, .members = 0, .others = 0 };
     const me = try lib.store.person();
     const this = try lib.store.device();
     var others: std.AutoArrayHashMapUnmanaged([32]u8, void) = .empty;
@@ -50,7 +50,6 @@ fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
         .device = device,
         .paired = paired,
         .library = try arena.dupe(u8, &std.fmt.bytesToHex(r.library, .lower)),
-        .founder = try arena.dupe(u8, &std.fmt.bytesToHex(r.founder, .lower)),
         .members = (try r.members(arena)).len,
         .others = count,
         .crawl_every = (try library.crawlEvery(r, arena)) orelse 0,
@@ -86,21 +85,22 @@ fn leave(lib: *Library, arena: std.mem.Allocator) !void {
     lib.received = .{};
 }
 
-/// Creates a library, founded by this person. (Joining one is by pairing.)
+/// Creates a library, with this person its first member. (Joining one is
+/// by pairing.)
 export fn cq_found(lib: *Library) c_int {
     return status(lib, found, .{});
 }
 
 fn found(lib: *Library, arena: std.mem.Allocator) !void {
-    try openFounded(lib, arena, try lib.store.person());
+    try openCreated(lib, arena, try lib.store.person());
 }
 
-/// Opens the library `founder` founded, as this device's.
-pub fn openFounded(lib: *Library, arena: std.mem.Allocator, founder: [32]u8) !void {
+/// Opens the library `creator` created, as this device's.
+pub fn openCreated(lib: *Library, arena: std.mem.Allocator, creator: [32]u8) !void {
     if (lib.replica != null) return error.LibraryExists;
     // Once it has a library, it no longer offers to pair.
     stopPairing(lib);
-    try lib.store.setFounder(arena, founder);
+    try lib.store.setCreator(arena, creator);
     lib.replica = try lib.store.openReplica(lib.arena_state.allocator());
     lib.has_library.store(true, .seq_cst);
 }

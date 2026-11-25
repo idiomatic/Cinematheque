@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const capi = @import("../capi.zig");
-const openFounded = @import("membership.zig").openFounded;
+const openCreated = @import("membership.zig").openCreated;
 const library = @import("../library.zig");
 const store_ = @import("../store.zig");
 const discover = @import("../discover.zig");
@@ -18,7 +18,7 @@ const PairJson = capi.PairJson;
 const PairedJson = capi.PairedJson;
 
 // Pairing: a new device shows a code, and a member's, given it, sends it
-// the library's founder's key, and to pair another of its person's devices,
+// the library's creator's key, and to pair another of its person's devices,
 // the person's secret too (see pair.zig).
 
 pub const Pairing = struct {
@@ -73,7 +73,7 @@ fn pairCheck(lib: *Library, arena: std.mem.Allocator) !PairJson {
     if (received) |secrets| {
         stopPairing(lib);
         if (!secrets.joining()) try lib.store.pair(arena, &std.fmt.bytesToHex(secrets.person, .lower));
-        try openFounded(lib, arena, secrets.founder);
+        try openCreated(lib, arena, secrets.creator);
         return .{ .code = null, .paired = true, .closed = false };
     }
     if (closed) {
@@ -98,7 +98,7 @@ pub fn stopPairing(lib: *Library) void {
 
 /// Long: adds the new device offering at `url` (a `pairing` device's, from
 /// `cq_nearby`), given the code it shows, as another of this person's
-/// devices: sends it the library's founder's key and this person's secret,
+/// devices: sends it the library's creator's key and this person's secret,
 /// which it takes only if the code is right. Returns its keys, as JSON:
 /// `person` (this person's) and `device` (to name it by, with `cq_name`).
 /// Fails with `WrongCode`, or `Closed` once it stopped.
@@ -116,7 +116,7 @@ fn pairPerson(lib: *Library, arena: std.mem.Allocator, url: []const u8, code: []
 }
 
 /// Long: as `cq_pair_person`, but adds the device as a new member's,
-/// sending it only the library's founder's key. Its `person` is the new
+/// sending it only the library's creator's key. Its `person` is the new
 /// member's, to add by `cq_member_add`.
 export fn cq_pair_member(lib: *Library, url: [*:0]const u8, code: [*:0]const u8) ?[*:0]u8 {
     return json(lib, pairMember, .{ std.mem.span(url), std.mem.span(code) });
@@ -135,11 +135,11 @@ fn send(lib: *Library, arena: std.mem.Allocator, url: []const u8, kind: pair.Kin
     var client: std.http.Client = .{ .allocator = gpa, .io = lib.io() };
     defer client.deinit();
     const digits = std.mem.trim(u8, code, " \n");
-    return pair.send(lib.io(), arena, &client, url, kind, digits, .{ .person = lib.store.identity.person, .founder = try lib.store.founder(arena) });
+    return pair.send(lib.io(), arena, &client, url, kind, digits, .{ .person = lib.store.identity.person, .creator = try lib.store.creator(arena) });
 }
 
 /// The members, as a JSON array of objects with `key`, `name` (null if
-/// none's set), `founder`, and `you`.
+/// none's set), and `you`.
 export fn cq_members(lib: *Library) ?[*:0]u8 {
     return json(lib, members, .{});
 }
@@ -153,7 +153,6 @@ fn members(lib: *Library, arena: std.mem.Allocator) ![]const MemberJson {
     for (list, out) |m, *o| o.* = .{
         .key = try arena.dupe(u8, &std.fmt.bytesToHex(m, .lower)),
         .name = library.nameOf(named, &std.fmt.bytesToHex(m, .lower)),
-        .founder = std.mem.eql(u8, &m, &r.founder),
         .you = std.mem.eql(u8, &m, &me),
     };
     return out;

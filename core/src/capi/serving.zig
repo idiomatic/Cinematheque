@@ -57,7 +57,7 @@ fn startServing(lib: *Library, port: u16, folders: []const Folder) !c_int {
     for (folders, mounts) |f, *m| m.* = .{ .prefix = try arena.dupe(u8, std.mem.span(f.prefix)), .path = try arena.dupe(u8, std.mem.span(f.path)), .index = false };
     s.sharing = .{
         .path = try lib.store.replicaPath(arena),
-        .founder = try lib.store.founder(arena),
+        .creator = try lib.store.creator(arena),
         .identity = lib.store.identity,
         .served = Library.onServed,
         .received = Library.onReceived,

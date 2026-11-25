@@ -157,7 +157,7 @@ pub fn open(data_dir: ?[*:0]const u8) !*Library {
         break :blk try store_.defaultDataDir(arena, std.mem.span(home), if (xdg) |x| std.mem.span(x) else null);
     };
     lib.store = try store_.Store.open(lib.io(), gpa, arena, dir);
-    _ = lib.store.founder(arena) catch |err| switch (err) {
+    _ = lib.store.creator(arena) catch |err| switch (err) {
         error.NoLibrary => return lib,
         else => |e| return e,
     };
@@ -236,7 +236,7 @@ pub fn enumFrom(comptime E: type, value: c_int) !E {
     return std.enums.fromInt(E, value) orelse error.InvalidArgument;
 }
 
-pub const MemberJson = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
+pub const MemberJson = struct { key: []const u8, name: ?[]const u8, you: bool };
 pub const DeviceJson = struct { key: []const u8, name: []const u8, you: bool, model: ?[]const u8 = null, kind: ?@import("model.zig").Kind = null, seen: ?u64 = null };
 pub const NearbyJson = struct { url: []const u8, device: ?[]const u8, model: ?[]const u8 = null, host: ?[]const u8 = null, person: ?[]const u8, person_key: ?[]const u8, ours: bool, member: bool, added: bool, pairing: ?[]const u8 };
 pub const PairJson = struct { code: ?[]const u8, paired: bool, closed: bool };
@@ -297,7 +297,7 @@ pub const Heard = struct {
         return .{ .device = key, .name = library.nameOf(named, key), .operations = operations, .at = at };
     }
 };
-pub const StatusJson = struct { person: []const u8, device: []const u8, paired: bool, library: ?[]const u8, founder: ?[]const u8, members: usize, others: usize, crawl_every: u64 = library.default_crawl_hours };
+pub const StatusJson = struct { person: []const u8, device: []const u8, paired: bool, library: ?[]const u8, members: usize, others: usize, crawl_every: u64 = library.default_crawl_hours };
 
 /// How far a long operation has come, in steps of its phase (sources
 /// crawled, movies and seasons described, devices synced); read from any

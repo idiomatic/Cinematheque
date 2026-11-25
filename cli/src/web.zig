@@ -30,12 +30,12 @@ pub const Web = struct {
     /// one's created, joined, or left (with `state` held, and `seen` around
     /// each change, so a snapshot sees it whole).
     store: core.store.Store,
-    /// The library, by its founder, if this device has one yet.
-    founder: ?[32]u8,
+    /// The library, by its creator, if this device has one yet.
+    creator: ?[32]u8,
     /// Held through setup's changes (a library created, joined, or left,
     /// and advertising); taken before `writer`, never after.
     state: Io.Mutex = .init,
-    /// Held only to read or change `founder` and `store`'s identity, with
+    /// Held only to read or change `creator` and `store`'s identity, with
     /// nothing else taken meanwhile, so any task may take a snapshot.
     seen: Io.Mutex = .init,
     /// What lasts as long as serving: the store's own (opened again as the
@@ -101,13 +101,13 @@ pub const Web = struct {
     }
 
     /// Who this device is, and its library, as of now.
-    pub const Snapshot = struct { founder: [32]u8, identity: core.replica.Identity, own: []const u8 };
+    pub const Snapshot = struct { creator: [32]u8, identity: core.replica.Identity, own: []const u8 };
 
     /// This device's library and identity, or `error.NoLibrary`.
     pub fn snapshot(w: *Web, io: Io, arena: std.mem.Allocator) !Snapshot {
         try w.seen.lock(io);
         defer w.seen.unlock(io);
-        return .{ .founder = w.founder orelse return error.NoLibrary, .identity = w.store.identity, .own = try w.store.serviceName(arena) };
+        return .{ .creator = w.creator orelse return error.NoLibrary, .identity = w.store.identity, .own = try w.store.serviceName(arena) };
     }
 
     /// While serving: a second after a browser's change, once changes stop,
@@ -173,7 +173,7 @@ pub const Web = struct {
             if (!w.reconcile_again.swap(false, .acq_rel) and t -| last < reconcile_every_ms) continue;
             last = t;
             // Nothing to keep until there's a library.
-            if (w.founder == null) continue;
+            if (w.creator == null) continue;
             w.reconciling.store(true, .release);
             defer w.reconciling.store(false, .release);
             w.reconcile(io, gpa) catch |err| switch (err) {
@@ -200,7 +200,7 @@ pub const Web = struct {
             if (now_ == last) continue;
             last = now_;
             _ = w.volumes.fetchAdd(1, .acq_rel);
-            if (w.founder == null) continue;
+            if (w.creator == null) continue;
             w.crawlMedia(io, gpa) catch |err| switch (err) {
                 error.Canceled => return error.Canceled,
                 else => std.log.warn("looking through the media: {t}", .{err}),
@@ -263,7 +263,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
             error.NoLibrary => return false,
             else => |e| return e,
         };
-        var sharing: core.sync.Sharing = .{ .path = w.path, .founder = now_is.founder, .identity = now_is.identity };
+        var sharing: core.sync.Sharing = .{ .path = w.path, .creator = now_is.creator, .identity = now_is.identity };
         const h = sharing.handler();
         return h.function(h.context, io, gpa, request, peer);
     }
@@ -464,7 +464,7 @@ pub fn open(w: *Web, io: Io, gpa: std.mem.Allocator) !Replica {
     var buffer: [256]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(&buffer);
     const now_is = try w.snapshot(io, fixed.allocator());
-    return Replica.open(gpa, io, w.path, now_is.founder, now_is.identity);
+    return Replica.open(gpa, io, w.path, now_is.creator, now_is.identity);
 }
 
 pub fn now(io: Io) u64 {

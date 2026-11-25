@@ -252,7 +252,7 @@ const freshness_ms = 10 * 60 * 1000;
 /// sync, since SQLite connections aren't shared across threads.
 pub const Sharing = struct {
     path: [:0]const u8,
-    founder: [32]u8,
+    creator: [32]u8,
     identity: replica_.Identity,
     /// Told of each sync served: the device that asked, and how many
     /// operations it was sent (for apps to show).
@@ -340,7 +340,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
     const sharing: *Sharing = @ptrCast(@alignCast(context.?));
     // Who this device is, from its seeds alone: no replica is opened for
     // anyone not yet shown to be a member's device.
-    const library = replica_.libraryId(sharing.founder);
+    const library = replica_.libraryId(sharing.creator);
     const own = try Ed25519.KeyPair.generateDeterministic(sharing.identity.device);
     const person = try Ed25519.KeyPair.generateDeterministic(sharing.identity.person);
     const device_hex = std.fmt.bytesToHex(own.public_key.toBytes(), .lower);
@@ -391,7 +391,7 @@ fn respond(context: ?*anyopaque, io: Io, gpa: std.mem.Allocator, request: *http.
         return true;
     };
     const reader = checked[1];
-    var src = try Replica.open(gpa, io, sharing.path, sharing.founder, sharing.identity);
+    var src = try Replica.open(gpa, io, sharing.path, sharing.creator, sharing.identity);
     defer src.close();
     // A removed device is told so, signed, so it can leave and pair afresh.
     if (try src.revoked(checked[0].device) != null) {
@@ -819,8 +819,8 @@ test "requests are checked" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(2)));
+    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(2)));
     defer r.close();
     const hal: [32]u8 = @splat(3);
     const body = try writeRequest(arena, &r, 1_000_000, hal, @splat(0));
@@ -840,8 +840,8 @@ test "an older device's request, ending at its vector, asks for no salt" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(2)));
+    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(2)));
     defer r.close();
     const hal: [32]u8 = @splat(3);
     const body = try writeRequest(arena, &r, 1_000_000, hal, @splat(0));
@@ -863,16 +863,16 @@ test "a request replayed is answered under a new key each time" {
     defer tmp.cleanup();
     const dir = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     const person_seed: [32]u8 = @splat(7);
-    const founder = (try Ed25519.KeyPair.generateDeterministic(person_seed)).public_key.toBytes();
+    const creator = (try Ed25519.KeyPair.generateDeterministic(person_seed)).public_key.toBytes();
     const a_identity: replica_.Identity = .{ .device = @splat(1), .person = person_seed };
     const a_path = try std.fmt.allocPrintSentinel(arena, "{s}/a.db", .{dir}, 0);
-    var a = try Replica.open(gpa, io, a_path, founder, a_identity);
+    var a = try Replica.open(gpa, io, a_path, creator, a_identity);
     defer a.close();
-    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), founder, .{ .device = @splat(2), .person = person_seed });
+    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), creator, .{ .device = @splat(2), .person = person_seed });
     defer b.close();
     try a.write(1000, "t/00001", "name", "Alien");
 
-    var sharing: Sharing = .{ .path = a_path, .founder = founder, .identity = a_identity };
+    var sharing: Sharing = .{ .path = a_path, .creator = creator, .identity = a_identity };
     var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .handler = sharing.handler() } };
     try server.start();
     defer server.stop();
@@ -908,8 +908,8 @@ test "a request as sent shows nothing of it to anyone listening" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", founder, .from(@splat(2)));
+    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(std.testing.allocator, std.testing.io, ":memory:", creator, .from(@splat(2)));
     defer r.close();
     const hal = try Ed25519.KeyPair.generateDeterministic(@splat(3));
     const head = try writeRequest(arena, &r, 1_000_000, hal.public_key.toBytes(), @splat(0));
@@ -928,8 +928,8 @@ test "a device that takes the connection but never answers is given up on in sec
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(2)));
+    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(2)));
     defer r.close();
     // As an app stopped in a debugger: listening, never answering.
     var address = try Io.net.IpAddress.parse("127.0.0.1", 0);
@@ -952,19 +952,19 @@ test "a removed device is told so, believably, and can tell" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const dir = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
-    // Two devices of one person, the founder.
+    // Two devices of one person, the creator.
     const person_seed: [32]u8 = @splat(7);
-    const founder = (try Ed25519.KeyPair.generateDeterministic(person_seed)).public_key.toBytes();
+    const creator = (try Ed25519.KeyPair.generateDeterministic(person_seed)).public_key.toBytes();
     const a_identity: replica_.Identity = .{ .device = @splat(1), .person = person_seed };
     const a_path = try std.fmt.allocPrintSentinel(arena, "{s}/a.db", .{dir}, 0);
-    var a = try Replica.open(gpa, io, a_path, founder, a_identity);
+    var a = try Replica.open(gpa, io, a_path, creator, a_identity);
     defer a.close();
-    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), founder, .{ .device = @splat(2), .person = person_seed });
+    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), creator, .{ .device = @splat(2), .person = person_seed });
     defer b.close();
     try a.write(1000, "t/00001", "name", "Alien");
     try b.write(1000, "t/00002", "name", "Brazil");
 
-    var sharing: Sharing = .{ .path = a_path, .founder = founder, .identity = a_identity };
+    var sharing: Sharing = .{ .path = a_path, .creator = creator, .identity = a_identity };
     var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .handler = sharing.handler() } };
     try server.start();
     defer server.stop();
@@ -988,16 +988,16 @@ test "a device gets back the fields a removal dropped, over HTTP" {
     defer tmp.cleanup();
     const dir = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     const person_seed: [32]u8 = @splat(7);
-    const founder = (try Ed25519.KeyPair.generateDeterministic(person_seed)).public_key.toBytes();
+    const creator = (try Ed25519.KeyPair.generateDeterministic(person_seed)).public_key.toBytes();
     const a_identity: replica_.Identity = .{ .device = @splat(1), .person = person_seed };
     const a_path = try std.fmt.allocPrintSentinel(arena, "{s}/a.db", .{dir}, 0);
-    var a = try Replica.open(gpa, io, a_path, founder, a_identity);
+    var a = try Replica.open(gpa, io, a_path, creator, a_identity);
     defer a.close();
-    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), founder, .{ .device = @splat(2), .person = person_seed });
+    var b = try Replica.open(gpa, io, try std.fmt.allocPrintSentinel(arena, "{s}/b.db", .{dir}, 0), creator, .{ .device = @splat(2), .person = person_seed });
     defer b.close();
     try a.write(1000, "t/00001", "name", "Alien");
 
-    var sharing: Sharing = .{ .path = a_path, .founder = founder, .identity = a_identity };
+    var sharing: Sharing = .{ .path = a_path, .creator = creator, .identity = a_identity };
     var server: @import("host.zig").Host = .{ .io = io, .gpa = gpa, .options = .{ .port = 0, .handler = sharing.handler() } };
     try server.start();
     defer server.stop();

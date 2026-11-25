@@ -42,8 +42,8 @@ test "a crawl records when it was, so refreshes not asked for skip it for a day"
     var client: std.http.Client = .{ .allocator = gpa, .io = io };
     defer client.deinit();
 
-    const founder: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
+    const creator: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
     _ = try addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
     try std.testing.expectEqual(@as(?u64, 24), try crawlEvery(&r, arena));
@@ -77,8 +77,8 @@ test "a full crawl sees a file rewritten in place, which reusing listings misses
     defer server.stop();
     var client: std.http.Client = .{ .allocator = gpa, .io = io };
     defer client.deinit();
-    const founder: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
+    const creator: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
     _ = try addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
     const source = (try sources(&r, arena))[0];
@@ -100,8 +100,8 @@ test "an unplugged directory is unavailable, its copies kept; a deleted one's go
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const replica_ = @import("replica.zig");
-    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
+    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
 
     // Two drives' mount points, served without an INDEX, so listings stay live.
@@ -207,8 +207,8 @@ test "a device's own source, moved to its port-free address once, keeps its copi
     const arena = arena_state.allocator();
     const replica_ = @import("replica.zig");
     const url = @import("url.zig");
-    const founder = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
+    const creator = (try replica_.personKeyPair(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

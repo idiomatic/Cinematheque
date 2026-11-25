@@ -123,8 +123,8 @@ async function settingsPage() {
     }
   }
   const people = (s) => s.members.map((m) => {
-    const r = row(nameOf(m, "Someone unnamed"), [m.founder ? "Founder" : null, m.you ? "You" : null].filter(Boolean).join(", "),
-      m.you || m.founder ? null : icon(minus, "Remove…", `Remove ${nameOf(m, "this person")}…`, () => confirm(`Remove ${nameOf(m, "them")} from the library? They come back only by joining again, as someone new.`) &&
+    const r = row(nameOf(m, "Someone unnamed"), m.you ? "You" : null,
+      m.you ? null : icon(minus, "Remove…", `Remove ${nameOf(m, "this person")}…`, () => confirm(`Remove ${nameOf(m, "them")} from the library? They come back only by joining again, as someone new.`) &&
         remove(r, "member-remove", { key: m.key }, peopleNote, `Removed ${nameOf(m, "them")}. Their devices leave the library as each next syncs.`)));
     return r;
   });
@@ -194,7 +194,7 @@ async function settingsPage() {
 
   // Leaving.
   page.append(section("Leave This Library", "This server forgets the library, and can then create or join one afresh. What it added stays in the library.",
-    el("div", { class: "line" }, button("Leave This Library…", () => leaveLibrary(s)))));
+    el("div", { class: "line" }, button("Leave This Library…", leaveLibrary))));
   return [page];
 }
 
@@ -268,9 +268,6 @@ function said(e) {
     Closed: "That device stopped after too many wrong codes: it shows a new one.",
     TooManyWrongCodes: "That device stopped after too many wrong codes: it shows a new one.",
     BadAddress: "That isn’t a web address (http:// or https://, with a host).",
-    NotFounder: "Only the library’s founder can do that.",
-    FounderIsPermanent: "The founder can’t be removed.",
-    FoundersDevice: "Only the founder can remove the founder’s devices.",
     ThisDevice: "That’s this server.",
     NoOneReached: "No other device of the library could be reached to take the change: try again once one is on.",
     Busy: "Something else is under way: try again once it’s done.",
@@ -391,19 +388,14 @@ async function followRefresh(line) {
   }
 }
 
-/// Leaves the library, confirmed first, choosing who takes it over if this
-/// person founded it and it would otherwise be left without its founder.
-async function leaveLibrary(s, successor) {
-  if (!successor && !confirm("Leave this library? This server forgets it, and its other devices stop syncing with it. It can't be undone; it can join again as a new device.")) return;
+/// Leaves the library, confirmed first.
+async function leaveLibrary() {
+  if (!confirm("Leave this library? This server forgets it, and its other devices stop syncing with it. It can't be undone; it can join again as a new device.")) return;
   try {
-    await api("leave", successor ? { successor } : {});
+    await api("leave", {});
     location.replace("#");
     location.reload();
   } catch (e) {
-    if (!String(e.message).endsWith("NeedsSuccessor")) return problem(said(e));
-    const others = s.members.filter((m) => !m.you);
-    const names = others.map((m, i) => `${i + 1}. ${m.name || m.key.slice(0, 8)}`).join("\n");
-    const chosen = Number(prompt(`You founded this library, and this is your only device: who takes it over?\n${names}`, "1"));
-    if (others[chosen - 1]) leaveLibrary(s, others[chosen - 1].key);
+    problem(said(e));
   }
 }

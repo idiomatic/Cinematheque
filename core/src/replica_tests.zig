@@ -48,9 +48,9 @@ const Devices = struct {
     /// are members, and every replica has caught up with replica 0.
     fn initAdding(others: *Devices, added: usize) !void {
         others.arena_state = .init(testing.allocator);
-        const founder = try testPerson(1);
+        const creator = try testPerson(1);
         for (&others.replicas, 1..) |*r, seed| {
-            r.* = try Replica.open(testing.allocator, testing.io, ":memory:", founder, .from(@splat(@intCast(seed))));
+            r.* = try Replica.open(testing.allocator, testing.io, ":memory:", creator, .from(@splat(@intCast(seed))));
         }
         for (1..added + 1) |i| try others.replicas[0].addMember(1, try testPerson(@intCast(i + 1)));
         for (1..others.replicas.len) |i| _ = try others.sync(i, 0);
@@ -318,7 +318,7 @@ test "a stranger's word for what it holds isn't taken" {
     const c = &p.replicas[2];
     const arena = p.arena_state.allocator();
 
-    // c claims to hold everything of a's stream, and of the founder's
+    // c claims to hold everything of a's stream, and of the creator's
     // device's, signed by c itself.
     const request: [64]u8 = @splat(5);
     var response: std.Io.Writer.Allocating = .init(arena);
@@ -362,16 +362,13 @@ test "a certificate for another device's stream is refused" {
         try testing.expect(!std.mem.eql(u8, &entry.device, &stream));
 }
 
-test "only the founder removes the founder's devices, and a removal can't be undone" {
+test "a removal can't be undone" {
     var p: Devices = undefined;
     try p.init();
     defer p.deinit();
-    const a = &p.replicas[0]; // the founder's
+    const a = &p.replicas[0];
     const b = &p.replicas[1];
     const c = &p.replicas[2];
-    try a.write(1000, "t/00001", "name", "Alien");
-    _ = try p.sync(1, 0);
-    _ = try p.sync(2, 0);
 
     // a removes c's device; b can't raise the cutoff to undo it.
     try a.revokeDevice(2000, c.device());
@@ -381,16 +378,6 @@ test "only the founder removes the founder's devices, and a removal can't be und
     std.mem.writeInt(u64, &higher, replica.max_seq, .little);
     try b.write(3000, "revoked", &std.fmt.bytesToHex(c.device(), .lower), &higher);
     try testing.expectEqual(cutoff, (try b.revoked(c.device())).?);
-
-    // b may not remove the founder's device, nor by writing it outright:
-    // a device that hears of it (here, one of the founder's) refuses it.
-    try testing.expectError(error.FoundersDevice, b.revokeDevice(4000, a.device()));
-    var zero: [8]u8 = @splat(0);
-    try b.write(4000, "revoked", &std.fmt.bytesToHex(a.device(), .lower), &zero);
-    const stats = try p.sync(0, 1);
-    try testing.expectEqual(@as(usize, 1), stats.refused);
-    try testing.expectEqual(@as(?u64, null), try a.revoked(a.device()));
-    try testing.expectEqualStrings("Alien", try p.value(0, "t/00001", "name"));
 }
 
 test "a batch over numbers another batch holds is refused" {
@@ -614,9 +601,9 @@ test "a device removing itself has its removal taken, and its later writes refus
     const c = &p.replicas[2];
 
     try c.write(1000, "t/00001", "name", "Before");
-    try c.removeSelf(2000, null);
+    try c.removeSelf(2000);
     try c.write(3000, "t/00002", "name", "After");
-    try c.removeSelf(4000, null); // Again, as a retried leave: nothing.
+    try c.removeSelf(4000); // Again, as a retried leave: nothing.
     const stats = try p.sync(0, 2);
     try testing.expect(stats.refused > 0);
     try testing.expectEqualStrings("Before", try p.value(0, "t/00001", "name"));
@@ -629,19 +616,22 @@ test "a device removing itself has its removal taken, and its later writes refus
     try testing.expectError(error.Missing, p.value(1, "t/00002", "name"));
 }
 
-test "a founder's device removing itself hands the library over first" {
+test "the library's creator is a member until removed, for good, as anyone is" {
     var p: Devices = undefined;
     try p.init();
     defer p.deinit();
     const a = &p.replicas[0];
     const b = &p.replicas[1];
 
-    try a.removeSelf(2000, b.personKey());
-    _ = try p.sync(1, 0);
-    try testing.expectEqual(b.personKey(), b.founder);
+    try testing.expect(try b.isMemberPerson(try testPerson(1)));
+    try b.removeMember(2000, try testPerson(1));
+    try testing.expectEqual(@as(usize, 2), (try b.members(p.arena_state.allocator())).len);
     try a.write(3000, "t/00003", "name", "After");
     try testing.expect((try p.sync(1, 0)).refused > 0);
     try testing.expectError(error.Missing, p.value(1, "t/00003", "name"));
+    _ = try p.sync(2, 1);
+    try testing.expect(!try p.replicas[2].isMemberPerson(try testPerson(1)));
+    try testing.expectError(error.RemovedForGood, b.addMember(4000, try testPerson(1)));
 }
 
 test "an invitation later in the same response admits earlier batches" {
@@ -686,13 +676,6 @@ test "a device that took a removed device's later writes repairs from one that r
     _ = try repair(c, a);
     try testing.expectEqualStrings("before", try p.value(2, "t/00001", "name"));
     try testing.expect(try c.isMemberPerson(b.personKey()));
-}
-
-test "the founder can't be removed" {
-    var p: Devices = undefined;
-    try p.init();
-    defer p.deinit();
-    try testing.expectError(error.FounderIsPermanent, p.replicas[1].removeMember(1000, try testPerson(1)));
 }
 
 test "a removed member's writes up to the cutoff stand, and later ones are refused" {
@@ -742,63 +725,6 @@ test "a device that took a removed member's later writes repairs from one that r
     try testing.expectEqualStrings("before", try p.value(2, "t/00001", "name"));
     _ = try p.sync(0, 2);
     try testing.expectEqualStrings("before", try p.value(0, "t/00001", "name"));
-}
-
-test "the founder hands over to a successor, who is then permanent" {
-    var p: Devices = undefined;
-    try p.init();
-    defer p.deinit();
-    const a = &p.replicas[0];
-    const b = &p.replicas[1];
-    const c = &p.replicas[2];
-
-    try a.handOver(1000, try testPerson(2), true);
-    _ = try p.sync(1, 0);
-    _ = try p.sync(2, 0);
-    for (&p.replicas) |*r| try testing.expectEqual(try testPerson(2), r.founder);
-    // The former founder, still a member, can be removed, but not the new one.
-    try testing.expectError(error.FounderIsPermanent, a.removeMember(2000, try testPerson(2)));
-    try b.removeMember(2000, try testPerson(1));
-    _ = try p.sync(2, 1);
-    try testing.expect(!try c.isMemberPerson(try testPerson(1)));
-    // Only the founder may hand over.
-    try testing.expectError(error.NotFounder, c.handOver(3000, try testPerson(3), true));
-}
-
-test "a handover not from the founder is refused" {
-    var p: Devices = undefined;
-    try p.init();
-    defer p.deinit();
-    const b = &p.replicas[1];
-
-    // b forges generation 1, naming itself.
-    try b.write(1000, "founders", "000001", &(try testPerson(2)));
-    const stats = try p.sync(0, 1);
-    try testing.expectEqual(@as(usize, 1), stats.refused);
-    try testing.expectEqual(try testPerson(1), p.replicas[0].founder);
-}
-
-test "a chain of handovers arriving out of order is followed" {
-    var p: Devices = undefined;
-    try p.init();
-    defer p.deinit();
-    const a = &p.replicas[0];
-    const b = &p.replicas[1];
-
-    try a.handOver(1000, try testPerson(2), false);
-    _ = try p.sync(1, 0);
-    try b.handOver(2000, try testPerson(3), true);
-    // c learned of a's device before b's, so a fresh device syncing from c
-    // gets b's generation 2 ahead of a's generation 1 (devices learned last
-    // come first), holds it, then follows the chain.
-    _ = try p.sync(2, 1);
-    var d = try Replica.open(testing.allocator, testing.io, ":memory:", try testPerson(1), .from(@splat(9)));
-    defer d.close();
-    const stats = try replica_sync(p.arena_state.allocator(), &d, &p.replicas[2]);
-    try testing.expect(stats.deferred > 0);
-    try testing.expectEqual(try testPerson(3), d.founder);
-    // a left the library when handing over.
-    try testing.expect(!try d.isMemberPerson(try testPerson(1)));
 }
 
 test "private data reaches its person's other devices, directly, and no one else" {
@@ -954,10 +880,10 @@ test "a connection learns of devices another added" {
     const path = "/tmp/cinematheque-keys-test.db";
     std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
     defer std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
-    const founder = (try personKeyPair(@splat(1))).public_key.toBytes();
-    var a = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+    const creator = (try personKeyPair(@splat(1))).public_key.toBytes();
+    var a = try Replica.open(testing.allocator, testing.io, path, creator, .from(@splat(1)));
     defer a.close();
-    var b = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+    var b = try Replica.open(testing.allocator, testing.io, path, creator, .from(@splat(1)));
     defer b.close();
     const id = try b.deviceId(@splat(9));
     try testing.expectEqualSlices(u8, &@as(Device, @splat(9)), &(try a.keyOf(id)));
@@ -968,10 +894,10 @@ test "two connections writing in turn, refreshing first, never reuse a sequence 
     const path = "/tmp/cinematheque-refresh-test.db";
     std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
     defer std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
-    const founder = (try personKeyPair(@splat(1))).public_key.toBytes();
-    var a = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+    const creator = (try personKeyPair(@splat(1))).public_key.toBytes();
+    var a = try Replica.open(testing.allocator, testing.io, path, creator, .from(@splat(1)));
     defer a.close();
-    var b = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+    var b = try Replica.open(testing.allocator, testing.io, path, creator, .from(@splat(1)));
     defer b.close();
     try a.write(1000, "t/m/a/-", "name", "A");
     try b.refresh();
@@ -987,15 +913,15 @@ test "a device's write after a restart, or a clock step back, doesn't lose to it
     const path = "/tmp/cinematheque-clock-test.db";
     std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
     defer std.Io.Dir.cwd().deleteFile(testing.io, path) catch {};
-    const founder = (try personKeyPair(@splat(1))).public_key.toBytes();
+    const creator = (try personKeyPair(@splat(1))).public_key.toBytes();
     {
-        var a = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+        var a = try Replica.open(testing.allocator, testing.io, path, creator, .from(@splat(1)));
         defer a.close();
         try a.write(5000, "t/m/a/-", "name", "first");
     }
-    var a = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+    var a = try Replica.open(testing.allocator, testing.io, path, creator, .from(@splat(1)));
     defer a.close();
-    var b = try Replica.open(testing.allocator, testing.io, path, founder, .from(@splat(1)));
+    var b = try Replica.open(testing.allocator, testing.io, path, creator, .from(@splat(1)));
     defer b.close();
     // The wall clock has stepped back since.
     try a.write(1000, "t/m/a/-", "name", "second");

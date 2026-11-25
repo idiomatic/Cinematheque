@@ -13,15 +13,12 @@ struct SettingsSheet: View {
     @AppStorage(Library.showsSyncActivity) private var showsSyncActivity = false
     @State private var path: [SettingsPage] = []
     @State private var confirmingLeave = false
-    @State private var choosingSuccessor = false
     @State private var leaving = false
     @State private var problem: String?
 
     private var me: Member? { library.members.first(where: \.you) }
-    private var others: [Member] { library.members.filter { !$0.you } }
-    /// The founder's only device: leaving takes the founder with it, so it
-    /// hands the library over first, or, if no one else is in it, ends it.
-    private var foundersOnly: Bool { me?.founder == true && library.status?.others == 0 }
+    /// No one else in the library, nor another device of yours: leaving ends it.
+    private var alone: Bool { library.members.count == 1 && library.status?.others == 0 }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -84,32 +81,20 @@ struct SettingsSheet: View {
             }
         }
         // Hard to undo, so asked first.
-        .alert(foundersOnly ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
-            Button(foundersOnly ? "Leave and End It" : "Leave", role: .destructive) { if foundersOnly { end() } else { leave(successor: nil) } }
+        .alert(alone ? "End This Library?" : "Leave This Library?", isPresented: $confirmingLeave) {
+            Button(alone ? "Leave and End It" : "Leave", role: .destructive) { if alone { end() } else { leave() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(foundersOnly
+            Text(alone
                 ? "No one else is in this library, so once this iPhone leaves, it's gone for good. Its videos stay where they are."
                 : "This iPhone leaves the library, and your other devices no longer list it. To come back, pair it again.")
         }
-        // The founder's only device leaving: someone takes over first.
-        .confirmationDialog("Who takes over the library?", isPresented: $choosingSuccessor, titleVisibility: .visible) {
-            ForEach(others) { member in
-                Button(member.name ?? "Someone Unnamed") { leave(successor: member.key) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You founded this library, and this iPhone is your only device in it, so someone takes over as its founder before it leaves.")
-        }
     }
 
-    /// Asks first: who takes over, if the founder's only device leaves with
-    /// others in the library; else whether to leave.
-    private func askToLeave() {
-        if foundersOnly, !others.isEmpty { choosingSuccessor = true } else { confirmingLeave = true }
-    }
+    /// Asks first, as it's hard to undo.
+    private func askToLeave() { confirmingLeave = true }
 
-    private func leave(successor: String?) { leaving { await library.leaveLibrary(successor: successor) } }
+    private func leave() { leaving { await library.leaveLibrary() } }
 
     /// Leaves a library no one else is in, ending it.
     private func end() { leaving { await library.endLibrary() } }
@@ -157,9 +142,8 @@ private struct NameField: View {
     }
 }
 
-/// The library's people: you, the founder, and others, any of whom (but the
-/// founder) you may remove, by pressing them or swiping; and adding someone,
-/// by their device's code.
+/// The library's people: you, and others, any of whom you may remove, by
+/// pressing them or swiping; and adding someone, by their device's code.
 private struct PeoplePage: View {
     @Environment(Library.self) private var library
     /// Someone to remove, once confirmed: they come back only as someone new.
@@ -170,7 +154,7 @@ private struct PeoplePage: View {
             Section {
                 ForEach(library.members) { member in
                     Button { if removable(member) { removing = member } } label: {
-                        LabeledContent(member.name ?? "Someone Unnamed", value: [member.you ? "You" : nil, member.founder ? "Founder" : nil].compactMap(\.self).joined(separator: ", "))
+                        LabeledContent(member.name ?? "Someone Unnamed", value: member.you ? "You" : "")
                     }
                     .foregroundStyle(.primary)
                     .swipeActions {
@@ -199,7 +183,7 @@ private struct PeoplePage: View {
         }
     }
 
-    private func removable(_ member: Member) -> Bool { !member.you && !member.founder }
+    private func removable(_ member: Member) -> Bool { !member.you }
 }
 
 /// This person's devices, this iPhone first, each opening its own page

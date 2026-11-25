@@ -1350,8 +1350,8 @@ test "reconciling keeps what's wanted and the next episodes, and deletes watched
     try server.start();
     defer server.stop();
 
-    const founder: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, io, ":memory:", founder, .from(@splat(1)));
+    const creator: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
     const nas = try library.addSource(&r, 1, try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/", .{server.port}), .{});
     const nas_field = try std.fmt.allocPrint(arena, "held:{s}", .{&nas});
@@ -1443,8 +1443,8 @@ test "a series' choice of episodes: the next few, or all" {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(gpa, std.testing.io, ":memory:", founder, .from(@splat(1)));
+    const creator: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(gpa, std.testing.io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
     const nas = try library.addSource(&r, 1, "http://sulaco/", .{});
     const field = try std.fmt.allocPrint(arena, "held:{s}", .{&nas});

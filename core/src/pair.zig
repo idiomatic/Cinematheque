@@ -1,6 +1,6 @@
 //! Pairing a new device with a library's member's by a short code: the new
 //! device shows a 6-digit code, and the other, given it, sends the library's
-//! founder's key, and to pair one of its person's own devices, the person's
+//! creator's key, and to pair one of its person's own devices, the person's
 //! secret too, sealed with a key only a device that knows the code can
 //! derive; the new device answers with its person's key and its own, sealed
 //! the same way, so a new member's can be added, and the device named, at
@@ -55,10 +55,10 @@ pub const Code = [6]u8;
 pub const Kind = enum { pair, join };
 
 /// What's sent: the person's seed (its secret; zeros when joining) and the
-/// library's founder's key.
+/// library's creator's key.
 pub const Secrets = struct {
     person: [32]u8,
-    founder: [32]u8,
+    creator: [32]u8,
 
     /// Whether they make the new device a new member's (no secret sent).
     pub fn joining(s: Secrets) bool {
@@ -145,14 +145,14 @@ const ad = "Cinematheque pairing secrets";
 // reply with nonce 1.
 fn seal(key: [32]u8, secrets: Secrets) [sealed_length]u8 {
     var out: [sealed_length]u8 = undefined;
-    Aead.encrypt(out[0..64], out[64..], &(secrets.person ++ secrets.founder), ad, @splat(0), key);
+    Aead.encrypt(out[0..64], out[64..], &(secrets.person ++ secrets.creator), ad, @splat(0), key);
     return out;
 }
 
 fn open(key: [32]u8, sealed: *const [sealed_length]u8) !Secrets {
     var plain: [64]u8 = undefined;
     Aead.decrypt(&plain, sealed[0..64], sealed[64..].*, ad, @splat(0), key) catch return error.WrongCode;
-    return .{ .person = plain[0..32].*, .founder = plain[32..].* };
+    return .{ .person = plain[0..32].*, .creator = plain[32..].* };
 }
 
 const reply_ad = "Cinematheque pairing reply";
@@ -342,7 +342,7 @@ pub fn send(io: Io, arena: std.mem.Allocator, client: *http.Client, url: []const
     const theirs = challenge[sid_length..][0..32].*;
     const share = try Share.init(io, code, sid);
     const key = try sessionKey(share, theirs, sid, share.point, theirs);
-    const sent: Secrets = .{ .person = if (kind == .pair) secrets.person else @splat(0), .founder = secrets.founder };
+    const sent: Secrets = .{ .person = if (kind == .pair) secrets.person else @splat(0), .creator = secrets.creator };
     const body = sid ++ share.point ++ seal(key, sent);
 
     var request = try client.request(.POST, uri, .{ .redirect_behavior = .not_allowed });
@@ -375,7 +375,7 @@ fn answerFor(io: Io, challenge: [challenge_length]u8, code: []const u8, secrets:
 
 test "the right code pairs, and the reply carries the new person; wrong ones count" {
     const io = std.testing.io;
-    const secrets: Secrets = .{ .person = @splat(7), .founder = @splat(9) };
+    const secrets: Secrets = .{ .person = @splat(7), .creator = @splat(9) };
     var offer: Offer = .{ .code = "042917".*, .person = @splat(3), .device = @splat(4), .reuse_ms = 0 };
 
     for (0..max_failures - 1) |_| {
@@ -401,7 +401,7 @@ test "the right code pairs, and the reply carries the new person; wrong ones cou
 
 test "asking again soon doesn't end the attempt under way, which still takes one guess" {
     const io = std.testing.io;
-    const secrets: Secrets = .{ .person = @splat(7), .founder = @splat(9) };
+    const secrets: Secrets = .{ .person = @splat(7), .creator = @splat(9) };
     var offer: Offer = .{ .code = "042917".*, .person = @splat(3), .device = @splat(4) };
     const c = try offer.challenge(io, testPeer(1));
     // Someone else asks meanwhile, and is given the same attempt.
@@ -416,11 +416,11 @@ test "the member's device decides: a new member's gets no secret" {
     const io = std.testing.io;
     var offer: Offer = .{ .code = "123456".*, .person = @splat(3), .device = @splat(4) };
     const c = try offer.challenge(io, testPeer(1));
-    const joining, _ = try answerFor(io, c, "123456", .{ .person = @splat(0), .founder = @splat(9) });
+    const joining, _ = try answerFor(io, c, "123456", .{ .person = @splat(0), .creator = @splat(9) });
     _ = try offer.answer(io, testPeer(1), &joining);
     const got, _ = offer.outcome(io);
     try std.testing.expect(got.?.joining());
-    try std.testing.expect(!(Secrets{ .person = @splat(7), .founder = @splat(9) }).joining());
+    try std.testing.expect(!(Secrets{ .person = @splat(7), .creator = @splat(9) }).joining());
 }
 
 test "too many wrong codes close it to their address, and to all" {
@@ -429,7 +429,7 @@ test "too many wrong codes close it to their address, and to all" {
     const guess = struct {
         fn wrong(o: *Offer, peer: Peer) !void {
             const c = try o.challenge(std.testing.io, peer);
-            const w, _ = try answerFor(std.testing.io, c, "222222", .{ .person = @splat(1), .founder = @splat(2) });
+            const w, _ = try answerFor(std.testing.io, c, "222222", .{ .person = @splat(1), .creator = @splat(2) });
             try std.testing.expectError(error.WrongCode, o.answer(std.testing.io, peer, &w));
         }
     };

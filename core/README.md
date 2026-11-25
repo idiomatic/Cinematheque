@@ -16,7 +16,7 @@ It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` als
 | [hlc](src/hlc.zig) | The hybrid logical clock, packed into 64 bits |
 | [merkle](src/merkle.zig) | Merkle trees over a batch of up to 1,024 operations, so one signature covers it and each operation is provable alone |
 | [sqlite](src/sqlite.zig) | Minimal SQLite bindings |
-| [replica](src/replica.zig) | Operations in SQLite, signed in Merkle batches; membership, handover, and removal; private streams; the device's own state (`local`); its tests in [replica_tests.zig](src/replica_tests.zig) |
+| [replica](src/replica.zig) | Operations in SQLite, signed in Merkle batches; membership and removal; private streams; the device's own state (`local`); its tests in [replica_tests.zig](src/replica_tests.zig) |
 | [frames](src/frames.zig) | The sync frame protocol: version vectors, and a sync's operations by batch, written and checked (re-exported by replica) |
 | [repair](src/repair.zig) | Repair: fetching the fields a removal dropped, with shared proofs (re-exported by replica) |
 | [sync](src/sync.zig) | Sync over HTTP, gzipped: requests signed by the device and certified by its person, served only to members, without other people's private streams |
@@ -38,8 +38,8 @@ It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` als
 | [race](src/race.zig) | Copy racing: an item's copies in the order to try them, each one's server asked at once, briefly, over `Io`'s networking, and those lately unanswered last |
 | [host](src/host.zig) | A server on a task of its own, advertised by DNS-SD once it listens, and reliably stopped: the apps' serving and pairing, and the command-line app's |
 | [discover](src/discover.zig) | DNS-SD: advertising and browsing devices |
-| [store](src/store.zig) | A device's data directory: its identity, its library's founder, and its replica |
-| [pair](src/pair.zig) | Pairing a new device by a 6-digit code it shows: CPace over the code, then the person's secret and the library's founder sealed with the key it derives |
+| [store](src/store.zig) | A device's data directory: its identity, its library's key, and its replica |
+| [pair](src/pair.zig) | Pairing a new device by a 6-digit code it shows: CPace over the code, then the person's secret and the library's key sealed with the key it derives |
 | [capi](src/capi.zig) | The C interface: the library's handle, errors, and JSON results, its parts in [capi/](src/capi) (serving, identity and membership, pairing, names and devices, sources, downloads, long operations on their own connections, browsing, and private data), each imported so its exports are kept |
 | [version](src/version.zig) | What the build is (which app, as the build's root names it, else the Apple app by its platform; its version, `-Dversion`, as its builder gives it; `git describe --tags`; its optimizing; its Zig), served at `/version`; stamped by [stamp.zig](stamp.zig), a tool every build runs, as Zig caches its build scripts' configuring |
 

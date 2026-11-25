@@ -10,8 +10,8 @@ test "a title's, season's, or item's files, in the quality most have" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const founder: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
-    var r = try Replica.open(testing.allocator, testing.io, ":memory:", founder, .from(@splat(1)));
+    const creator: [32]u8 = (try std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(1))).public_key.toBytes();
+    var r = try Replica.open(testing.allocator, testing.io, ":memory:", creator, .from(@splat(1)));
     defer r.close();
     const id = try library.addSource(&r, 1, "http://nas/tv/", .{});
     const held_field = try std.fmt.allocPrint(arena, "held:{s}", .{&id});

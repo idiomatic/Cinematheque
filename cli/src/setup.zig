@@ -124,7 +124,7 @@ fn refresh(w: *Web, io: Io, gpa: std.mem.Allocator, fully: bool) !void {
 
 /// Where this device stands, for the page to show setup, settings, or why
 /// this browser can do neither: `admin` (whether this browser acts as this
-/// device's person), `library`, `founder` (this person founded it), the
+/// device's person), `library`, the
 /// person's and the device's names, and the code shown while joining.
 pub fn status(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, request: *http.Server.Request, admin: bool) !void {
     if (!admin) return web.sendJson(arena, request, .{ .admin = false });
@@ -136,8 +136,8 @@ pub fn status(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator,
     const device = try w.store.device();
     var person_name: ?[]const u8 = null;
     var device_name: ?[]const u8 = null;
-    if (w.founder) |founder| {
-        var r = try Replica.open(gpa, io, w.path, founder, w.store.identity);
+    if (w.creator) |creator| {
+        var r = try Replica.open(gpa, io, w.path, creator, w.store.identity);
         defer r.close();
         const named = try lib.names(&r, arena);
         person_name = lib.nameOf(named, &std.fmt.bytesToHex(person, .lower));
@@ -145,8 +145,7 @@ pub fn status(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator,
     }
     return web.sendJson(arena, request, .{
         .admin = true,
-        .library = w.founder != null,
-        .founder = if (w.founder) |f| std.mem.eql(u8, &f, &person) else false,
+        .library = w.creator != null,
         .person = person_name,
         .device = device_name,
         .host = w.host_name,
@@ -166,8 +165,8 @@ fn finishJoining(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocat
             w.seen.lockUncancelable(io);
             defer w.seen.unlock(io);
             if (!secrets.joining()) try w.store.pair(arena, &std.fmt.bytesToHex(secrets.person, .lower));
-            try w.store.setFounder(arena, secrets.founder);
-            w.founder = secrets.founder;
+            try w.store.setCreator(arena, secrets.creator);
+            w.creator = secrets.creator;
         }
         try becameMember(w, io, gpa, arena);
     } else if (closed) {
@@ -182,7 +181,7 @@ fn finishJoining(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocat
 /// joined arrives. With `state` held.
 fn becameMember(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator) !void {
     {
-        var r = try Replica.open(gpa, io, w.path, w.founder.?, w.store.identity);
+        var r = try Replica.open(gpa, io, w.path, w.creator.?, w.store.identity);
         defer r.close();
         const device = try w.store.device();
         const named = try lib.names(&r, arena);
@@ -215,7 +214,7 @@ fn becameMember(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocato
 /// them in. With `state` held.
 fn configureDownloads(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, dir: []const u8) !void {
     _ = w.host orelse return;
-    var r = try Replica.open(gpa, io, w.path, w.founder.?, w.store.identity);
+    var r = try Replica.open(gpa, io, w.path, w.creator.?, w.store.identity);
     defer r.close();
     if (try core.download.settings(&r, arena)) |s| {
         if (!std.mem.eql(u8, s.dir, dir)) return error.DownloadsElsewhere;
@@ -231,8 +230,8 @@ fn configureDownloads(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Al
 /// With `state` held.
 pub fn advertise(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator) !void {
     const host = w.host orelse return;
-    const txt = if (w.founder) |founder| blk: {
-        var r = try Replica.open(gpa, io, w.path, founder, w.store.identity);
+    const txt = if (w.creator) |creator| blk: {
+        var r = try Replica.open(gpa, io, w.path, creator, w.store.identity);
         defer r.close();
         break :blk try core.sync.advertisement(arena, &r, try w.store.person(), try w.store.device());
     } else if (w.offering)
@@ -253,13 +252,13 @@ pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
     if (std.mem.eql(u8, name, "setup-create")) {
         try w.state.lock(io);
         defer w.state.unlock(io);
-        if (w.founder != null) return error.LibraryExists;
+        if (w.creator != null) return error.LibraryExists;
         const person = try w.store.person();
         {
             w.seen.lockUncancelable(io);
             defer w.seen.unlock(io);
-            try w.store.setFounder(arena, person);
-            w.founder = person;
+            try w.store.setCreator(arena, person);
+            w.creator = person;
         }
         w.offering = false;
         try becameMember(w, io, gpa, arena);
@@ -269,7 +268,7 @@ pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
         // Offering to be added, as `person pair` does, on this port.
         try w.state.lock(io);
         defer w.state.unlock(io);
-        if (w.founder != null) return error.LibraryExists;
+        if (w.creator != null) return error.LibraryExists;
         if (!w.offering) {
             w.offer = .{ .code = core.pair.newCode(io), .person = try w.store.person(), .device = try w.store.device() };
             w.offering = true;
@@ -292,7 +291,7 @@ pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
         w.refreshing.asked.store(if (name.len == "refresh".len) .refresh else .fully, .release);
         return web.sendJson(arena, request, true);
     }
-    if (std.mem.eql(u8, name, "leave")) return leave(w, io, gpa, arena, request, body);
+    if (std.mem.eql(u8, name, "leave")) return leave(w, io, gpa, arena, request);
 
     // The rest change the library, as this device; names are advertised,
     // so a change of one is advertised afresh, once the writer's let go
@@ -391,11 +390,11 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
     const me = try personOf((try w.snapshot(io, arena)).identity);
     const this = r.device();
 
-    const Member = struct { key: []const u8, name: ?[]const u8, founder: bool, you: bool };
+    const Member = struct { key: []const u8, name: ?[]const u8, you: bool };
     var members: std.ArrayList(Member) = .empty;
     for (try r.members(arena)) |m| {
         const k = try arena.dupe(u8, &hex(m));
-        try members.append(arena, .{ .key = k, .name = lib.nameOf(named, k), .founder = std.mem.eql(u8, &m, &r.founder), .you = std.mem.eql(u8, &m, &me) });
+        try members.append(arena, .{ .key = k, .name = lib.nameOf(named, k), .you = std.mem.eql(u8, &m, &me) });
     }
 
     const Device = struct { key: []const u8, name: ?[]const u8, this: bool, seen: ?u64 = null };
@@ -488,7 +487,7 @@ fn pairDevice(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator,
     const now_is = try w.snapshot(io, arena);
     var client: http.Client = .{ .allocator = gpa, .io = io };
     defer client.deinit();
-    const joined = try core.pair.send(io, arena, &client, p.url, kind, p.code, .{ .person = now_is.identity.person, .founder = now_is.founder });
+    const joined = try core.pair.send(io, arena, &client, p.url, kind, p.code, .{ .person = now_is.identity.person, .creator = now_is.creator });
     try w.writer.lock(io);
     defer w.writer.unlock(io);
     var r = try web.open(w, io, gpa);
@@ -504,13 +503,10 @@ fn pairDevice(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator,
     return web.sendJson(arena, request, true);
 }
 
-/// Leaves the library, as the apps do: this device removed (handing the
-/// library over to `successor` first, if this person founded it and has no
-/// other device), the removal synced to another device, and the library
+/// Leaves the library, as the apps do: this device removed, the removal synced to another device, and the library
 /// and this device's identity forgotten, so it can be set up afresh. With
 /// no one else in the library, it only forgets.
-fn leave(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, request: *http.Server.Request, body: []const u8) !void {
-    const p = try std.json.parseFromSliceLeaky(struct { successor: ?[]const u8 = null }, arena, body, .{});
+fn leave(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, request: *http.Server.Request) !void {
     if (w.refreshing.phase.load(.acquire) != .idle) return error.Busy;
     alone: {
         try w.writer.lock(io);
@@ -524,10 +520,7 @@ fn leave(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
         }
         const members = try r.members(arena);
         if (members.len == 1 and others == 0) break :alone;
-        const founding = std.mem.eql(u8, &me, &r.founder) and others == 0 and members.len > 1;
-        const successor: ?[32]u8 = if (p.successor) |s| try core.store.parseKey(s) else null;
-        if (founding and successor == null) return error.NeedsSuccessor;
-        try r.removeSelf(web.now(io), if (founding) successor else null);
+        try r.removeSelf(web.now(io));
         // Another device takes the removal, so it stands.
         const found = try core.sync.everyDevice(io, arena, &r, (try w.snapshot(io, arena)).own);
         var client: http.Client = .{ .allocator = gpa, .io = io };
@@ -554,7 +547,7 @@ fn forgetLibrary(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocat
         defer w.seen.unlock(io);
         try w.store.forget(arena);
         w.store = try core.store.Store.open(io, gpa, w.long, w.store.dir);
-        w.founder = null;
+        w.creator = null;
     }
     w.offering = false;
     w.downloads = false;
