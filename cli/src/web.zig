@@ -134,7 +134,7 @@ pub const Web = struct {
                 // Told, under a member's signature, that this device was
                 // removed.
                 return error.Removed;
-            } else if (!Asleep.unreachable_(err)) {
+            } else if (!core.client.unreachable_(err)) {
                 std.log.warn("syncing with {s}: {t}", .{ s.url, err });
             } else if (w.asleep.fell(io, gpa, s.url)) {
                 std.log.info("{s} can't be reached ({t}), as a phone or tablet whose app is napping can't; it's synced with when it answers again", .{ s.url, err });
@@ -265,14 +265,6 @@ const guarded = [_]http.Header{
 const Asleep = struct {
     urls: std.StringHashMapUnmanaged(void) = .empty,
     lock: Io.Mutex = .init,
-
-    /// Whether `err` says only that the device couldn't be reached.
-    fn unreachable_(err: anyerror) bool {
-        return switch (err) {
-            error.ConnectionRefused, error.ConnectionTimedOut, error.Timeout, error.HostUnreachable, error.NetworkUnreachable, error.UnknownHostName, error.ConnectionResetByPeer => true,
-            else => false,
-        };
-    }
 
     /// Notes `url` unreachable; whether it wasn't already.
     fn fell(a: *Asleep, io: Io, gpa: std.mem.Allocator, url: []const u8) bool {
@@ -544,11 +536,9 @@ fn cover(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, requ
 
 /// A cover's bytes: its range of the file at `u`.
 fn fetchCover(w: *Web, arena: std.mem.Allocator, client: *http.Client, u: []const u8, offset: u64, length: u64) ![]const u8 {
-    const last = std.math.add(u64, offset, length - 1) catch return error.BadRequest;
-    const range = try std.fmt.allocPrint(arena, "bytes={d}-{d}", .{ offset, last });
-    // No redirect: it could lead anywhere the server likes.
-    var req = client.request(.GET, try std.Uri.parse(u), .{ .redirect_behavior = .not_allowed, .extra_headers = &.{.{ .name = "range", .value = range }} }) catch |err| {
-        if (!w.unreachable_said.swap(true, .acq_rel)) {
+    _ = std.math.add(u64, offset, length - 1) catch return error.BadRequest;
+    const got = core.client.getRange(arena, client, try std.Uri.parse(u), offset, length, .{ .partial = max_cover_bytes + 1, .whole = max_cover_bytes + 1 }) catch |err| {
+        if (core.client.unreachable_(err) and !w.unreachable_said.swap(true, .acq_rel)) {
             const host = if (std.Uri.parse(u)) |uri| (if (uri.host) |h| h.percent_encoded else "?") else |_| "?";
             std.log.warn("covers from {s} can't be had: {t}{s}", .{ host, err, if (err == error.HostUnreachable and @import("builtin").os.tag == .macos)
                 " (on macOS, start it from an app allowed Local Network, in System Settings › Privacy & Security, such as Terminal; some apps' built-in terminals aren't, even when the app is)"
@@ -557,15 +547,10 @@ fn fetchCover(w: *Web, arena: std.mem.Allocator, client: *http.Client, u: []cons
         }
         return err;
     };
-    defer req.deinit();
-    try req.sendBodiless();
-    var redirect: [8 * 1024]u8 = undefined;
-    var response = try req.receiveHead(&redirect);
-    if (response.head.status != .partial_content and response.head.status != .ok) return error.NotFound;
-    var transfer: [64 * 1024]u8 = undefined;
-    const bytes = try response.reader(&transfer).allocRemaining(arena, .limited(max_cover_bytes + 1));
+    if (got.status != .partial_content and got.status != .ok) return error.NotFound;
+    const bytes = got.body;
     // A whole file, from a server that ignored the range: its cover's part.
-    if (response.head.status == .ok and bytes.len > length) {
+    if (got.status == .ok and bytes.len > length) {
         if (offset > bytes.len or length > bytes.len - offset) return error.NotFound;
         return bytes[offset..][0..length];
     }

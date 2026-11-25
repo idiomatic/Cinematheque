@@ -23,6 +23,7 @@ pub const lists = @import("lists.zig");
 pub const version = @import("version.zig");
 pub const json = @import("json.zig");
 pub const deadline = @import("deadline.zig");
+pub const client = @import("client.zig");
 pub const volumes = @import("volumes.zig");
 
 test {
@@ -50,6 +51,7 @@ test {
     _ = views;
     _ = json;
     _ = @import("deadline.zig");
+    _ = @import("client.zig");
     _ = @import("version.zig");
     _ = @import("model.zig");
     _ = @import("order.zig");

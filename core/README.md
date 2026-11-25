@@ -21,6 +21,7 @@ It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` als
 | [sync](src/sync.zig) | Sync over HTTP, gzipped: requests signed by the device and certified by its person, served only to members, without other people's private streams; syncing with each device in turn, and leaving |
 | [seal](src/seal.zig) | Sealing a sync's bodies so only the two devices read them: a key pair for the request alone, ChaCha20-Poly1305 in numbered chunks |
 | [deadline](src/deadline.zig) | Deadlines for what waits on another host, as `Io`'s reads have none |
+| [client](src/client.zig) | Requests to other hosts, following no redirect: a byte range, a body sent, and which failures say only that a host is out of reach |
 | [crawl](src/crawl.zig) | Listings, detected per source (`INDEX`, Caddy's or nginx's JSON, HTML), and re-crawls that reuse unchanged directories |
 | [naming](src/naming.zig) | The filename parser |
 | [mp4](src/mp4.zig) | An MP4's cover (as a byte range) and metadata, read by range requests that walk atom headers |

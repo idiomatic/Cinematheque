@@ -240,7 +240,7 @@ pub fn fetch(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, client: *
     const part = try std.fmt.allocPrint(arena, "{s}.part", .{file.path});
     var last: anyerror = error.NoCopies;
     for (try race.order(io, gpa, arena, memory, file.urls, now_ms)) |u| {
-        fetchFrom(io, client, dir, part, u, file.size, progress) catch |err| {
+        fetchFrom(io, arena, client, dir, part, u, file.size, progress) catch |err| {
             if (err == error.Canceled) return err;
             if (err == error.Unwanted) {
                 dir.deleteFile(io, part) catch {};
@@ -258,10 +258,6 @@ pub fn fetch(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, client: *
 }
 
 const step_ms = 60 * 1000;
-
-fn receiveHead(request: *std.http.Client.Request) !std.http.Client.Response {
-    return request.receiveHead(&.{});
-}
 
 /// A body passed on to `out` as it comes (never past `size`, if known,
 /// whatever the server sends), asking `progress` as it goes, and counting
@@ -295,7 +291,7 @@ const Receiving = struct {
 };
 
 /// Fetches `url` into `part`, resuming where it leaves off.
-fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, url: []const u8, size: u64, progress: ?Progress) !void {
+fn fetchFrom(io: Io, arena: std.mem.Allocator, client: *std.http.Client, dir: Io.Dir, part: []const u8, url: []const u8, size: u64, progress: ?Progress) !void {
     const out = try dir.createFile(io, part, .{ .truncate = false });
     defer out.close(io);
     var have = try out.length(io);
@@ -306,39 +302,27 @@ fn fetchFrom(io: Io, client: *std.http.Client, dir: Io.Dir, part: []const u8, ur
     try Progress.ask(progress, have, size);
     if (have < size) {
         var range_buf: [64]u8 = undefined;
-        const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-", .{have});
-        var request = try client.request(.GET, try std.Uri.parse(url), .{
-            // No redirect: it could lead anywhere the server likes.
-            .redirect_behavior = .not_allowed,
-            // Bytes as stored, so lengths and ranges are the file's.
-            .headers = .{ .accept_encoding = .{ .override = "identity" } },
-            .extra_headers = if (have > 0) &.{.{ .name = "range", .value = range }} else &.{},
-        });
-        defer request.deinit();
-        try request.sendBodiless();
         // A minute to answer, and a minute for each mebibyte after (at
         // least 17 KB/s): so long as bytes come, a large file goes on, but
         // a server sending one at a time doesn't hold reconciling.
-        var response = try deadline.within(io, step_ms, receiveHead, .{&request});
-        switch (response.head.status) {
-            // Only from where the file stands, else it would be corrupted.
-            .partial_content => if ((contentRangeStart(response.head) orelse return error.BadRange) != have) return error.BadRange,
-            // Whole: from the beginning, then.
-            .ok => if (have > 0) {
-                try out.setLength(io, 0);
-                have = 0;
-            },
-            .not_found => return error.NotFound,
-            else => return error.BadStatus,
+        var relay: Relay = .{};
+        try relay.open(io, arena, client, url, if (have > 0) try std.fmt.bufPrint(&range_buf, "bytes={d}-", .{have}) else null);
+        defer relay.deinit();
+        // Only from where the file stands, else it would be corrupted;
+        // whole, from the beginning.
+        if (relay.status == .partial_content) {
+            if (rangeStart(relay.content_range orelse return error.BadRange) != have) return error.BadRange;
+        } else if (have > 0) {
+            try out.setLength(io, 0);
+            have = 0;
         }
-        var transfer: [64 * 1024]u8 = undefined;
-        const body = response.reader(&transfer);
+        const body = relay.response.reader(&relay.transfer);
         var write_buf: [64 * 1024]u8 = undefined;
         var writer = out.writer(io, &write_buf);
         try writer.seekTo(have);
         var receiving: Receiving = .{ .body = body, .out = &writer.interface, .done = have, .size = size, .progress = progress };
         deadline.paced(io, step_ms, &receiving.beat, Receiving.run, .{&receiving}) catch |err| switch (err) {
-            error.ReadFailed => return response.bodyErr() orelse error.ReadFailed,
+            error.ReadFailed => return relay.response.bodyErr() orelse error.ReadFailed,
             error.WriteFailed => return writer.err orelse error.WriteFailed,
             else => |e| return e,
         };
@@ -367,12 +351,13 @@ pub const Relay = struct {
         relay.request = try client.request(.GET, try std.Uri.parse(url), .{
             // No redirect: it could lead anywhere the server likes.
             .redirect_behavior = .not_allowed,
+            // Bytes as stored, so lengths and ranges are the file's.
             .headers = .{ .accept_encoding = .{ .override = "identity" } },
             .extra_headers = if (range) |r| &.{.{ .name = "range", .value = r }} else &.{},
         });
         errdefer relay.request.deinit();
         try relay.request.sendBodiless();
-        relay.response = try deadline.within(io, step_ms, receiveHead, .{&relay.request});
+        relay.response = try deadline.within(io, step_ms, @import("client.zig").receiveHead, .{&relay.request});
         relay.status = relay.response.head.status;
         switch (relay.status) {
             .ok, .partial_content => {},
@@ -405,14 +390,6 @@ pub const Relay = struct {
 
 /// Where a `206` response says its bytes start (`Content-Range: bytes
 /// 100-199/300`).
-fn contentRangeStart(head: std.http.Client.Response.Head) ?u64 {
-    var headers = head.iterateHeaders();
-    while (headers.next()) |h| {
-        if (std.ascii.eqlIgnoreCase(h.name, "content-range")) return rangeStart(h.value);
-    }
-    return null;
-}
-
 fn rangeStart(value: []const u8) ?u64 {
     const rest = std.mem.trimStart(u8, value, " ");
     if (!std.mem.startsWith(u8, rest, "bytes ")) return null;
@@ -1171,10 +1148,7 @@ pub fn reconcile(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, clien
 /// Whether a copy's failing says only that it's away for now: not found
 /// (as a drive unplugged lists nothing), or its server out of reach.
 fn away(err: anyerror) bool {
-    return switch (err) {
-        error.NotFound, error.ConnectionRefused, error.ConnectionResetByPeer, error.ConnectionTimedOut, error.NetworkUnreachable, error.HostUnreachable, error.TemporaryNameServerFailure, error.UnknownHostName, error.NameServerFailure, error.Timeout => true,
-        else => false,
-    };
+    return err == error.NotFound or @import("client.zig").unreachable_(err);
 }
 
 /// Whether an item (its full key) is still wanted: by hand, or as one of

@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const deadline = @import("deadline.zig");
+const client_ = @import("client.zig");
 const http = std.http;
 
 pub const Image = enum { jpeg, png };
@@ -142,30 +143,11 @@ const File = struct {
     }
 
     fn getNow(f: *File, offset: u64, length: u64) ![]const u8 {
-        var range_buf: [64]u8 = undefined;
-        if (length == 0) return error.Malformed;
-        const last = std.math.add(u64, offset, length - 1) catch return error.Malformed;
-        const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-{d}", .{ offset, last });
-        var request = try f.client.request(.GET, f.uri, .{
-            // No redirect: it could lead anywhere the server likes.
-            .redirect_behavior = .not_allowed,
-            .extra_headers = &.{.{ .name = "range", .value = range }},
-        });
-        defer request.deinit();
-        try request.sendBodiless();
-        var response = try request.receiveHead(&.{});
-        if (response.head.status != .partial_content) return statusError(response.head.status);
-        if (f.size == null) {
-            var headers = response.head.iterateHeaders();
-            while (headers.next()) |h| if (std.ascii.eqlIgnoreCase(h.name, "content-range")) {
-                const slash = std.mem.lastIndexOfScalar(u8, h.value, '/') orelse continue;
-                f.size = std.fmt.parseInt(u64, h.value[slash + 1 ..], 10) catch null;
-            };
-        }
-        var transfer: [8192]u8 = undefined;
-        const body = try response.reader(&transfer).allocRemaining(f.arena, .limited(max_udta + 1024));
-        if (offset == 0 and f.head.len == 0) f.head = body;
-        return body;
+        const got = try client_.getRange(f.arena, f.client, f.uri, offset, length, .{ .partial = max_udta + 1024, .whole = 0 });
+        if (got.status != .partial_content) return statusError(got.status);
+        if (f.size == null) f.size = got.size;
+        if (offset == 0 and f.head.len == 0) f.head = got.body;
+        return got.body;
     }
 };
 

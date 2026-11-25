@@ -26,6 +26,7 @@ const crawl = @import("crawl.zig");
 const mp4 = @import("mp4.zig");
 const url = @import("url.zig");
 const jpeg = @import("jpeg.zig");
+const client_ = @import("client.zig");
 const testkit = @import("testkit.zig");
 
 pub const Cover = struct {
@@ -414,28 +415,17 @@ fn fetch(arena: std.mem.Allocator, client: *std.http.Client, target: []const u8,
 }
 
 fn fetchNow(arena: std.mem.Allocator, client: *std.http.Client, target: []const u8, offset: u64, length: u64) ![]const u8 {
-    if (length == 0 or length > 16 << 20) return error.TooLarge;
-    var range_buf: [64]u8 = undefined;
-    const last = std.math.add(u64, offset, length - 1) catch return error.TooLarge;
-    const range = try std.fmt.bufPrint(&range_buf, "bytes={d}-{d}", .{ offset, last });
-    var request = try client.request(.GET, try std.Uri.parse(target), .{
-        // No redirect: it could lead anywhere the server likes.
-        .redirect_behavior = .not_allowed,
-        .extra_headers = &.{.{ .name = "range", .value = range }},
-    });
-    defer request.deinit();
-    try request.sendBodiless();
-    var response = try request.receiveHead(&.{});
+    if (length > 16 << 20) return error.TooLarge;
     // Whole, only if the file is no more than what was asked for.
-    if (response.head.status != .partial_content and !(response.head.status == .ok and offset == 0)) return mp4.statusError(response.head.status);
-    var transfer: [8192]u8 = undefined;
-    return response.reader(&transfer).allocRemaining(arena, .limited(length));
+    const got = try client_.getRange(arena, client, try std.Uri.parse(target), offset, length, .{ .partial = length, .whole = if (offset == 0) length else 0 });
+    if (got.status != .partial_content and !(got.status == .ok and offset == 0)) return mp4.statusError(got.status);
+    return got.body;
 }
 
 /// Whether an error is the network's, worth trying again later.
 fn unreachable_(err: anyerror) bool {
-    return switch (err) {
-        error.ConnectionRefused, error.ConnectionResetByPeer, error.ConnectionTimedOut, error.NetworkUnreachable, error.HostUnreachable, error.TemporaryNameServerFailure, error.UnknownHostName, error.NameServerFailure, error.EndOfStream, error.ReadFailed, error.WriteFailed, error.Timeout, error.HttpConnectionClosing, error.ServerUnavailable => true,
+    return client_.unreachable_(err) or switch (err) {
+        error.EndOfStream, error.ReadFailed, error.WriteFailed, error.HttpConnectionClosing, error.ServerUnavailable => true,
         else => false,
     };
 }

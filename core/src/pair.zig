@@ -365,11 +365,7 @@ pub fn send(io: Io, arena: std.mem.Allocator, client: *http.Client, url: []const
 
     var request = try client.request(.POST, uri, .{ .redirect_behavior = .not_allowed });
     defer request.deinit();
-    request.transfer_encoding = .{ .content_length = body.len };
-    var sending = try request.sendBodyUnflushed(&.{});
-    try sending.writer.writeAll(&body);
-    try sending.end();
-    try request.connection.?.flush();
+    try @import("client.zig").send(&request, &body);
     var response = try request.receiveHead(&.{});
     switch (response.head.status) {
         .ok => {},

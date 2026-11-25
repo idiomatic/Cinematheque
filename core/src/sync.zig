@@ -21,6 +21,7 @@
 
 const std = @import("std");
 const deadline = @import("deadline.zig");
+const client_ = @import("client.zig");
 const Io = std.Io;
 const http = std.http;
 const flate = std.compress.flate;
@@ -606,11 +607,7 @@ const answer_ms = 2 * 60 * 1000;
 
 /// A response's head, within `answer_ms`.
 fn responseHead(request: *http.Client.Request) !http.Client.Response {
-    return deadline.within(request.client.io, answer_ms, receiveHead, .{request});
-}
-
-fn receiveHead(request: *http.Client.Request) !http.Client.Response {
-    return request.receiveHead(&.{});
+    return deadline.within(request.client.io, answer_ms, client_.receiveHead, .{request});
 }
 
 /// Which device answers at `url`: its device key, for requests to be for
@@ -709,11 +706,7 @@ fn pull(arena: std.mem.Allocator, client: *http.Client, dst: *Replica, url: []co
     const body, const keys = try sealed(arena, client.io, dst.library, recipient, head, null);
     var request = try client.request(.POST, try std.Uri.parse(url), .{ .redirect_behavior = .not_allowed });
     defer request.deinit();
-    request.transfer_encoding = .{ .content_length = body.len };
-    var sending = try request.sendBodyUnflushed(&.{});
-    try sending.writer.writeAll(body);
-    try sending.end();
-    try request.connection.?.flush();
+    try client_.send(&request, body);
     var response = try responseHead(&request);
     const other = Named.of(response.head);
     switch (response.head.status) {
@@ -756,11 +749,7 @@ fn push(arena: std.mem.Allocator, client: *http.Client, src: *Replica, url: []co
         .headers = .{ .content_type = .{ .override = push_type } },
     });
     defer request.deinit();
-    request.transfer_encoding = .{ .content_length = body.len };
-    var sending = try request.sendBodyUnflushed(&.{});
-    try sending.writer.writeAll(body);
-    try sending.end();
-    try request.connection.?.flush();
+    try client_.send(&request, body);
     var response = try responseHead(&request);
     return switch (response.head.status) {
         .no_content => sent,
