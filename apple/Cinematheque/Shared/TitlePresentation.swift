@@ -216,6 +216,45 @@ struct WatchedToggle: View {
     }
 }
 
+/// Start Over (partway) before Play or Resume, as a player's timeline
+/// starts at its leading edge: on the Mac and iPhone, Start Over by its
+/// symbol (named as help), Play filling the row; `playFocus`, if given,
+/// follows Play's focus.
+struct PlayButtons: View {
+    let detail: TitleDetail
+    let season: Int?
+    let quality: String?
+    var playFocus: FocusState<Bool>.Binding? = nil
+    let play: (PlayRequest) -> Void
+
+    var body: some View {
+        let next = Playback.nextItem(detail, season: season)
+        if next?.inProgress == true {
+            Button("Start Over", systemImage: Playback.startOverSymbol) {
+                if let request = Playback.next(in: detail, season: season, quality: quality)?.fromBeginning { play(request) }
+            }
+            #if !os(tvOS)
+            .labelStyle(.iconOnly)
+            .buttonStyle(.bordered)
+            .help("Start Over")
+            #endif
+        }
+        let button = Button {
+            if let request = Playback.next(in: detail, season: season, quality: quality) { play(request) }
+        } label: {
+            Label(Playback.playLabel(next, in: detail, quality: quality), systemImage: "play.fill")
+                #if !os(tvOS)
+                .frame(maxWidth: .infinity)
+                #endif
+        }
+        #if !os(tvOS)
+        .buttonStyle(.borderedProminent)
+        #endif
+        .disabled(next == nil)
+        if let playFocus { button.focused(playFocus) } else { button }
+    }
+}
+
 /// An item's row on the Apple TV and the iPhone, where the whole row plays
 /// it, as the Mac's inspector and the web client lay theirs out: its name,
 /// the watched mark and its runtime at the line's end, and partway, a thin

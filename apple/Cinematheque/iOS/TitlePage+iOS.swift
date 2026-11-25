@@ -31,24 +31,9 @@ struct TitlePage: View {
                 }
                 if let detail {
                     let items = Playback.items(detail, season: shown.season)
-                    let next = Playback.nextItem(detail, season: shown.season)
                     Text(detail.facts(season: shown.season)).font(.subheadline).foregroundStyle(.secondary)
-                    HStack {
-                        Button {
-                            playing = Playback.next(in: detail, season: shown.season, quality: quality)
-                        } label: {
-                            Label(Playback.playLabel(next, in: detail, quality: quality), systemImage: "play.fill").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        if next?.inProgress == true {
-                            Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                playing = Playback.next(in: detail, season: shown.season, quality: quality)?.fromBeginning
-                            }
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                    .controlSize(.large)
+                    HStack { PlayButtons(detail: detail, season: shown.season, quality: quality) { playing = $0 } }
+                        .controlSize(.large)
                     HStack(spacing: 20) {
                         QualityPicker(detail: detail, items: items, chosen: $quality)
                         Spacer()

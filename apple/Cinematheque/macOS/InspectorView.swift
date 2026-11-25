@@ -25,8 +25,7 @@ struct InspectorView: View {
                 if let detail {
                     controls(detail)
                     metadata(detail)
-                    if tile.season != nil { episodes(detail) }
-                    if tile.season == nil, detail.items.count > 1 { versions(detail) }
+                    if tile.season != nil || detail.items.count > 1 { itemList(detail) }
                 }
             }
             .padding(16)
@@ -84,42 +83,15 @@ struct InspectorView: View {
     @ViewBuilder
     private func controls(_ detail: TitleDetail) -> some View {
         let items = Playback.items(detail, season: tile.season)
-        let next = Playback.nextItem(detail, season: tile.season)
         VStack(alignment: .leading, spacing: 10) {
             // The quality first, so choosing it changes only what's below.
             qualityPicker(items)
-            playRow(detail, next: next)
+            HStack(spacing: 12) { PlayButtons(detail: detail, season: tile.season, quality: quality) { play($0) } }
+                .controlSize(.large)
             if tile.season == nil, let item = items.first, item.inProgress, item.duration > 0 {
                 progress(item, key: "\(detail.key)/\(item.key)")
             }
             DownloadControls(detail: detail, items: items, season: tile.season, quality: quality)
-        }
-    }
-
-    /// Play filling its row, Start Over (its symbol, named as help) before
-    /// it, as a player's timeline starts at its leading edge.
-    private func playRow(_ detail: TitleDetail, next: TitleDetail.Item?) -> some View {
-        HStack(spacing: 12) {
-            if next?.inProgress == true {
-                Button {
-                    if let request = Playback.next(in: detail, season: tile.season, quality: quality)?.fromBeginning { play(request) }
-                } label: {
-                    Label("Start Over", systemImage: Playback.startOverSymbol)
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .help("Start Over")
-            }
-            Button {
-                if let request = Playback.next(in: detail, season: tile.season, quality: quality) { play(request) }
-            } label: {
-                Label(Playback.playLabel(next, in: detail, quality: quality), systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(next == nil)
         }
     }
 
@@ -144,28 +116,17 @@ struct InspectorView: View {
         }
     }
 
-    private func episodes(_ detail: TitleDetail) -> some View {
+    /// A season's episodes, each playing on through the season, or a
+    /// movie's versions (e.g., a director's cut), each alone.
+    private func itemList(_ detail: TitleDetail) -> some View {
         let items = Playback.items(detail, season: tile.season)
+        let episodes = tile.season != nil
         return VStack(alignment: .leading, spacing: 0) {
-            Text("Episodes").font(.headline)
+            Text(episodes ? "Episodes" : "Versions").font(.headline)
                 .padding(.bottom, 6)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 ItemRow(item: item, detail: detail, quality: quality, widest: items.widestRuntime) {
-                    if let request = Playback.request(detail, items: items, from: index, quality: quality) { play(request) }
-                }
-                Divider()
-            }
-        }
-    }
-
-    /// A movie's versions (e.g., a director's cut), each playable.
-    private func versions(_ detail: TitleDetail) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Versions").font(.headline)
-                .padding(.bottom, 6)
-            ForEach(detail.items) { item in
-                ItemRow(item: item, detail: detail, quality: quality, widest: detail.items.widestRuntime) {
-                    if let request = Playback.request(detail, items: [item], from: 0, quality: quality) { play(request) }
+                    if let request = Playback.request(detail, items: episodes ? items : [item], from: episodes ? index : 0, quality: quality) { play(request) }
                 }
                 Divider()
             }
@@ -423,9 +384,6 @@ private struct DownloadControls: View {
         }
     }
 
-    /// A size, as Finder gives it ("4.2 GB").
-    private static func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
-
     /// Whether what isn't here yet fits in the space available for
     /// downloads.
     private func fits(_ size: Library.DownloadSize?) -> Bool {
@@ -437,7 +395,7 @@ private struct DownloadControls: View {
     /// else nothing, as the control says the rest.
     private func fitHelp(_ size: Library.DownloadSize?) -> String {
         guard !fits(size), let space = library.availableForDownloads else { return "" }
-        return "More than the \(Self.bytes(space)) available for downloads"
+        return "More than the \(bytes(space)) available for downloads"
     }
 
     /// A choice in the pop-up, with its size (all its files'), a warning
@@ -445,7 +403,7 @@ private struct DownloadControls: View {
     /// menus have it.
     private func choice(_ choice: String) -> some View {
         let size = sizes[choice]
-        let title = size.map { "\(Self.title(choice)) — \(Self.bytes($0.size))" } ?? Self.title(choice)
+        let title = size.map { "\(Self.title(choice)) — \(bytes($0.size))" } ?? Self.title(choice)
         return Group {
             if fits(size) { Text(title) } else { Label(title, systemImage: "exclamationmark.triangle").labelStyle(.titleAndIcon) }
         }
@@ -473,16 +431,16 @@ private struct DownloadControls: View {
             // The quality it comes in, dimmed, if not the one picked, as the
             // rows say it.
             let standIn = target.items.first.flatMap { Playback.standIn($0, for: quality, in: detail) }.map { " (\($0.short))" } ?? ""
-            let bytes = size.map { " \(Self.bytes($0.size))" } ?? ""
+            let sized = size.map { " \(bytes($0.size))" } ?? ""
             // Its words where they fit, else its symbol and size, the words
             // as help: a button's title doesn't shrink, so a long one set
             // the inspector's least width.
             ViewThatFits(in: .horizontal) {
                 downloadButton(key: key, items: target.items, held: held, coming: coming, size: size, help: fitHelp(size)) {
-                    Text(what) + Text(standIn).foregroundStyle(.secondary) + Text(bytes)
+                    Text(what) + Text(standIn).foregroundStyle(.secondary) + Text(sized)
                 }
-                downloadButton(key: key, items: target.items, held: held, coming: coming, size: size, help: [what + standIn + bytes, fitHelp(size)].filter { !$0.isEmpty }.joined(separator: ": ")) {
-                    Text(bytes.trimmingCharacters(in: .whitespaces))
+                downloadButton(key: key, items: target.items, held: held, coming: coming, size: size, help: [what + standIn + sized, fitHelp(size)].filter { !$0.isEmpty }.joined(separator: ": ")) {
+                    Text(sized.trimmingCharacters(in: .whitespaces))
                 }
             }
             DownloadGauge(value: library.downloadProgress(keys, of: size))
@@ -546,7 +504,7 @@ private struct DownloadControls: View {
                 choice("all")
                 if let space = library.availableForDownloads {
                     Divider()
-                    Text("Available — \(Self.bytes(space))")
+                    Text("Available — \(bytes(space))")
                         .tag(Self.available)
                         .selectionDisabled()
                 }
@@ -702,7 +660,7 @@ struct DownloadSection: View {
                         library.removeDownload(key)
                     }
                 } else {
-                    let title = "\(short) — \(Self.bytes(size))" + (away.map { ", when \($0) is back" } ?? "")
+                    let title = "\(short) — \(bytes(size))" + (away.map { ", when \($0) is back" } ?? "")
                     Button(title, systemImage: away != nil ? "clock" : fits ? "arrow.down.circle" : "exclamationmark.triangle") {
                         library.download(key, quality: label)
                     }
@@ -710,14 +668,15 @@ struct DownloadSection: View {
             }
             if let space {
                 // Said, not offered: a menu shows text as a dimmed item.
-                Text("Available — \(Self.bytes(space))")
+                Text("Available — \(bytes(space))")
             }
         }
         .labelStyle(.titleAndIcon)
     }
-
-    private static func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
 }
+
+/// A size, as Finder gives it ("4.2 GB").
+private func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
 
 /// Where a title's files are: its download, then each quality's sources,
 /// a folder on this Mac (shown in Finder) or a server (its folder's

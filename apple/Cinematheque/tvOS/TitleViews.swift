@@ -18,10 +18,12 @@ struct TitleView: View {
     @State private var playing: PlayRequest?
     /// The quality chosen in its picker, if one was.
     @State private var quality: String?
-    @FocusState private var focus: Focus?
+    @FocusState private var playFocused: Bool
+    /// A season's neighbor focused, if one is.
+    @FocusState private var focus: Neighboring?
 
-    private enum Focus: Hashable {
-        case play, back, forward
+    private enum Neighboring: Hashable {
+        case back, forward
     }
 
     /// Playing what Play plays at once, once (a Top Shelf item's Play).
@@ -78,15 +80,7 @@ struct TitleView: View {
                         let items = Playback.items(detail, season: shown.season)
                         Text(detail.facts(season: shown.season)).foregroundStyle(.secondary)
                         HStack(spacing: 30) {
-                            if Playback.nextItem(detail, season: shown.season)?.inProgress == true {
-                                Button("Start Over", systemImage: Playback.startOverSymbol) {
-                                    playing = Playback.next(in: detail, season: shown.season, quality: quality)?.fromBeginning
-                                }
-                            }
-                            Button(Playback.playLabel(Playback.nextItem(detail, season: shown.season), in: detail, quality: quality), systemImage: "play.fill") {
-                                playing = Playback.next(in: detail, season: shown.season, quality: quality)
-                            }
-                            .focused($focus, equals: .play)
+                            PlayButtons(detail: detail, season: shown.season, quality: quality, playFocus: $playFocused) { playing = $0 }
                             QualityPicker(detail: detail, items: items, chosen: $quality)
                             // The lists and marks, quieter than what plays:
                             // icons, named for VoiceOver.
@@ -118,7 +112,7 @@ struct TitleView: View {
         .padding(80)
         .background { Backdrop(tile: shown) }
         // Play or Resume first, not Start Over before it.
-        .defaultFocus($focus, .play)
+        .defaultFocus($playFocused, true)
         .task(id: library.detailsRevision) {
             detail = library.detail(tile.key)
             if playsAtOnce, let detail {
