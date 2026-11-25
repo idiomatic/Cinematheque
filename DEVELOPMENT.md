@@ -22,6 +22,7 @@ How work keeps the code from growing faster than it earns; soften these where th
 * **The system's own:** controls and containers are the platform's (forms, rows, pickers, lockups, players). Build one by hand only where none exists or it can't do what's needed, and say why in a comment.
 * **One copy:** what every player decides alike (names, what plays next, how qualities rank) is the core's, not each player's.
 * **Pruning:** before a push, remove what the work since the last push left unreached.
+* **Workarounds:** one needing more than a line to justify is a design to fix; an outside bug's gets one line and a Known issues entry, removed with the bug.
 
 ## Next
 
