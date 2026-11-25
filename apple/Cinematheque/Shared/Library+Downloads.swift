@@ -124,9 +124,10 @@ extension Library {
 
     /// Whether a key is an item's, or a title's or season's holding it
     /// (`…/e/s01` holds `…/e/s01e02`).
-    /// The quality a title, season, or item is wanted in, if it is.
-    func wantedQuality(_ key: String) -> String? {
-        downloads?.wanted.first { Self.holds(wanted: $0.key, key) || Self.holds(wanted: key, $0.key) }?.quality
+    /// The qualities a title's, season's, or item's files still coming are
+    /// wanted in (not those here already).
+    func wantedQualities(_ key: String) -> Set<String> {
+        Set((downloads?.wanted ?? []).filter { (Self.holds(wanted: $0.key, key) || Self.holds(wanted: key, $0.key)) && !isDownloaded($0.key) }.map(\.quality))
     }
 
     private static func holds(wanted: String, _ key: String) -> Bool {

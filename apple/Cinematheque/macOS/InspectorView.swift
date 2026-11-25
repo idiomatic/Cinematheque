@@ -651,11 +651,17 @@ private struct DownloadControls: View {
                 .opacity(pending ? 1 : 0)
             Spacer()
             showInFinder
-            Button(season == 0 ? "Delete Specials' Downloads" : "Delete Season's Downloads", systemImage: "trash") { library.deleteDownload(key) }
+            // Canceling what's coming, as nothing's here yet (episodes
+            // waiting for a drive, say); else deleting what's here, and
+            // canceling the rest.
+            let canceling = held == 0
+            Button(canceling ? (season == 0 ? "Cancel Specials' Downloads" : "Cancel Season's Downloads") : (season == 0 ? "Delete Specials' Downloads" : "Delete Season's Downloads"), systemImage: "trash") {
+                if canceling { library.removeDownload(key) } else { library.deleteDownload(key) }
+            }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
-                .disabled(held == 0)
-                .help((library.onlyCopies(key) > 0 ? "Delete the season's downloads: some are the only copies" : "Delete the season's downloads") + (keys.contains { library.isRequested($0) && library.isDownloaded($0) } && !chosen.isEmpty ? "; Download becomes Nothing" : ""))
+                .disabled(held == 0 && !pending)
+                .help(canceling ? "Stop downloading the season's episodes" + (chosen.isEmpty ? "" : "; Download becomes Nothing") : (library.onlyCopies(key) > 0 ? "Delete the season's downloads: some are the only copies" : "Delete the season's downloads") + (keys.contains { library.isRequested($0) && library.isDownloaded($0) } && !chosen.isEmpty ? "; Download becomes Nothing" : ""))
         }
     }
 
@@ -749,11 +755,8 @@ struct DownloadMenuItems: View {
         let keys = items.map { "\(title)/\($0.key)" }
         if keys.allSatisfy(library.isDownloaded) {
             Button(library.onlyCopies(key) > 0 ? "Delete Only Copy…" : "Delete Download") { library.deleteDownload(key) }
-        } else if keys.contains(where: library.isWanted) {
-            Button("Cancel Download") { library.removeDownload(key) }
-            // Another quality instead, one that's there now, say.
-            DownloadSection(key: key, items: items)
         } else {
+            // A quality waiting is canceled where it was chosen.
             DownloadSection(key: key, items: items)
         }
     }
@@ -763,9 +766,9 @@ struct DownloadMenuItems: View {
 /// by its short name, with what its files come to (a warning symbol for one
 /// whose files not here yet wouldn't fit, as menus can't be colored), then
 /// the space available. One whose copies are all unavailable (a drive
-/// unplugged) may still be chosen, to come when it's back, as a clock says;
-/// one waiting already says so, and choosing another (one that's there)
-/// takes its place.
+/// unplugged) may still be chosen, to come when it's back, as a clock says.
+/// One chosen and still coming is, in its place, its Cancel; choosing
+/// another (one that's there) takes its place.
 struct DownloadSection: View {
     let key: String
     let items: [TitleDetail.Item]
@@ -784,10 +787,15 @@ struct DownloadSection: View {
                 // Every copy unavailable (a drive unplugged): still chosen,
                 // to come when it's back, as said.
                 let away = qualities.allSatisfy { $0.copies.allSatisfy(\.unavailable) } ? qualities.first?.copies.first.map { library.sourceName($0.source) } : nil
-                let waiting = away != nil && library.wantedQuality(key) == label
-                let title = "\(short) — \(Self.bytes(size))" + (away.map { waiting ? ", waiting for \($0)" : ", when \($0) is back" } ?? "")
-                Button(title, systemImage: away != nil ? "clock" : fits ? "arrow.down.circle" : "exclamationmark.triangle") {
-                    library.download(key, quality: label)
+                if library.wantedQualities(key).contains(label) {
+                    Button("Cancel \(short) Download" + (away.map { " (waiting for \($0))" } ?? ""), systemImage: "xmark.circle") {
+                        library.removeDownload(key)
+                    }
+                } else {
+                    let title = "\(short) — \(Self.bytes(size))" + (away.map { ", when \($0) is back" } ?? "")
+                    Button(title, systemImage: away != nil ? "clock" : fits ? "arrow.down.circle" : "exclamationmark.triangle") {
+                        library.download(key, quality: label)
+                    }
                 }
             }
             if let space {
