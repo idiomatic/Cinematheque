@@ -2,16 +2,15 @@
 
 const std = @import("std");
 const capi = @import("../capi.zig");
-const openCreated = @import("membership.zig").openCreated;
-const library = @import("../library.zig");
+const openJoined = @import("membership.zig").openJoined;
 const store_ = @import("../store.zig");
 const Host = @import("../host.zig").Host;
 const pair = @import("../pair.zig");
+const views = @import("../views.zig");
 const gpa = capi.gpa;
 const Library = capi.Library;
 const json = capi.json;
 const status = capi.status;
-const MemberJson = capi.MemberJson;
 const PairJson = capi.PairJson;
 const PairedJson = capi.PairedJson;
 
@@ -41,7 +40,7 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, model: [
     stopPairing(lib);
     const p = try gpa.create(Pairing);
     errdefer gpa.destroy(p);
-    p.offer = .{ .code = pair.newCode(lib.io()), .person = try lib.store.person(), .device = try lib.store.device() };
+    p.offer = try lib.store.offer(lib.io());
     p.arena = .init(gpa);
     errdefer p.arena.deinit();
     const a = p.arena.allocator();
@@ -49,7 +48,7 @@ fn pairOffer(lib: *Library, arena: std.mem.Allocator, name: []const u8, model: [
         .io = lib.io(),
         .gpa = gpa,
         .options = .{ .host = "::", .port = 0, .handler = p.offer.handler() },
-        .name = try std.fmt.allocPrintSentinel(a, "{s}", .{try lib.store.serviceName(arena)}, 0),
+        .name = try lib.store.serviceName(a),
         .txt = try pair.offerRecord(a, name, model),
     };
     try p.host.start();
@@ -70,8 +69,8 @@ fn pairCheck(lib: *Library, arena: std.mem.Allocator) !PairJson {
     const received, const closed = p.offer.outcome(lib.io());
     if (received) |secrets| {
         stopPairing(lib);
-        if (!secrets.joining()) try lib.store.pair(arena, &std.fmt.bytesToHex(secrets.person, .lower));
-        try openCreated(lib, arena, secrets.creator);
+        try lib.store.join(arena, secrets);
+        try openJoined(lib);
         return .{ .code = null, .paired = true, .closed = false };
     }
     if (closed) {
@@ -142,18 +141,8 @@ export fn cq_members(lib: *Library) ?[*:0]u8 {
     return json(lib, members, .{});
 }
 
-fn members(lib: *Library, arena: std.mem.Allocator) ![]const MemberJson {
-    const r = try lib.main();
-    const me = try lib.store.person();
-    const list = try r.members(arena);
-    const named = try library.names(r, arena);
-    const out = try arena.alloc(MemberJson, list.len);
-    for (list, out) |m, *o| o.* = .{
-        .key = try arena.dupe(u8, &std.fmt.bytesToHex(m, .lower)),
-        .name = library.nameOf(named, &std.fmt.bytesToHex(m, .lower)),
-        .you = std.mem.eql(u8, &m, &me),
-    };
-    return out;
+fn members(lib: *Library, arena: std.mem.Allocator) ![]const views.MemberJson {
+    return views.members(try lib.main(), arena);
 }
 
 /// Adds a member, by person key.

@@ -29,7 +29,7 @@ It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` als
 | [library](src/library.zig) | Keys from titles' parsed identities; sources, crawled into copies; titles, a title's details, facets, and progress; which sources are due |
 | [lists](src/lists.zig) | A person's lists (a Watchlist, Favorites), placeholders for titles not in the library yet, and lists shared with every member |
 | [order](src/order.zig) | The orders shelves sort in, each tile's place in each |
-| [views](src/views.zig) | What players show, as JSON: the grid's tiles and a title's detail, for the C interface and the web client alike |
+| [views](src/views.zig) | What players show, as JSON: the grid's tiles, a title's detail, the members, and the sources, for the C interface and the web client alike |
 | [json](src/json.zig) | JSON with every string valid UTF-8 |
 | [url](src/url.zig) | Percent-encoding of path segments |
 | [serve](src/serve.zig) | The source server, with a hook for other requests, such as syncs |
@@ -37,8 +37,8 @@ It links the system's SQLite and, on Linux, Avahi's `libdns_sd`. `zig build` als
 | [race](src/race.zig) | Copy racing: an item's copies in the order to try them, each one's server asked at once, briefly, over `Io`'s networking, and those lately unanswered last |
 | [host](src/host.zig) | A server on a task of its own, advertised by DNS-SD once it listens, and reliably stopped: the apps' serving and pairing, and the command-line app's |
 | [discover](src/discover.zig) | DNS-SD: advertising and browsing devices |
-| [store](src/store.zig) | A device's data directory: its identity, its library's key, and its replica |
-| [pair](src/pair.zig) | Pairing a new device by a 6-digit code it shows: CPace over the code, then the person's secret and the library's key sealed with the key it derives |
+| [store](src/store.zig) | A device's data directory: its identity, its library's key, and its replica; offering to be added, and taking what adding it sent |
+| [pair](src/pair.zig) | Pairing a new device by a 6-digit code it shows: CPace over the code, then the person's secret and the library's key sealed with the key it derives; the new devices nearby offering |
 | [capi](src/capi.zig) | The C interface: the library's handle, errors, and JSON results, its parts in [capi/](src/capi) (serving, identity and membership, pairing, names and devices, sources, downloads, long operations on their own connections, browsing, and private data), each imported so its exports are kept |
 | [version](src/version.zig) | What the build is (which app, as the build's root names it, else the Apple app by its platform; its version, `-Dversion`, as its builder gives it; `git describe --tags`; its optimizing; its Zig), served at `/version`; stamped by [stamp.zig](stamp.zig), a tool every build runs, as Zig caches its build scripts' configuring |
 | [testkit](src/testkit.zig) | What tests share: a replica in memory, and a temporary folder served over HTTP |

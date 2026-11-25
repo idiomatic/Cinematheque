@@ -392,7 +392,6 @@ fn heldBy(replica: *Replica, arena: std.mem.Allocator, field: []const u8) ![]con
     return out.items;
 }
 
-
 /// How many copies a source holds.
 pub fn countCopies(replica: *Replica, arena: std.mem.Allocator, source: Source) !i64 {
     return (try copyCounts(replica, arena)).get(&source.id) orelse 0;
@@ -1333,6 +1332,24 @@ pub fn setName(replica: *Replica, arena: std.mem.Allocator, wall_ms: u64, key: [
     const k = try std.fmt.allocPrint(arena, "n/{s}", .{std.fmt.bytesToHex(key, .lower)});
     try replica.write(wall_ms, k, "name", std.mem.trim(u8, name, " \t\n"));
     if (person) |u| try replica.write(wall_ms, k, "user", &std.fmt.bytesToHex(u, .lower));
+}
+
+/// This device's person's other devices: certified, or named as theirs by
+/// the device that paired them before they've written a certificate; but
+/// this one and those removed.
+pub fn otherDevices(replica: *Replica, arena: std.mem.Allocator) ![]const [32]u8 {
+    const me = replica.personKey();
+    var all: std.AutoArrayHashMapUnmanaged([32]u8, void) = .empty;
+    for (try replica.devicesOf(arena, me)) |d| try all.put(arena, d, {});
+    const hex = std.fmt.bytesToHex(me, .lower);
+    for (try names(replica, arena)) |n| if (n.person) |p| if (std.mem.eql(u8, p, &hex)) {
+        try all.put(arena, @import("replica.zig").parseHex(n.key) orelse continue, {});
+    };
+    var out: std.ArrayList([32]u8) = .empty;
+    for (all.keys()) |d| {
+        if (!std.mem.eql(u8, &d, &replica.device()) and try replica.revoked(d) == null) try out.append(arena, d);
+    }
+    return out.items;
 }
 
 /// Every name set, people's and devices'. A device's person (`user`) is

@@ -28,27 +28,13 @@ fn getStatus(lib: *Library, arena: std.mem.Allocator) !StatusJson {
     const device = try arena.dupe(u8, &std.fmt.bytesToHex(try lib.store.device(), .lower));
     const paired = lib.store.paired();
     const r = lib.main() catch return .{ .person = person, .device = device, .paired = paired, .library = null, .members = 0, .others = 0 };
-    const me = try lib.store.person();
-    const this = try lib.store.device();
-    var others: std.AutoArrayHashMapUnmanaged([32]u8, void) = .empty;
-    for (try r.devicesOf(arena, me)) |d| try others.put(arena, d, {});
-    // Named by the device that paired it, before it's written a certificate.
-    const hex = std.fmt.bytesToHex(me, .lower);
-    for (try library.names(r, arena)) |n| if (n.person) |u| if (std.mem.eql(u8, u, &hex)) {
-        try others.put(arena, store_.parseKey(n.key) catch continue, {});
-    };
-    _ = others.swapRemove(this);
-    var count: usize = 0;
-    for (others.keys()) |d| {
-        if (try r.revoked(d) == null) count += 1;
-    }
     return .{
         .person = person,
         .device = device,
         .paired = paired,
         .library = try arena.dupe(u8, &std.fmt.bytesToHex(r.library, .lower)),
         .members = (try r.members(arena)).len,
-        .others = count,
+        .others = (try library.otherDevices(r, arena)).len,
         .crawl_every = (try library.crawlEvery(r, arena)) orelse 0,
     };
 }
@@ -87,15 +73,15 @@ export fn cq_found(lib: *Library) c_int {
 }
 
 fn found(lib: *Library, arena: std.mem.Allocator) !void {
-    try openCreated(lib, arena, try lib.store.person());
-}
-
-/// Opens the library `creator` created, as this device's.
-pub fn openCreated(lib: *Library, arena: std.mem.Allocator, creator: [32]u8) !void {
     if (lib.replica != null) return error.LibraryExists;
     // Once it has a library, it no longer offers to pair.
     stopPairing(lib);
-    try lib.store.setCreator(arena, creator);
+    try lib.store.setCreator(arena, try lib.store.person());
+    try openJoined(lib);
+}
+
+/// Opens the library the store now records as this device's.
+pub fn openJoined(lib: *Library) !void {
     lib.replica = try lib.store.openReplica(lib.arena_state.allocator());
     lib.has_library.store(true, .seq_cst);
 }

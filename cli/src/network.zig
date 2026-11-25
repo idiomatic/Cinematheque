@@ -111,7 +111,7 @@ pub fn serve(p: *App, c: Command) !void {
         .io = p.io,
         .gpa = p.gpa,
         .options = .{ .host = "::", .port = port orelse default_port, .fallback = port == null, .mounts = mounts.items, .handler = handler, .volumes = &browsers.volumes },
-        .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
+        .name = try serviceName(p),
         .txt = txt,
     };
     try host.start();
@@ -154,12 +154,12 @@ pub fn serve(p: *App, c: Command) !void {
 
 pub fn offerPairing(p: *App) !void {
     if (p.store.creator(p.arena)) |_| return error.LibraryExists else |_| {}
-    var offer: core.pair.Offer = .{ .code = core.pair.newCode(p.io), .person = try p.person(), .device = try p.store.device() };
+    var offer = try p.store.offer(p.io);
     var host: core.host.Host = .{
         .io = p.io,
         .gpa = p.gpa,
         .options = .{ .host = "::", .port = 0, .handler = offer.handler() },
-        .name = try std.fmt.allocPrintSentinel(p.arena, "{s}", .{try serviceName(p)}, 0),
+        .name = try serviceName(p),
         .txt = try core.pair.offerRecord(p.arena, try advertisedName(p), core.model.this(p.io, p.arena) orelse ""),
     };
     try host.start();
@@ -172,8 +172,7 @@ pub fn offerPairing(p: *App) !void {
         try p.io.sleep(.fromSeconds(1), .awake);
         const received, const closed = offer.outcome(p.io);
         if (received) |secrets| {
-            if (!secrets.joining()) try p.store.pair(p.arena, &std.fmt.bytesToHex(secrets.person, .lower));
-            try p.store.setCreator(p.arena, secrets.creator);
+            try p.store.join(p.arena, secrets);
             try p.out.print("paired: this device acts as person {s}, in the library {s} created\n", .{ std.fmt.bytesToHex(try p.person(), .lower), std.fmt.bytesToHex(secrets.creator, .lower) });
             return;
         }
@@ -197,7 +196,7 @@ fn advertisedName(p: *App) ![]const u8 {
     return serviceName(p);
 }
 
-fn serviceName(p: *App) ![]const u8 {
+fn serviceName(p: *App) ![:0]const u8 {
     return p.store.serviceName(p.arena);
 }
 

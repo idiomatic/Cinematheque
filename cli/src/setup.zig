@@ -141,14 +141,13 @@ fn finishJoining(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocat
         {
             w.seen.lockUncancelable(io);
             defer w.seen.unlock(io);
-            if (!secrets.joining()) try w.store.pair(arena, &std.fmt.bytesToHex(secrets.person, .lower));
-            try w.store.setCreator(arena, secrets.creator);
+            try w.store.join(arena, secrets);
             w.creator = secrets.creator;
         }
         try becameMember(w, io, gpa, arena);
     } else if (closed) {
         // Too many wrong codes: offered again, with a new one.
-        w.offer = .{ .code = core.pair.newCode(io), .person = try w.store.person(), .device = try w.store.device() };
+        w.offer = try w.store.offer(io);
     }
 }
 
@@ -197,7 +196,7 @@ pub fn advertise(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocat
         try core.pair.offerRecord(arena, w.host_name, core.model.this(io, arena) orelse "")
     else
         try core.discover.txtRecord(arena, &.{.{ "name", w.host_name }});
-    host.readvertise(try std.fmt.allocPrintSentinel(w.long, "{s}", .{try w.store.serviceName(arena)}, 0), try w.long.dupe(u8, txt));
+    host.readvertise(try w.store.serviceName(w.long), try w.long.dupe(u8, txt));
 }
 
 pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, request: *http.Server.Request, name: []const u8) !void {
@@ -229,7 +228,7 @@ pub fn api(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
         defer w.state.unlock(io);
         if (w.creator != null) return error.LibraryExists;
         if (!w.offering) {
-            w.offer = .{ .code = core.pair.newCode(io), .person = try w.store.person(), .device = try w.store.device() };
+            w.offer = try w.store.offer(io);
             w.offering = true;
             try advertise(w, io, gpa, arena);
         }
@@ -346,62 +345,30 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
     var r = try web.open(w, io, gpa);
     defer r.close();
     const named = try lib.names(&r, arena);
-    const me = try personOf((try w.snapshot(io, arena)).identity);
     const this = r.device();
-
-    const Member = struct { key: []const u8, name: ?[]const u8, you: bool };
-    var members: std.ArrayList(Member) = .empty;
-    for (try r.members(arena)) |m| {
-        const k = try arena.dupe(u8, &hex(m));
-        try members.append(arena, .{ .key = k, .name = lib.nameOf(named, k), .you = std.mem.eql(u8, &m, &me) });
-    }
 
     const Device = struct { key: []const u8, name: ?[]const u8, this: bool, seen: ?u64 = null };
     var devices: std.ArrayList(Device) = .empty;
-    var seen: std.AutoArrayHashMapUnmanaged([32]u8, void) = .empty;
-    try seen.put(arena, this, {});
     try devices.append(arena, .{ .key = try arena.dupe(u8, &hex(this)), .name = lib.nameOf(named, &hex(this)), .this = true });
-    // Certified, or named by the device that paired it before it's
-    // written its certificate; not removed.
-    var mine: std.ArrayList([32]u8) = .empty;
-    try mine.appendSlice(arena, try r.devicesOf(arena, me));
-    for (named) |n| if (n.person) |p| if (std.mem.eql(u8, p, &hex(me))) {
-        try mine.append(arena, core.store.parseKey(n.key) catch continue);
-    };
-    for (mine.items) |d| {
-        if ((try seen.getOrPut(arena, d)).found_existing) continue;
-        if (try r.revoked(d) != null) continue;
+    for (try lib.otherDevices(&r, arena)) |d| {
         const k = try arena.dupe(u8, &hex(d));
         try devices.append(arena, .{ .key = k, .name = lib.nameOf(named, k), .this = false, .seen = try core.sync.lastSeen(&r, arena, d) });
     }
 
-    const Unavailable = struct { dir: []const u8, since_ms: u64 };
-    // Its path as players show it, and whose it is, by name, for a
-    // device's downloads.
-    const Source = struct { id: []const u8, url: []const u8, address: ?[]const u8, path: []const []const u8, copies: i64, unavailable: []const Unavailable };
-    var sources: std.ArrayList(Source) = .empty;
+    var sources: std.ArrayList(core.views.SourceJson) = .empty;
     var media_added = false;
-    for (try lib.sources(&r, arena)) |s| {
+    for (try core.views.sources(&r, arena)) |s| {
         // Devices' downloads are theirs to manage, as the apps leave them
         // out of Sources.
         if (s.managed) continue;
         if (w.media) |m| if (std.mem.eql(u8, m.url, s.url)) {
             media_added = true;
         };
-        var gone: std.ArrayList(Unavailable) = .empty;
-        for (try lib.unavailableDirs(&r, arena, &s.id)) |a| try gone.append(arena, .{ .dir = a.dir, .since_ms = a.since_ms });
-        try sources.append(arena, .{
-            .id = try arena.dupe(u8, &s.id),
-            .url = s.url,
-            .address = s.at(),
-            .path = try lib.shownPath(arena, s),
-            .copies = try lib.countCopies(&r, arena, s),
-            .unavailable = gone.items,
-        });
+        try sources.append(arena, s);
     }
 
     return web.sendJson(arena, request, .{
-        .members = members.items,
+        .members = try core.views.members(&r, arena),
         .devices = devices.items,
         .sources = sources.items,
         .crawl_every = (try lib.crawlEvery(&r, arena)) orelse 0,
@@ -417,22 +384,11 @@ fn settings(w: *Web, io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r
 
 /// New devices nearby offering to be added (listening for 2 seconds).
 fn nearby(w: *Web, io: Io, arena: std.mem.Allocator, request: *http.Server.Request) !void {
-    const own = (try w.snapshot(io, arena)).own;
+    const found = try core.pair.offering(io, arena, (try w.snapshot(io, arena)).own);
     const Offering = struct { name: []const u8, model: ?[]const u8, url: []const u8 };
-    var out: std.ArrayList(Offering) = .empty;
-    for (try core.discover.browse(io, arena, 2000)) |s| {
-        if (s.host.len == 0 or s.get("pair") == null or core.sync.isOwn(s.name, own)) continue;
-        // Its path, as any device may advertise what it likes, only a path.
-        const path = s.get("path") orelse core.pair.path;
-        if (!std.mem.eql(u8, path, core.pair.path)) continue;
-        const name = try s.shownName(arena);
-        try out.append(arena, .{
-            .name = name orelse "A new device",
-            .model = s.shownModel(name),
-            .url = try std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, path }),
-        });
-    }
-    return web.sendJson(arena, request, out.items);
+    const out = try arena.alloc(Offering, found.len);
+    for (found, out) |f, *o| o.* = .{ .name = f.name orelse "A new device", .model = f.model, .url = f.url };
+    return web.sendJson(arena, request, out);
 }
 
 /// Adds the new device showing `code`, at `url`: as this person's (`pair`),

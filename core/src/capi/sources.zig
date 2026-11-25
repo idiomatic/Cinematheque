@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const capi = @import("../capi.zig");
-const library = @import("../library.zig");
+const views = @import("../views.zig");
 const race = @import("../race.zig");
 const long = @import("long.zig");
 const gpa = capi.gpa;
@@ -23,38 +23,10 @@ export fn cq_repos(lib: *Library) ?[*:0]u8 {
     return json(lib, sources, .{});
 }
 
-const AbsenceJson = struct { dir: []const u8, since: u64 };
-const SourceJson = struct { id: []const u8, url: []const u8, address: ?[]const u8, path: []const []const u8, owner: ?[]const u8, quality_from: std.meta.Tag(library.QualityFrom), quality: []const u8, skip: []const u8, copies: i64, unavailable: []const AbsenceJson, managed: bool };
-
-fn sources(lib: *Library, arena: std.mem.Allocator) ![]const SourceJson {
-    var connection = try long.reader(lib, arena);
-    defer long.release(lib, &connection);
-    const r = &connection;
-    const list = try library.sources(r, arena);
-    const out = try arena.alloc(SourceJson, list.len);
-    const counts = try library.copyCounts(r, arena);
-    for (list, out) |rp, *o| o.* = .{
-        .id = try arena.dupe(u8, &rp.id),
-        .url = rp.url,
-        .address = rp.at(),
-        .path = try library.shownPath(arena, rp),
-        .owner = if (rp.owner) |key| try arena.dupe(u8, &std.fmt.bytesToHex(key, .lower)) else null,
-        .quality_from = rp.layout.quality,
-        .quality = switch (rp.layout.quality) {
-            .named => |n| n,
-            .path, .unknown => "",
-        },
-        .skip = rp.layout.skip,
-        .copies = counts.get(&rp.id) orelse 0,
-        .managed = rp.managed,
-        .unavailable = blk: {
-            const list_ = try library.unavailableDirs(r, arena, &rp.id);
-            const unavailable = try arena.alloc(AbsenceJson, list_.len);
-            for (list_, unavailable) |a, *j| j.* = .{ .dir = a.dir, .since = a.since_ms };
-            break :blk unavailable;
-        },
-    };
-    return out;
+fn sources(lib: *Library, arena: std.mem.Allocator) ![]const views.SourceJson {
+    var r = try long.reader(lib, arena);
+    defer long.release(lib, &r);
+    return views.sources(&r, arena);
 }
 
 /// Long (up to `race.timeout_ms`), on any thread: copy racing. Takes an

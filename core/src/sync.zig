@@ -543,11 +543,7 @@ pub fn exchangeEach(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r:
 /// leaving again only syncs), then syncs until a device takes the removal
 /// (or had it already); `error.NoOneReached` if none does.
 pub fn leave(io: Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, r: *Replica, own: []const u8) !void {
-    var others: usize = 0;
-    for (try r.devicesOf(arena, r.personKey())) |d| {
-        if (!std.mem.eql(u8, &d, &r.device()) and try r.revoked(d) == null) others += 1;
-    }
-    if ((try r.members(arena)).len == 1 and others == 0) return;
+    if ((try r.members(arena)).len == 1 and (try library_.otherDevices(r, arena)).len == 0) return;
     try r.removeSelf(art.now(io));
     const found = try everyDevice(io, arena, r, own);
     var client: http.Client = .{ .allocator = gpa, .io = io };

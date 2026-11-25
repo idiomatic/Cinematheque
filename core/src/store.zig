@@ -7,6 +7,7 @@ const std = @import("std");
 const Io = std.Io;
 const replica_ = @import("replica.zig");
 const Replica = replica_.Replica;
+const pair_ = @import("pair.zig");
 
 /// A device's data directory unless told otherwise: in Application Support on macOS
 /// and iOS; in the caches on tvOS, the only place its apps may keep files
@@ -108,8 +109,20 @@ pub const Store = struct {
     /// The name this device advertises by DNS-SD, and knows itself by when
     /// browsing: its device's key, shortened, so a person's devices are told
     /// apart.
-    pub fn serviceName(s: *const Store, arena: std.mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(arena, "cinematheque-{s}", .{std.fmt.bytesToHex(try s.device(), .lower)[0..8]});
+    pub fn serviceName(s: *const Store, arena: std.mem.Allocator) ![:0]u8 {
+        return std.fmt.allocPrintSentinel(arena, "cinematheque-{s}", .{std.fmt.bytesToHex(try s.device(), .lower)[0..8]}, 0);
+    }
+
+    /// An offer to be added to a library, with a new code, as this device.
+    pub fn offer(s: *const Store, io: Io) !pair_.Offer {
+        return .{ .code = pair_.newCode(io), .person = try s.person(), .device = try s.device() };
+    }
+
+    /// Takes what a member's device sent in adding this one: the library,
+    /// and its person's secret, if added as another of the person's devices.
+    pub fn join(s: *Store, arena: std.mem.Allocator, secrets: pair_.Secrets) !void {
+        if (!secrets.joining()) try s.pair(arena, &std.fmt.bytesToHex(secrets.person, .lower));
+        try s.setCreator(arena, secrets.creator);
     }
 
     pub fn creator(s: *const Store, arena: std.mem.Allocator) ![32]u8 {

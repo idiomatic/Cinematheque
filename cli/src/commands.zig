@@ -34,7 +34,7 @@ pub fn person(app: *App, c: Command) !void {
 /// `c.rest[1]`), as `kind` makes it, and names it as it advertised itself;
 /// returns its person's key.
 fn pairWith(app: *App, c: Command, kind: core.pair.Kind) ![32]u8 {
-    const new: Offering = if (c.rest.len == 2) .{ .url = c.rest[1], .name = "" } else try offering(app);
+    const new: core.pair.Offering = if (c.rest.len == 2) .{ .url = c.rest[1], .name = null, .model = null } else try offering(app);
     var client: std.http.Client = .{ .allocator = app.gpa, .io = app.io };
     defer client.deinit();
     const joined = try core.pair.send(app.io, app.arena, &client, new.url, kind, c.rest[0], .{
@@ -43,29 +43,20 @@ fn pairWith(app: *App, c: Command, kind: core.pair.Kind) ![32]u8 {
     });
     // A paired device acts as this person from now on, not as the one it had.
     const acting = if (kind == .pair) try app.person() else joined.person;
-    if (new.name.len > 0) {
+    if (new.name) |name| if (name.len > 0) {
         var r = try app.open();
         defer r.close();
-        try lib.setName(&r, app.arena, app.now(), joined.device, new.name, acting);
-    }
+        try lib.setName(&r, app.arena, app.now(), joined.device, name, acting);
+    };
     try app.out.print("paired {s}\n", .{new.url});
     return acting;
 }
 
-const Offering = struct { url: []const u8, name: []const u8 };
-
 /// The one new device nearby offering to pair.
-fn offering(app: *App) !Offering {
-    var found: ?Offering = null;
-    for (try core.discover.browse(app.io, app.arena, 2000)) |s| {
-        if (s.host.len == 0 or s.get("pair") == null) continue;
-        if (found != null) return error.SeveralOffering;
-        found = .{
-            .url = try std.fmt.allocPrint(app.arena, "http://{s}:{d}{s}", .{ s.host, s.port, s.get("path") orelse core.pair.path }),
-            .name = try s.shownName(app.arena) orelse "",
-        };
-    }
-    return found orelse error.NoneOffering;
+fn offering(app: *App) !core.pair.Offering {
+    const found = try core.pair.offering(app.io, app.arena, try app.store.serviceName(app.arena));
+    if (found.len > 1) return error.SeveralOffering;
+    return if (found.len == 1) found[0] else error.NoneOffering;
 }
 
 pub fn library(app: *App, c: Command) !void {

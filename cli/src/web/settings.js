@@ -171,7 +171,7 @@ async function settingsPage() {
           // none (dimmed) until it says.
           el("a", { class: "icon", href: src.address ?? undefined, "aria-disabled": src.address ? undefined : "true", target: "_blank", rel: "noopener noreferrer", title: "Open in a New Window", "aria-label": `Open ${name} in a new window` }, symbol(external)),
           icon(minus, "Remove…", `Remove ${name}…`, () => confirm(removing) && act("source-remove", { id: src.id }))),
-      ...src.unavailable.map((u) => row(`/${u.dir} is unavailable`, `since ${new Date(u.since_ms).toLocaleDateString()}`,
+      ...src.unavailable.map((u) => row(`/${u.dir} is unavailable`, `since ${new Date(u.since).toLocaleDateString()}`,
         icon(minus, "Remove Videos", `Remove the videos in /${u.dir}`, () => act("unavailable-remove", { id: src.id, dir: u.dir })))));
     }),
     s.media && !s.media.added ? el("div", { class: "line" }, button(`Add This Server’s Folder (${s.media.dir})`, () => act("source-add-media", {}))) : null,

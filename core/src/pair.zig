@@ -75,6 +75,24 @@ const reply_length = 64 + Aead.tag_length;
 /// Who the new device is, as its reply says.
 pub const Joined = struct { person: [32]u8, device: [32]u8 };
 
+/// A new device offering to be added: where to send it what pairing gives,
+/// and its name and model, as it advertised them.
+pub const Offering = struct { url: []const u8, name: ?[]const u8, model: ?[]const u8 };
+
+/// The new devices nearby offering to be added (listening for 2 seconds),
+/// but this one (advertised as `own`); each by its pairing path alone, as
+/// any device may advertise what it likes.
+pub fn offering(io: Io, arena: std.mem.Allocator, own: []const u8) ![]const Offering {
+    var out: std.ArrayList(Offering) = .empty;
+    for (try discover.browse(io, arena, 2000)) |s| {
+        if (s.host.len == 0 or s.get("pair") == null or @import("sync.zig").isOwn(s.name, own)) continue;
+        if (!std.mem.eql(u8, s.get("path") orelse path, path)) continue;
+        const name = try s.shownName(arena);
+        try out.append(arena, .{ .url = try std.fmt.allocPrint(arena, "http://{s}:{d}{s}", .{ s.host, s.port, path }), .name = name, .model = s.shownModel(name) });
+    }
+    return out.items;
+}
+
 /// A random code of 6 digits.
 pub fn newCode(io: Io) Code {
     var n: u64 = undefined;

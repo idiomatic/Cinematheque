@@ -105,6 +105,54 @@ pub const Title = struct {
     seasons: []const u16,
 };
 
+pub const MemberJson = struct { key: []const u8, name: ?[]const u8, you: bool };
+
+/// The members, by key, with their names; `you` is this device's person.
+pub fn members(r: *Replica, arena: std.mem.Allocator) ![]const MemberJson {
+    const me = r.personKey();
+    const list = try r.members(arena);
+    const named = try library.names(r, arena);
+    const out = try arena.alloc(MemberJson, list.len);
+    for (list, out) |m, *o| {
+        const key = try arena.dupe(u8, &std.fmt.bytesToHex(m, .lower));
+        o.* = .{ .key = key, .name = library.nameOf(named, key), .you = std.mem.eql(u8, &m, &me) };
+    }
+    return out;
+}
+
+pub const UnavailableJson = struct { dir: []const u8, since: u64 };
+pub const SourceJson = struct { id: []const u8, url: []const u8, address: ?[]const u8, path: []const []const u8, owner: ?[]const u8, quality_from: std.meta.Tag(library.QualityFrom), quality: []const u8, skip: []const u8, copies: i64, unavailable: []const UnavailableJson, managed: bool };
+
+/// The sources, in the order to list them, each with how many copies it
+/// holds (all counted at once) and its unavailable directories.
+pub fn sources(r: *Replica, arena: std.mem.Allocator) ![]const SourceJson {
+    const list = try library.sources(r, arena);
+    const out = try arena.alloc(SourceJson, list.len);
+    const counts = try library.copyCounts(r, arena);
+    for (list, out) |s, *o| {
+        const gone = try library.unavailableDirs(r, arena, &s.id);
+        const unavailable = try arena.alloc(UnavailableJson, gone.len);
+        for (gone, unavailable) |a, *u| u.* = .{ .dir = a.dir, .since = a.since_ms };
+        o.* = .{
+            .id = try arena.dupe(u8, &s.id),
+            .url = s.url,
+            .address = s.at(),
+            .path = try library.shownPath(arena, s),
+            .owner = if (s.owner) |key| try arena.dupe(u8, &std.fmt.bytesToHex(key, .lower)) else null,
+            .quality_from = s.layout.quality,
+            .quality = switch (s.layout.quality) {
+                .named => |n| n,
+                .path, .unknown => "",
+            },
+            .skip = s.layout.skip,
+            .copies = counts.get(&s.id) orelse 0,
+            .unavailable = unavailable,
+            .managed = s.managed,
+        };
+    }
+    return out;
+}
+
 pub fn title(r: *Replica, arena: std.mem.Allocator, key: []const u8) !Title {
     const d = try library.detail(r, arena, key) orelse return error.NoSuchTitle;
     const bases = try sourceBases(r, arena);
